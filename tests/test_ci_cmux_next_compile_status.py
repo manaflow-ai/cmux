@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -77,8 +78,8 @@ def step_script() -> str:
 @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
 class StatusMapping(unittest.TestCase):
     def run_step(self, reply: dict | None, **env: str) -> tuple[int, list[dict], list[str]]:
-        if reply is None:
-            env = {"WAIT_SECONDS": "63", "READ_GAP": "1", **env}  # 404 until the deadline: keep it short
+        if reply is None or reply.get("state") == "running":
+            env = {"WAIT_SECONDS": "5", "READ_GAP": "1", **env}  # no terminal answer until the deadline: keep it short
         env = {**GAPS, "FALLBACK": "false", **env}
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp, "bin")
@@ -133,19 +134,21 @@ class StatusMapping(unittest.TestCase):
         self.assertEqual(posts[-1]["target_url"], "https://github.com/run/1")
 
     def test_the_wait_is_one_blocking_read_per_attempt_and_bounded(self):
+        # The shared deadline: a read waits at most what is left of the bound for a usable answer (300 s) less 30 s.
         _, _, reads = self.run_step(self.reply("pass"))
-        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=270"])
         # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571).
         _, _, reads = self.run_step(self.reply("pass"), PR="28059")
-        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1800"])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=270"])
         _, _, reads = self.run_step(self.reply("pass"), PR="1;x")
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=270"])
+        _, _, reads = self.run_step(self.reply("pass"), BAD_BOUND="3000")
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
-        _, _, reads = self.run_step(self.reply("running"))
-        self.assertLessEqual(len(reads), 3)
-        # Every read asks for no more than what is left of the overall deadline.
-        _, posts, reads = self.run_step(self.reply("running"), WAIT_SECONDS="400")
-        self.assertTrue(all(read.endswith("&wait=340") or int(read.rsplit("=", 1)[1]) <= 340 for read in reads), reads)
+        # Every read asks for no more than what is left of the overall deadline, and gets --max-time of it.
+        _, posts, reads = self.run_step(self.reply("running"), WAIT_SECONDS="12")
+        self.assertTrue(reads and all(int(read.rsplit("=", 1)[1]) <= 6 for read in reads), reads)
         self.assertEqual(posts[-1]["state"], "failure")
+        self.assertTrue(posts[-1]["description"].startswith("[no-verdict] No compile result for this head"))
 
     def test_the_whole_wait_fits_the_step_and_the_token_hour(self):
         step = next(step for step in job()["steps"] if "run" in step)
@@ -166,8 +169,12 @@ class StatusMapping(unittest.TestCase):
 
     def test_it_sleeps_only_between_probes_and_re_reads(self):
         sleeps = re.findall(r"sleep[^;\n]*", step_script())
-        self.assertEqual(sorted(sleeps), ['sleep "${PROBE_GAP:-30}"', 'sleep "${READ_GAP:-30}"'])
+        self.assertEqual(sorted(sleeps), ['sleep "$gap"', 'sleep "${PROBE_GAP:-30}"'])
+        self.assertIn("${READ_GAP:-30}", step_script())
         self.assertIn("${BAD_BOUND:-300}", step_script())
+        # The shared deadline: each read's --max-time and timeout are what is left, never a fixed wait plus 30 s.
+        self.assertIn('timeout "$left" curl', step_script())
+        self.assertIn('--max-time "$left"', step_script())
 
     def test_a_530_hands_off_to_the_fallback_or_says_no_verdict(self):
         """The results service down (two 530 probes) is no verdict, never a compile failure or a pass."""
@@ -180,6 +187,7 @@ class StatusMapping(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual([p["state"] for p in posts], ["pending", "error"])
         self.assertIn("re-run this job", posts[-1]["description"])
+        self.assertTrue(posts[-1]["description"].startswith("[no-verdict] "))
         self.assertRegex(self.stdout, NO_VERDICT_LINE)
         self.assertEqual(self.output, "")
 
@@ -188,14 +196,18 @@ class StatusMapping(unittest.TestCase):
         for bad in ("503", "530", "000", "403"):
             with self.subTest(code=bad):
                 started = time.monotonic()
-                code, posts, reads = self.run_step(None, CODES=bad, BAD_BOUND="2", READ_GAP="1", FALLBACK="true",
+                code, posts, reads = self.run_step(None, CODES=bad, BAD_BOUND="3", READ_GAP="1", FALLBACK="true",
                                                    WAIT_SECONDS="2400")
                 self.assertLess(time.monotonic() - started, 20)
                 self.assertEqual(code, 0)
                 self.assertTrue(self.output.startswith(f"handoff=HTTP {bad} for "), self.output)
-                self.assertGreaterEqual(len(reads), 2)
+                self.assertGreaterEqual(len(reads), 1)
+        # A deadline shorter than the bound still hands a bad last answer off, never "no compile result".
+        code, posts, _ = self.run_step(None, CODES="530", WAIT_SECONDS="3", READ_GAP="1", FALLBACK="true")
+        self.assertEqual((code, [p["state"] for p in posts]), (0, ["pending", "pending"]))
+        self.assertTrue(self.output.startswith("handoff=HTTP 530 for "), self.output)
         # A 404 (no result yet) is the service up: read again, and the pass that follows is the verdict.
-        code, posts, reads = self.run_step(self.reply("pass"), CODES="404 404 200", BAD_BOUND="0")
+        code, posts, reads = self.run_step(self.reply("pass"), CODES="404 404 200")
         self.assertEqual((code, len(reads), posts[-1]["state"]), (0, 3, "success"))
         # A bad answer between good ones restarts nothing: a 530 then the result is still the result.
         code, posts, _ = self.run_step(self.reply("fail"), CODES="530 200", BAD_BOUND="60")
@@ -240,8 +252,8 @@ class FastCheckLinuxRoute(unittest.TestCase):
     the Mac fallback runs. A fail keeps the step red, as the gateway path's does."""
 
     def run_step(self, reply: dict | None, gateway: str = "", **env: str) -> tuple[int, str, list[str]]:
-        if reply is None:
-            env = {**env, "WAIT_SECONDS": "63", "READ_GAP": "1"}  # 404 until the deadline: keep it short
+        if reply is None or reply.get("state") == "running":
+            env = {**env, "WAIT_SECONDS": "5", "READ_GAP": "1"}  # no terminal answer until the deadline: keep it short
         env = {**GAPS, **env}
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
@@ -294,10 +306,10 @@ class FastCheckLinuxRoute(unittest.TestCase):
 
     def test_a_service_down_after_the_probes_hands_off_after_the_bound(self):
         started = time.monotonic()
-        code, verdict, reads = self.run_step(self.reply("pass"), CODES="530", BAD_BOUND="2", READ_GAP="1")
+        code, verdict, reads = self.run_step(self.reply("pass"), CODES="530", BAD_BOUND="3", READ_GAP="1")
         self.assertLess(time.monotonic() - started, 20)
         self.assertEqual((code, verdict), (0, "unavailable"))
-        self.assertGreaterEqual(len(reads), 2)
+        self.assertGreaterEqual(len(reads), 1)
         code, verdict, reads = self.run_step(self.reply("pass"), PROBE_CODE="530")
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
@@ -306,6 +318,13 @@ class FastCheckLinuxRoute(unittest.TestCase):
         run = next(step["run"] for step in job["steps"] if step.get("id") == "compile")
         self.assertIn("WAIT_SECONDS:-1200", run)
         self.assertLessEqual(1200 + 120, job["timeout-minutes"] * 60 - 300)
+
+
+def base_red_excuse():
+    """scripts/ci/base_red_excuse.py, the consumer of the no-verdict descriptions."""
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import base_red_excuse as module  # noqa: PLC0415
+    return module
 
 
 def handoff_job() -> dict:
@@ -317,7 +336,9 @@ class ResultsServer(http.server.ThreadingHTTPServer):
     saying the origin is down), every status post is kept."""
 
     def __init__(self, code: int):
-        self.code, self.posts, self.reads = code, [], []
+        # probe_code: what the first two reads (the probes) answer, else `code`; stall: a later read never answers.
+        self.code, self.probe_code, self.stall, self.posts, self.reads = code, None, False, [], []
+        self.release = threading.Event()
         server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -326,7 +347,11 @@ class ResultsServer(http.server.ThreadingHTTPServer):
 
             def do_GET(self):
                 server.reads.append(self.path)
-                self.send_response(server.code)
+                probe = len(server.reads) <= 2  # the step's two probes come first
+                if server.stall and not probe:
+                    server.release.wait(60)  # a stalled response: the connection open, no answer
+                    return
+                self.send_response(server.probe_code if probe and server.probe_code else server.code)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
                 self.wfile.write(b"<html>error code: 1033</html>")
@@ -355,6 +380,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.server = ResultsServer(530)
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
+        self.addCleanup(self.server.release.set)
 
     def bash(self, script: str, **env: str) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
@@ -401,13 +427,34 @@ class ResultsServiceDown(unittest.TestCase):
                 self.assertLessEqual(len(post["description"]), 140)
                 if state == "error":
                     self.assertIn("re-run all jobs", post["description"])
+                    self.assertTrue(base_red_excuse().COMPILE_STATUS_NO_VERDICT.match(post["description"]))
 
     def test_a_pull_request_with_no_fallback_says_no_verdict(self):
         code, stdout, output = self.compile_status(FALLBACK="false")
         self.assertEqual((code, output), (1, ""))
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "error"])
-        self.assertIn("no fallback compile runs here; re-run this job", self.server.posts[-1]["description"])
+        self.assertIn("no fallback compile runs here, re-run this job", self.server.posts[-1]["description"])
         self.assertRegex(stdout, NO_VERDICT_LINE)
+        # base_red_excuse.py judges it no verdict (another compile's pass at the head may stand in), not a compile red.
+        self.assertTrue(base_red_excuse().COMPILE_STATUS_NO_VERDICT.match(self.server.posts[-1]["description"]))
+
+    def test_a_stalled_response_hands_off_at_the_bound(self):
+        """A service that takes the connection and never answers: the read gets --max-time of what is left of the
+        bound, not a 30-minute long poll, and the step hands off when it expires."""
+        self.server.stall, self.server.probe_code = True, 404
+        started = time.monotonic()
+        code, _, output = self.compile_status(FALLBACK="true", BAD_BOUND="4")
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(code, 0)
+        self.assertRegex(output.strip(), r"^handoff=HTTP 000 for [3-9] s$")
+        self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
+        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+                    ["release-compile-fast"]["steps"] if step.get("id") == "compile")
+        self.server.reads.clear()
+        started = time.monotonic()
+        code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", BAD_BOUND="4")
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
 
     def test_the_fast_checks_route_hands_the_push_to_the_mac(self):
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
