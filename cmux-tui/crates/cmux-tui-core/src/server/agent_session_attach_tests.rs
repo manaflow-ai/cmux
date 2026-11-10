@@ -174,6 +174,9 @@ pub(super) struct Fixture {
     pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
+    /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
+    pub(super) catalog_after: Option<Duration>,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -241,11 +244,16 @@ fn serve(
             }
             // acpmux's catalog lists every family it runs, opencode included, so a family with
             // no phone mode resolves and is refused by the phone floor, not the catalog.
-            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some({
+                if let Some(delay) = fixture.catalog_after {
+                    std::thread::sleep(delay);
+                }
+                json!({
                 "defaultHarness": fixture.phone.as_ref().unwrap().family,
                 "families": {"claude": {}, "codex": {}, "opencode": {}},
                 "harnesses": {},
-            })),
+                })
+            }),
             "session/set_mode" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
                 if !phone.stuck {
