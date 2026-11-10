@@ -37,8 +37,10 @@ export function branchPickerStateKey(picker: BranchPickerPayload): string {
     mounts again for every base it moves to): it draws them at once and lists again behind them. */
 const lastRefs = new LastKnown<BranchPickerGroup[]>(8);
 
+/** By repository only: a base change can open a new session with a new capability token, and the
+    refs shown are the same repository's. */
 function refsCacheKey(picker: BranchPickerPayload): string {
-  return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}`;
+  return picker.repoRoot;
 }
 
 /** Last-known groups with the old base's `current` mark dropped: the picker's own `currentRef` marks the base. */
