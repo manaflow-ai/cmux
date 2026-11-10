@@ -157,7 +157,8 @@ struct LargeSessionObservationTests {
         let fixture = LargeSessionFixture()
         let doc = SidebarDocStore(remote: nil)
         let openTabs = OpenTabFavicons()
-        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces }, favicon: { Self.favicon($0) })
+        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces },
+                       favicons: { workspace in OpenTabFavicons.favicons(of: workspace) { Self.favicon($0) } })
         let byOrigin: @MainActor () -> [String: String] = { openTabs.byOrigin }
         SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: BookmarkURL.faviconKey(for:))
         await LargeSessionFixture.drainMain()
