@@ -1375,6 +1375,25 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
 }
 
+/* A finished line with a report is the one message row (AgentMessageRow.tsx): its trailing column
+   (the new-result dot and the time) and its chevron keep their room at any width, opened or shut
+   (Leo, 2026-11-09: "these rendered previews dont have time... maybe they dont have other things
+   too"). The name chip barely shrank (AgentMessageRow.css `flex: 0 0.0001` on the sentence's name), so
+   in a narrow pane the line ran past the row and the time was drawn outside it. The first line gives way first (the toggle, shrink
+   1000000, as a received row's), then the chip behind its ellipsis; opened, the chip's name wraps
+   (AgentMessageRow.css `[data-open]`). test/notification-reply-browser.test.ts at 900, 560 and
+   380px. */
+.acpmux-row .cv-subagent-report-row > .cv-agentmsg__line > .cv-tool__trail {
+  flex: none;
+}
+.acpmux-row .cv-subagent-report-row > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-agentmsg__name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-row .cv-subagent-report-row > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-agentmsg__toggle {
+  flex-shrink: 1000000;
+}
+
 /* A finished line's report (SubagentDoneLine.tsx, doneReport.experiment.ts; Leo, 2026-11-03: "Tray
    only, richer"). The chevron after the words is its own control above the line's full-row hit
    area; its hover fill covers only the chevron, never the row. It opens on the click: no fade. */
