@@ -999,6 +999,8 @@ impl OutputStore {
             return None;
         }
         let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
+        #[cfg(test)]
+        run_between_screen_reads_for_test();
         if self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
             && let Some(rebuilt) =
                 segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
@@ -1291,5 +1293,21 @@ impl OutputStore {
     pub(crate) fn memory_only(&self) -> bool {
         self.directory.is_none()
             || self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Memory)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread inside [`OutputStore::previous_screen`],
+    /// after it read the snapshot and before it reads the tail.
+    pub(crate) static BETWEEN_SCREEN_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_between_screen_reads_for_test() {
+    let hook = BETWEEN_SCREEN_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
     }
 }
