@@ -753,7 +753,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     test("in a short pane a held long row gives room back when a permission card arrives under the pointer", async () => {
       // Review (Codex astra) at 5918647: the hold kept its min-height while the stack around it grew,
       // so a card arriving under the pointer could not take room from it and drew over the queue.
-      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(10);
+      // Long enough to overflow the held list in a 420 tall pane with any UI face (ten repeats did with
+      // DejaVu Sans, not with the narrower Inter the browser tests pin).
+      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(20);
       const page = await openChat([long], { width: 900, height: 420 });
       await openHeld(page, "q-1");
       // acpmux asks for a permission while the pointer rests on the opened row.

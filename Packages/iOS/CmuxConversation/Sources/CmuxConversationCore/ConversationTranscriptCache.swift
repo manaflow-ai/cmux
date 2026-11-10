@@ -131,7 +131,36 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     }
 
     private func file(for key: String) -> URL {
-        let safe = key.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "_" }.joined()
-        return directory.appending(path: "\(safe.isEmpty ? "default" : safe).json")
+        directory.appending(path: "\(Self.fileName(for: key)).json")
+    }
+
+    /// The file name for `key`, one per key: ASCII letters, digits and `-` as they are, every other
+    /// UTF-8 byte as `_` and two hex digits (`mac:m1` is `mac_3Am1`). Mapping each of them to `_`
+    /// gave `mac:a.b`, `mac:a/b` and `mac_a_b` one file, so one conversation showed another's kept
+    /// messages. An empty key is `_`, which no escape is; a name past 200 bytes keeps its first 180
+    /// and ends with `~` and a 64-bit FNV-1a hash of the whole key (`~` is never in an escaped name).
+    nonisolated static func fileName(for key: String) -> String {
+        let digits = Array("0123456789ABCDEF".unicodeScalars)
+        var name = String.UnicodeScalarView()
+        for byte in key.utf8 {
+            switch byte {
+            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "-"):
+                name.append(Unicode.Scalar(byte))
+            default:
+                name.append("_")
+                name.append(digits[Int(byte >> 4)])
+                name.append(digits[Int(byte & 0x0F)])
+            }
+        }
+        if name.isEmpty { return "_" }
+        guard name.count > 200 else { return String(name) }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in key.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        let hex = String(hash, radix: 16)
+        return String(String(name).prefix(180)) + "~" + String(repeating: "0", count: 16 - hex.count) + hex
     }
 }
