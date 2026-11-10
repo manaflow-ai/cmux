@@ -18,6 +18,8 @@ public struct ComposerAudioFlow: Equatable, Sendable {
         /// Stop: `longEnough` is false for a recording Messages throws away (0.25 s or less).
         case stop(longEnough: Bool)
         case continueRecording
+        /// Recording more failed to start (an audio interruption): back to the review.
+        case resumeFailed
         case cancel
         case send
     }
@@ -73,6 +75,9 @@ public struct ComposerAudioFlow: Equatable, Sendable {
         case (.continueRecording, .review?):
             stage = .recording
             return [.resumeRecording]
+        case (.resumeFailed, .recording?):
+            stage = .review
+            return []
         case (.cancel, .some):
             return reset([.discard])
         case (.send, .review?):
