@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// How to try what an acpmux session finished (its summary's `tryIt`, from the `try`, `verify` and
 /// `report` of its newest wrap-up that gave any; acpmux `hub/try_it.rs`). The workspace row's Try
