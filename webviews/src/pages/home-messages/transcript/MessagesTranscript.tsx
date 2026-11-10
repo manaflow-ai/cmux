@@ -18,6 +18,7 @@ import { conversationName } from "../../home-channels/model";
 import type { Connection } from "../../home-channels/store";
 import type { HomeAttachment, HomeMessage } from "../../home-channels/types";
 import { useTimelineWindow } from "../../home-channels/useTimelineWindow";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import type { Strings } from "../../shared/i18n";
 import { WEB_SWAP_KEPT_SCROLL } from "../../shared/webSwap";
 import { bubbleStyle, type BubbleLook, type ChatColors } from "./colors";
