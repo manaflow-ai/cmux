@@ -10,6 +10,10 @@
             if list.openDoneFolds.remove(id) == nil { list.openDoneFolds.insert(id) }
         case let .showMore(id):
             reveal(id)
+        case .needsYou(.header):
+            list.model.needsYouFolded.toggle()
+        case .needsYou(.more):
+            list.model.needsYouExpanded.toggle()
         default:
             return false
         }

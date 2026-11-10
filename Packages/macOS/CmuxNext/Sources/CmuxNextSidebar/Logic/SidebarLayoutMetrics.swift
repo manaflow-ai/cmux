@@ -209,6 +209,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The rows each list's "Show N more" revealed, as this window last set them: ahead of the document's
     /// `SidebarGroup.revealed`, so a press shows at once (a fold never waits for the daemon).
     public var revealed: [SidebarDoneFoldID: Int] = [:]
+    /// The Needs you section at the top (`sidebar.needsYou.section`, Leo 2026-11-10): its rows as Rust picked them
+    /// (`SidebarModel.needsYouRows`). Nil or empty draws no section.
+    public var needsYou: SidebarNeedsYouRows?
 
     public init() {}
 }

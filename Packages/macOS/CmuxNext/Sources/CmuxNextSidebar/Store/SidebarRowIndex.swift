@@ -170,6 +170,20 @@ extension SidebarListView {
                 }
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            // Its Needs you row (`SidebarLayout+NeedsYouSection`) draws the same content, also while its own row is folded
+            // away; a patch never changes whether it is listed there (`movesRows`).
+            let mirror = SidebarRowKey.needsYou(.row(ws.id))
+            if let copy = displayed.row(for: mirror) {
+                let o = options ?? self.options(includeGap: true)
+                options = o
+                let content = o.rowContent(ws, machine: sections[copy.section].flatMap { SidebarLayout.machineLabel($0, options: o) })
+                if metrics.resolved(for: o).height(for: content) == copy.height {
+                    displayed.setContent(content, for: mirror)
+                    reconfigure(mirror)
+                } else {
+                    heightChanged = true
+                }
+            }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
                 // again when that state moves, not on each step or title it reports.

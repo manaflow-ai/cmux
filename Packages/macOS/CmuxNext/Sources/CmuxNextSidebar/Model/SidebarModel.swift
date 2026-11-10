@@ -254,6 +254,12 @@ public final class SidebarModel {
     /// Chats per Project, Float to Top Within Project, the Needs you section and Include Working (Leo 2026-11-10).
     /// Off until the settings arrive (`applyListPreferences`): a model made in a test or a capture draws every row.
     public var projectCaps = SidebarProjectCapsPreferences.off
+    /// The Needs you section folded to its header, as a project folds (view state; the click reloads the list).
+    @ObservationIgnored public var needsYouFolded = false
+    /// "N more" pressed: the Needs you section lists every row and ends in "Show less" (view state).
+    @ObservationIgnored public var needsYouExpanded = false
+    /// The Needs you section's rows at a `sectionsRevision` (`SidebarModel+NeedsYouSection`).
+    @ObservationIgnored var needsYouCache: SidebarNeedsYouCache?
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -721,6 +727,7 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        o.needsYou = needsYouRows()
         return o
     }
 

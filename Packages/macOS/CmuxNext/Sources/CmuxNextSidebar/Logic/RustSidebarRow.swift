@@ -43,6 +43,11 @@ nonisolated struct RustRowKey: Codable {
             kind = "list_header"
             id = header.rawValue
             section = nil
+        case .needsYou:
+            // Never sent either: the Needs you section mirrors rows and takes no drop (`RustRow.resolvable`).
+            kind = "needs_you"
+            id = nil
+            section = nil
         case let .emptyGroup(group):
             // Never sent: `RustRow.resolvable` leaves an empty group's row out.
             kind = "empty_group"
@@ -129,7 +134,7 @@ nonisolated struct RustRow: Codable {
             case .item:
                 if let group = row.group?.rawValue { itemTops[group] = max(itemTops[group] ?? -.infinity, Double(row.y)) }
                 continue
-            case .folder, .status, .listHeader, .emptyGroup:
+            case .folder, .status, .listHeader, .emptyGroup, .needsYou:
                 continue
             default:
                 if case .custom = row.section { continue } // the older resolver knows Pinned and machines only

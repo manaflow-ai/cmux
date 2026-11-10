@@ -47,7 +47,7 @@ extension SidebarListViewComponents {
     /// a previous row's target.
     func wire(_ view: SidebarRowView, key: SidebarRowKey) {
         switch (key, view) {
-        case let (.workspace(id), view as WorkspaceRowView):
+        case let (.workspace(id), view as WorkspaceRowView), let (.needsYou(.row(id)), view as WorkspaceRowView):
             view.wire(id, in: self)
         case let (.item(id), view as SidebarItemListRowView):
             // A link, tab or app row runs as the band's item does (AXPress too).
@@ -91,7 +91,13 @@ extension SidebarListViewComponents {
         case let (.emptyGroup(id), view as EmptyGroupRowView):
             // The same New Workspace in Group as the header's + (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
-        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView),
+             (.needsYou(.more), let view as SidebarDoneFoldRowView):
+            view.onToggle = { [weak self] in
+                guard let self else { return false }
+                return SidebarFoldAction(list: self).toggle(key)
+            }
+        case (.needsYou(.header), let view as NeedsYouHeaderRowView):
             view.onToggle = { [weak self] in
                 guard let self else { return false }
                 return SidebarFoldAction(list: self).toggle(key)

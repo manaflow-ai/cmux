@@ -189,6 +189,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             Self.appendRecents(recents, firstRow: rows.isEmpty, options: o, metrics: m, to: &rows, y: &y)
             if rows.count != before { firstSection = false }
         }
+        // Needs you, at the very top (Leo 2026-11-10): it mirrors rows that stay in place below.
+        if Self.appendNeedsYouSection(sections, options: o, metrics: m, to: &rows, y: &y) { firstSection = false }
         for (sectionIndex, section) in sections.enumerated() {
             if let lastMachine, sectionIndex > lastMachine {
                 placeRecents()
