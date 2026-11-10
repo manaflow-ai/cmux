@@ -52,10 +52,3 @@
   flex: 1;
   min-width: 0;
 }
-
-/* Set Up cmux on a first run (HomeSetupCard.tsx), pinned under a Chief chat's header and centred like
-   the setup-card page's frame. */
-.hm-setup-pinned {
-  display: flex;
-  justify-content: center;
-}

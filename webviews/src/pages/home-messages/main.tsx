@@ -13,6 +13,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { holdWebSwap } from "../shared/webSwap";
+import { settle, SETTLE_OP } from "./settle";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -26,6 +27,7 @@ import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
 import { noMessagesHost, pageAttachmentKeeper, pageDraftKeeper, pageMessagesHost } from "./host";
 import { KeptPendingCarry, pageOutboxKeeper } from "./outbox";
 import { MessagesNav } from "./nav";
+import { singleConversation } from "./single";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
 import "../shared/pageBase.css";
@@ -65,6 +67,7 @@ export function mountMessagesPage(
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("home.title");
+  const single = singleConversation(location.hash);
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   // The app keeps them across launches too (outbox.ts): a relaunch shows a send it never took.
   // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
@@ -80,7 +83,11 @@ export function mountMessagesPage(
   // WEB-SWAP: a web update's reload waits while anything lives only in this page: a draft, a staged
   // file or a send the app has not said it holds (nav.ts, attachmentDrafts.ts, outbox.ts). Each
   // composer's own hold ends with it; this one is the page's whole life.
-  holdWebSwap(() => nav.holdReason() ?? (carry instanceof KeptPendingCarry ? carry.holdReason() : null));
+  const heldAlone = () => nav.holdReason() ?? (carry instanceof KeptPendingCarry ? carry.holdReason() : null);
+  holdWebSwap(heldAlone);
+  // Before the app ends this document (a conversation tab or the Chief panel closing), everything
+  // held alone goes to its owner first (settle.ts).
+  client?.handle(SETTLE_OP, (params) => settle(() => nav.flushDrafts(), heldAlone, params));
   void nav.loadDrafts();
   void nav.attachments.load();
   // The page's whole life: what was typed in the last pause is kept before the document ends.
@@ -99,6 +106,7 @@ export function mountMessagesPage(
             carry={carry}
             nav={nav}
             detail={detail}
+            {...(single ? { single } : {})}
           />
         )}
       </DaemonGate>
@@ -116,6 +124,7 @@ function DaemonMessages({
   carry,
   nav,
   detail,
+  single,
 }: {
   daemon: DaemonSocket;
   owner?: DaemonSocket;
@@ -125,6 +134,7 @@ function DaemonMessages({
   carry: PendingCarry;
   nav: MessagesNav;
   detail: MessagesDetail;
+  single?: string;
 }) {
   const [store] = useState(() => {
     const made = new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host);
@@ -144,6 +154,7 @@ function DaemonMessages({
       detail={detail}
       nav={nav}
       widthStorage={globalThis.localStorage ?? null}
+      {...(single ? { single } : {})}
     />
   );
 }

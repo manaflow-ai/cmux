@@ -96,7 +96,7 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
       try {
         await page.goto(stageURL(scheme));
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        await page.waitForSelector(".acpmux-jump-latest[data-shown]");
+        await page.waitForSelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
         // The arrow (and its pool) off, so only the glass and what it shows are measured.
         await page.addStyleTag({ content: ".acpmux-jump-latest__arrow { visibility: hidden !important; }" });
         await page.evaluate(
@@ -105,7 +105,7 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
               requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 500))),
             ),
         );
-        const box = await page.locator(".acpmux-jump-latest").boundingBox();
+        const box = await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").boundingBox();
         if (!box) throw new Error("Jump to latest did not render");
         const cx = box.x + box.width / 2;
         const cy = box.y + box.height / 2;
@@ -143,7 +143,7 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
         const under = mean(unders);
         const beside = mean(besides);
         const info = await page.evaluate(() => {
-          const style = getComputedStyle(document.querySelector(".acpmux-jump-latest")!);
+          const style = getComputedStyle(document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")!);
           return { backdrop: style.backdropFilter, fill: style.backgroundColor };
         });
         console.log(

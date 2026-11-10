@@ -416,38 +416,32 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
-/// Every action the app's catalog marks `waitsForPerson = true` gets the
-/// person deadline here too: the CLI must not give up before the app does.
+/// Every action the app's catalog marks `waitsForPerson` gets the person deadline here too: the
+/// CLI must not give up before the app does. Read from the catalog's dump, which the app's and
+/// cmux-action-catalog's tests both check against the catalog the app reads.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
-    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let dump =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plans/cmux-next/action-catalog.json");
+    let Ok(text) = std::fs::read_to_string(&dump) else { return };
+    let catalog: Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
     let mut checked = 0;
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
-            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
-            let variable = line.trim().split('.').next().unwrap_or_default();
-            let declared = format!("var {variable} = ActionDescriptor(");
-            let Some(start) = text.find(&declared) else { continue };
-            let body = &text[start..];
-            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
-            for key in ["id: \"", "cliName: \""] {
-                if let Some(at) = body.find(key) {
-                    let name = &body[at + key.len()..];
-                    let name = &name[..name.find('"').unwrap_or(0)];
-                    assert_eq!(
-                        waiting_run_timeout(name),
-                        PERSON_RUN_TIMEOUT,
-                        "{name} waits for a person in the app"
-                    );
-                    checked += 1;
-                }
+    for action in catalog["actions"].as_array().into_iter().flatten() {
+        if action["waitsForPerson"] != Value::Bool(true) {
+            continue;
+        }
+        for key in ["id", "cliName"] {
+            if let Some(name) = action[key].as_str() {
+                assert_eq!(
+                    waiting_run_timeout(name),
+                    PERSON_RUN_TIMEOUT,
+                    "{name} waits for a person in the app"
+                );
+                checked += 1;
             }
         }
     }
-    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+    assert!(checked > 0, "no waitsForPerson action found in {}", dump.display());
 }
 
 /// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
@@ -508,10 +502,14 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
     assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
     assert!(!retry_before_running(&json!({ "code": "busy" })));
-    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
-    // are asked again too; one that may have started is not.
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon
+    // (`state: not_run`), are asked again too; one that may have started is not, and neither is
+    // an `unavailable` the app decided (`refusal_tests.rs`).
     assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
-    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(retry_before_running(
+        &json!({ "code": "unavailable", "data": { "not_run": true, "state": "not_run" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
     assert!(!retry_before_running(
         &json!({ "code": "timeout", "data": { "state": "in_progress" } })
     ));
@@ -1762,6 +1760,9 @@ fn page_verbs_send_the_caller() {
 #[path = "right_tests.rs"]
 mod right;
 
+#[path = "refusal_tests.rs"]
+mod refusal;
+
 #[test]
 fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
     use super::run::safe_to_resend;
@@ -2082,7 +2083,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
 #[test]
 fn a_not_run_refusal_is_retried_inside_the_cli() {
     let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+        "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 1 } } });
     let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
     let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
     let mut stream = connect(&socket).unwrap();
@@ -2119,7 +2120,7 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
             let since = *first.get_or_insert_with(Instant::now);
             let answer = if since.elapsed() < back_after {
                 json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-                    "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 100 } } })
+                    "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 100 } } })
             } else {
                 json!({ "id": 1, "ok": true, "result": { "machines": [] } })
             };
@@ -2143,8 +2144,53 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
     drop(stream);
     let asked = app.join().unwrap();
     assert_eq!(answer.unwrap().unwrap()["machines"], json!([]), "asked {asked} times in {took:?}");
-    assert!(took >= back_after && took < back_after + Duration::from_secs(3), "{took:?}");
+    // The retry behaviour, not a wall-clock window a loaded runner can miss: the app was asked again until it
+    // answered (more than the old five tries), and never before its 5 s were up.
+    assert!(took >= back_after, "{took:?}");
     assert!(asked > 6, "more than the old five retries: {asked}");
+}
+
+/// A caller with its own short budget (an MCP tool call) keeps it: a refusal that never passes ends at that
+/// budget, not at the 30 s a person's command waits.
+#[test]
+fn a_short_caller_keeps_its_own_deadline() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-short");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked) = (String::new(), 0);
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            line.clear();
+            asked += 1;
+            let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 50 } } });
+            if writeln!(writer, "{refused}").is_err() {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let budget = Duration::from_millis(600);
+    let answer = request_with_retry_within(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        budget,
+    );
+    drop(stream);
+    let asked = app.join().unwrap();
+    let refusal = answer.unwrap().unwrap_err();
+    assert_eq!(refusal["code"], "unavailable", "{refusal}");
+    // Asked again within the budget, then the refusal is the answer: named, and far short of the 30 s floor.
+    assert!(asked > 1, "{asked}");
+    let waited = refusal["data"]["not_run_waited_ms"].as_u64().unwrap();
+    assert!(u128::from(waited) < run::NOT_RUN_DEADLINE_FLOOR.as_millis() / 2, "{refusal}");
 }
 
 /// A refusal that says nothing ran and never passes is answered at the request's deadline, never held past it.

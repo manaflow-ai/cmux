@@ -52,6 +52,7 @@ const TAKES_VALUE: &[&str] = &[
     "--harness",
     "--model",
     "--cwd",
+    "--from-folder",
     "--repo",
     "--name",
     "--timeout",
@@ -99,8 +100,8 @@ const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
-                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
-                 [--timeout SECONDS] [--json] [[--prompt] TEXT]
+                 [--cwd DIR] [--from-folder DIR] [--repo URL] [--name NAME]
+                 [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -125,28 +126,38 @@ Starts an agent chat, right here unless --on names another target:
                      to the chat first. A missing or unreadable file starts nothing
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
   --model MODEL      The agent's model (a chat here)
-  --cwd DIR          The chat's folder (absolute)
+  --cwd DIR          The chat's folder (absolute); for a Cloud chat, a folder on the VM
+  --from-folder DIR  A Cloud chat in a copy of DIR, a folder on this Mac (`.` is this
+                     one): copied as New Cloud chat copies it, .env files, keys and
+                     credentials left out and named. Without it a Cloud chat starts in a
+                     new empty folder on the VM
   --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
                      git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
                      with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd DIR;
                      a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
-  --wait             Wait for the chat's turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
+  --allow-large      Copy --from-folder even past 20 GB or 500,000 files (a Cloud chat)
+  -w, --wait         Wait for the chat's turn to end and print the reply
+  --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
+                     default 15m, at most 4h)
 
 EXAMPLES
   cmux chat 'Summarize README.md'
+  cmux chat -w 'Summarize README.md'
+  cmux chat send -w 'Now the tests'          (the next prompt to that chat)
   cmux chat --prompt 'Summarize README.md' --wait --json
   cmux chat --repo https://gitlab.com/group/project --prompt 'Summarize README.md'
   cmux chat --on studio-mac 'Run the tests'
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:new --from-folder . --prompt 'Run the tests' --wait
   cmux chat --on cloud --environment staging-db --prompt 'Run the migrations' --wait
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 With --wait the answer has session_id, workspace_id, tab_id and reply, here
-and in Cloud. The chat goes on with cmux chat send SESSION TEXT --wait,
-cmux chat wait SESSION and cmux chat read SESSION (`cmux chat send --help`).
+and in Cloud. The chat goes on with cmux chat send TEXT --wait, cmux chat wait
+last and cmux chat read last: without a SESSION they mean the last chat this
+terminal started or sent to (`cmux chat send --help`).
 Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
 (`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
@@ -165,6 +176,9 @@ pub(super) struct Start {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
+    /// `--from-folder DIR`: a Cloud chat in a copy of this Mac's DIR (`cloud start-chat
+    /// --from-folder`); a chat here refuses it.
+    pub from_folder: Option<String>,
     /// `--repo`: the repository a chat here starts in a clone of (local_repo.rs).
     pub repo: Option<Repo>,
     pub name: Option<String>,
@@ -176,6 +190,8 @@ pub(super) struct Start {
     pub environment: Option<String>,
     pub wait: bool,
     pub timeout: Option<String>,
+    /// `--allow-large`: a Cloud chat's `--from-folder` copied even past the copy's limits.
+    pub allow_large: bool,
 }
 
 // Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
@@ -259,6 +275,7 @@ pub(super) fn parse_with(
         agent: None,
         model: None,
         cwd: None,
+        from_folder: None,
         repo: None,
         name: None,
         prompt: None,
@@ -266,6 +283,7 @@ pub(super) fn parse_with(
         environment: None,
         wait: false,
         timeout: None,
+        allow_large: false,
     };
     let mut index = 0;
     while let Some(word) = words.get(index).map(String::as_str) {
@@ -319,6 +337,12 @@ pub(super) fn parse_with(
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
             "--cwd" => start.cwd = Some(value()?),
+            "--from-folder" => {
+                if start.from_folder.is_some() {
+                    return Err(UsageError::new("give --from-folder once"));
+                }
+                start.from_folder = Some(value()?);
+            }
             "--repo" => {
                 if start.repo.is_some() {
                     return Err(UsageError::new("give --repo once"));
@@ -335,8 +359,9 @@ pub(super) fn parse_with(
                 start.environment = Some(environment);
             }
             "--timeout" => start.timeout = Some(value()?),
-            "--wait" => start.wait = true,
+            "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
+            "--allow-large" => start.allow_large = true,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
@@ -711,6 +736,16 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
     };
+    if route == Route::Here && start.from_folder.is_some() {
+        return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
+    }
+    if matches!(route, Route::Cloud(_))
+        && start.from_folder.is_none()
+        && start.cwd.is_none()
+        && global.output == OutputMode::Human
+    {
+        eprintln!("{EMPTY_CLOUD_FOLDER}");
+    }
     let start = match route {
         // Every other argument is checked before anything is cloned.
         // So are the files `--attach` names: the start below refuses the same ones.
@@ -776,6 +811,14 @@ enum Failure {
     Usage(UsageError),
     Repo(Value),
 }
+
+const FROM_FOLDER_CLOUD_ONLY: &str = "--from-folder copies a folder to a Cloud chat's VM; a chat \
+     here runs in its own folder: give --cwd DIR, or add --on vm:new";
+
+/// Said (human output only) when a Cloud chat starts with neither `--from-folder` nor `--cwd`:
+/// nothing on this Mac goes with it, and a person in a project folder would otherwise not know.
+const EMPTY_CLOUD_FOLDER: &str = "cmux: the Cloud chat starts in a new empty folder on the VM; \
+     add --from-folder . to take this folder with it";
 
 const REPO_HERE_ONLY: &str = "--repo starts a chat here in a clone; a Cloud chat goes to a \
      repository with cmux chat cd SESSION --repo REPO once it has started";
@@ -906,12 +949,7 @@ pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
         };
     }
     let Some(text) = &start.timeout else { return Ok(Some(turn::DEFAULT_TIMEOUT)) };
-    let seconds = text
-        .parse::<u64>()
-        .ok()
-        .filter(|seconds| *seconds > 0)
-        .ok_or_else(|| UsageError::new(format!("--timeout {text}: give seconds")))?;
-    Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
+    Ok(Some(super::chat_send::timeout_value(text)?.min(turn::MAX_TIMEOUT)))
 }
 
 /// Every check a chat here makes of its arguments before it starts, run before `--repo` clones
@@ -971,7 +1009,8 @@ fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, Usage
 pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String>, UsageError> {
     if start.model.is_some() || start.name.is_some() {
         return Err(UsageError::new(
-            "--model and --name name a chat here; a Cloud chat takes --agent, --cwd and --prompt",
+            "--model and --name name a chat here; a Cloud chat takes --agent, --cwd, --from-folder \
+             and --prompt",
         ));
     }
     // Refused, never dropped: a Cloud chat's first prompt is text only (`cloud start-chat`).
@@ -993,6 +1032,7 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     for (flag, value) in [
         ("--agent", &start.agent),
         ("--cwd", &start.cwd),
+        ("--from-folder", &start.from_folder),
         ("--environment", &start.environment),
         ("--timeout", &start.timeout),
     ] {
@@ -1002,6 +1042,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     }
     if start.wait {
         words.push("--wait".to_owned());
+    }
+    if start.allow_large {
+        words.push("--allow-large".to_owned());
     }
     Ok(words)
 }
@@ -1013,6 +1056,9 @@ pub(super) fn read_stdin() -> Result<String, String> {
 }
 
 fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
+    if let Some(code) = cloud_start_chat::folder_refused(error, output) {
+        return code;
+    }
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 

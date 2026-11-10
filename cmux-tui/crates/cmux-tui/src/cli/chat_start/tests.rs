@@ -194,6 +194,34 @@ fn a_vm_chat_is_the_cloud_start_chat_run() {
     assert!(cloud_words(&start(&["--model", "m", "go"]), &Machine::New).is_err());
 }
 
+/// Leo, 2026-11-10: "Does it work across every expected possible workspace?" `cmux chat --on
+/// vm:new` copied no folder, so a chat started from a project never saw it. `--from-folder DIR`
+/// goes to `cloud start-chat --from-folder`, which copies it the way New Cloud chat does.
+#[test]
+fn from_folder_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "go"]);
+    assert_eq!(picked.from_folder.as_deref(), Some("."));
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", "."])
+    );
+    assert!(TAKES_VALUE.contains(&"--from-folder"));
+    assert!(USAGE.contains("--from-folder DIR"));
+    assert!(parse(&words(&["--from-folder", "a", "--from-folder", "b", "go"]), None).is_err());
+}
+
+/// The copy-size refusal's recovery, `--allow-large`, works on `cmux chat` too: it goes to the
+/// Cloud start with the folder.
+#[test]
+fn allow_large_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "--allow-large", "go"]);
+    assert!(picked.allow_large);
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", ".", "--allow-large"])
+    );
+}
+
 /// Leo, 2026-11-06: "Shared chat commands can start in cloud." `cmux chat --on cloud` takes the
 /// Environment the composer's chip picks: none is Auto, and one makes the chat's machine in it.
 #[test]

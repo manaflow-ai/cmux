@@ -106,6 +106,38 @@ export const L = {
   pendingDelete: "intent.delete",
   pendingIdle: "intent.idle",
   pendingUpgrade: "intent.upgrade",
+  pendingKeep: "intent.keep",
+  pendingArchive: "intent.archive",
+  deletesToday: "retention.deletesToday",
+  deletesTomorrow: "retention.deletesTomorrow",
+  deletesInDays: "retention.deletesInDays",
+  archivingNote: "retention.archiving",
+  keep: "retention.keep",
+  kept: "retention.kept",
+  keepHint: "retention.keepHint",
+  archiveDelete: "retention.archiveDelete",
+  archiveHint: "retention.archiveHint",
+  noticeHeadsUp: "retention.noticeHeadsUp",
+  noticeLastNote: "retention.noticeLastNote",
+  archivesTitle: "archives.title",
+  archiveKeptUntil: "archives.keptUntil",
+  archiveRestore: "archives.restore",
+  capDeleteAndCreate: "cap.deleteAndCreate",
+  capArchiveAndCreate: "cap.archiveAndCreate",
+  capPauseAndCreate: "cap.pauseAndCreate",
+  capWaiting: "cap.waiting",
+  cleanupTitle: "cleanup.title",
+  cleanupPolicyKept: "cleanup.policyKept",
+  cleanupPolicyRetained: "cleanup.policyRetained",
+  cleanupEmail: "cleanup.email",
+  cleanupTeam: "cleanup.team",
+  cleanupNeverUsed: "cleanup.neverUsed",
+  cleanupFailed: "cleanup.failed",
+  cleanupWorkedIn: "cleanup.workedIn",
+  cleanupHeadsUp: "cleanup.headsUp",
+  cleanupArchive: "cleanup.archive",
+  cleanupReset: "cleanup.reset",
+  cleanupAdminOnly: "cleanup.adminOnly",
   pause: "action.pause",
   resume: "action.resume",
   connect: "action.connect",
@@ -145,6 +177,8 @@ export const L = {
   fieldCreated: "field.created",
   fieldIdle: "field.idle",
   fieldCost: "field.cost",
+  costPausedMonthly: "cost.pausedMonthly",
+  costPausedUnderMonthly: "cost.pausedUnderMonthly",
   costRate: "cost.rate",
   costRateWhenRunning: "cost.rateWhenRunning",
   costRunning: "cost.running",
@@ -242,7 +276,7 @@ export type StringKey = (typeof L)[keyof typeof L];
 
 /** Fills `{name}` placeholders. Missing values stay visible as `{name}`. */
 export function format(template: string, values: Record<string, string | number>): string {
-  return template.replace(/\{([a-z]+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
+  return template.replace(/\{([a-zA-Z]+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
 }
 
 /** Server codes the page shows as its own sentence instead of the backend text (`errorText`). */

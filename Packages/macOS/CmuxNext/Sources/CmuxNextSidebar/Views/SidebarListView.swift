@@ -147,6 +147,21 @@ final class SidebarListView: NSView {
     }
     /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
     var revealFlash: SidebarRevealFlash?
+    /// The project header stuck at the top of the visible rows (`SidebarListView+StickyHeader`), nil when none is.
+    var stuckHeader: SidebarStuckHeader?
+    /// Whether an open group's header sticks at the top while its rows scroll under it (a bench compares off and on).
+    var sticksHeaders = true {
+        didSet { if sticksHeaders != oldValue { followStuckHeader() } }
+    }
+    /// Points at the clip's top the rows never show in while scrolled (the traffic lights' clip,
+    /// `ScrollEdgeFadeView.topClip`): a header sticks under them.
+    var stickyTopInset: CGFloat = 0 {
+        didSet { if stickyTopInset != oldValue { followStuckHeader() } }
+    }
+    /// Told when a header sticks (true) or none is stuck any more: the sidebar holds its top fade while one is.
+    var onStuckHeaderChange: ((Bool) -> Void)?
+    /// What the stuck header stands on (`SidebarStuckVeilView`), above the rows, under the header.
+    let stuckVeil = SidebarStuckVeilView()
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -245,6 +260,8 @@ final class SidebarListView: NSView {
         layerContentsRedrawPolicy = .never
         decorations.autoresizingMask = [.width, .height]
         addSubview(decorations)
+        stuckVeil.isHidden = true
+        addSubview(stuckVeil)
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
@@ -421,12 +438,22 @@ final class SidebarListView: NSView {
     /// hover pill sits inside the drawn fill: `Metrics.space1` in from its top
     /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
     func hoverHit(at point: CGPoint) -> SidebarRow? {
-        displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+        // The stuck header covers the rows under it (`SidebarListView+StickyHeader`).
+        if let stuck = stuckHit(at: point) { return stuck }
+        return displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
                            cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer
     /// hovers one, so a click never lands on a row other than the lit one;
     /// otherwise the row whose tile holds `point` (clicks split the gap).
+    /// A point on the stuck header goes to its view (its + and more), never to a row under it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let stuck = stuckHeader, let view = rowViews[stuck.key], !view.isHidden, let band = stuckBand {
+            let local = convert(point, from: superview)
+            if band.contains(local) { return view.hitTest(local) ?? self }
+        }
+        return super.hitTest(point)
+    }
     func clickHit(at point: CGPoint) -> SidebarRow? {
         hoverHit(at: point) ?? displayed.row(at: point.y)
     }

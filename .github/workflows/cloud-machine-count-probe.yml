@@ -66,4 +66,4 @@ jobs:
           name: cloud-machine-count-probe-${{ github.run_id }}
           path: ${{ runner.temp }}/count-probe/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
