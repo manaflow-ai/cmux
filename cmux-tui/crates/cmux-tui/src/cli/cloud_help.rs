@@ -193,12 +193,7 @@ const GROUPS: &[Group] = &[
                 "ファイルにテキストを書き込む",
             ),
             verb("file-mkdir", "{target} --path /DIR", "Create a directory", "ディレクトリを作成"),
-            verb(
-                "file-remove",
-                "{target} --path /FILE --yes",
-                "Remove a file",
-                "ファイルを削除",
-            ),
+            verb("file-remove", "{target} --path /FILE --yes", "Remove a file", "ファイルを削除"),
             verb(
                 "file-stat",
                 "{target} --path /PATH",
@@ -595,7 +590,7 @@ a team admin only.
 ";
 
 pub(super) const ARCHIVE_USAGE: &str = "\
-usage: cmux vm archive-machine --target vm:VM_ID --confirm [--json]
+usage: cmux vm archive-machine --target vm:VM_ID --yes [--json]
 
 Archives a paused machine's disk, then deletes the machine. The archive is a
 snapshot kept for the plan's archive days; the Cloud page's Archives list it
@@ -648,9 +643,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --confirm  一時停止中のマシンをアーカイブして削除 (--confirm)\n"
+        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --confirm  Archive a paused machine's disk, then delete it (--confirm)\n"
+        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });

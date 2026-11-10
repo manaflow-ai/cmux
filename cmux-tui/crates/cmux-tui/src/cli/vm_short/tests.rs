@@ -170,7 +170,8 @@ fn exec_ssh_and_move_name_the_vm_by_position() {
         );
     }
     // The old form still runs as typed.
-    let old = parse(&words(&["vm", "exec", "--target", "machine:vm_a1", "--command", "ls"])).unwrap();
+    let old =
+        parse(&words(&["vm", "exec", "--target", "machine:vm_a1", "--command", "ls"])).unwrap();
     assert!(old.targeted && old.command.is_empty());
     assert_eq!(cloud_words(&old, None), words(&["--target", "machine:vm_a1", "--command", "ls"]));
     // A command's own flags after `--` are the command's.
@@ -222,9 +223,18 @@ fn ls_prints_a_table() {
     ], "creating": [{"name": "new-one", "status": "creating"}]});
     let text = table(&listed);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines[0].split_whitespace().collect::<Vec<_>>(), ["NAME", "ID", "STATUS", "CREATED"]);
-    assert_eq!(lines[1].split_whitespace().collect::<Vec<_>>(), ["dev", "vm:vm_a1", "running", "2026-11-05"]);
-    assert_eq!(lines[2].split_whitespace().collect::<Vec<_>>(), ["-", "vm:vm_b2", "paused", "2026-11-09"]);
+    assert_eq!(
+        lines[0].split_whitespace().collect::<Vec<_>>(),
+        ["NAME", "ID", "STATUS", "CREATED"]
+    );
+    assert_eq!(
+        lines[1].split_whitespace().collect::<Vec<_>>(),
+        ["dev", "vm:vm_a1", "running", "2026-11-05"]
+    );
+    assert_eq!(
+        lines[2].split_whitespace().collect::<Vec<_>>(),
+        ["-", "vm:vm_b2", "paused", "2026-11-09"]
+    );
     assert!(!lines[3].contains('\u{1b}') && !lines[3].contains('\u{7}'), "{:?}", lines[3]);
     assert_eq!(lines[4].split_whitespace().collect::<Vec<_>>(), ["new-one", "-", "creating", "-"]);
     assert!(table(&json!({"machines": []})).contains("cmux vm new"));

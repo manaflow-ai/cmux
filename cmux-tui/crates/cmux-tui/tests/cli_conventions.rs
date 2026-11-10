@@ -497,7 +497,9 @@ fn the_vm_help_names_a_vm_by_position_and_deletes_with_yes() {
     let mut problems = Vec::new();
     for scope in ["vm", "cloud"] {
         let help = text(&cli.run(&[scope, "--help"]).stdout);
-        problems.extend(targeted_examples(&help).into_iter().map(|line| format!("cmux {scope} --help: {line}")));
+        problems.extend(
+            targeted_examples(&help).into_iter().map(|line| format!("cmux {scope} --help: {line}")),
+        );
         let mut helps = vec![(format!("{scope} --help"), help.clone())];
         for verb in verb_rows(&help) {
             let output = cli.run(&[scope, &verb, "--help"]);
@@ -511,7 +513,11 @@ fn the_vm_help_names_a_vm_by_position_and_deletes_with_yes() {
             }
         }
     }
-    assert!(problems.is_empty(), "VM help that is harder to type than it needs to be:\n{}", problems.join("\n"));
+    assert!(
+        problems.is_empty(),
+        "VM help that is harder to type than it needs to be:\n{}",
+        problems.join("\n")
+    );
 }
 
 /// The `cmux vm|cloud VERB …` example lines of `help` whose everyday verb
@@ -520,9 +526,11 @@ fn targeted_examples(help: &str) -> Vec<String> {
     help.lines()
         .map(str::trim)
         .filter_map(|line| {
-            let rest = line.strip_prefix("cmux vm ").or_else(|| line.strip_prefix("cmux cloud "))?;
+            let rest =
+                line.strip_prefix("cmux vm ").or_else(|| line.strip_prefix("cmux cloud "))?;
             let verb = rest.split_whitespace().next()?;
-            (EVERYDAY_VM_VERBS.contains(&verb) && rest.contains("--target")).then(|| line.to_owned())
+            (EVERYDAY_VM_VERBS.contains(&verb) && rest.contains("--target"))
+                .then(|| line.to_owned())
         })
         .collect()
 }
@@ -530,5 +538,8 @@ fn targeted_examples(help: &str) -> Vec<String> {
 #[test]
 fn the_targeted_example_check_reads_example_lines() {
     assert_eq!(targeted_examples("  cmux vm exec --target vm:X --command 'uname -a'").len(), 1);
-    assert!(targeted_examples("  cmux vm exec dev -- uname -a\n  cmux vm access new --target vm:X").is_empty());
+    assert!(
+        targeted_examples("  cmux vm exec dev -- uname -a\n  cmux vm access new --target vm:X")
+            .is_empty()
+    );
 }

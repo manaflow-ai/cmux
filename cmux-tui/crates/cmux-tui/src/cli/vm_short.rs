@@ -52,8 +52,16 @@ const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", 
 const API_OPTIONS: &[&str] = &["--team", "--base-url", "--config", "--limit"];
 
 /// The verbs' flags that take the next word as their value.
-const TAKES_VALUE: &[&str] =
-    &["--target", "--size", "--name", "--minutes", "--command", "--machine", "--path", "--timeout-ms"];
+const TAKES_VALUE: &[&str] = &[
+    "--target",
+    "--size",
+    "--name",
+    "--minutes",
+    "--command",
+    "--machine",
+    "--path",
+    "--timeout-ms",
+];
 
 /// What to run next when a short verb names no VM it can find.
 const LIST: &str = "cmux vm ls";
@@ -307,12 +315,12 @@ pub(super) const CONFIRM_NOTE: &str = "cmux: `--confirm` is now `--yes` (or `-y`
 /// VM (and per VM still being made), its name first because that is what the verbs take.
 pub(super) fn table(listed: &Value) -> String {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    let creating =
-        listed.get("creating").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    let creating = listed.get("creating").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     // A VM's name is a person's words (a teammate's VM too): no control characters reach the
     // terminal.
     let text = |row: &Value, key: &str| {
-        let text = row.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).unwrap_or("-");
+        let text =
+            row.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).unwrap_or("-");
         super::wire::sanitize_remote_text(text)
     };
     let mut lines: Vec<[String; 4]> = rows
@@ -335,18 +343,17 @@ pub(super) fn table(listed: &Value) -> String {
         return "The VM list has not loaded yet; run `cmux vm ls` again in a moment.\n".to_owned();
     }
     if lines.is_empty() {
-        return "No Cloud VMs. Make one: cmux vm new (or cmux chat --on vm:new 'PROMPT')\n".to_owned();
+        return "No Cloud VMs. Make one: cmux vm new (or cmux chat --on vm:new 'PROMPT')\n"
+            .to_owned();
     }
     lines.insert(0, ["NAME", "ID", "STATUS", "CREATED"].map(str::to_owned));
-    let widths: Vec<usize> =
-        (0..4).map(|column| lines.iter().map(|line| line[column].chars().count()).max().unwrap_or(0)).collect();
+    let widths: Vec<usize> = (0..4)
+        .map(|column| lines.iter().map(|line| line[column].chars().count()).max().unwrap_or(0))
+        .collect();
     let mut out = String::new();
     for line in &lines {
-        let cells: Vec<String> = line
-            .iter()
-            .zip(&widths)
-            .map(|(cell, width)| format!("{cell:<width$}"))
-            .collect();
+        let cells: Vec<String> =
+            line.iter().zip(&widths).map(|(cell, width)| format!("{cell:<width$}")).collect();
         out.push_str(cells.join("  ").trim_end());
         out.push('\n');
     }
@@ -359,10 +366,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, command) = super::parse_globals(args).ok()?;
     let mut short = parse(&command)?;
     // `vm move --machine vm:ID`: the global scan took `--machine`; it names the VM to move to.
-    if short.cloud_verb == "move" && short.named.is_none() && !short.targeted {
-        if let Some(machine) = global.machine.take() {
-            short.named = Some(super::vm_words::bare_id(&machine).to_owned());
-        }
+    if short.cloud_verb == "move"
+        && short.named.is_none()
+        && !short.targeted
+        && let Some(machine) = global.machine.take()
+    {
+        short.named = Some(super::vm_words::bare_id(&machine).to_owned());
     }
     let app = super::vm::app_present(
         global.app_socket.is_some(),
@@ -382,7 +391,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(None) => return None,
         Err(Some(error)) => return Some(super::wire::print_local_error(&error, global.output, 1)),
     };
-    if short.cloud_verb == "list-machines" && short.tail.is_empty() && global.output == super::OutputMode::Human {
+    if short.cloud_verb == "list-machines"
+        && short.tail.is_empty()
+        && global.output == super::OutputMode::Human
+    {
         print!("{}", super::vm_words::respell(&table(&listed)));
         return Some(0);
     }
