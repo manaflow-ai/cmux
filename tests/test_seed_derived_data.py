@@ -717,10 +717,43 @@ OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nig
                                      "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
                                      "verify-recovered-nightly-next"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
-# The secret-bearing ones end on the signer's label alone (signing_runner.SIGNER_LABEL).
-SIGNING_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
-                                  "recover-nightly-next-notarization"})
 SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
+
+
+def holds_secret(job):
+    """secrets.* anywhere, `secrets: inherit`, or an environment (tests/test_ci_runner_pool_reconcile.py)."""
+    return "secrets." in yaml.safe_dump(job) or job.get("secrets") == "inherit" or bool(job.get("environment"))
+
+
+def signing_nightly_jobs(jobs):
+    return frozenset(name for name, job in jobs.items() if holds_secret(job))
+
+
+# The secret-bearing nightly.yml jobs end on the signer's label alone (signing_runner.SIGNER_LABEL), never a label
+# they share with PR side lanes. Derived from nightly.yml, not kept by hand: the hand list named
+# sign-nightly-identity-legacy, which nightly.yml no longer has, and would have missed a new secret job.
+SIGNING_NIGHTLY_JOBS = signing_nightly_jobs(load("nightly.yml")["jobs"])
+SIGNING_NIGHTLY_ANCHORS = {"generate-nightly-deltas", "build-sign-notarize-nightly", "recover-nightly-next-notarization"}
+
+
+def late_attempt_failure(workflow, name, job, runs_on, labels, side):
+    """None when an owned-lane job's last attempt leaves the minis as it must, else why not."""
+    if workflow == "nightly.yml" and holds_secret(job):
+        if not runs_on.endswith(SIGNING_NIGHTLY_FALLBACK):
+            return f"{name} holds a secret, but its route does not end on the signer's label alone: {runs_on}"
+        if labels != ["glaeda-trusted-next-signing"]:
+            return f"{name} holds a secret, but its last attempt takes {labels}"
+        return None
+    if workflow == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
+        # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
+        if not runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK):
+            return f"{name} is owned-only, but its route does not end on the owned pool route: {runs_on}"
+        if labels != [side]:
+            return f"{name} is owned-only, but its last attempt takes {labels}"
+        return None
+    if any(str(item).startswith("glaeda-") for item in labels):
+        return f"{name}'s last attempt still takes a mini: {labels}"
+    return None
 
 
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
@@ -1469,6 +1502,27 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
+    def test_secret_nightly_jobs_are_derived_and_checked_on_the_owned_lane(self):
+        # A parser regression that empties the derived set would empty the signer check with it.
+        self.assertLessEqual(SIGNING_NIGHTLY_ANCHORS, SIGNING_NIGHTLY_JOBS)
+        # The class #36559 hit in backend.yml: a secret job split out on the shared side-lane chain, unlisted. Both a
+        # new name and an owned-only name that gains a secret are named, since a secret outranks the exemption.
+        side = "glaeda-side-std-xcode-26.6"
+        runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.owned "
+                   + OWNED_ONLY_NIGHTLY_FALLBACK)
+        for name in ("staple-fixture-nightly", "verify-signed-nightly"):
+            job = {"runs-on": runs_on, "steps": [{"run": "codesign", "env": {"P": "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"}}]}
+            with self.subTest(job=name):
+                jobs = {**load("nightly.yml")["jobs"], name: job}
+                self.assertIn(name, signing_nightly_jobs(jobs))
+                failure = late_attempt_failure("nightly.yml", name, job, runs_on, [side], side)
+                self.assertIsNotNone(failure)
+                self.assertIn(name, failure)
+                self.assertIn("signer's label", failure)
+        # The same job without the secret keeps the owned-only route it is exempt for.
+        clean = {"runs-on": runs_on, "steps": [{"run": "true"}]}
+        self.assertIsNone(late_attempt_failure("nightly.yml", "verify-signed-nightly", clean, runs_on, [side], side))
+
     def test_no_retry_attempt_of_any_workflow_takes_an_owned_label(self):
         # Every macOS job an owned mini may take, in every workflow: with the
         # picker's owned outputs, the side-lane variables and late placement's
@@ -1518,15 +1572,9 @@ class Wiring(unittest.TestCase):
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
                         if attempt != last:
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
-                        elif path.name == "nightly.yml" and name in SIGNING_NIGHTLY_JOBS:
-                            self.assertTrue(runs_on.endswith(SIGNING_NIGHTLY_FALLBACK), runs_on)
-                            self.assertEqual(labels, ["glaeda-trusted-next-signing"])
-                        elif path.name == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
-                            # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
-                            self.assertTrue(runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK), runs_on)
-                            self.assertEqual(labels, [side])
                         else:
-                            self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
+                            failure = late_attempt_failure(path.name, name, job, runs_on, labels, side)
+                            self.assertIsNone(failure, failure)
         # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
         # are not evaluated above: no workflow may name an attempt after 2. Naming attempt 2 itself
         # (`run_attempt == 2`, the bot's attempt 2 placed like attempt 1) is allowed: attempts 1 and 2 may
