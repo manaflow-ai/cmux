@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 
 use super::store::resource_upsert;
 use crate::resource::SessionPublicId;
-use crate::workspace_registry::resource_store::load_resource_topology;
+use crate::workspace_registry::resource_store::{load_resource_topology, load_tab_with_focus};
 use crate::workspace_registry::{meta_value, required_meta};
 
 fn extra_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
@@ -383,6 +383,11 @@ pub(crate) fn workspace_value(
 /// Fresh decorated upserts for the named live workspaces, screens, and tabs,
 /// read inside the caller's transaction after its writes. Gone ids yield
 /// nothing.
+///
+/// A tab is read by point reads (its row and its pane's active tab), so a
+/// restatement of tabs costs the same on a session of any size. Only a
+/// screen's value, which names its panes and their tabs, reads the stored
+/// topology.
 pub(crate) fn fresh_upserts(
     connection: &Connection,
     workspaces: &[String],
@@ -395,32 +400,42 @@ pub(crate) fn fresh_upserts(
             changes.push(resource_upsert("workspace", workspace, value));
         }
     }
-    if screens.is_empty() && tabs.is_empty() {
-        return Ok(changes);
+    if !screens.is_empty() {
+        let session_id = SessionPublicId::parse(required_meta(connection, "session_public_id")?)?;
+        let topology = load_resource_topology(connection, session_id, String::new())?;
+        let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
+        let panes_by_id =
+            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+        let wanted_screens = screens.iter().map(String::as_str).collect::<HashSet<_>>();
+        for screen in topology
+            .screens
+            .iter()
+            .filter(|screen| wanted_screens.contains(screen.public_id.as_str()))
+        {
+            let mut value = crate::resource_screen::public_screen_value(
+                &topology,
+                screen,
+                &tabs_by_pane,
+                &panes_by_id,
+            )?;
+            decorate_value(connection, "screen", &mut value)?;
+            changes.push(resource_upsert("screen", screen.public_id.as_str(), value));
+        }
     }
-    let session_id = SessionPublicId::parse(required_meta(connection, "session_public_id")?)?;
-    let topology = load_resource_topology(connection, session_id, String::new())?;
-    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
-    let panes_by_id =
-        topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
-    let wanted_screens = screens.iter().map(String::as_str).collect::<HashSet<_>>();
-    for screen in
-        topology.screens.iter().filter(|screen| wanted_screens.contains(screen.public_id.as_str()))
-    {
-        let mut value = crate::resource_screen::public_screen_value(
-            &topology,
-            screen,
-            &tabs_by_pane,
-            &panes_by_id,
-        )?;
-        decorate_value(connection, "screen", &mut value)?;
-        changes.push(resource_upsert("screen", screen.public_id.as_str(), value));
+    let mut wanted_tabs = HashSet::new();
+    let mut rows = Vec::new();
+    for tab in tabs {
+        if wanted_tabs.insert(tab.as_str())
+            && let Some(row) = load_tab_with_focus(connection, tab)?
+        {
+            rows.push(row);
+        }
     }
-    let wanted_tabs = tabs.iter().map(String::as_str).collect::<HashSet<_>>();
-    for tab in topology.tabs.iter().filter(|tab| wanted_tabs.contains(tab.public_id.as_str())) {
-        let focused = panes_by_id
-            .get(&tab.pane_id)
-            .is_some_and(|pane| pane.active_tab.as_ref() == Some(&tab.public_id));
+    // The order the stored topology lists them in: by pane, then position.
+    rows.sort_by(|(left, _), (right, _)| {
+        (left.pane_id.as_str(), left.position).cmp(&(right.pane_id.as_str(), right.position))
+    });
+    for (tab, focused) in rows {
         let mut value = tab.public_value(focused);
         decorate_value(connection, "tab", &mut value)?;
         changes.push(resource_upsert("tab", tab.public_id.as_str(), value));
