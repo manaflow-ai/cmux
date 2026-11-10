@@ -5,11 +5,18 @@ extension SidebarLayout {
     /// Space kept around a revealed active row (close-focus.md).
     static let revealPadding: CGFloat = 8
 
-    /// The rows as `ListViewport` sees them in a viewport `height` tall.
-    func viewport(height: CGFloat) -> ListViewport<SidebarRowKey> {
-        SidebarPerfCounters.addViewportRows(rows.count)
-        return ListViewport(items: rows.map { .init(id: $0.key, start: $0.y, length: $0.height) },
-                     viewport: height, content: max(totalHeight, height))
+    /// The list's extent as `ListViewport` sees it in a viewport `height` tall, with no row: `clamp`, `reveal` and
+    /// `isFullyVisible` read the viewport and the content only. The rules that read rows take them from the layout
+    /// itself (`viewportChange`), the rows in view, never a copy of every row.
+    func viewportFrame(height: CGFloat) -> ListViewport<SidebarRowKey> {
+        ListViewport(items: [], viewport: height, content: max(totalHeight, height))
+    }
+
+    /// The scroll rules for the list's change from this layout to `next` in a viewport `height` tall
+    /// (`ListViewportChange`): the anchor, the settle and a row's own move, read from the rows in view.
+    func viewportChange(to next: SidebarLayout, height: CGFloat) -> ListViewportChange<SidebarLayoutViewportRows, SidebarLayoutViewportRows> {
+        ListViewportChange(from: SidebarLayoutViewportRows(layout: self), content: max(totalHeight, height), viewport: height,
+                           to: SidebarLayoutViewportRows(layout: next), content: max(next.totalHeight, height), viewport: height)
     }
 
     /// The extent a reveal of the selection shows (u2605: "Command-1 doesn't scroll all the way up"):
@@ -40,6 +47,40 @@ extension SidebarLayout {
         let fits = { (lead: CGFloat, trail: CGFloat) in trail - lead + Self.revealPadding * 2 <= height }
         let (l, t) = fits(lead, trail) ? (lead, trail) : fits(lead, end) ? (lead, end) : (start, end)
         return .init(id: id, start: l, length: t - l)
+    }
+}
+
+/// A layout's rows as the scroll rules read them (`ListViewportRows`). Rows are sorted by `y` and do not overlap (hit
+/// testing searches them the same way, `SidebarLayout.lastIndex(startingAtOrBefore:)`), so the rows in a span are
+/// found by a search. Each row read counts in `viewport_rows`.
+nonisolated struct SidebarLayoutViewportRows: ListViewportRows {
+    let layout: SidebarLayout
+
+    var rowCount: Int { layout.rows.count }
+
+    func viewportRow(at position: Int) -> ListViewport<SidebarRowKey>.Item {
+        SidebarPerfCounters.addViewportRows(1)
+        let row = layout.rows[position]
+        return .init(id: row.key, start: row.y, length: row.height)
+    }
+
+    func viewportPosition(of id: SidebarRowKey) -> Int? { layout.position(of: id) }
+
+    // perf-hot: 0.1ms workspace-list-change
+    func viewportPositions(endingAfter lower: CGFloat, startingBefore upper: CGFloat) -> [Int] {
+        let rows = layout.rows
+        // The first row that ends after `lower`: the last one that starts at or before it, and any row before that
+        // one that still ends after `lower` (none while rows do not overlap).
+        var first = layout.lastIndex(startingAtOrBefore: lower).map { $0 + 1 } ?? 0
+        while first > 0, rows[first - 1].maxY > lower { first -= 1 }
+        var positions: [Int] = []
+        var index = first
+        while index < rows.count, rows[index].y < upper {
+            if rows[index].maxY > lower { positions.append(index) }
+            index += 1
+        }
+        SidebarPerfCounters.addViewportRows(index - first)
+        return positions
     }
 }
 
