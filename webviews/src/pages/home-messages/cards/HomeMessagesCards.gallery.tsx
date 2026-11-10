@@ -26,7 +26,10 @@ import {
   type HeaderPanelContext,
   type HeaderPanelState,
 } from "./header/HeaderPanelBar";
-import { NeedsYouSection, type NeedsYouLook, type NeedsYouRow } from "./needsYou/NeedsYouSection";
+import { FeedNeedsYou, NEEDS_YOU_ACTION } from "./needsYou/FeedNeedsYou";
+import { MockFeedProvider, sampleFeed } from "../../feed/mockProvider";
+import { ACTION_RUN } from "../../feed/types";
+import type { PageClient } from "../../shared/pageClient";
 
 const strings = cardStrings();
 
@@ -324,40 +327,25 @@ function Header({
   );
 }
 
-// The Feed's open requests as a Chief chat pins them (Swift FeedNeedsYouView's playground rows).
-const NEEDS_YOU: NeedsYouRow[] = [
-  {
-    id: "r1",
-    headline: "Allow a12 to push to manaflow-ai/cmux?",
-    who: "a12 · cmux · Terminal",
-    urgent: true,
-    answers: [
-      { id: "decline", title: "Decline", role: "plain", enabled: true },
-      { id: "primary", title: "Confirm", role: "primary", enabled: true },
-    ],
-  },
-  {
-    id: "r2",
-    headline: "Sign in to Linear",
-    who: "Chief",
-    urgent: false,
-    answers: [
-      { id: "decline", title: "Decline", role: "plain", enabled: true },
-      { id: "primary", title: "Sign In", role: "primary", enabled: true },
-    ],
-  },
-  { id: "r3", headline: "Which branch should the fix go to?", who: "b7 · web", urgent: false, answers: [] },
-];
+// A Chief chat's pinned Needs you: the Feed page's own view (cards/needsYou/FeedNeedsYou.tsx) over the
+// Feed's mock provider, its actions arriving as the host's `needsYou.action`.
+const NEEDS_YOU_NOW = Date.parse("2026-11-06T15:00:00Z");
+type NeedsYouLook = "rows" | "bar" | "cards";
+
+function needsYouHost(): PageClient {
+  const feed = new MockFeedProvider(sampleFeed(NEEDS_YOU_NOW), { now: () => NEEDS_YOU_NOW });
+  return {
+    call: (op, params) => feed.call(op === NEEDS_YOU_ACTION ? ACTION_RUN : op, params),
+    subscribe: (stream, onEvent) => feed.subscribe(stream, onEvent),
+    handle: (op, handler) => feed.handle(op, handler),
+  };
+}
 
 function NeedsYouStage({ look }: { look: NeedsYouLook }) {
+  const [host] = useState(needsYouHost);
   return (
     <div style={{ maxWidth: 640, padding: 16 }}>
-      <NeedsYouSection
-        state={{ title: "Needs you", rows: NEEDS_YOU, more: "2 more", look }}
-        onOpen={() => {}}
-        onAnswer={() => {}}
-        onShowAll={() => {}}
-      />
+      <FeedNeedsYou host={host} route={`#/needs-you?style=${look}`} clock={() => NEEDS_YOU_NOW} />
     </div>
   );
 }
@@ -406,7 +394,7 @@ export default componentEntry<Props>({
     "pages/home-messages/cards/links/HomeLinkChip.tsx",
     "pages/home-messages/cards/firstRun/FirstRunPanel.tsx",
     "pages/home-messages/cards/header/HeaderPanelBar.tsx",
-    "pages/home-messages/cards/needsYou/NeedsYouSection.tsx",
+    "pages/home-messages/cards/needsYou/FeedNeedsYou.tsx",
   ],
   load: async () => Cards,
   styles: () => import("./cards.gallery.css"),
@@ -522,7 +510,7 @@ export default componentEntry<Props>({
       },
     },
     "needs-you-rows": {
-      note: "Picked: the Feed's rows under a Chief chat's header, one-click answers in place.",
+      note: "The Feed page's Needs you rows under a Chief chat's header, one-click answers in place.",
       props: { card: "needs-you", look: "rows" },
     },
     "needs-you-bar": {

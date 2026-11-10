@@ -14,9 +14,9 @@
 //   chiefFace (stream) {conversation, picture?, text?}: the shown Chief's header avatar as the app reads it
 //   chiefPlace (stream) {conversation, chip: {tone, text, glyph, label, help}} | null: its location chip;
 //                      chief.place {conversation, anchor}: the Teleport menu under the chip (a click only)
-//   needsYou (stream) {title, rows, more?, look} | null: the pinned Needs you section of the shown
-//                      Chief chat (cards/needsYou); needsYou.open {id}, needsYou.answer {id, answer},
-//                      needsYou.showAll {} (each a click only)
+//   needsYou (stream) {route} | null: the shown Chief chat's pinned Needs you, the Feed page's own view
+//                      on `route` (cards/needsYou); while it shows, its cmux.feed.* calls go on the Feed's
+//                      relay and needsYou.action runs its cmux.app.action.run (a click only)
 //   bubble.facts {conversation} -> {linkScheme?, forward, share, retryReply, files}: what a bubble's
 //                      menu may offer in this conversation (bubbleMenu.ts)
 //   bubble.retryReply {conversation, message}, bubble.forward {text}, bubble.share {text | url},
@@ -58,9 +58,7 @@ export const DetailOps = {
   chiefPlace: "cmux.home.messages.chiefPlace",
   chiefPlaceOpen: "cmux.home.messages.chief.place",
   needsYou: "cmux.home.messages.needsYou",
-  needsYouOpen: "cmux.home.messages.needsYou.open",
-  needsYouAnswer: "cmux.home.messages.needsYou.answer",
-  needsYouShowAll: "cmux.home.messages.needsYou.showAll",
+  needsYouAction: "cmux.home.messages.needsYou.action",
   bubbleFacts: "cmux.home.messages.bubble.facts",
   bubbleRetryReply: "cmux.home.messages.bubble.retryReply",
   bubbleForward: "cmux.home.messages.bubble.forward",

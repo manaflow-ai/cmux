@@ -18,7 +18,7 @@ import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
 import { useSetupCard } from "../cards/setup/setupHost";
-import { NeedsYouSection, parseNeedsYou, type NeedsYouState } from "../cards/needsYou/NeedsYouSection";
+import { FeedNeedsYou, parseNeedsYouRoute } from "../cards/needsYou/FeedNeedsYou";
 import { parseChiefFace, parseChiefPlace, type ChiefFace, type ChiefPlace } from "../transcript/ChiefPlace";
 import { cardStrings } from "../cards/strings";
 import { pageDebug } from "../debugCommands";
@@ -110,7 +110,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     () => (debug.intro ? { ...hostFirstRun, introKind: debug.intro } : hostFirstRun),
     [hostFirstRun, debug.intro],
   );
-  const needsYou = useHostStream(host, DetailOps.needsYou, parseNeedsYou, undefined);
+  const needsYou = useHostStream(host, DetailOps.needsYou, parseNeedsYouRoute, undefined);
   const chiefFace = useHostStream(host, DetailOps.chiefFace, parseChiefFace, undefined);
   const chiefPlace = useHostStream(host, DetailOps.chiefPlace, parseChiefPlace, undefined);
   const dictation = useHostDictation(host);
@@ -398,7 +398,8 @@ interface ConversationViewProps {
   links: RowLinks;
   approvals: ApprovalDecisions | undefined;
   transcript: React.RefObject<MessagesTranscriptHandle | null>;
-  needsYou: NeedsYouState | undefined;
+  /** The Feed route of the shown Chief chat's pinned Needs you, while it shows. */
+  needsYou: string | undefined;
   chiefFace: ChiefFace | undefined;
   chiefPlace: ChiefPlace | undefined;
   toastAvoidance: ToastAvoidanceReports | undefined;
@@ -613,17 +614,8 @@ function ConversationView(
                 hostCall(DetailOps.chiefPlaceOpen, { conversation: id, anchor }),
             }
           : {})}
-        {...(isChief && props.needsYou
-          ? {
-              pinned: (
-                <NeedsYouSection
-                  state={props.needsYou}
-                  onOpen={(item) => hostCall(DetailOps.needsYouOpen, { id: item })}
-                  onAnswer={(item, answer) => hostCall(DetailOps.needsYouAnswer, { id: item, answer })}
-                  onShowAll={() => hostCall(DetailOps.needsYouShowAll, {})}
-                />
-              ),
-            }
+        {...(isChief && props.needsYou && host
+          ? { pinned: <FeedNeedsYou key={`${id} ${props.needsYou}`} host={host} route={props.needsYou} /> }
           : {})}
         {...(setupCard ? { setupCard } : {})}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}

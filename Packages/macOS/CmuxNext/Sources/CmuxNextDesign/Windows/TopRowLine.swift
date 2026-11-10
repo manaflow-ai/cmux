@@ -10,7 +10,7 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     /// is concentric with the window's (Lawrence 2026-11-07: "concentricity padding on top of tabbar
     /// is bad", "make it all concentric with macos windows by default"). The top row's pills sit in
     /// their strip as in every other row, and the toolbar band, the sidebar's + and the pane's
-    /// buttons center on the pills' line; only the traffic lights, which macOS draws, keep their own.
+    /// buttons center on the pills' line. The traffic lights move onto it too (``TrafficLightsLine``).
     case concentric
     /// Everything centers on the traffic lights' line, the one line the window cannot
     /// move; the main pane's card moves down to bring the top row's pills to it, and the pills keep
@@ -18,10 +18,10 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     case lights
     /// The controls follow the tabs: the band and the + center on the line the top-row pills keep on
     /// their own padding (the pane padding above the strip plus the pill's inset, `PaneChromeMetrics`;
-    /// the lights stay where macOS draws them).
+    /// the traffic lights move onto it, ``TrafficLightsLine``).
     case tabs
     /// One titlebar height: the band, the + and the pills center on the middle of the
-    /// `titlebarHeight` row (the lights stay where macOS draws them).
+    /// `titlebarHeight` row (the traffic lights move onto it, ``TrafficLightsLine``).
     case titlebar
     /// The look before 2026-11-07: the band and the + on the lights' line, the pills where their
     /// strip's own padding puts them.
@@ -76,7 +76,7 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     /// card moves to reach a line (#38054), so a line the card cannot reach (Comfortable and
     /// Spacious, whose pills center below the lights' line with the card at the window's top) gives
     /// way to the pills': the toolbar band, the sidebar's + and the pane's buttons stay on the tabs'
-    /// line, and only the traffic lights, which macOS draws, keep their own.
+    /// line, and the traffic lights move onto it (``TrafficLightsLine``).
     public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, scale: CGFloat) -> TopRowLine {
         TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, scale: scale))
     }

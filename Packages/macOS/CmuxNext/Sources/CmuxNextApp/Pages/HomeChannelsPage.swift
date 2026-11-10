@@ -81,7 +81,7 @@ extension PageFactory {
         host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
-            + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
+            + (HomeMessagesHostProvider.prefixes + [HomeMessagesHostProvider.feedPrefix]).map { PageRoute(prefix: $0, provider: host) }
             + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun), PageRoute(prefix: SetupCardPageProvider.prefix, provider: setup),
                PageRoute(prefix: HomeMessagesWidgets.prefix, provider: HomeMessagesWidgets(host: services.sidebarCustomization.chatWidgets, personOnlyMessage: RefusalStrings.personOnlyFromPage)),
                PageRoute(prefix: HomeComposerFiles.prefix, provider: host.composerFiles)]
