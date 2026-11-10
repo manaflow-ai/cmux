@@ -160,7 +160,7 @@ extension AgentPaneView {
             guard let self, let wait, chromiumMoveWait === wait, wait.size == size else { return }
             // Still on its spring: the page keeps its one size outside the window and shows in the layout the pane
             // lands in (``placeChromiumMove(at:)``), not at a size of the spring.
-            let frame = topBar.contentFrame(in: bounds)
+            let frame = topBar.pageFrame(in: bounds)
             guard Self.near(frame.size, restingFrame(of: frame).size, within: 0.5) else {
                 wait.drewAtRest = true
                 return
@@ -176,7 +176,7 @@ extension AgentPaneView {
         wait.deadline.cancel()
         guard holdsPageAway else { return }
         holdsPageAway = false
-        pageContent.frame = topBar.contentFrame(in: bounds)
+        pageContent.frame = topBar.pageFrame(in: bounds)
         applyNativeRects() // the tab row's holes, taken while it was away, follow it back
         pageContent.layoutSubtreeIfNeeded()
         wait.move.moved()

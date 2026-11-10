@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead as _, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow, bail};
@@ -28,6 +28,37 @@ pub(super) const IO_DEADLINE: Duration = Duration::from_secs(60);
 /// crossed: a part of [`PART_BYTES`] (about 11 MB of base64) needs about
 /// 6 minutes at this rate before [`IO_DEADLINE`] of silence counts.
 const MIN_LINK_BYTES_PER_SECOND: u64 = 32 * 1024;
+/// How long a request whose answer is late may go on waiting while the machine still answers
+/// `ping` on a connection of its own ([`alive`]): the copy's own bound (the app's
+/// `CloudMoveCLI` gives a copy 30 minutes). A busy machine or link makes a copy slower, never
+/// makes it fail.
+const ANSWER_CEILING: Duration = Duration::from_secs(30 * 60);
+/// How long the machine has to answer that `ping`.
+const PROBE_DEADLINE: Duration = IO_DEADLINE;
+/// How long a dropped connection is dialed again before the request fails
+/// ([`Remote::reconnect`]): a machine link that redials comes back within it.
+const RECONNECT_WINDOW: Duration = Duration::from_secs(3 * 60);
+/// How many times one request is sent again on a new connection after its own dropped.
+const MAX_REPLAYS: usize = 4;
+/// How long past its budget a request waits on its own connection while the machine answers a
+/// ping on another: past it, this connection counts as dropped (a link that redialed may leave
+/// the old local stream open and silent), and a replayable request is sent again on a new one.
+const STALE_CONNECTION: Duration = Duration::from_secs(10 * 60);
+/// The requests sent again after a dropped connection ([`replayable`]): each reads, or
+/// overwrites a whole file with the same bytes, so a second copy of one that landed changes
+/// nothing, even when the first lands after it.
+const REPLAYABLE: [&str; 9] = [
+    "identify",
+    "ping",
+    "fs.stat",
+    "fs.read",
+    "fs.readlink",
+    "fs.list",
+    "fs.write",
+    "git.seed.status",
+    "blob.fetch.status",
+];
+
 /// Bytes per `fs.read` answer asked for.
 const READ_BYTES: u64 = 8 * 1024 * 1024;
 /// Entries per `fs.list` page (the daemon's maximum).
@@ -87,9 +118,70 @@ impl std::fmt::Display for FsRefusal {
 
 impl std::error::Error for FsRefusal {}
 
+/// The connection to the machine dropped (it closed, or a read or write
+/// failed other than by timing out): a request that reads, or writes what it
+/// wrote before, is sent again on a new one ([`Remote::reconnect`]).
+#[derive(Debug)]
+struct Dropped(String);
+
+impl std::fmt::Display for Dropped {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Dropped {}
+
+/// Whether `cmd` with `params` may be sent again after its connection dropped: one of
+/// [`REPLAYABLE`], and a listing's first page only (a later page names a listing of the
+/// connection that dropped).
+///
+/// A write is sent again only as a whole file's one overwrite: an append, or the first part of
+/// a file written in parts, is not (its first copy may still land after the replay and the
+/// appends that follow it, cutting the part file short).
+fn replayable(cmd: &str, params: &Value) -> bool {
+    match cmd {
+        "fs.list" => params.get("cursor").is_none(),
+        "fs.write" => {
+            params.get("mode").and_then(Value::as_str) == Some("overwrite")
+                && !params
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .is_some_and(|path| path.ends_with(PART_SUFFIX))
+        }
+        _ => REPLAYABLE.contains(&cmd),
+    }
+}
+
+/// The name a file written in parts has until its rename ([`Remote::write_with_progress`]).
+const PART_SUFFIX: &str = ".cmux-sync-part";
+
+/// How a connection waits on a late answer and a dropped connection. Tests compress it.
+#[derive(Clone, Copy, Debug)]
+struct Patience {
+    ceiling: Duration,
+    stale: Duration,
+    probe: Duration,
+    reconnect: Duration,
+    replays: usize,
+}
+
+const PATIENCE: Patience = Patience {
+    ceiling: ANSWER_CEILING,
+    stale: STALE_CONNECTION,
+    probe: PROBE_DEADLINE,
+    reconnect: RECONNECT_WINDOW,
+    replays: MAX_REPLAYS,
+};
+
 /// One connection to the machine daemon.
 pub(super) struct Remote {
     reader: BufReader<UnixStream>,
+    /// The socket it was dialed on: a late answer asks the machine there whether it still
+    /// answers, and a dropped connection is dialed again there. None (a test's socket pair):
+    /// neither, as before.
+    socket: Option<PathBuf>,
+    patience: Patience,
     next_id: u64,
     /// The machine takes deflate write bytes (`fs-write-deflate-v1`,
     /// [`Remote::negotiate`]); otherwise every write is plain base64.
@@ -102,13 +194,52 @@ pub(super) struct Remote {
 
 impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
-        let stream = UnixStream::connect(socket)
-            .with_context(|| format!("cannot connect to {}", socket.display()))?;
-        stream.set_read_timeout(Some(IO_DEADLINE))?;
-        // A machine that stops reading must not hold a write (and a
-        // caller's lock) forever either.
-        stream.set_write_timeout(Some(IO_DEADLINE))?;
-        Ok(Self { reader: BufReader::new(stream), next_id: 1, deflate: false, no_follow: false })
+        let stream = dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))?;
+        let mut remote = Self::on(stream);
+        remote.socket = Some(socket.to_path_buf());
+        Ok(remote)
+    }
+
+    /// A connection over `stream`, with no socket to ask or dial again.
+    fn on(stream: UnixStream) -> Self {
+        Self {
+            reader: BufReader::new(stream),
+            socket: None,
+            patience: PATIENCE,
+            next_id: 1,
+            deflate: false,
+            no_follow: false,
+        }
+    }
+
+    /// Dials the socket again after the connection dropped, until it connects or the patience's
+    /// reconnect window passes (a machine link that redials). The new connection keeps the
+    /// socket timeouts and what the machine said it takes.
+    fn reconnect(&mut self, progress: &mut dyn FnMut()) -> anyhow::Result<()> {
+        let Some(socket) = self.socket.clone() else {
+            bail!("the machine daemon closed the connection")
+        };
+        let (read, write) = (self.read_timeout(), self.write_timeout());
+        let started = Instant::now();
+        let mut pause = Duration::from_millis(100);
+        loop {
+            match dial(&socket, read, write) {
+                Ok(stream) => {
+                    self.reader = BufReader::new(stream);
+                    return Ok(());
+                }
+                Err(error) if started.elapsed() >= self.patience.reconnect => {
+                    return Err(error.context(format!(
+                        "the connection to the machine dropped and did not come back within {} s",
+                        self.patience.reconnect.as_secs()
+                    )));
+                }
+                Err(_) => {}
+            }
+            progress();
+            std::thread::sleep(pause.min(self.patience.reconnect));
+            pause = (pause * 2).min(Duration::from_secs(5));
+        }
     }
 
     /// [`Remote::connect`], then asks the machine which write encodings it
@@ -166,16 +297,50 @@ impl Remote {
     /// request could still be crossing the link ([`answer_budget`]), not
     /// one socket timeout: a timed-out read (EAGAIN, os error 35 on macOS)
     /// within that budget is read again, never the call's failure.
+    ///
+    /// Past that budget the machine is asked whether it still answers
+    /// ([`alive`]); while it does the answer is waited for, up to the
+    /// patience's ceiling. A dropped connection is dialed again and the
+    /// request sent again on it when it is [`replayable`]. Only a machine
+    /// that stopped answering, or the ceiling, fails the call.
     fn call_with_progress(
         &mut self,
         cmd: &str,
         mut params: Value,
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<Value> {
-        super::fence::check(cmd)?;
-        if let Some(job) = super::fence::hold_for(cmd) {
-            params.set("hold", json!(job));
+        let started = Instant::now();
+        let mut replays = 0;
+        loop {
+            // Each send, a replay too, passes the held copy's fence again: a replay may go out
+            // minutes later, past the hold's lease.
+            super::fence::check(cmd)?;
+            if let Some(job) = super::fence::hold_for(cmd) {
+                params.set("hold", json!(job));
+            }
+            match self.exchange(cmd, params.clone(), started, progress) {
+                Err(error)
+                    if error.is::<Dropped>()
+                        && self.socket.is_some()
+                        && replays < self.patience.replays
+                        && replayable(cmd, &params) =>
+                {
+                    replays += 1;
+                    self.reconnect(progress).map_err(|again| again.context(error.to_string()))?;
+                }
+                other => return other,
+            }
         }
+    }
+
+    /// One send of the request and the wait for its answer ([`Remote::call_with_progress`]).
+    fn exchange(
+        &mut self,
+        cmd: &str,
+        mut params: Value,
+        started: Instant,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         params.set("id", json!(id));
@@ -184,13 +349,21 @@ impl Remote {
         line.push('\n');
         for slice in line.as_bytes().chunks(SEND_SLICE_BYTES) {
             self.reader.get_mut().write_all(slice).map_err(|error| {
-                stalled(error, "the machine took no bytes of the request", self.write_timeout())
+                if timed_out(&error) {
+                    stalled(error, "the machine took no bytes of the request", self.write_timeout())
+                } else {
+                    Dropped(format!("the connection to the machine dropped: {error}")).into()
+                }
             })?;
             progress();
         }
         let silence = self.read_timeout();
+        // Read here: the answer's reads below hold the connection.
+        let (socket, patience) = (self.socket.clone(), self.patience);
+        let alive = || socket.as_deref().is_some_and(|socket| alive(socket, patience.probe));
         let budget = answer_budget(silence, line.len());
-        let answer_by = Instant::now().checked_add(budget);
+        let mut answer_by = Instant::now().checked_add(budget);
+        let stale_by = Instant::now().checked_add(budget.saturating_add(self.patience.stale));
         // The machine is not trusted: an answer line has a size limit, and
         // only so many answers for other requests are skipped.
         for _ in 0..=MAX_OTHER_ANSWERS {
@@ -209,21 +382,52 @@ impl Remote {
                     {
                         progress();
                     }
-                    Err(error) => {
-                        let what =
-                            format!("the machine did not answer within {} s", budget.as_secs());
+                    // Late, but the machine still answers beside it: wait one more silence, and
+                    // past `stale` call this connection dropped (sent again when replayable).
+                    Err(error)
+                        if timed_out(&error) && started.elapsed() < patience.ceiling && alive() =>
+                    {
+                        if stale_by.is_some_and(|by| Instant::now() >= by) {
+                            return Err(Dropped(format!(
+                                "the machine answers, but this connection was silent for {} s",
+                                started.elapsed().as_secs()
+                            ))
+                            .into());
+                        }
+                        progress();
+                        answer_by = Instant::now().checked_add(silence.unwrap_or(IO_DEADLINE));
+                    }
+                    Err(error) if timed_out(&error) => {
+                        let waited = started.elapsed().as_secs();
+                        let what = if socket.is_none() {
+                            format!("the machine did not answer within {} s", budget.as_secs())
+                        } else if started.elapsed() >= patience.ceiling {
+                            format!(
+                                "the machine did not answer within {waited} s, though it still answers"
+                            )
+                        } else {
+                            format!(
+                                "the machine stopped answering: no answer in {waited} s, and none to a ping"
+                            )
+                        };
                         return Err(stalled(error, &what, None));
+                    }
+                    Err(error) => {
+                        return Err(Dropped(format!(
+                            "the connection to the machine dropped: {error}"
+                        ))
+                        .into());
                     }
                 }
             };
             if read == 0 {
-                bail!("the machine daemon closed the connection");
+                return Err(Dropped("the machine daemon closed the connection".into()).into());
             }
             if answer.last() != Some(&b'\n') {
                 if u64::try_from(read).unwrap_or(u64::MAX) > MAX_ANSWER_BYTES {
                     bail!("the machine daemon's answer is too long");
                 }
-                bail!("the machine daemon closed the connection");
+                return Err(Dropped("the machine daemon closed the connection".into()).into());
             }
             let answer: Value =
                 serde_json::from_slice(&answer).context("the answer is not JSON")?;
@@ -374,7 +578,7 @@ impl Remote {
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
-        let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
+        let part = format!("{}/.{name}{PART_SUFFIX}", parent.trim_end_matches('/'));
         let request =
             self.guarded(json!({ "path": part, "mode": "overwrite", "permissions": permissions }));
         let mut revision = revision_of(&self.call_with_progress(
@@ -520,6 +724,35 @@ pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
     error.downcast_ref::<FsRefusal>().map(|refusal| refusal.code.as_str())
 }
 
+/// Whether the machine at `socket` still answers: a `ping` on a connection of its own, answered
+/// within `probe`. A machine busy with another connection's request answers it beside.
+fn alive(socket: &Path, probe: Duration) -> bool {
+    let Ok(mut stream) = dial(socket, Some(probe), Some(probe)) else { return false };
+    if stream.write_all(b"{\"id\":1,\"cmd\":\"ping\"}\n").is_err() {
+        return false;
+    }
+    let mut answer = Vec::new();
+    let read =
+        Read::take(&mut BufReader::new(&mut stream), 64 * 1024).read_until(b'\n', &mut answer);
+    read.is_ok_and(|read| read > 0)
+        && serde_json::from_slice::<Value>(&answer).is_ok_and(|answer| answer.is_object())
+}
+
+/// A connection to `socket` with these read and write timeouts.
+fn dial(
+    socket: &Path,
+    read: Option<Duration>,
+    write: Option<Duration>,
+) -> anyhow::Result<UnixStream> {
+    let stream = UnixStream::connect(socket)
+        .with_context(|| format!("cannot connect to {}", socket.display()))?;
+    stream.set_read_timeout(read)?;
+    // A machine that stops reading must not hold a write (and a
+    // caller's lock) forever either.
+    stream.set_write_timeout(write)?;
+    Ok(stream)
+}
+
 /// How long a request of `request_bytes` may wait for its answer: one
 /// `silence` (the socket's read timeout) plus the time the request takes to
 /// cross a link at [`MIN_LINK_BYTES_PER_SECOND`].
@@ -608,271 +841,8 @@ pub(super) fn split(path: &str) -> anyhow::Result<(&str, &str)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-    use std::os::unix::net::UnixStream;
-    use std::time::Duration;
-
-    use serde_json::{Value, json};
-
-    use super::{PART_BYTES, Remote};
-
-    /// A part in flight on a slow link reports progress before its answer:
-    /// the machine takes the first MiB of one 8 MiB `fs.write` and waits to
-    /// hear of progress before taking the rest. Progress only after each
-    /// answer (the 30 s upload idle killing a healthy slow upload) never
-    /// comes, and the machine records that.
-    #[test]
-    fn a_part_in_flight_reports_progress_before_its_answer() {
-        let (client, mut server) = UnixStream::pair().unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-        let (tick, ticks) = std::sync::mpsc::channel::<()>();
-        let machine = std::thread::spawn(move || {
-            let mut head = vec![0u8; 1 << 20];
-            server.read_exact(&mut head).unwrap();
-            let heard = ticks.recv_timeout(Duration::from_secs(5)).is_ok();
-            let mut rest = Vec::new();
-            BufReader::new(server.try_clone().unwrap()).read_until(b'\n', &mut rest).unwrap();
-            let line = [head, rest].concat();
-            let request: Value = serde_json::from_slice(&line).unwrap();
-            let answer =
-                json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
-            server.write_all(format!("{answer}\n").as_bytes()).unwrap();
-            heard
-        });
-        let mut remote =
-            Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
-        let data = vec![7u8; PART_BYTES];
-        let mut progress = || {
-            let _ = tick.send(());
-        };
-        let revision = remote
-            .write_with_progress("/work/f.bin", &mut data.as_slice(), 0o600, &mut progress)
-            .unwrap();
-        assert_eq!(revision, "r1");
-        assert!(machine.join().unwrap(), "no progress while the part was in flight");
-    }
-
-    /// A part the link's forwarder took whole is still crossing to the
-    /// machine, so its answer comes later than one socket timeout. Machine
-    /// update copied the cmux-tui build this way and failed with "Resource
-    /// temporarily unavailable (os error 35)": the socket's read timeout
-    /// (EAGAIN) was taken for the call's failure. The machine here takes the
-    /// whole request at once, then answers after five read timeouts.
-    #[test]
-    fn an_answer_slower_than_one_read_timeout_is_still_waited_for() {
-        let (client, mut server) = UnixStream::pair().unwrap();
-        let timeout = Duration::from_millis(100);
-        client.set_read_timeout(Some(timeout)).unwrap();
-        client.set_write_timeout(Some(Duration::from_secs(20))).unwrap();
-        let machine = std::thread::spawn(move || {
-            let mut line = Vec::new();
-            BufReader::new(server.try_clone().unwrap()).read_until(b'\n', &mut line).unwrap();
-            let request: Value = serde_json::from_slice(&line).unwrap();
-            std::thread::sleep(timeout * 5);
-            let answer =
-                json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
-            server.write_all(format!("{answer}\n").as_bytes()).unwrap();
-        });
-        let mut remote =
-            Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
-        let data = vec![7u8; 256 * 1024];
-        let revision = remote.write("/work/cmux-tui", &mut data.as_slice(), 0o755).unwrap();
-        assert_eq!(revision, "r1");
-        machine.join().unwrap();
-    }
-
-    /// A machine that never answers still fails, once the request's budget
-    /// is spent, and says so instead of "os error 35".
-    #[test]
-    fn a_machine_that_never_answers_fails_with_what_stalled() {
-        let mut remote = hostile(|requests, _| {
-            requests.next();
-        });
-        remote.reader.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-        let started = std::time::Instant::now();
-        let error = remote.stat("/work").unwrap_err().to_string();
-        assert!(error.contains("did not answer"), "{error}");
-        assert!(!error.contains("os error"), "{error}");
-        assert!(started.elapsed() < Duration::from_secs(5), "waited {:?}", started.elapsed());
-    }
-
-    /// A [`Remote`] whose machine is `serve`: it gets each request and the
-    /// connection to answer on, then the connection stays open (a machine
-    /// that hangs) until the test ends.
-    fn hostile(
-        serve: impl FnOnce(&mut dyn Iterator<Item = Value>, &mut UnixStream) + Send + 'static,
-    ) -> Remote {
-        let (client, mut server) = UnixStream::pair().unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(server.try_clone().unwrap());
-            let mut requests = reader
-                .lines()
-                .map_while(Result::ok)
-                .map(|line| serde_json::from_str(&line).unwrap());
-            serve(&mut requests, &mut server);
-            std::thread::sleep(Duration::from_secs(30));
-        });
-        Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false }
-    }
-
-    /// An answer line that never ends is refused, not held in memory.
-    #[test]
-    fn an_answer_line_over_the_limit_is_refused() {
-        let mut remote = hostile(|requests, server| {
-            requests.next();
-            let chunk = vec![b'x'; 1 << 20];
-            for _ in 0..20 {
-                if server.write_all(&chunk).is_err() {
-                    return;
-                }
-            }
-        });
-        let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
-        assert!(format!("{error:#}").contains("too long"), "{error:#}");
-    }
-
-    /// Answers that never carry the request's id are refused.
-    #[test]
-    fn answers_for_other_requests_are_refused() {
-        let mut remote = hostile(|requests, server| {
-            requests.next();
-            for _ in 0..2000 {
-                let line = format!("{}\n", json!({"id": 999, "ok": true, "data": {}}));
-                if server.write_all(line.as_bytes()).is_err() {
-                    return;
-                }
-            }
-        });
-        let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
-        assert!(format!("{error:#}").contains("other requests"), "{error:#}");
-    }
-
-    /// A machine whose `identify` lists `capabilities` and that answers every
-    /// `fs.write` with a revision; the returned channel gets each write.
-    fn recording(capabilities: Value) -> (Remote, std::sync::mpsc::Receiver<Value>) {
-        let (seen, writes) = std::sync::mpsc::channel();
-        let remote = hostile(move |requests, server| {
-            for request in requests {
-                let data = match request["cmd"].as_str() {
-                    Some("identify") => json!({"capabilities": capabilities}),
-                    Some("fs.write") => {
-                        let _ = seen.send(request.clone());
-                        json!({"entry": {"revision": "r1"}})
-                    }
-                    _ => json!({"entry": {"revision": "r1"}}),
-                };
-                let answer = json!({"id": request["id"], "ok": true, "data": data});
-                if server.write_all(format!("{answer}\n").as_bytes()).is_err() {
-                    return;
-                }
-            }
-        });
-        (remote, writes)
-    }
-
-    fn decoded(request: &Value) -> Vec<u8> {
-        use base64::Engine as _;
-        let wire = base64::engine::general_purpose::STANDARD
-            .decode(request["bytes_base64"].as_str().unwrap())
-            .unwrap();
-        if request["encoding"] != json!("deflate") {
-            return wire;
-        }
-        let mut out = Vec::new();
-        std::io::Read::read_to_end(
-            &mut flate2::read::DeflateDecoder::new(wire.as_slice()),
-            &mut out,
-        )
-        .unwrap();
-        assert_eq!(request["decoded_size"], json!(out.len()));
-        out
-    }
-
-    /// A machine without `fs-write-deflate-v1` (every image before it) gets
-    /// plain base64 writes, exactly the old request.
-    #[test]
-    fn a_machine_without_the_capability_gets_plain_base64() {
-        let (mut remote, writes) = recording(json!(["fs-v1"]));
-        remote.negotiate();
-        let text = "fn main() {}\n".repeat(10_000);
-        remote.write("/work/main.rs", &mut text.as_bytes(), 0o644).unwrap();
-        let request = writes.recv().unwrap();
-        assert!(request.get("encoding").is_none(), "{request}");
-        assert!(request.get("decoded_size").is_none(), "{request}");
-        assert!(request.get("no_follow").is_none(), "{request}");
-        assert_eq!(decoded(&request), text.as_bytes());
-    }
-
-    /// With `fs-write-nofollow-v1` every write says `no_follow`: the one of
-    /// a small file, and each part and append of a large one.
-    #[test]
-    fn a_machine_with_no_follow_writes_gets_it_on_every_part() {
-        let (mut remote, writes) = recording(json!(["fs-v1", "fs-write-nofollow-v1"]));
-        remote.negotiate();
-        assert!(remote.no_follow() && !remote.deflate);
-        remote.write("/work/small.rs", &mut b"x".as_slice(), 0o644).unwrap();
-        assert_eq!(writes.recv().unwrap()["no_follow"], true);
-        let data = vec![1u8; PART_BYTES + 1];
-        remote.write("/work/big.bin", &mut data.as_slice(), 0o644).unwrap();
-        let first = writes.recv().unwrap();
-        let append = writes.recv().unwrap();
-        assert_eq!(
-            (first["mode"].as_str(), append["mode"].as_str()),
-            (Some("overwrite"), Some("append"))
-        );
-        assert_eq!((&first["no_follow"], &append["no_follow"]), (&json!(true), &json!(true)));
-    }
-
-    /// With the capability, text goes compressed and the parts of a file
-    /// over one part still decode to the file; bytes that do not shrink go
-    /// as they are.
-    #[test]
-    fn a_machine_with_the_capability_gets_deflate_for_what_shrinks() {
-        let (mut remote, writes) = recording(json!(["fs-v1", "fs-write-deflate-v1"]));
-        remote.negotiate();
-        let text: Vec<u8> = "let value = compute(input);\n".repeat(400_000).into_bytes();
-        assert!(text.len() > PART_BYTES);
-        remote.write("/work/big.rs", &mut text.as_slice(), 0o755).unwrap();
-        let mut rebuilt = Vec::new();
-        let mut wire = 0;
-        for _ in 0..text.len().div_ceil(PART_BYTES) {
-            let request = writes.recv().unwrap();
-            assert_eq!(request["encoding"], "deflate", "{}", request["mode"]);
-            wire += request["bytes_base64"].as_str().unwrap().len();
-            rebuilt.extend(decoded(&request));
-        }
-        assert!(rebuilt == text, "the parts do not decode to the file");
-        assert!(wire * 20 < text.len(), "{wire} wire bytes for {}", text.len());
-
-        let mut noise = vec![0u8; 256 * 1024];
-        getrandom::fill(&mut noise).unwrap();
-        remote.write("/work/blob.pack", &mut noise.as_slice(), 0o644).unwrap();
-        let request = writes.recv().unwrap();
-        assert!(request.get("encoding").is_none(), "noise was compressed");
-        assert_eq!(decoded(&request), noise);
-    }
-
-    /// A listing that cycles cursors is refused promptly.
-    #[test]
-    fn a_listing_with_a_repeated_cursor_is_refused() {
-        let mut remote = hostile(|requests, server| {
-            for (page, request) in requests.enumerate().take(5000) {
-                let answer = json!({"id": request["id"], "ok": true, "data": {
-                    "entries": [{"name": format!("n{page}"), "kind": "file", "size": 1, "mtime": 1}],
-                    "cursor": "c1",
-                    "listing": "l",
-                }});
-                if server.write_all(format!("{answer}\n").as_bytes()).is_err() {
-                    return;
-                }
-            }
-        });
-        let error = remote.list("/x").unwrap_err();
-        assert!(format!("{error:#}").contains("no progress"), "{error:#}");
-    }
-}
+#[path = "remote_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "limits_tests.rs"]
