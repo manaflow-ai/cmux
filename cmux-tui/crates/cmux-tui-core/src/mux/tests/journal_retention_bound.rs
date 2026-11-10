@@ -30,12 +30,12 @@ use crate::mux::agent_roster_restore::restore_agent_roster;
 /// Agents of the session. The first [`ACTIVE_AGENTS`] work for the whole
 /// test; the rest start a session and then stay idle, so every record of
 /// theirs is soon older than the retained window.
-const AGENTS: usize = 8;
-const ACTIVE_AGENTS: usize = 4;
+pub(super) const AGENTS: usize = 8;
+pub(super) const ACTIVE_AGENTS: usize = 4;
 /// Journal records between two checkpoints of this test.
 const CHECKPOINT_EVERY: u64 = 64;
 /// N: journal records after the first measure. The second measure is at 4N.
-const RECORDS: u64 = 2_000;
+pub(super) const RECORDS: u64 = 2_000;
 /// Ticks after each checkpoint: one seals, one prunes what the seal covered.
 const TICKS_PER_CHECKPOINT: usize = 2;
 /// Records the registry may keep bookkeeping for: the newest 16 checkpoints
@@ -60,15 +60,15 @@ const JOURNAL_TABLES: [(&str, &str); 5] = [
     ("journal_ingress_receipts", "journal_sequence"),
 ];
 
-struct Agent {
-    terminal: TerminalPublicId,
-    surface: Arc<Surface>,
-    session: String,
+pub(super) struct Agent {
+    pub(super) terminal: TerminalPublicId,
+    pub(super) surface: Arc<Surface>,
+    pub(super) session: String,
 }
 
 /// A session of `workspaces` workspaces with `AGENTS` terminals spread over
 /// them, each with an agent session.
-fn session(workspaces: usize, root: &Path) -> (Arc<Mux>, Vec<Agent>) {
+pub(super) fn session(workspaces: usize, root: &Path) -> (Arc<Mux>, Vec<Agent>) {
     let mux = open_persistent_test_mux("journal-retention", root);
     // The worker ticks each 30 s; this test runs the same tick itself.
     mux.stop_journal_maintenance();
@@ -144,13 +144,13 @@ fn step(mux: &Arc<Mux>, agents: &[Agent], index: u64) {
     }
 }
 
-fn head(mux: &Mux) -> u64 {
+pub(super) fn head(mux: &Mux) -> u64 {
     mux.session_journal_head().unwrap()
 }
 
 /// Writes the mix until the journal head is at `target`, with a checkpoint
 /// and the worker's ticks each `CHECKPOINT_EVERY` records.
-fn write_through(mux: &Arc<Mux>, agents: &[Agent], next_step: &mut u64, target: u64) {
+pub(super) fn write_through(mux: &Arc<Mux>, agents: &[Agent], next_step: &mut u64, target: u64) {
     while head(mux) < target {
         let stop = (head(mux) + CHECKPOINT_EVERY).min(target);
         while head(mux) < stop {
