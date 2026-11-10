@@ -8359,13 +8359,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // side chat opened (the composer keeps `/side <prompt>` and says why).
           // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
           // column's placement, AgentSidePanes).
-          "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments }) => {
+          "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments, gesture }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
             const split = splitRight === true ? { split: "right" } : {};
             // `/side`'s staged files (in-page only; the app's own calls name none): the side chat's
             // first prompt carries them, as a send does (#40066).
             const files = Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [];
+            // The Enter a held `/side` bound (Composer `onBindSideGesture`): its prompt spends it.
+            const held = sendGestureParam(gesture);
             // The side chat's prompt resolves when its turn ends, so nothing waits on it here.
             // acpmux's own refusal shows in the side chat; one the host made never reached it.
             const sidePromptRefused = (error: unknown) => {
@@ -8384,7 +8386,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (!side || !chat) throw new Error("");
               await postNative("chat.sideChat", { sessionId: side.sessionId, ...split });
               if (files.length) {
-                void client.promptSide(side.sessionId, text, files).catch(sidePromptRefused);
+                void client.promptSide(side.sessionId, text, files, held).catch(sidePromptRefused);
                 return;
               }
               // The side chat is open; a prompt it did not take stays in the composer, which says why.
@@ -8403,7 +8405,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             const text = typeof prompt === "string" ? prompt.trim() : "";
             if (!text && !files.length) return;
-            void client.promptSide(sessionId, text, files).catch(sidePromptRefused);
+            void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
           // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
@@ -8916,6 +8918,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     typedArgs?: string,
     fresh = false,
     attachments: ComposerAttachment[] = [],
+    gesture?: SendGesture,
   ): CmuxCommandResult => {
     const state = commandState(fresh);
     const refusal = cmuxCommandRefusal(command, typedArgs, state);
@@ -9051,6 +9054,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         splitRight: true,
         ...(prompt ? { prompt } : {}),
         ...(attachments.length ? { attachments } : {}),
+        ...(gesture ? { gesture } : {}),
       }).catch((error: unknown) => {
         // The side chat opened but its prompt was not sent: that refusal says so itself.
         if (error instanceof CmuxCommandRefused) throw error;
@@ -11184,7 +11188,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onPromptEdit={quick ? undefined : wakeOnTyping}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
-            onCmuxCommand={(command, args, attachments) => handleCmuxCommand(command, args, false, attachments)}
+            onCmuxCommand={(command, args, attachments, gesture) =>
+              handleCmuxCommand(command, args, false, attachments, gesture)
+            }
+            onBindSideGesture={() => directClient.current?.bindSideGesture()}
             // Send's menu offers Send in side chat where `/side <prompt>` would fork this chat now.
             sendsToSide={SIDE_COMMAND !== undefined && !cmuxCommandRefusal(SIDE_COMMAND, "prompt", commandState(false))}
             // A send the composer holds for its files (a pasted screenshot still being read) binds

@@ -298,6 +298,9 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
+  /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
+  onBindSideGesture?(): SendGesture | undefined;
   /// Whether the chat's transcript is at its latest row now (VirtualTranscript's follow, App.tsx
   /// `followingTranscript`): a prompt sent away from it tucks behind the composer (conversation/sendTuck.ts).
   transcriptFollowing?(): boolean;
@@ -354,8 +357,14 @@ type Props = {
   /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
   /// promise keeps the text until it resolves; accepted commands consume their attachments immediately.
   /// `CMUX_PASS_THROUGH` hands the prompt to the normal send path (onSend), attachments and steer included.
-  /// `attachments`: `/side`'s staged files, which go to its side chat with its prompt (#40066).
-  onCmuxCommand?(command: CmuxCommand, args?: string, attachments?: ComposerAttachment[]): CmuxCommandResult;
+  /// `attachments`: `/side`'s staged files, which go to its side chat with its prompt (#40066);
+  /// `gesture`: the one `onBindSideGesture` bound when the composer held it for them.
+  onCmuxCommand?(
+    command: CmuxCommand,
+    args?: string,
+    attachments?: ComposerAttachment[],
+    gesture?: SendGesture,
+  ): CmuxCommandResult;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -492,6 +501,7 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  onBindSideGesture,
   transcriptFollowing,
   onStop,
   onQueueRemove,
@@ -1539,7 +1549,9 @@ function ComposerFrame({
       const sideFiles = owned.action === "side";
       if (sideFiles) {
         const again = (gesture?: SendGesture) => submitNow.current(force, steer, gesture, route);
-        if (holdForAttachments(again, kept)) return false;
+        // Bound to no chat: one bound to this chat would not let its prompt go to the side chat.
+        const bindSide = () => onBindSideGesture?.();
+        if (holdForAttachments(again, kept, bindSide)) return false;
         const waits = awaitsOriginals(
           prompt,
           placed.attachments,
@@ -1548,7 +1560,7 @@ function ComposerFrame({
           undefined,
           needsOriginal,
         );
-        if (holdForOriginals(waits, again, kept)) return false;
+        if (holdForOriginals(waits, again, kept, bindSide)) return false;
       }
       if (owned.name === "import") {
         if (importSandboxed) {
@@ -1567,7 +1579,9 @@ function ComposerFrame({
         }
         owned = undefined;
       } else {
-        const accepted = onCmuxCommand(owned, ownedArgs, sideFiles ? placed.attachments : undefined);
+        const accepted = sideFiles
+          ? onCmuxCommand(owned, ownedArgs, placed.attachments, kept)
+          : onCmuxCommand(owned, ownedArgs);
         // A passthrough command goes as a normal prompt, keeping its staged attachments.
         if (accepted === CMUX_PASS_THROUGH) owned = undefined;
         else if (typeof accepted === "string") {

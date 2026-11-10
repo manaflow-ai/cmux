@@ -10469,15 +10469,38 @@ export class AcpmuxDirectClient {
   /// The reply comes when the side chat's turn ends. `attachments`: `/side`'s staged files, in the
   /// prompt as a send puts them (#40066); past one message's budget, the largest image previews go
   /// as links to their saved originals (promptBudget.ts).
-  async promptSide(sessionId: string, text: string, attachments: ComposerAttachment[] = []): Promise<void> {
-    const carried = attachments.length ? fitPromptBudget(text, attachments) : attachments;
+  /// A recording goes only to an agent that takes voice, a video's frames only to one that takes
+  /// images, as a send's do. `gesture`: the Enter a `/side` held for its files bound
+  /// (`bindSideGesture`); the prompt goes under its prompt id and redeems its ticket.
+  async promptSide(
+    sessionId: string,
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    gesture?: { promptId: string; ticket: Promise<string | undefined> },
+  ): Promise<void> {
+    const capabilities = this.summary?.agentCapabilities?.promptCapabilities;
+    const audible = takesAudio(capabilities, this.summary?.configOptions)
+      ? attachments
+      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
+    const carried = sendable.length ? fitPromptBudget(text, sendable) : sendable;
+    const ticket = gesture ? await gesture.ticket : undefined;
     await this.offerChildren.prompting(sessionId, () =>
       this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(text, carried),
-        _meta: { acpmux: { promptId: crypto.randomUUID() } },
+        _meta: {
+          acpmux: { promptId: gesture?.promptId ?? crypto.randomUUID() },
+          ...(ticket ? { cmuxGesture: ticket } : {}),
+        },
       }),
     );
+  }
+  /// Binds the person's current gesture to `/side`'s prompt, held for its files: bound to no chat
+  /// (the side chat it goes to does not exist yet), so the side chat's prompt redeems it by its
+  /// prompt id (AgentPaneUserGestures `redeem`). Not a send ticket: it holds no uploads.
+  bindSideGesture(promptId: string = crypto.randomUUID()): { promptId: string; ticket: Promise<string | undefined> } {
+    return { promptId, ticket: reservePromptGesture(promptId) };
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
   /// goes to the chat that sent it as this chat's cmux agent message in the same thread, as
