@@ -148,6 +148,7 @@ final class ConversationAudioComposer {
     func run(_ event: ComposerAudioFlow.Event) {
         let before = flow.stage
         let effects = flow.handle(event)
+        var resumeFailed = false
         for effect in effects {
             switch effect {
             case .showHoldHint: showNotice(Self.holdHint, style: .hint)
@@ -157,14 +158,24 @@ final class ConversationAudioComposer {
                 stopDisplayLink()
             case .resumeRecording:
                 stopReviewPlayer()
-                try? recorder?.continueRecording()
-                startDisplayLink()
+                do {
+                    try recorder?.continueRecording()
+                    startDisplayLink()
+                } catch {
+                    resumeFailed = true
+                }
             case .discard:
                 stopReviewPlayer()
                 recorder?.cancel()
                 dismiss()
             case .sendRecording: sendRecording()
             }
+        }
+        if resumeFailed {
+            // The review stays up (stop is unreachable from a recording that never started).
+            flow.handle(.resumeFailed)
+            showNotice(Self.unavailableText, style: .unavailable)
+            return
         }
         guard let stage = flow.stage, stage != before else { return }
         if stage == .review, let recorder {
@@ -197,13 +208,17 @@ final class ConversationAudioComposer {
         startTask = Task { [weak self] in
             do {
                 try await recorder.start()
-                guard let self, self.recorder === recorder else { return }
+                guard let self, self.recorder === recorder else {
+                    // Discarded while starting: release the microphone and its file.
+                    recorder.cancel()
+                    return
+                }
                 self.startTask = nil
                 self.startDisplayLink()
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 self.run(.recorderStarted)
             } catch {
-                guard let self, self.recorder === recorder else { return }
+                guard let self, self.recorder === recorder, !(error is CancellationError) else { return }
                 self.startTask = nil
                 self.run(.cancel)
                 if (error as? ConversationBackendError)?.code == -10 {
@@ -305,8 +320,11 @@ final class ConversationAudioComposer {
         UIView.animate(withDuration: 0.2) {
             self.noticeLabel.alpha = 1
             composer.placeholder.alpha = 0
-            composer.textView.alpha = 0
-            if dimsPlus { composer.plusButton.alpha = 0.3 }
+            // The hint takes only the placeholder's place: text typed meanwhile stays visible.
+            if dimsPlus {
+                composer.textView.alpha = 0
+                composer.plusButton.alpha = 0.3
+            }
         }
         UIAccessibility.post(notification: .announcement, argument: text)
         let clock = clock
@@ -349,7 +367,6 @@ final class ConversationAudioComposer {
         field.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         composer.fieldGlass.contentView.addSubview(field)
         composer.audioFieldView = field
-        composer.plusButton.accessibilityLabel = String(localized: "conversation.audio.cancel", defaultValue: "Cancel Recording", bundle: .module)
         field.alpha = 0
         // The glyph turns into the stop button where it stands.
         field.prepareEntrance(from: composer.micButton.convert(composer.micButton.bounds, to: composer.fieldGlass.contentView))
@@ -370,6 +387,10 @@ final class ConversationAudioComposer {
         let previous = composer.audioStage
         composer.audioStage = stage
         setPlusGlyph(stage == .review ? "xmark" : "plus", in: composer)
+        // Only the review's x cancels; held, the + is still the apps button under the finger's row.
+        composer.plusButton.accessibilityLabel = stage == .review
+            ? String(localized: "conversation.audio.cancel", defaultValue: "Cancel Recording", bundle: .module)
+            : String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module)
         let changes = {
             composer.layoutIfNeeded()
             alongside?()
@@ -409,6 +430,8 @@ final class ConversationAudioComposer {
             composer.placeholder.alpha = 1
             composer.micButton.alpha = composer.hasContent ? 0 : 1
         }, completion: { _ in
+            // A new recording began during this spring: leave its field alone.
+            guard composer.audioStage == nil else { return }
             composer.sendButton.isHidden = false
             if self.recorder == nil {
                 self.field.removeFromSuperview()
@@ -438,7 +461,6 @@ final class ConversationAudioComposer {
         displayLink = nil
     }
 
-    // perf-hot: 1ms audio-recording-meter
     @objc private func frameTick() {
         guard let recorder else {
             stopDisplayLink()

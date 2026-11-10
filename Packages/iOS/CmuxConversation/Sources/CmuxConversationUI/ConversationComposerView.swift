@@ -449,7 +449,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         micButton.frame = glyph.insetBy(dx: -6, dy: -9)
         // A fixed 20 pt continuous corner, not a capsule: the field keeps it
         // when larger text makes it 68 pt tall (Messages, iOS 26.5 at AX3).
-        fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
+        // (The audio stage sets its own capsule radius below; setting this first
+        // would restart that spring's radius from 20.)
+        if audioStage == nil {
+            fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
+        }
         // A draft measured at another width (keyboard insets, reply mode,
         // the Photos drawer, rotation, a first pass before layout) wraps
         // differently here: measure it again.
@@ -1012,6 +1016,18 @@ final class ComposerPlusButton: UIButton {
         let offset = ComposerBarGeometry.plusGlyphOffsetY(iOS27: ConversationComposerView.isIOS27)
         guard offset != 0, let imageView, imageView.image != nil else { return }
         imageView.center.y = bounds.midY + offset
+    }
+}
+#endif
+
+#if canImport(UIKit)
+/// Holds the composer row. The recording field rises above the row (Messages'
+/// 68.67 pt capsule over a 40 pt row): its stop, x, play and send must still
+/// take touches there, so the host asks its subviews before its own bounds.
+final class ComposerHostView: UIView {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if super.point(inside: point, with: event) { return true }
+        return subviews.contains { !$0.isHidden && $0.alpha > 0.01 && $0.point(inside: convert(point, to: $0), with: event) }
     }
 }
 #endif
