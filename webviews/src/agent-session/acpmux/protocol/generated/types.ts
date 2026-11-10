@@ -9,6 +9,8 @@ export interface AcpmuxRequestMeta {
   argv?: unknown;
   author?: unknown;
   beforePromptId?: unknown;
+  callerKind?: unknown;
+  callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
   class?: unknown;
@@ -276,6 +278,7 @@ export interface BtwParams {
   model?: unknown;
   question?: unknown;
   sessionId?: unknown;
+  targetHarness?: unknown;
 }
 
 /** The carrier a live link runs over (`carrier`); null while no link is open. */
@@ -747,6 +750,7 @@ export type MessageSender = {
 
 export interface ModelsParams {
   _meta?: RequestMeta;
+  localOnly?: unknown;
   probe?: unknown;
   refresh?: unknown;
 }
@@ -960,6 +964,15 @@ export interface PermissionRespondParams {
 export type PermissionRespondResult = Record<string, unknown>;
 
 /**
+ * What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
+ * why an agent does not start there unasked.
+ */
+export type PersonHold = {
+  folder: string;
+  reason: string;
+} & Record<string, unknown>;
+
+/**
  * `_acpmux/presence`, to every connection attached to the chat on each change, and
  * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.
  */
@@ -1021,6 +1034,12 @@ export interface ProcessTailParams {
 
 /** What another agent's message asks of the session it goes to. */
 export type PromptClass = ("block" | "question" | "result" | "fyi");
+
+export interface PromptCoachParams {
+  _meta?: RequestMeta;
+  coachId?: unknown;
+  sessionId?: unknown;
+}
 
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
@@ -1469,6 +1488,12 @@ export type SessionDetail = {
   /** Permission requests waiting for an answer. */
   pending: unknown[];
   pendingPermissions: number;
+  /**
+   * A daemon start holds what this chat queued until a person opens it: its folder is guarded
+   * (`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not
+   * drain. Absent otherwise, and from a peer on an older acpmux.
+   */
+  personHold?: (PersonHold | null);
   policy?: (string | null);
   preview?: (string | null);
   /**
@@ -1785,6 +1810,12 @@ export type SessionSummary = {
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
   pendingPermissions: number;
+  /**
+   * A daemon start holds what this chat queued until a person opens it: its folder is guarded
+   * (`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not
+   * drain. Absent otherwise, and from a peer on an older acpmux.
+   */
+  personHold?: (PersonHold | null);
   policy?: (string | null);
   preview?: (string | null);
   /**

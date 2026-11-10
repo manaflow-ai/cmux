@@ -33,7 +33,8 @@
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
     {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
     {"id": "tailnet", "note": "Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers."},
-    {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."}
+    {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."},
+    {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."}
   ],
   "section_actions": {
     "general": ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop", "palette.clearSearchHistory"],
@@ -286,6 +287,7 @@
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
+              "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
@@ -312,7 +314,7 @@
             {"group": "settings.group.agentCache", "note": "Whether an idle Claude chat is compacted while its prompt cache is warm."},
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."}
           ],
-          "trail": ["computerUse", "harnesses", "agentHarnesses", "agentIntegrations"]
+          "trail": ["computerUse", "harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
         },
         {
           "id": "chief",

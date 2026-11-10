@@ -32,6 +32,38 @@ read -r pin_sha CHECKSUM <<<"$picked"
 [[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
   || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
 TAG="cmux-app-ffi-$pin_sha"
+
+# First the pin straight on feat-cmux-next, the way the base autofix pins
+# GhosttyKit (scripts/cmux-next/pin-app-ffi-on-base.sh): when the tip has this
+# release's FFI sources and its C headers only add to the current pin's, the
+# pin lands minutes after the release. Through the pull request below it waited
+# for over an hour of CI, and an FFI change landing in that hour made it stale
+# before it could land (#39863 re-pinned three times on 2026-11-10 and never
+# landed, and base stayed red on "Check the app FFI pin"). Newer sources,
+# changed headers, no BASE_TOKEN, a dry run (BASE_PIN_ENABLED is not true) or
+# any failure there fall through to the pull request, as before.
+start="$(git rev-parse HEAD)"
+: > "$RUNNER_TEMP/pin-base.out"
+base_result=""
+if base_out="$(TOKEN="${BASE_TOKEN:-}" ENABLED="$([[ "${BASE_PIN_ENABLED:-}" == true && -n "${BASE_TOKEN:-}" ]] && echo true)" \
+    GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" bash scripts/cmux-next/pin-app-ffi-on-base.sh "$pin_sha" "$CHECKSUM" 2>&1)"; then
+  base_result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+fi
+echo "$base_out"
+git checkout --quiet --force "$start"
+case "$base_result" in
+  pinned|already)
+    echo "feat-cmux-next pins $TAG ($base_result); no re-pin pull request"
+    # An open re-pin pull request now pins an older release (its diff conflicts
+    # with the base's pin, so it cannot land): close it, best effort.
+    if [[ -n "${GH_TOKEN:-}" ]] && stale="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty' 2>/dev/null)" \
+        && [[ "$stale" =~ ^[0-9]+$ ]]; then
+      gh pr close "$stale" --comment "feat-cmux-next now pins $TAG directly (scripts/cmux-next/pin-app-ffi-on-base.sh), so this re-pin is no longer needed." \
+        || echo "::warning::could not close the stale re-pin pull request #$stale"
+    fi
+    exit 0 ;;
+esac
+echo "app FFI pin on feat-cmux-next: ${base_result:-failed}; the re-pin pull request carries it"
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
 if git diff --quiet -- "$manifest"; then
   echo "feat-cmux-next already pins $TAG, the newest published release"
@@ -39,6 +71,51 @@ if git diff --quiet -- "$manifest"; then
 fi
 tip="$(git rev-parse HEAD)"
 previous="$(remote_head "$branch")"
+
+# Hold a head under CI. Each force push cancels the open PR's checks, and its
+# CI (the Mac queue, the fleet compile, daemon tests) takes longer than the gap
+# between FFI publishes: on 2026-11-09 #39384 was moved at 08:22, 10:38, 11:49,
+# 12:13 and 12:45, no head finished its checks, nothing landed for 6 hours and
+# the pin fell 359 min behind (goal fix-running-ffi-pin, bound 120). So an open
+# PR whose head is younger than REPIN_HOLD_MIN and has no failed check keeps
+# its head and lands first; its merge changes Package.swift, and
+# app-ffi-repin.yml then re-pins the newest release at once. A failed check, an
+# older head or any failed read moves the head as before.
+hold_min="${REPIN_HOLD_MIN:-90}"
+# The head's commit, check runs and statuses are read with the job's
+# GITHUB_TOKEN (contents, checks and statuses: read): the pull-request token
+# has none of these, and a failed read would quietly turn the hold off.
+read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh api "$@"; }
+held_pr() {
+  local number state head age failed status
+  number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 1
+  [[ "$number" =~ ^[0-9]+$ ]] || return 1
+  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
+  [[ "$state" == open && "$head" == "$previous" ]] || return 1
+  age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
+  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  if (( age >= hold_min )); then
+    echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
+    return 1
+  fi
+  # One bounded page: a head with more check runs than it holds is moved.
+  failed="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
+    --jq 'if .total_count > (.check_runs | length) then "unread" else [.check_runs[] | select(.conclusion as $c
+      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c))] | length end')" ||
+    return 1
+  [[ "$failed" =~ ^[0-9]+$ ]] || return 1
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 1
+  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 1
+  [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  if (( failed > 0 )); then
+    echo "#$number's head ${previous:0:12} has $failed failed check(s): moving it" >&2
+    return 1
+  fi
+  echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
+}
+if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]] && held_pr; then
+  exit 0
+fi
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
 # run's staging ref may hold that base while the contents API signs the pin.
 cleanup() {

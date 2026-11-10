@@ -21,11 +21,9 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalResourceID: ResourceID?
     public internal(set) var kind: TabKind { didSet { refreshUnread() } }
     public internal(set) var name: String?
-    /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
-    /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
-    public internal(set) var title: String
-    /// The title's text without a terminal's leading status glyphs (``TerminalTitle``);
-    /// a browser's title as is. Assigned only when the words change.
+    /// The title's text as the daemon split it: a terminal's without its leading status glyphs, a page's as is
+    /// (plans/cmux-next/main-thread-scheduling.md, D2). Assigned only when the words change. There is no raw title
+    /// here: a spinner frame changes nothing the app holds, and the daemon does not send it.
     public internal(set) var titleText: String
     /// What a terminal title's leading glyph said (a spinner: working); nil for none.
     public internal(set) var titleActivity: TerminalTitle.Activity?
@@ -85,6 +83,9 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Whether this client's write of `marked` still waits for the record's echo (``TabReads``).
+    public func expectsMarkedUnread(_ marked: Bool) -> Bool { pendingMarkedUnread == marked }
+
     /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
@@ -110,6 +111,9 @@ public final class TabModel: Identifiable {
         self.attention = nil
         return attention
     }
+
+    /// Whether this client's clear of `request` still waits for the record (``TabReads``).
+    public func expectsAttentionClear(_ request: TabAttention) -> Bool { pendingAttentionClear == request }
 
     /// A failed old clear never restores over a newer request or a newer clear.
     public func dropExpectedAttentionClear(_ request: TabAttention) {
@@ -274,10 +278,16 @@ public final class TabModel: Identifiable {
     public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
-    /// source, `agent-session-tabs-v1`); nil for every other tab.
+    /// source, `agent-session-tabs-v1`); nil for every other tab. Its host as this Mac names it now
+    /// when its store is this Mac's own and it was saved under a former one (``formerLocalHosts``).
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? conversation?.agentSession : nil
+        guard kind == .conversation, var record = conversation?.agentSession else { return nil }
+        if let host = formerLocalHosts[record.host] { record.host = host }
+        return record
     }
+    /// Its store's ``DaemonStore/formerLocalHosts`` (written on a change only): observed, so a reader
+    /// of ``agentSession`` hears ids read after the tree arrived.
+    var formerLocalHosts: [String: String] = [:]
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
@@ -308,10 +318,8 @@ public final class TabModel: Identifiable {
         terminalResourceID = s.terminalResourceID
         kind = s.kind
         name = s.name
-        title = s.title
-        let parsed = Self.parsedTitle(s.title, kind: s.kind)
-        titleText = parsed.text
-        titleActivity = parsed.activity
+        titleText = s.title
+        titleActivity = s.titleActivity
         size = s.size
         dead = s.dead
         terminalState = s.terminalState
@@ -355,7 +363,7 @@ public final class TabModel: Identifiable {
         if terminalResourceID != s.terminalResourceID { terminalResourceID = s.terminalResourceID }
         if kind != s.kind { kind = s.kind }
         if name != s.name { name = s.name }
-        applyTitle(s.title)
+        applyTitle(s.title, activity: s.titleActivity)
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
@@ -423,27 +431,17 @@ public final class TabModel: Identifiable {
         timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
     }
 
-    /// Point updates from surface events (no full snapshot).
-    func setTitle(_ value: String) {
-        applyTitle(value)
-        snapshot.title = value
+    /// Point updates from surface events (no full snapshot): the text and activity the daemon split.
+    func setTitle(_ text: String, activity: TerminalTitle.Activity?) {
+        applyTitle(text, activity: activity)
+        snapshot.title = text
+        snapshot.titleActivity = activity
     }
 
-    /// Assigns the raw title, and its text and activity only when they changed, so a
-    /// spinner frame invalidates no view that reads ``displayTitle``.
-    private func applyTitle(_ value: String) {
-        if title != value { title = value }
-        let parsed = Self.parsedTitle(value, kind: kind)
-        if titleText != parsed.text { titleText = parsed.text }
-        if titleActivity != parsed.activity { titleActivity = parsed.activity }
-    }
-
-    /// A terminal's title loses its leading status glyphs; a page's stays as the page wrote it.
-    static func parsedTitle(_ raw: String, kind: TabKind) -> TerminalTitle {
-        switch kind {
-        case .pty, .remoteTerminal: TerminalTitle(raw: raw)
-        default: TerminalTitle(text: raw)
-        }
+    /// Assigns the text and the activity, each only when it changed.
+    private func applyTitle(_ text: String, activity: TerminalTitle.Activity?) {
+        if titleText != text { titleText = text }
+        if titleActivity != activity { titleActivity = activity }
     }
 
     func setSize(_ value: CellSize) {

@@ -1026,8 +1026,8 @@ export function ComposerQueue({
                 )}
               </>
             ) : (
-              // A skill's `/name` draws as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words)
+              // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
+              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words, undefined, skills.leading)
             )}
           </span>
         </button>

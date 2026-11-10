@@ -247,6 +247,21 @@ test("only reads wait for a slot; a write, a click's answer or a Stop goes at on
   expect(waitsForSlot("git.status")).toBe(true);
 });
 
+test("a preset read waits for a slot; a preset approval card's answer goes at once and never again", () => {
+  expect(waitsForSlot("_acpmux/presets", { name: "lane" })).toBe(true);
+  expect(waitsForSlot("_acpmux/presets")).toBe(true);
+  const approve = { name: "lane", approveMode: true, approveDigest: "d1", sessionId: "s1" };
+  expect(waitsForSlot("_acpmux/presets", approve)).toBe(false);
+  expect(waitsForSlot("_acpmux/presets", { ...approve, approveMode: false })).toBe(false);
+  expect(waitsForSlot("_acpmux/presets", { name: "lane", set: { model: "m" } })).toBe(false);
+  const budget = new RequestBudget(1);
+  const sent: string[] = [];
+  budget.admit(1, PROBE, () => sent.push("read"));
+  budget.admit(2, "_acpmux/presets", () => sent.push("preset read"), { name: "lane" });
+  budget.admit(3, "_acpmux/presets", () => sent.push("approve"), approve);
+  expect(sent).toEqual(["read", "approve"]);
+});
+
 test("a write refused as busy is never sent again, so a later write is not undone", async () => {
   // A bookmark refused as busy, then its removal answered: sending the bookmark again would put it back.
   const daemon: Daemon = { inFlight: 0, peak: 0, refused: 0, latencyMs: 30, answers: [] };

@@ -80,6 +80,10 @@ public final class TabStripView: NSView {
     /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar
     /// re-checks its own place on the top row's line.
     public var onMovedInWindow: (() -> Void)?
+    /// The flush corner: the selected tab is the first, on the leading edge (`TabStripView+CornerFlush`).
+    var leadsWithSelection = false
+    /// The flush corner's state reached the window root since it was turned on.
+    var reportedCornerFlush = false
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -515,10 +519,12 @@ public final class TabStripView: NSView {
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
+        // The flush corner (`chrome.cornerFlush`): the first tab starts on the pane's leading edge.
+        let leading = CornerFlush.current.isOn ? 0 : padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
-        tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
+        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
+        tabsClip.frame = CGRect(x: leading + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
             // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).
@@ -550,8 +556,8 @@ public final class TabStripView: NSView {
         closingWatch.updateTracking()
     }
 
-    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
-    var reduceMotion: Bool { !Motion.tabs.animatesMovement }
+    /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the strip's window.
+    var reduceMotion: Bool { !Motion.tabs.animatesMovement(in: window) }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 

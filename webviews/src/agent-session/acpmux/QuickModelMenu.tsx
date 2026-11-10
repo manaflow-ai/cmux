@@ -1224,15 +1224,16 @@ export function StarIcon({ filled = false }: { filled?: boolean }) {
 /// What a started chat ran (Leo 2026-11-06: "you can have, like, I don't know what other symbol we
 /// want to depict, like, oh okay, you previously had this model, this model family, this model
 /// provider"): a quiet mark in secondary ink on the chat's own model row, provider row and rail tab,
-/// which stays while another harness's model is held. `glyph` (the history glyph) ships: it says
-/// "before" where a dot would read as unread or as status, and adds no word to a row. A rail tab
-/// draws `glyph` as a hairline ring (modelPicker.css), so the rail keeps one mark per tab.
+/// shown only while another harness's model is held (ModelPicker), so it never sits beside the check.
+/// `glyph` (the history glyph) ships: it says "before" where a dot would read as unread or as status,
+/// and adds no word to a row; its tooltip names it, "In this chat". A rail tab draws `glyph` as a
+/// hairline ring (modelPicker.css), so the rail keeps one mark per tab.
 export function UsedMark({ look }: { look: UsedLook }) {
   const t = useT();
   const text = t("picker.usedHere");
   if (look === "caption") return <span className="acpmux-used-caption">{text}</span>;
   return (
-    <span className={`acpmux-used-mark acpmux-used-${look}`}>
+    <span className={`acpmux-used-mark acpmux-used-${look}`} title={text}>
       {look === "glyph" && <Icon name="history" size={12} />}
       <span className="sr-only">{text}</span>
     </span>

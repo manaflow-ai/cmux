@@ -17,6 +17,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { Spinner } from "./conversation/icons";
+import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
@@ -511,9 +512,11 @@ export function ModelPicker(props: ModelPickerProps) {
   );
   const harnessFixed = props.harnessFixed === true && ownHarness.length > 0 && !forkHarnesses;
   const harnesses = harnessFixed ? ownHarness : (forkHarnesses ?? allHarnesses);
-  // A started chat that can fork marks what it ran (UsedMark), and the pick its next message forks to.
-  const used = forkHarnesses ? (fork?.used ?? "glyph") : undefined;
+  // A started chat that can fork holds the pick its next message forks to, and while one is held marks
+  // what it ran (UsedMark). With nothing held the running row's check says it, and a second mark beside
+  // the check reads as an unexplained clock (Leo 2026-11-09, relaying Lucas: "What's this new clock icon?").
   const held = forkHarnesses ? fork?.held : undefined;
+  const used = held ? (fork?.used ?? "glyph") : undefined;
   // A launch profile folded into its family's tab (pickerProfiles.ts) is no entry of its own: its tab
   // is the family's.
   const heldEntry = held
@@ -1284,7 +1287,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // enter a message on that new model"): the next message forks the chat, and the mark says so.
   const forkGlyph = forkText && (
     <span className="acpmux-model-fork">
-      <Icon name="agent.fork" size={12} />
+      <Icon name={FORK_ICON} size={12} />
       <span className="sr-only">{forkText}</span>
     </span>
   );
@@ -1365,7 +1368,14 @@ export function ModelPicker(props: ModelPickerProps) {
                         quickRow("", model),
                       )
                     : [],
-                current: props.predictedModel ?? props.model,
+                // The running model's row: an alias row ("opus") whose release the session reports
+                // ("claude-opus-5-5") is the running one. Matched on the raw id alone, no row ran:
+                // the Effort column showed the first row's levels and a level pick switched model.
+                current:
+                  props.predictedModel ??
+                  (modelsNeeded && props.model && current && !current.models.some((model) => model.id === props.model)
+                    ? (current.models.find((model) => model.release === props.model)?.id ?? props.model)
+                    : props.model),
                 ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
                 onModel: (id) => {
                   quickPicked.current = true;

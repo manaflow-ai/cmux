@@ -142,6 +142,13 @@ pub(super) fn shutdown_daemon(
         "pid": actual_identity.pid,
         "generation": actual_identity.generation,
         "ended_terminals": ended_terminals,
+        // A stop that ended every terminal leaves nothing to resume: the
+        // stopping client removes the terminal and resume state in this
+        // directory once the owner released it; the other stores stay.
+        "session_dir": (end_terminals && !keep_layout)
+            .then(|| mux.session_state_directory())
+            .flatten()
+            .and_then(|dir| dir.to_str().map(str::to_owned)),
     }))
 }
 

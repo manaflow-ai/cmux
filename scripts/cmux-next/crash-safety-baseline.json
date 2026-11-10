@@ -110,7 +110,7 @@
    "exit": {
     "acpmux": 6,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,
@@ -177,7 +177,7 @@
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 2
+    "MessagesLabHome": 3
    }
   }
  }

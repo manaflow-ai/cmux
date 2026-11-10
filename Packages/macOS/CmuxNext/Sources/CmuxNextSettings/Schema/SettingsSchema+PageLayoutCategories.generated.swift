@@ -153,7 +153,7 @@ extension SettingsPageLayout {
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
             GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
             GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
             GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
@@ -174,7 +174,7 @@ extension SettingsPageLayout {
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
         ],
-        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations]
+        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
     )
 
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).

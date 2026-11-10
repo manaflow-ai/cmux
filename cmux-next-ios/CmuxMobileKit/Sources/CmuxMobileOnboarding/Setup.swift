@@ -3,11 +3,13 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
+import OSLog
 import SwiftUI
 import UIKit
 import UserNotifications
 
 private let theme = CmuxMobileTheme.standard
+private let log = Logger(subsystem: "dev.cmux.mobile", category: "shell")
 
 /// First-run setup after sign-in (SPEC 5.5). Each step is a full page pushed in
 /// a `NavigationStack`; progress is implicit.
@@ -30,6 +32,11 @@ public struct SetupFlow: View {
     let signOut: () -> Void
     let finish: () -> Void
     @State private var path: [Step] = []
+    /// `steps` as of the latest update. A page's `next` can run on a copy of
+    /// this view from before the plan was fixed (the fleet's push probe: plan
+    /// [team, pairMac, notifications] logged, yet Connect your Mac ended setup
+    /// on the default [team, pairMac]); state reads the current value.
+    @State private var plan: [Step]?
     @State private var confirmsSignOut = false
 
     public init(
@@ -73,6 +80,7 @@ public struct SetupFlow: View {
             }
         }
         .tint(theme.colors.label.color)
+        .onChange(of: steps, initial: true) { _, steps in plan = steps }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
@@ -149,11 +157,26 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
-        guard let index = steps.firstIndex(of: step), index + 1 < steps.count else {
+        let steps = plan ?? self.steps
+        let next = Self.step(after: step, in: steps)
+        let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"
+        log.info("\(said, privacy: .public)")
+        guard let next else {
             finish()
             return
         }
-        path.append(steps[index + 1])
+        path.append(next)
+    }
+
+    /// The planned step after `step`, in setup's order. The plan is fixed once
+    /// the team list loads, which can be after the user has moved on: a page
+    /// the final plan dropped (Connect your Mac, when a Mac turned out to be
+    /// online) still leads to the steps planned after it, such as
+    /// notifications, instead of ending setup.
+    nonisolated static func step(after step: Step, in steps: [Step]) -> Step? {
+        let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
+        guard let rank = order.firstIndex(of: step) else { return nil }
+        return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }
     }
 }
 

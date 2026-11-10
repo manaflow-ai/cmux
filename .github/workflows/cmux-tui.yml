@@ -707,13 +707,34 @@ jobs:
       - name: Require every Valgrind shard
         env:
           SHARD_RESULT: ${{ needs.valgrind-leak-check-shard.result }}
-        run: test "$SHARD_RESULT" = success
+        run: |
+          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 failed="" unjudged="" pair name result; shift
+            for pair in "$@"; do
+              name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
+              case "${result%%[ :]*}" in
+                success) ;;
+                failure|invalid) failed+=" $name: $result;" ;;
+                *) unjudged+=" $name ${result:-none}," ;;
+              esac
+            done
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
+            if [[ -n "$unjudged" ]]; then
+              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
+            fi
+            echo "$what: every job passed"
+          }
+          needs_verdict valgrind-leak-check "valgrind-leak-check-shard=$SHARD_RESULT"
 
   macos:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: macOS lint and tests
     needs: validate-inputs
+    outputs:
+      # Runnable tests the focused filter selected here; hosted-verification reads it.
+      focused_selected: ${{ steps.focused.outputs.selected }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 40
     steps:
@@ -831,17 +852,25 @@ jobs:
       # its fixed groups, so a filtered dispatch reported macOS green without running the
       # test, and a macOS-only regression landed. No match fails, as on Linux.
       - name: Focused test filter (macOS)
+        id: focused
         if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' }}
         working-directory: cmux-tui
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
-          # Linux-only test files compile to nothing here; the Linux job stays strict.
+          # Linux-only test files compile to nothing here. The step reports its count
+          # (outputs.selected); hosted verification fails the run when no host ran a test.
           CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST: "1"
         shell: bash
         run: ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER" --test-threads=2
 
+      # The fixed Mac test groups below run in full mode only. A focused run is
+      # clippy plus the requested filter: before, every focused dispatch also ran
+      # all of these groups and held a shared Mac runner for the whole job while
+      # about 100 jobs queued for the pool (2026-11-09). The full merge gate still
+      # runs every group. With test_filter optchat_chief, the Chief tests run in
+      # the Linux optchat-chief job and this job is clippy only.
       - name: Mac discovery and socket tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
@@ -849,14 +878,14 @@ jobs:
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac link caller signature tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         # cmux-link checks a caller's code signature only on macOS
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
       - name: Mac browser host provider tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         # The provider socket's peer pid differs by platform (macOS reports
         # the last process that used the server end), and the inherited
@@ -866,7 +895,7 @@ jobs:
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: |
           # macOS always has /bin/zsh; the Linux runner has none, so this
@@ -876,7 +905,7 @@ jobs:
             -- --exact
 
       - name: Mac theme, layout and launchd tests
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: |
           ../scripts/ci/cargo-test-selected.sh -p cmux-theme-tokens --test load \
@@ -890,7 +919,7 @@ jobs:
       # run it here against the release-pinned daemon, the one release users
       # update from.
       - name: Previous release upgrade adoption
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: |
           ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
@@ -902,7 +931,7 @@ jobs:
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
       # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
       - name: Terminal corpus host snapshots (macOS arm64)
-        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
         run: cargo test -p ghostty-vt --test terminal_corpus
 
@@ -1026,6 +1055,10 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
+    outputs:
+      # Runnable tests the focused filter selected on Linux (one matrix row, so
+      # one value); hosted-verification reads it.
+      focused_selected: ${{ steps.focused.outputs.selected }}
     # A green run took ~40 min on a 32 vCPU runner (the workspace test step alone
     # 36.6 min, run 40976799846); 40 cancelled the first all-green run. On the
     # 16 vCPU pool at --test-threads=2 the suite has outgrown 55: every full run
@@ -1169,11 +1202,15 @@ jobs:
             -- --exact
 
       - name: cargo test
+        id: focused
         working-directory: cmux-tui
         env:
           CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '32' || '6' }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
+          # macOS-only tests compile to nothing here. The focused script reports its
+          # count (outputs.selected); hosted verification fails the run when no host ran a test.
+          CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST: "1"
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
@@ -1702,6 +1739,8 @@ jobs:
       MACOS_RESULT: ${{ needs.macos.result }}
       OPTCHAT_CHIEF_RESULT: ${{ needs.optchat-chief.result }}
       TEST_FILTER: ${{ inputs.test_filter }}
+      LINUX_FOCUSED_SELECTED: ${{ needs.test.outputs.focused_selected }}
+      MACOS_FOCUSED_SELECTED: ${{ needs.macos.outputs.focused_selected }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       GO_PANE_RESULT: ${{ needs.go-pane.result }}
@@ -1747,5 +1786,12 @@ jobs:
             require_success "Valgrind" "$VALGRIND_RESULT"
             require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
+          fi
+          # Each host lets a filter that selects no test there pass (host-only test
+          # files), so the verdict on a filter that selects nothing anywhere is here.
+          # An empty count (a skipped step, the chatmux_relay selector) is not 0.
+          if [[ "$MODE" == "focused" && "${LINUX_FOCUSED_SELECTED:-}" == "0" && "${MACOS_FOCUSED_SELECTED:-}" == "0" ]]; then
+            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests on Linux or macOS" >&2
+            failed=1
           fi
           exit "$failed"

@@ -112,7 +112,7 @@ import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
-import { latestLine, toolDetail } from "./trayDetail";
+import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -138,6 +138,7 @@ import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
+import { focusRingShown } from "../../../ui/focusModality";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -1070,7 +1071,11 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
 /// what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
-    agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
+    agent.state !== "running"
+      ? undefined
+      : agent.actionShell
+        ? actionDetail(t, agent.action, true)
+        : namedAction(t, agent.action);
   const label = subagentTaskLabel(t, agent);
   const name = subagentDisplayName(t, agent);
   const lines = [
@@ -1234,10 +1239,10 @@ function withLeaving(cards: readonly TrayCard[], leaving: ReadonlyMap<string, Le
   return out;
 }
 
-/// Focus that arrived by keyboard (`:focus-visible`), which holds the hat; a click's focus does not.
+/// Focus a navigation key moved here (focusRingShown), which holds the hat; a click's focus does not.
 function focusVisible(event: FocusEvent<HTMLElement>): boolean {
   try {
-    return (event.target as Element).matches(":focus-visible");
+    return focusRingShown(event.target as Element);
   } catch {
     return false;
   }

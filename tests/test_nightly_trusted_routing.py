@@ -257,7 +257,31 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertEqual(evaluate(parse_expression(route), context), NIGHTLY_ONLY)
                 self.assertEqual(evaluate(parse_expression(route), {**context, 'github.repository_owner': 'fork'}),
                                  'ubuntu-24.04')
-        self.assertEqual(DOC['jobs']['decide']['environment'], 'ci-routing-agent')
+        self.assertEqual(DOC['jobs']['decide']['environment'], {"name": "ci-routing-agent", "deployment": False})
+
+    def test_no_signing_job_reads_an_owned_runner_variable(self):
+        # main's "CI repository variables" check (scripts/ci/signing_runner_variables.py on main) reads this
+        # branch's workflows and holds every variable a signing job's runs-on reads to blacksmith-*/ubuntu-*.
+        # These variables name owned Macs, so a signing job that reads one turns that check red on main
+        # (#26450: promote-nightly-next fell back to vars.CI_NIGHTLY_NEXT_BUILD_RUNNER). Such a job ends on
+        # the owned label as a literal instead. Signing job: main's rule, a signing secret or a release environment.
+        signing_secret = re.compile(
+            r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_"
+            r"|CONTENT_SIGNING_)", re.IGNORECASE)
+        release_environment = re.compile(
+            r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
+        owned = re.compile(r"vars(?:\.|\[\s*['\"])(CI_NIGHTLY_NEXT_BUILD_RUNNER|CI_SIDE_LANE_RUNNER)\b", re.IGNORECASE)
+        found = []
+        for path in sorted((ROOT / '.github/workflows').glob('*.y*ml')):
+            document = yaml.load(path.read_text(encoding='utf-8'), Loader=yaml.BaseLoader)
+            for name, job in ((document or {}).get('jobs') or {}).items() if isinstance(document, dict) else ():
+                if not isinstance(job, dict):
+                    continue
+                signing = (signing_secret.search(json.dumps(job))
+                           or release_environment.search(json.dumps(job.get('environment') or '')))
+                if signing and owned.search(str(job.get('runs-on', ''))):
+                    found.append(f'{path.name}:{name}')
+        self.assertEqual(found, [])
 
     def test_only_the_nightly_routes_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
@@ -269,10 +293,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
         # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
-        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses), and its retired
-        # (if: false) acked twin shares it.
-        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
-                                'promote-nightly-next', 'promote-nightly-next-acked', 'verify-final-dmg-nightly',
+        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses) but ends on the
+        # nightly slot's label as a literal, and its retired (if: false) acked twin shares it
+        # (test_no_signing_job_reads_an_owned_runner_variable).
+        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
@@ -997,7 +1021,7 @@ class CredentialedControls(unittest.TestCase):
     def test_credential_permissions_remain_scoped_to_each_control(self):
         self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[0]]['permissions'], {
             'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
-        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[1]]['environment'], 'ci-routing-agent')
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[1]]['environment'], {"name": "ci-routing-agent", "deployment": False})
         self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[2]]['permissions'], {
             'contents': 'read', 'pull-requests': 'write'})
 

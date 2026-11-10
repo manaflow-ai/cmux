@@ -175,6 +175,10 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
+  "src/agent-session/acpmux/conversation/PromptCoachCard.tsx": {
+    count: 1,
+    what: "a prompt coach card arriving under a turn",
+  },
   "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
@@ -214,6 +218,14 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/conversation/followGlide.ts": {
     count: 1,
     what: "a followed reply eases into each new line",
+  },
+  "src/agent-session/acpmux/conversation/sendMorph.ts": {
+    count: 2,
+    what: "a prompt sent from the latest row moves from the composer into its message (the move's clock), or fades where it is when it was queued",
+  },
+  "src/agent-session/acpmux/conversation/sendTuck.ts": {
+    count: 2,
+    what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
   },
   "src/agent-session/acpmux/conversation/turnEndFold.ts": {
     count: 1,

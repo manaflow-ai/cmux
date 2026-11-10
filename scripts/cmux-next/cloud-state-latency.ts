@@ -67,7 +67,9 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   try {
     if (!machine) {
-      const v = await op("cloud.machine.create", { name: "state latency", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } });
+      // A test machine's name (cmux-platform TestMachines.ts): the platform deletes it 6 hours on if the finally never runs.
+      const name = `cmux-test-state-latency-${Date.now().toString(36)}`;
+      const v = await op("cloud.machine.create", { name, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } });
       machine = v.machine.id as string;
       console.log(`created ${machine}`);
     }

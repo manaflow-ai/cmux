@@ -193,7 +193,9 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml")
+# The workflows that pick with the kit lane: one simulator job on one Mac.
+KIT_WORKFLOWS = ("/cmux-next-ios-kit.yml", "/ios-reliability-matrix.yml")
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -211,7 +213,8 @@ PICKER_JOB = "runner"
 # The jobs that hold a mini's simulator: test-ios.yml's ios-simulator matrix
 # and ios-screenshots.yml's capture. ios-simulator-build carries SIM_LABEL only
 # to land on a mini with the runtime; glaeda runs it as an isolated build job.
-SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)")
+SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)"
+                     r"|phone cells \(iOS simulator\)")
 # In-flight iOS runs whose jobs are read (one request each), newest first.
 MAX_JOB_READS = 20
 # Job statuses before a runner has taken the job.
@@ -516,7 +519,7 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
-    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml")
+    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
     if screenshots_run(run) or kit_run:
         if kit_run and placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
             return 0
@@ -538,7 +541,7 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
-    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml")
+    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
     if screenshots_run(run) or kit_run:
         return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
     title = str(run.get("display_title") or "")

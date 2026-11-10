@@ -8,7 +8,7 @@ extension HomeProjection {
     /// Chief can answer again (`canRetryChiefTurn`).
     func turnFailureRetryTarget(_ message: ID) -> ID? {
         guard let at = shown.firstIndex(where: { HomeMapping.id($0, aliases: aliases) == message }) else { return nil }
-        for item in shown[..<at].reversed() where item.author == me {
+        for item in shown.prefix(upTo: at).reversed() where item.author == me {
             let id = HomeMapping.id(item, aliases: aliases)
             return canRetryChiefTurn(id) ? id : nil
         }

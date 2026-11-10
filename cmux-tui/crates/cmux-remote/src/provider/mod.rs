@@ -48,8 +48,8 @@ pub use relay::{
     spawn_relay_daemon_registration,
 };
 pub use ssh::{
-    REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SshProvider,
-    SshProviderConfig,
+    REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SSH_STDERR_MARK,
+    SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]

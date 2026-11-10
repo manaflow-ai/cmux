@@ -319,6 +319,7 @@ fn native_data_frames_reach_only_the_owner() {
         crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
         crate::git_seed::GIT_SEED_CAPABILITY,
         crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+        crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
         crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     ] {
         assert!(native_owner::carries(capability), "{capability}");
@@ -395,6 +396,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    // The provider's change notice is the verified local app's, as its register and its result:
+    // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
+    "apps-provider-changed",
     "apps-provider-register",
     "apps-provider-result",
     "apps-run",

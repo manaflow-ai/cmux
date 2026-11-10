@@ -41,10 +41,15 @@ export interface HeaderCheck {
   readonly onBase?: boolean;
 }
 
+/// One place a started chat can move (Move to…): a Cloud machine, or this Mac (`kind: "local"`, id
+/// `local`, whose label the page writes itself).
 export interface HeaderMoveTarget {
   readonly id: string;
   readonly label: string;
   readonly status?: string;
+  readonly kind: "local" | "cloud";
+  /// Why a move there would refuse now: the row is greyed with it.
+  readonly reason?: string;
 }
 
 export interface HeaderState {
@@ -67,7 +72,11 @@ export interface HeaderState {
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
   /// composer's picker offers the same. Only a `pane.tabState` reply carries it; a push keeps it.
   readonly moves: readonly string[];
-  /// Eligible Cloud machine targets for the title menu. The host validates ids again on dispatch.
+  /// Why each of `moves` would refuse now, by action id (a chat with no first message yet): the
+  /// picker shows that row greyed with it. Only a `pane.tabState` reply carries it, with `moves`.
+  readonly moveReasons: Readonly<Record<string, string>>;
+  /// Where the chat can move (Move to… in the composer's picker and the title menu): Cloud machines,
+  /// and this Mac for a chat a move took from it. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
@@ -89,10 +98,21 @@ let current: HeaderState = {
   headerControls: "standard",
   headerMotion: "still",
   moves: [],
+  moveReasons: {},
   moveTargets: [],
   version: 0,
 };
 const listeners = new Set<() => void>();
+
+/// The `moveReasons` object: each non-empty string reason by action id.
+function moveReasonsOf(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const reasons: Record<string, string> = {};
+  for (const [id, reason] of Object.entries(value)) {
+    if (typeof reason === "string" && reason.trim()) reasons[id] = reason;
+  }
+  return reasons;
+}
 
 /// The App's state (a `pane.tabState` reply or a `headerState` push); fields it leaves out keep their value.
 export function setHeaderState(value: unknown): void {
@@ -106,6 +126,7 @@ export function setHeaderState(value: unknown): void {
     headerMotion?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
+    moveReasons?: unknown;
     moveTargets?: unknown;
     version?: unknown;
   };
@@ -122,15 +143,22 @@ export function setHeaderState(value: unknown): void {
     headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
+    // Read with `moves`: a reply that names the moves and no reasons offers them all.
+    moveReasons: Array.isArray(raw.moves) ? moveReasonsOf(raw.moveReasons) : current.moveReasons,
     moveTargets: Array.isArray(raw.moveTargets)
       ? raw.moveTargets.flatMap((target: unknown): HeaderMoveTarget[] => {
           const row = (target ?? {}) as Record<string, unknown>;
-          if (typeof row.id !== "string" || !row.id || typeof row.label !== "string" || !row.label) return [];
+          if (typeof row.id !== "string" || !row.id || typeof row.label !== "string") return [];
+          const kind = row.kind === "local" ? "local" : "cloud";
+          // Only this Mac's row may come without a name: the page names it.
+          if (!row.label && kind !== "local") return [];
           return [
             {
               id: row.id,
               label: row.label,
+              kind,
               ...(typeof row.status === "string" && row.status ? { status: row.status } : {}),
+              ...(typeof row.reason === "string" && row.reason.trim() ? { reason: row.reason } : {}),
             },
           ];
         })

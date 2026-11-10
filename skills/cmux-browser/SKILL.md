@@ -181,6 +181,28 @@ Pass `timeout: 5000` to bound navigation in milliseconds
 (default `30000`, `0` disables the navigation timeout). Both timing options
 must be finite nonnegative numbers.
 
+## Verify a flow before you say done
+
+Before you tell the person a UI change works, click through the flow you
+built and let the chat show the proof:
+
+```js
+await verifyFlow(5173, [
+  { open: "/settings", note: "Open Settings" },
+  { type: "#name", text: "Ada" },
+  { click: "text=Save" },
+  { expect: "Saved", note: "The save confirms" },
+]);
+```
+
+Each step gets a screenshot and one line; the first failure skips the rest.
+The chat draws the result as a pass/fail walkthrough under your final
+message, so say what passed rather than pasting the screenshots. A failed
+step means the change is not done: fix it and run the flow again. With no
+dev server on the port it fails with "No dev server answers at …"; start the
+server with `bg_start` first. Step shapes and limits:
+[references/repl-guide.md](references/repl-guide.md).
+
 ## What the per-tab CLI does not cover
 
 The per-tab commands have no saved state, console

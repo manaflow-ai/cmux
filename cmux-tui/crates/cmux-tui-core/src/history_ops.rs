@@ -47,6 +47,9 @@ use pages::run;
 /// Advertised in identify: the daemon answers `history.*` and publishes
 /// `history-changed`.
 pub(crate) const CAPABILITY: &str = "history-v1";
+/// Advertised in identify: `history.clear` takes `until_ms`, the end of a
+/// clear that waited in the app's queue (its click time).
+pub(crate) const CLEAR_UNTIL_CAPABILITY: &str = "history-clear-until-v1";
 /// The one history operation only the user may run (request_origin.rs
 /// gate A2): it deletes the undo of a delete.
 pub(crate) const PURGE_OPERATION: &str = "history.backups.purge";
@@ -137,6 +140,20 @@ pub(crate) fn list_for_test(
 ) -> Result<Value, ResourceError> {
     let now_ms = now_ms();
     merged::list(mux, fields, now_ms, local_day_start_ms(now_ms))
+}
+
+/// One `history.*` mutation for a test, with no request envelope.
+#[cfg(test)]
+pub(crate) fn mutate_for_test(
+    mux: &Arc<Mux>,
+    key: &str,
+    operation: &str,
+    fields: &Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    let now_ms = now_ms();
+    let actor = crate::workspace_registry::Actor::local_user();
+    merged::mutate(mux, key, &actor, operation, fields, now_ms, local_day_start_ms(now_ms))
+        .map(|(value, _)| value)
 }
 
 /// Saves the agent fold as if it had never been saved, the way the history

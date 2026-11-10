@@ -29,7 +29,7 @@ import Testing
         // One workspace record, its screen, its pane and its 3 tabs.
         #expect(indexed <= 6, "a one-workspace change indexed \(indexed) records in a \(sessionSize)-workspace session")
         #expect(store.workspaces.count == sessionSize)
-        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
+        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0")
         #expect(store.index.tabsBySurface.count == sessionSize * 3)
     }
 
@@ -48,9 +48,9 @@ import Testing
         // or the event was not the daemon's): the snapshot wins for that workspace.
         let surface = SurfaceID(rawValue: 3 * 100 + 10)
         _ = store.apply(.titleChanged(surface: surface, title: "from an event"))
-        #expect(store.index.tabsBySurface[surface]?.title == "from an event")
+        #expect(store.index.tabsBySurface[surface]?.titleText == "from an event")
         store.apply(snapshot: session(20))
-        #expect(store.index.tabsBySurface[surface]?.title == "t 0")
+        #expect(store.index.tabsBySurface[surface]?.titleText == "t 0")
     }
 
     @Test func aNewConnectionsFirstSnapshotAppliesInFull() {
@@ -65,9 +65,9 @@ import Testing
     @Test func aSnapshotDiffComputedAgainstAnOlderMemoIsRecomputed() {
         let store = DaemonStore()
         store.apply(snapshot: session(20))
-        let stale = SnapshotDiff(revision: store.snapshotMemo.revision &- 1, changed: [:], removed: [])
+        let stale = SnapshotDiff(revision: store.snapshotMemo.revision &- 1, changed: [:], removed: [], order: [], sameOrder: true)
         store.apply(snapshot: session(20, changing: 5), diff: stale)
-        #expect(store.workspaces[5].screens.first?.panes.first?.tabs.first?.title == "renamed 0",
+        #expect(store.workspaces[5].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0",
                 "a diff of another memo revision is not trusted")
     }
 
@@ -99,7 +99,7 @@ import Testing
         store.apply(snapshot: next, diff: diff)
         let walked = store.snapshotWorkspacesWalkedOnMain - before
         #expect(walked == 0, "main walked \(walked) workspace snapshots in a \(sessionSize)-workspace session")
-        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
+        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0")
         // The memo vouches for the tree it applied: the same snapshot again differs nowhere.
         let again = await store.snapshotDiff(of: next)
         #expect(again?.changed.isEmpty == true)
@@ -147,8 +147,52 @@ import Testing
         store.apply(snapshot: session(50))
         let indexed = store.index.indexedRecords - before
         #expect(indexed <= retitled.count, "the snapshot indexed \(indexed) records for 5 retitled tabs and 10 agents")
-        for surface in retitled { #expect(store.index.tabsBySurface[surface]?.title == "t 1") }
+        for surface in retitled { #expect(store.index.tabsBySurface[surface]?.titleText == "t 1") }
         #expect(store.index.tabsBySurface[SurfaceID(rawValue: 10)]?.agent?.state == .working, "agent state is not the snapshot's")
         #expect(store.index.tabsBySurface[SurfaceID(rawValue: 10)]?.presence != nil)
+    }
+
+    /// Leo 2026-11-04: "never ... acceptable ... linear time growth degradation". A `tree-changed` that changed one
+    /// workspace and moved none rebuilt the whole confirmed list on main (a dictionary of every workspace, the new
+    /// list, a compare of both): O(session) per event. It now writes the touched records only.
+    @Test(arguments: [100, 3000])
+    func aSnapshotThatMovedNoWorkspaceWalksNoWorkspaceListOnMain(sessionSize: Int) async {
+        let store = DaemonStore()
+        store.apply(snapshot: session(sessionSize))
+        for round in 0..<3 {
+            let next = session(sessionSize, changing: 7 + round)
+            let diff = await store.snapshotDiff(of: next)
+            let before = store.workspaceListWalkedOnMain
+            store.apply(snapshot: next, diff: diff)
+            #expect(store.workspaceListWalkedOnMain - before == 0, "round \(round) walked the list of \(sessionSize) workspaces")
+            #expect(store.workspaces[7 + round].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0")
+            #expect(store.workspaces.count == sessionSize)
+        }
+    }
+
+    /// A list written since the last snapshot (a move event, an intent) is not the memo's: a snapshot in the memo's
+    /// order puts it back, though it names no workspace as changed.
+    @Test func aSnapshotInTheMemosOrderUndoesAListWriteTheDaemonDidNotKeep() async {
+        let store = DaemonStore()
+        let tree = session(5)
+        store.apply(snapshot: tree)
+        store.workspaces = store.workspaces.reversed()
+        #expect(store.workspaces.first?.name == "w4")
+        let diff = await store.snapshotDiff(of: tree)
+        store.apply(snapshot: tree, diff: diff)
+        #expect(store.workspaces.map(\.name) == tree.workspaces.map(\.name))
+    }
+
+    /// A workspace the daemon added and one it closed still apply through the list rebuild.
+    @Test func aSnapshotThatAddsOrClosesAWorkspaceStillRebuildsTheList() async {
+        let store = DaemonStore()
+        store.apply(snapshot: session(5))
+        let added = DaemonTree(workspaces: session(5).workspaces + [workspace(9)])
+        store.apply(snapshot: added, diff: await store.snapshotDiff(of: added))
+        #expect(store.workspaces.map(\.name) == added.workspaces.map(\.name))
+        let closed = DaemonTree(workspaces: Array(added.workspaces.dropFirst()))
+        store.apply(snapshot: closed, diff: await store.snapshotDiff(of: closed))
+        #expect(store.workspaces.map(\.name) == closed.workspaces.map(\.name))
+        #expect(store.index.workspacesByHandle[WorkspaceHandle(rawValue: 3)] == nil)
     }
 }

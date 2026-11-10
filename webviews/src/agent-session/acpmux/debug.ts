@@ -174,6 +174,8 @@ export function createAcpmuxDebug(
         WAITING_STEERS_SNAPSHOT,
         waitingSteersRows,
         subagentReportRows,
+        subagentReportLog,
+        CAPPED_ID,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -205,6 +207,13 @@ export function createAcpmuxDebug(
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
+      if (fixture === "subagent-report") {
+        // The capped card's Show more reads its subagent's own records: on the showcase's mock
+        // daemon only (`live` is unset on a real one), seeded into the chat the rows replaced.
+        const { MockAcpmuxSocket } = await import("./mock");
+        const sessionId = host.sessionId?.();
+        if (sessionId) MockAcpmuxSocket.live?.seedSubagentLog(sessionId, CAPPED_ID, subagentReportLog());
+      }
       if (fixture === "shared") {
         // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
         // taken again once live presence or a switch displaced the fixture. The fixture's own
@@ -358,6 +367,8 @@ export function createAcpmuxDebug(
     },
 
     toast(text) {
+      // No text is no toast: a capture that sent none drew an empty toast and read it back as `shown`.
+      if (typeof text !== "string" || !text.trim()) return { shown: false, text: "", error: "toast needs text" };
       host.toast?.(text);
       return { shown: host.toast != null, text };
     },

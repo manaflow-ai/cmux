@@ -49,7 +49,7 @@ pub(crate) enum Command {
     Start { worktree: Option<PathBuf>, port: Option<u16> },
     /// Stop the dev server `start` ran; the app goes back to its shipped web UI.
     Stop { worktree: Option<PathBuf> },
-    /// What the app loads from, and the Live Web Reload setting; and the Swift live mode line.
+    /// What the app loads its web UI from and why (the cmux Live setting, web-dev.json, the server); and the Swift live mode line.
     Status { worktree: Option<PathBuf> },
     /// `start|stop|status --rust`: the Rust daemon loop of `worktree`'s [`RUST_SCRIPT`].
     Rust {
@@ -89,6 +89,8 @@ pub(crate) struct Swift {
     pub setting_done: bool,
     /// `stop` only: restart into the build from before live mode, not the optimized build of the edits.
     pub discard: bool,
+    /// `start` only: build the live code build of HEAD, not reuse the last one with the difference patched in.
+    pub fresh: bool,
 }
 
 /// Parses the words after `live`.
@@ -107,8 +109,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let mut passthrough: Vec<String> = Vec::new();
     let mut build_host = None;
     let mut session = None;
-    let (mut swift, mut tag, mut detach, mut setting_done, mut discard) =
-        (false, None, false, false, false);
+    let (mut swift, mut tag, mut detach, mut setting_done, mut discard, mut fresh) =
+        (false, None, false, false, false, false);
     let switches = matches!(verb, Some("start" | "stop"));
     let mut words = rest.iter().skip(1);
     while let Some(word) = words.next() {
@@ -141,6 +143,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             "--detach" if switches => detach = true,
             "--setting-done" if switches => setting_done = true,
             "--discard" if verb == Some("stop") => discard = true,
+            "--fresh" if verb == Some("start") => fresh = true,
             "--port" if verb == Some("start") => {
                 port = Some(value()?.parse::<u16>().ok().filter(|port| *port > 0).ok_or_else(
                     || UsageError::new(messages.missing_value.replace("{flag}", "--port")),
@@ -177,6 +180,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             detach,
             setting_done,
             discard,
+            fresh,
         }));
     }
     if let Some(flag) = [
@@ -184,6 +188,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         (detach, "--detach"),
         (setting_done, "--setting-done"),
         (discard, "--discard"),
+        (fresh, "--fresh"),
     ]
     .into_iter()
     .find_map(|(given, flag)| given.then_some(flag))
@@ -390,6 +395,9 @@ fn run_swift(swift: &Swift) -> i32 {
     }
     if swift.discard {
         args.push("--discard".to_owned());
+    }
+    if swift.fresh {
+        args.push("--fresh".to_owned());
     }
     match swift_process(&tree, &args).status() {
         Ok(status) => status.code().unwrap_or(1),

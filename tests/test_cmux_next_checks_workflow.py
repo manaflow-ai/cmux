@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -270,7 +271,7 @@ class ChecksJobStructure(unittest.TestCase):
         pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
         self.assertEqual(len(pin), 1, [step["name"] for step in checks])
         self.assertIn("scripts/cmux-next/check-app-ffi-pin.sh --verify-release", pin[0]["run"])
-        self.assertIn("base=(--base HEAD^1)", pin[0]["run"])
+        # What the step runs on a pull request: AppFfiPinStepJudgesWithTheBaseCopy.
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", check_commands(script_tests))
         # Only there: the macOS swift test job no longer carries a copy.
@@ -284,6 +285,171 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
+    """On a pull request the app FFI pin step runs the base's copy of the check and its pin reader (the merge commit's
+    first parent), extracted outside the checkout, against the pull request's tree, with a clean environment.
+
+    Earlier steps of the checks job run the pull request's code, which can rewrite the checkout's copy of the check
+    on disk or change PATH, so that copy and that environment must not decide the verdict: base_red_excuse.py trusts
+    the pin verdict of a pull request that leaves the check's files alone in its diff (FFI_PIN_CHECK_CODE)."""
+
+    ZEROS = "0" * 64
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.repo = self.tmp / "repo"
+        (self.repo / "scripts/cmux-next").mkdir(parents=True)
+        (self.repo / "scripts/ci").mkdir(parents=True)
+        (self.repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh", self.repo / "scripts/cmux-next/check-app-ffi-pin.sh")
+        shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.repo / "scripts/ci/app_ffi_pin.py")
+        crate = self.repo / "cmux-tui/crates/cmux-app-ffi"
+        (crate / "src").mkdir(parents=True)
+        (crate / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\npath = "src/lib.rs"\n')
+        (crate / "src/lib.rs").write_text("// ffi\n")
+        self.git("init", "-q", "-b", "base")
+        self.commit("sources")
+        self.pinned = self.rev("HEAD")
+        (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
+            "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+            f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{self.pinned}/"
+            "CCmuxAppFFI.xcframework.zip\",\n"
+            f"    checksum: \"{self.ZEROS}\"\n)\n")
+        self.commit("pin")
+        # The pull request changes an FFI source and not the pin: its own stale pin, red on the base's check.
+        self.git("checkout", "-q", "-b", "pr")
+        (crate / "src/lib.rs").write_text("// ffi, changed\n")
+        self.commit("pr")
+        self.git("checkout", "-q", "base")
+        self.git("merge", "-q", "--no-ff", "-m", "merge", "pr")
+        self.merge = self.rev("HEAD")
+        self.runner_temp = self.tmp / "runner-temp"
+        self.runner_temp.mkdir()
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+
+    def rev(self, ref: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "rev-parse", ref], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def run_step(self, path_prefix: Path | None = None, home: Path | None = None) -> subprocess.CompletedProcess:
+        step = next(step for step in steps() if step.get("id") == "app-ffi-pin")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(EVENT_NAME="pull_request", GITHUB_SHA=self.merge, RUNNER_TEMP=str(self.runner_temp))
+        if home is not None:
+            env["HOME"] = str(home)
+        if path_prefix is not None:
+            env["PATH"] = f"{path_prefix}:{env.get('PATH', '/usr/bin:/bin')}"
+        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, capture_output=True,
+                              text=True, timeout=120)
+
+    def assert_own_stale_pin(self, result: subprocess.CompletedProcess) -> None:
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn(f"error: the app FFI sources changed since the pinned source {self.pinned}", output)
+        self.assertNotIn("planted", output)
+
+    def test_the_base_copy_judges_the_pull_request(self):
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_a_check_rewritten_on_disk_does_not_run(self):
+        # An earlier step's code rewrites the checkout's copy of the check and of its pin reader; the diff of the
+        # pull request still leaves both alone.
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        (self.repo / "scripts/ci/app_ffi_pin.py").write_text(
+            f"print('{self.merge} {self.ZEROS}')  # planted\n")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_ffi_inputs_rewritten_on_disk_do_not_count(self):
+        # An earlier step's code deletes the FFI crate's Cargo.toml (no FFI inputs are left to compare) and repins
+        # Package.swift to the merge commit on disk. The pull request's commit still has both as they were.
+        (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
+        manifest = self.repo / "Packages/macOS/CmuxNext/Package.swift"
+        manifest.write_text(manifest.read_text().replace(self.pinned, self.merge))
+        self.assert_own_stale_pin(self.run_step())
+
+    def planted_hook(self, directory: Path) -> None:
+        """A post-checkout hook that rewrites the extracted base check (beside the worktree it runs in)."""
+        directory.mkdir(parents=True, exist_ok=True)
+        hook = directory / "post-checkout"
+        hook.write_text("#!/bin/sh\nprintf '#!/usr/bin/env bash\\necho \"app FFI pin: sources match (planted)\"\\n' "
+                        "> ../scripts/cmux-next/check-app-ffi-pin.sh\n")
+        hook.chmod(0o755)
+
+    def test_a_hook_in_the_home_git_config_does_not_run(self):
+        # An earlier step's code writes ~/.gitconfig: its hooks path holds a post-checkout hook.
+        home = self.tmp / "home"
+        self.planted_hook(home / "hooks")
+        (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {home / 'hooks'}\n")
+        self.assert_own_stale_pin(self.run_step(home=home))
+
+    def test_a_hook_in_the_checkout_does_not_run(self):
+        # An earlier step's code puts a post-checkout hook in the checkout's .git/hooks.
+        self.planted_hook(self.repo / ".git/hooks")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_a_check_left_out_of_the_base_extraction_still_runs_the_base_copy(self):
+        # An earlier step's code marks the check export-ignore in .git/info/attributes (git archive then leaves it
+        # out without an error) and rewrites the checkout's copy.
+        (self.repo / ".git/info").mkdir(exist_ok=True)
+        (self.repo / ".git/info/attributes").write_text(
+            "scripts/cmux-next/check-app-ffi-pin.sh export-ignore\nscripts/ci/app_ffi_pin.py export-ignore\n")
+        (self.repo / "scripts/cmux-next/check-app-ffi-pin.sh").write_text(
+            "#!/usr/bin/env bash\necho 'app FFI pin: sources match (planted)'\n")
+        self.assert_own_stale_pin(self.run_step())
+
+    def test_the_rollup_sources_no_file_from_the_checkout(self):
+        # The pin step continues on error, so the rollup decides the job. Run it as the runner does (the workflow's
+        # env, then the step's literal env) after an earlier step rewrote scripts/ci/api_call_log/env.sh, which the
+        # workflow's BASH_ENV names, to end every shell green.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        rollup = steps()[-1]
+        env = {key: value for key, value in os.environ.items() if key != "BASH_ENV"}
+        for scope in (document.get("env") or {}, rollup.get("env") or {}):
+            env.update({key: str(value) for key, value in scope.items() if "${{" not in str(value)})
+        planted = self.repo / "scripts/ci/api_call_log/env.sh"
+        planted.parent.mkdir(parents=True)
+        planted.write_text("echo planted; exit 0\n")
+        summary = self.tmp / "summary"
+        env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
+                   OUTCOMES="failure|Check the app FFI pin\n")
+        result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
+                                text=True, timeout=60)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Check the app FFI pin", output)
+        self.assertNotIn("planted", output)
+
+    def test_a_changed_path_does_not_reach_the_check(self):
+        # An earlier step's code puts its own python3 (which reads every pin as the merge commit, so the sources
+        # match) and curl first on PATH for the steps after it.
+        bin_dir = self.tmp / "planted-bin"
+        bin_dir.mkdir()
+        (bin_dir / "python3").write_text(f"#!/bin/sh\necho '{self.merge} {self.ZEROS}'\n")
+        (bin_dir / "curl").write_text("#!/bin/sh\necho planted >&2\nexit 22\n")
+        for tool in bin_dir.iterdir():
+            tool.chmod(0o755)
+        self.assert_own_stale_pin(self.run_step(path_prefix=bin_dir))
+
+
+def line_of(path: str, text: str) -> int:
+    """The 1-based line of the first line of path that contains text (0 when none does), so a
+    failure names the line to edit."""
+    for number, line in enumerate((ROOT / path).read_text(encoding="utf-8").splitlines(), start=1):
+        if text in line:
+            return number
+    return 0
 
 
 class WebviewsWarnSplitCoversCheck(unittest.TestCase):
@@ -316,18 +482,26 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
             gated = set(fast_gate_webviews_checks.CHECKS)
         gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
+        ci_web = ".github/workflows/ci-web.yml"
+        loop_line = line_of(ci_web, "for check in ")
+        script_key = "check:pieces" if "check:pieces" in scripts else "check"
+        script_line = line_of("webviews/package.json", '"%s":' % script_key)
+        missing = []
         for part in parts:
             if part.startswith("vp "):
-                self.assertTrue(
-                    part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch,
-                    f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-                )
+                if not (part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch):
+                    missing.append(
+                        f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
+                        f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; run "
+                        f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            self.assertTrue(
-                name in looped or name in gated or f"bun run {name} || status=1" in warn_branch,
-                f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-            )
+            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+                missing.append(
+                    f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
+                    f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
+                    f"`for check in ...` list (warn-only) or to scripts/ci/fast_gate_webviews_checks.py CHECKS (gating)")
+        self.assertEqual(missing, [], "\n" + "\n".join(missing))
 
 
 class ReferencedFilesExist(unittest.TestCase):
@@ -1005,12 +1179,15 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
             stack.extend(targets[name]["targets"])
         self.assertIn("CmuxNextApp", seen)
         # Libraries under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658)
-        # and source-only test support targets are not production.
+        # and source-only test support targets are not production. Only the
+        # base autofix rewrites the graph, so a pull request that deletes a
+        # target still sees it there: a target whose sources are gone is gone.
         outside = {
             n for n, v in targets.items()
             if v["kind"] in {"regular", "executable"} and n not in seen
             and not (v["path"] or "").startswith("Packages/macOS/CmuxNext/Tests/")
             and not n.endswith("TestSupport")
+            and (ROOT / (v["path"] or "")).is_dir()
         }
         step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]["steps"]
                     if s.get("id") == "check")
@@ -2692,6 +2869,64 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
 
+    def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
+        """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
+        the blocking read writes `reply` and prints 200 (or prints 404 when None)."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = next(step["run"] for step in jobs["release-compile-fast"]["steps"] if step.get("id") == "compile")
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            (Path(temp) / "codes").write_text("\n".join(codes) + "\n")
+            (Path(temp) / "reply.json").write_text(json.dumps(reply) if reply is not None else "")
+            curl = bin_dir / "curl"
+            curl.write_text(f"""#!/bin/bash
+echo "$*" >> "{temp}/calls"
+if [[ " $* " == *" -o /dev/null "* ]]; then
+  code=$(head -1 "{temp}/codes"); sed -i.bak 1d "{temp}/codes"; printf '%s' "${{code:-404}}"
+  [[ "${{code:-404}}" == 000 ]] && exit 7; exit 0
+fi
+[[ -s "{temp}/reply.json" ]] || {{ printf 404; exit 0; }}
+while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift; done
+printf 200
+""")
+            curl.chmod(0o755)
+            output = Path(temp) / "out"
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": temp,
+                   "GITHUB_OUTPUT": str(output), "GATEWAY": "", "REF": "a" * 40, "REPO": "manaflow-ai/cmux",
+                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90"}
+            started = time.monotonic()
+            # GitHub runs a `run:` step as `bash -e {0}`.
+            result = subprocess.run(["bash", "-e", "-c", run], env=env, capture_output=True, text=True, timeout=60)
+            elapsed = time.monotonic() - started
+            calls = (Path(temp) / "calls").read_text() if (Path(temp) / "calls").exists() else ""
+            return output.read_text() if output.exists() else "", result.stdout + calls, elapsed
+
+    def test_fast_check_hands_off_at_once_when_the_results_service_is_down(self):
+        # Two edge 530s (the controller's origin is down): no blocking read, the Mac fallback runs now.
+        # WAIT_SECONDS is 90 and the step runs under a 60 s timeout, so a step that waited on the
+        # service would time out here; the hand-off itself is the causal check, not its wall time.
+        out, log, _ = self.run_fast_linux_read(["530", "530"], None)
+        self.assertIn("verdict=unavailable", out)
+        self.assertIn("results service down (HTTP 530)", log)
+        self.assertNotIn("--retry-all-errors", log)
+        out, log, _ = self.run_fast_linux_read(["000", "000"], None)
+        self.assertIn("verdict=unavailable", out)
+        self.assertIn("results service down (HTTP 000)", log)
+
+    def test_fast_check_still_waits_for_a_live_results_service(self):
+        verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
+                   "configuration": "release-onone", "state": "pass"}
+        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read. The read
+        # retries nothing inside curl: a 530 there would be retried until the deadline (note-82).
+        for codes in (["404"], ["530", "404"]):
+            with self.subTest(codes=codes):
+                out, log, _ = self.run_fast_linux_read(codes, verdict)
+                self.assertIn("verdict=pass", out)
+                self.assertIn("&wait=", log)
+                self.assertNotIn("--retry-all-errors", log)
+                self.assertNotIn("results service down", log)
+
     def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
         # push attribution and the nightly feed watch read the first job with the gate name, so a
         # red admission beside a green fallback would report a failure the fallback cleared.
@@ -3923,16 +4158,18 @@ esac
 
     def test_the_report_exits_with_the_clients_result(self):
         report = self.jobs()["fast-tier"]["steps"][0]
+        # scripts/ci/needs_verdict.py's rule: a failed fleet job is a red whatever its verdict output says, and one
+        # that judged nothing (cancelled, abandoned, skipped, empty) is no verdict, exit 3, never a pass (cmux#39857).
         for verdict, result, code in (("pass", "success", 0), ("fail", "failure", 1), ("unavailable", "failure", 1),
-                                      ("", "cancelled", 1), ("", "failure", 1), ("pass", "failure", 1)):
+                                      ("", "cancelled", 3), ("", "failure", 1), ("pass", "failure", 1),
+                                      ("", "abandoned", 3), ("", "", 3), ("pass", "cancelled", 3)):
             with self.subTest(verdict=verdict, result=result), tempfile.TemporaryDirectory() as tmp:
                 done = subprocess.run(["/bin/bash", "-e", "-c", report["run"]], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL, timeout=30,
                                       env={"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
                                            "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
-                if code and verdict != "fail":
-                    self.assertIn("no verdict", done.stdout)
+                self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
 
 
 if __name__ == "__main__":

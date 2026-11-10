@@ -28,7 +28,14 @@ pub(super) fn handle_command_with_cancellation(
             | Command::MoveTerminal { .. }
     );
     let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
+    // `terminal-public-ids-v1` (W5-P): only a client that declared it gets the
+    // public ids; a released SDK rejects the unknown fields.
+    let public_ids = cmd.names_a_terminal_view()
+        && mux.control_clients.supports_capability(client, TERMINAL_PUBLIC_IDS_CAPABILITY);
     let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    if public_ids && let Ok(reply) = &mut result {
+        *reply = cmd_terminals::with_public_ids(mux, std::mem::take(reply));
+    }
     // A remote device's lists leave incognito workspaces out (#31210).
     if let Ok(reply) = &mut result {
         incognito_remote::prune_reply(mux, client, reply);
@@ -39,6 +46,28 @@ pub(super) fn handle_command_with_cancellation(
         claim.finish(mux, client);
     }
     result
+}
+
+impl Command {
+    /// The commands whose reply names one terminal or view by `surface` and
+    /// `terminal_id`: with `terminal-public-ids-v1` they carry its public ids.
+    fn names_a_terminal_view(&self) -> bool {
+        matches!(
+            self,
+            Self::Run { .. }
+                | Self::ResolveTerminal { .. }
+                | Self::NewTab { .. }
+                | Self::NewBrowserTab { .. }
+                | Self::NewWorkspace { .. }
+                | Self::CreateTerminal { .. }
+                | Self::NewScreen(_)
+                | Self::NewPane { .. }
+                | Self::NewPaneRight(_)
+                | Self::Split(_)
+                | Self::MoveTerminal { .. }
+                | Self::NewRow(_)
+        )
+    }
 }
 
 fn dispatch_command(
@@ -68,6 +97,11 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ShellRead(_) => {
+            anyhow::bail!("shell-read requires the asynchronous request path")
+        }
+        Command::ShellRun(params) => shell_wire::run(mux, client, params),
+        Command::ShellStop(params) => shell_wire::stop(mux, client, params),
         Command::ChiefWork { chief } => {
             drop(chief);
             anyhow::bail!("chief-work requires the asynchronous request path")
@@ -320,6 +354,9 @@ fn dispatch_command(
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
+        Command::SetTerminalTailPin { surface, terminal, pinned } => {
+            cmd_terminals::set_terminal_tail_pin(mux, surface, terminal, pinned)
+        }
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
@@ -470,6 +507,9 @@ fn dispatch_command(
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+        }
+        Command::SetDividerVisible { split, visible, transaction } => {
+            cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
