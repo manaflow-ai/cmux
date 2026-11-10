@@ -30,8 +30,12 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         memory_guard::spawn(panic_log, forwarder);
         background_checks::spawn();
         // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
-        // `diagnostics.usagePatterns`; one file per session's daemon.
-        let _ = cmux_usage_patterns::install(&format!("daemon-{}", args.session));
+        // `diagnostics.usagePatterns`; one file per session's daemon, named by an opaque stand-in
+        // for the session's name (a name the person typed is never a file name or a key).
+        let _ = cmux_usage_patterns::install(&format!(
+            "daemon-{}",
+            cmux_usage_patterns::opaque_id(&args.session)
+        ));
     }
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");

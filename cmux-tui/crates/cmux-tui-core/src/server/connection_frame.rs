@@ -142,7 +142,7 @@ pub(super) fn handle_connection_frame(
     if cmux_usage_patterns::enabled()
         && let Some(name) = command_wire_name(message)
     {
-        cmux_usage_patterns::count("command", name);
+        cmux_usage_patterns::count("command", &name);
     }
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
     // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
@@ -168,16 +168,15 @@ pub(super) fn handle_connection_frame(
     }
 }
 
-/// The `cmd` member of a line that parsed as a [`Request`]: the text between
-/// `"cmd":"` and the next quote. Wire names have no escapes; anything else is
-/// none (and `clean_key` still guards the count).
-fn command_wire_name(message: &str) -> Option<&str> {
-    let start = message.find("\"cmd\":\"").or_else(|| message.find("\"cmd\": \""))?;
-    let rest = &message[start..];
-    let rest = &rest[rest.find(':')? + 1..];
-    let rest = rest.trim_start().strip_prefix('"')?;
-    let name = &rest[..rest.find('"')?];
-    (!name.contains('\\')).then_some(name)
+/// The top-level `cmd` member of a line that parsed as a [`Request`] (so it is one of the
+/// `Command` enum's wire names), never a nested one. Parsed only while usage patterns count.
+fn command_wire_name(message: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct CmdName<'a> {
+        #[serde(borrow)]
+        cmd: std::borrow::Cow<'a, str>,
+    }
+    serde_json::from_str::<CmdName<'_>>(message).ok().map(|name| name.cmd.into_owned())
 }
 
 impl Command {

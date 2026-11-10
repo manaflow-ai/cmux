@@ -1579,7 +1579,6 @@ pub async fn serve_connection_authed(
     .await
 }
 
-/// `serve_connection_authed` for a unix socket peer named by its audit token.
 /// The usage-patterns key of a listener.
 fn origin_usage_key(origin: Origin) -> &'static str {
     match origin {
@@ -1590,6 +1589,7 @@ fn origin_usage_key(origin: Origin) -> &'static str {
     }
 }
 
+/// `serve_connection_authed` for a unix socket peer named by its audit token.
 async fn serve_connection_from(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
@@ -1790,6 +1790,13 @@ async fn serve_connection_from(
                     };
                     let route = || chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
                     let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
+                    // Opt-in usage patterns: methods this daemon serves (an unknown name a client
+                    // made up is no key), `/` as `.` so `_acpmux/chat/list` is one key.
+                    if cmux_usage_patterns::enabled()
+                        && result.as_ref().err().is_none_or(|e| e.code != -32601)
+                    {
+                        cmux_usage_patterns::count("acpmux-method", &m.replace('/', "."));
+                    }
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);

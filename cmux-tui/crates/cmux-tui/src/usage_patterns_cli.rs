@@ -135,7 +135,7 @@ pub(crate) fn render(readout: &Readout, top: usize) -> String {
         return out;
     }
     let days = rollup.days.len();
-    let total: u64 = rollup.hours.iter().sum();
+    let total = rollup.hours.iter().fold(0u64, |sum, n| sum.saturating_add(*n));
     let _ = writeln!(
         out,
         "{total} events over {days} active day(s), from {} writer(s).\n",
@@ -183,7 +183,7 @@ fn section(out: &mut String, title: &str, rollup: &Rollup, family: &str, top: us
     };
     let mut rows: Vec<(&String, &u64)> = keys.iter().collect();
     rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-    let total: u64 = keys.values().sum();
+    let total = keys.values().fold(0u64, |sum, n| sum.saturating_add(*n));
     let _ = writeln!(out, "{title} ({} distinct, {total} total)", keys.len());
     for (key, n) in rows.into_iter().take(top) {
         let _ = writeln!(out, "  {n:>10}  {key}");

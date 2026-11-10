@@ -165,3 +165,25 @@ fn utc_days_are_civil_dates() {
     assert_eq!(utc_day(951_782_400_000), "2000-02-29");
     assert_eq!(utc_day(1_793_836_800_000), "2026-11-05");
 }
+
+#[test]
+fn pruning_keeps_the_newest_writers() {
+    let dir = scratch("prune");
+    for i in 0..5 {
+        std::fs::write(dir.join(format!("w{i}.json")), "{}").unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    assert_eq!(prune_writers(&dir, 3), 2);
+    let mut left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["w2.json", "w3.json", "w4.json"]);
+}
+
+#[test]
+fn opaque_ids_are_sha_based_and_stable() {
+    assert_eq!(opaque_id("main"), opaque_id("main"));
+    assert_eq!(opaque_id("main").len(), 12);
+}

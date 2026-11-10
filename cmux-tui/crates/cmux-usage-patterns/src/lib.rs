@@ -5,7 +5,7 @@
 //! Patterns, `cmux settings set diagnostics.usagePatterns true`, or the
 //! palette). Nothing here leaves the machine: each process that counts (a
 //! session's daemon, acpmux) keeps one small JSON file under
-//! [`default_dir`], and `cmux usage` and the Stats page read them back.
+//! [`default_dir`], and `cmux usage-patterns` and the Stats page read them back.
 //!
 //! What a count may name: a code-defined family (`command`, `surface`,
 //! `layout`, `connection`, ...) and a key that is an identifier the program
@@ -22,7 +22,7 @@
 //! rereads the setting every [`GATE_EVERY`] and writes the file at most every
 //! [`FLUSH_EVERY`] when something changed; it lives as long as the process.
 //!
-//! Reset: `cmux usage reset` deletes the files. A recorder that wrote its file
+//! Reset: `cmux usage-patterns reset` deletes the files. A recorder that wrote its file
 //! and finds it gone drops what it holds instead of writing it back.
 
 use serde::{Deserialize, Serialize};
@@ -198,11 +198,10 @@ pub fn clean_key(key: &str) -> &str {
 /// number of distinct stand-ins is the number of distinct ids, up to
 /// [`MAX_KEYS_PER_FAMILY`].
 pub fn opaque_id(id: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "cmux-usage-patterns".hash(&mut hasher);
-    id.hash(&mut hasher);
-    format!("{:012x}", hasher.finish() & 0xffff_ffff_ffff)
+    use sha2::{Digest, Sha256};
+    // SHA-256, so the stand-in is the same across builds and toolchains.
+    let digest = Sha256::digest(format!("cmux-usage-patterns\0{id}").as_bytes());
+    digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// What a readout shows: the merged rollup, each writer's own range, and
@@ -410,8 +409,9 @@ impl Recorder {
         }
         let now = now_ms();
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let name = clean_key(name);
         let before = state.rollup.peaks.get(name).copied().unwrap_or(0);
-        state.rollup.peak(clean_key(name), value, now);
+        state.rollup.peak(name, value, now);
         if value > before {
             state.dirty = true;
         }
@@ -480,6 +480,26 @@ impl Recorder {
     }
 }
 
+/// Deletes the oldest writer files in `dir` past the newest `keep`, so a machine that ran many
+/// sessions (tagged builds, tests with counting on) keeps a bounded folder. Returns how many went.
+pub fn prune_writers(dir: &Path, keep: usize) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut files: Vec<(SystemTime, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .map(|path| {
+            let modified =
+                std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+            (modified, path)
+        })
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    files.into_iter().skip(keep).filter(|(_, path)| std::fs::remove_file(path).is_ok()).count()
+}
+
 static GLOBAL: OnceLock<Arc<Recorder>> = OnceLock::new();
 
 /// Installs this process's recorder as `writer` (once; later calls return
@@ -490,6 +510,7 @@ pub fn install(writer: &str) -> Option<Arc<Recorder>> {
         return Some(Arc::clone(recorder));
     }
     let dir = default_dir()?;
+    prune_writers(&dir, MAX_WRITERS.saturating_sub(1));
     let recorder = Arc::new(Recorder::open(&dir, writer, cmux_config::config_path()));
     if GLOBAL.set(Arc::clone(&recorder)).is_err() {
         return GLOBAL.get().cloned();
