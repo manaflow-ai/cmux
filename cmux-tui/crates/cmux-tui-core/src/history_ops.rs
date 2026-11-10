@@ -50,6 +50,12 @@ pub(crate) const CAPABILITY: &str = "history-v1";
 /// Advertised in identify: `history.clear` takes `until_ms`, the end of a
 /// clear that waited in the app's queue (its click time).
 pub(crate) const CLEAR_UNTIL_CAPABILITY: &str = "history-clear-until-v1";
+/// Advertised in identify: an agent row of `history.entries.list` carries
+/// the whole session (`terminal`, `tab`, `started_at_ms`, `ended_at_ms`). A
+/// reader with this capability takes agent sessions from the list and never
+/// folds the journal from its first retained record: retention deletes the
+/// records of an old session, and the list still has it.
+pub(crate) const AGENT_SESSIONS_CAPABILITY: &str = "history-agent-sessions-v1";
 /// The one history operation only the user may run (request_origin.rs
 /// gate A2): it deletes the undo of a delete.
 pub(crate) const PURGE_OPERATION: &str = "history.backups.purge";

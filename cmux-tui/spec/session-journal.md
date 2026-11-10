@@ -746,7 +746,13 @@ depends on what readers need, never on file size, and no setting changes it.
 After a deletion, `start: "beginning"` replays from the first retained record.
 A subscription cursor below the floor fails with `cursor.gap` and
 `oldest_revision` set to the floor; the subscriber takes a fresh state snapshot
-and subscribes from that revision. Restore previews of every kept checkpoint,
+and subscribes from that revision. A reader of agent sessions does not fold
+the journal from its first retained record: that fold lacks every session
+whose records are all below the floor. The daemon keeps the fold of every
+agent record with its cursor, and the floor never passes that cursor. With
+`history-agent-sessions-v1` each agent row of `history.entries.list` is the
+whole session (`terminal`, `tab`, `started_at_ms`, `ended_at_ms` beside the
+entry's own fields), and that list is the state snapshot of agent sessions. Restore previews of every kept checkpoint,
 hook delivery and reducer restores do not read below the floor. An ingress
 retry whose receipt was deleted is appended as a new event, and a
 `causation_id` that names a deleted event is refused. A roster reducer of a

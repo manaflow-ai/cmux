@@ -12683,6 +12683,38 @@
           },
           "description": "Agent: the hook adapter id, for the localized title."
         },
+        "terminal": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Agent: the terminal of the session's latest record that named one. Requires history-agent-sessions-v1."
+        },
+        "tab": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Agent: the tab of the session's latest record that named one. Requires history-agent-sessions-v1."
+        },
+        "started_at_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Agent: the session's first record time in Unix milliseconds. Requires history-agent-sessions-v1."
+        },
+        "ended_at_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Agent: the session's end time in Unix milliseconds; absent while it runs. Requires history-agent-sessions-v1."
+        },
         "window": {
           "required": false,
           "type": {

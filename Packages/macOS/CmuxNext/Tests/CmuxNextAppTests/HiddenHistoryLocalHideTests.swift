@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 import Testing
 
@@ -71,7 +72,7 @@ import Testing
         let at = Int64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
         fold.apply([AgentJournalRecord(sequence: 1, kind: "agent.session.started", occurredAtMs: at, subjects: [], provider: "claude", sessionID: "s-1"),
                     AgentJournalRecord(sequence: 2, kind: "agent.session.started", occurredAtMs: at, subjects: [], provider: "codex", sessionID: "s-2")])
-        services.history.agents.folds["local"] = fold
+        services.history.agents.machines["local"] = MachineAgentSessions(fold: fold)
         let shown = try #require(services.history.agents.sessions.first { $0.sessionID == "s-1" })
         services.history.remove(Self.entry(shown))
         #expect(services.history.agents.sessions.map(\.sessionID) == ["s-2"])

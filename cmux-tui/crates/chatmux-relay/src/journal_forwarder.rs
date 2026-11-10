@@ -7,6 +7,13 @@
 //! POST path, so concurrent sessions pool into a single request exactly like
 //! the Node forwarder. Every batch is bounded; network failures keep one
 //! bounded batch for retry and never take down the relay session.
+//!
+//! The daemon's journal retention can delete records that a session's cursor
+//! has not passed. The daemon then refuses that cursor with `cursor.gap` and
+//! names its floor (`oldest_revision`). The forwarder subscribes again from
+//! the floor and names the deleted range to the receiver in the
+//! `x-chatmux-journal-gap` request header ([`JournalGap`]); the POST body is
+//! unchanged.
 
 use std::collections::HashMap;
 #[cfg(unix)]
@@ -51,6 +58,12 @@ const SOCKET_SCAN_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_DISCOVERED_SESSIONS: usize = 128;
 const MAX_SOCKET_ENTRIES_PER_ROOT: usize = 512;
 const SUBSCRIBE_REQUEST_ID: &str = "chatmux-journal-subscribe";
+/// The request header that names journal ranges deleted by retention. Its
+/// value is a JSON array of `{"sessionId", "after", "oldestRevision"}`: the
+/// revisions after `after`, up to and including `oldestRevision`, are gone.
+const GAP_HEADER: &str = "x-chatmux-journal-gap";
+/// A bound for the header size; the other gaps go with the next POST.
+const MAX_GAPS_PER_POST: usize = 16;
 const PROTOCOL: &str = "cmux.protocol/2";
 #[cfg(unix)]
 const LEGACY_CURSOR_PATH: &str = "/tmp/.chatmux-relay-cursors.json";
@@ -124,6 +137,90 @@ fn delivery_disposition(status: u16, record_count: usize) -> DeliveryDisposition
         DeliveryDisposition::Drop
     } else {
         DeliveryDisposition::Retry
+    }
+}
+
+/// A range of one session's journal that retention deleted before this
+/// forwarder read it. It stays in [`Shared::gaps`] until a POST that carries
+/// it is acknowledged, and the stored cursor stays below the floor until
+/// then, so a restart finds the same gap again: the receiver always learns
+/// of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct JournalGap {
+    cursor_key: String,
+    /// The cursor that the daemon refused: the last record read before the gap.
+    after: JournalCursor,
+    /// The daemon's retention floor: the last deleted revision.
+    oldest_revision: String,
+}
+
+impl JournalGap {
+    /// The cursor to subscribe from: the first record after it is the first
+    /// retained one.
+    fn floor(&self) -> JournalCursor {
+        JournalCursor {
+            generation: self.after.generation.clone(),
+            revision: self.oldest_revision.clone(),
+        }
+    }
+}
+
+/// The floor of a `cursor.gap` answer, when it is ahead of the refused
+/// cursor. Any other answer gives no progress and is a failed attempt, so a
+/// wrong daemon answer cannot make the worker subscribe in a tight loop.
+fn floor_after_gap(refused: &JournalCursor, envelope: &Value) -> Option<String> {
+    if envelope.pointer("/error/code").and_then(Value::as_str) != Some("cursor.gap") {
+        return None;
+    }
+    let oldest = envelope.pointer("/error/details/oldest_revision").and_then(Value::as_str)?;
+    let decimal = !oldest.is_empty()
+        && !oldest.starts_with('0')
+        && oldest.bytes().all(|byte| byte.is_ascii_digit());
+    (decimal && decimal_less(&refused.revision, oldest)).then(|| oldest.to_owned())
+}
+
+/// Keep one gap per session: a second gap of the same generation widens the
+/// first, so the receiver gets one range from the oldest refused cursor.
+fn note_gap(gaps: &mut Vec<JournalGap>, gap: JournalGap) {
+    let Some(known) = gaps.iter_mut().find(|known| known.cursor_key == gap.cursor_key) else {
+        gaps.push(gap);
+        return;
+    };
+    if known.after.generation != gap.after.generation {
+        *known = gap;
+        return;
+    }
+    if decimal_less(&gap.after.revision, &known.after.revision) {
+        known.after = gap.after;
+    }
+    if decimal_less(&known.oldest_revision, &gap.oldest_revision) {
+        known.oldest_revision = gap.oldest_revision;
+    }
+}
+
+/// The header value for these gaps. `None`: a value that no header can carry.
+fn gap_header_value(gaps: &[JournalGap]) -> Option<reqwest::header::HeaderValue> {
+    let ranges = gaps
+        .iter()
+        .map(|gap| {
+            json!({
+                "sessionId": gap.after.generation,
+                "after": gap.after.revision,
+                "oldestRevision": gap.oldest_revision,
+            })
+        })
+        .collect::<Vec<_>>();
+    reqwest::header::HeaderValue::from_str(&Value::Array(ranges).to_string()).ok()
+}
+
+/// The receiver acknowledged a POST that named these gaps. A stored cursor
+/// that is still the refused one moves to the floor, so the next connection
+/// does not meet the same gap; a cursor that an acknowledgement moved stays.
+fn settle_told_gaps(cursors: &mut HashMap<String, JournalCursor>, told: &[JournalGap]) {
+    for gap in told {
+        if cursors.get(&gap.cursor_key).is_none_or(|stored| *stored == gap.after) {
+            cursors.insert(gap.cursor_key.clone(), gap.floor());
+        }
     }
 }
 
@@ -311,6 +408,8 @@ struct Shared {
     /// one permit, so records arriving while a POST is blocked cannot grow a
     /// queue of redundant debounce wakes.
     flush_wake: Arc<tokio::sync::Notify>,
+    /// Retention gaps that no acknowledged POST has named yet.
+    gaps: Arc<Mutex<Vec<JournalGap>>>,
 }
 
 #[cfg(unix)]
@@ -361,6 +460,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         claims: Arc::new(Mutex::new(HashSet::new())),
         pool: Arc::new(Mutex::new(PoolState::default())),
         flush_wake,
+        gaps: Arc::new(Mutex::new(Vec::new())),
     };
     let flusher = tokio::spawn(run_flusher(shared.clone()));
     let socket_dirs = socket_directories();
@@ -879,6 +979,7 @@ async fn run_session(
         let mut generation = cursor.as_ref().map(|cursor| cursor.generation.clone());
         let mut last_delivered = None;
         let mut cursor_invalid = false;
+        let mut gap_floor = None;
         loop {
             tokio::select! {
                 biased;
@@ -900,6 +1001,7 @@ async fn run_session(
                             continue;
                         }
                         cursor_invalid = envelope.pointer("/error/code").and_then(Value::as_str) == Some("cursor.invalid");
+                        gap_floor = cursor.as_ref().and_then(|refused| floor_after_gap(refused, &envelope));
                         break;
                     }
                     if envelope.get("stream_id").and_then(Value::as_str) != Some(stream_id.as_str()) {
@@ -936,7 +1038,23 @@ async fn run_session(
         if let Some(cursor) = volatile_resume.clone().or(last_delivered) {
             update_resume(&mut volatile_resume, cursor);
         }
-        if cursor_invalid {
+        if let (Some(oldest_revision), Some(after)) = (gap_floor, cursor) {
+            // Retention deleted the records after this cursor, and the daemon
+            // refuses it for ever. Continue from the floor after the shortest
+            // backoff; the stored cursor moves only when the receiver has
+            // acknowledged a POST that names the gap.
+            eprintln!(
+                "chatmux-relay: journal retention deleted revisions after {} up to {}; forwarding continues from there",
+                after.revision, oldest_revision
+            );
+            let gap =
+                JournalGap { cursor_key: effective_session_key.clone(), after, oldest_revision };
+            volatile_resume = Some(gap.floor());
+            if let Ok(mut gaps) = shared.gaps.lock() {
+                note_gap(&mut gaps, gap);
+            }
+            failures = 0;
+        } else if cursor_invalid {
             volatile_resume = None;
             let mut cursors = shared.cursors.lock().await;
             cursors.remove(&effective_session_key);
@@ -1137,16 +1255,24 @@ async fn post_with_retry(shared: &Shared, batches: Vec<SessionBatch>) -> bool {
                 attempt = 0;
                 continue;
             }
-            let response = await_with_cancellation(
-                &shared.cancellation,
-                shared
-                    .client
-                    .post(&shared.events.url)
-                    .bearer_auth(&shared.events.token)
-                    .json(&json!({"sessions": &batches}))
-                    .send(),
-            )
-            .await;
+            let told = match shared.gaps.lock() {
+                Ok(gaps) => gaps.iter().take(MAX_GAPS_PER_POST).cloned().collect::<Vec<_>>(),
+                Err(_) => Vec::new(),
+            };
+            let mut request = shared
+                .client
+                .post(&shared.events.url)
+                .bearer_auth(&shared.events.token)
+                .json(&json!({"sessions": &batches}));
+            if !told.is_empty() {
+                match gap_header_value(&told) {
+                    Some(value) => request = request.header(GAP_HEADER, value),
+                    None => eprintln!(
+                        "chatmux-relay: a journal retention gap has no header form; it is not sent"
+                    ),
+                }
+            }
+            let response = await_with_cancellation(&shared.cancellation, request.send()).await;
             let Some(response) = response else { return false };
             let Ok(response) = response else {
                 attempt = attempt.saturating_add(1);
@@ -1170,7 +1296,11 @@ async fn post_with_retry(shared: &Shared, batches: Vec<SessionBatch>) -> bool {
                     };
                     let mut cursors = shared.cursors.lock().await;
                     *cursors = advance_cursors(&cursors, &batches, &acked);
+                    settle_told_gaps(&mut cursors, &told);
                     drop(cursors);
+                    if let Ok(mut gaps) = shared.gaps.lock() {
+                        gaps.retain(|gap| !told.contains(gap));
+                    }
                     persist_cursors(shared).await;
                     break;
                 }
@@ -1631,6 +1761,7 @@ mod tests {
             claims: Arc::new(Mutex::new(HashSet::new())),
             pool: Arc::new(Mutex::new(PoolState::default())),
             flush_wake,
+            gaps: Arc::new(Mutex::new(Vec::new())),
         };
         (shared, wake)
     }
@@ -1767,5 +1898,258 @@ mod tests {
             assert!(!pool.flushing);
         }
         remove_cursor_test_path(&root).await;
+    }
+
+    fn gap(key: &str, after: &str, oldest: &str) -> JournalGap {
+        JournalGap {
+            cursor_key: key.to_owned(),
+            after: cursor("gen", after),
+            oldest_revision: oldest.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_gap_answer_gives_a_floor_only_ahead_of_the_refused_cursor() {
+        let answer = |code: &str, oldest: Value| json!({"type": "response", "ok": false, "error": {"code": code, "details": {"oldest_revision": oldest}}});
+        let refused = cursor("gen", "9");
+        assert_eq!(
+            floor_after_gap(&refused, &answer("cursor.gap", json!("40"))),
+            Some(String::from("40"))
+        );
+        // No progress, no floor: the worker backs off as for any failure.
+        for oldest in [json!("9"), json!("8"), json!("040"), json!(""), json!("4x"), json!(40)] {
+            assert_eq!(floor_after_gap(&refused, &answer("cursor.gap", oldest)), None);
+        }
+        assert_eq!(floor_after_gap(&refused, &answer("cursor.invalid", json!("40"))), None);
+    }
+
+    #[test]
+    fn a_told_gap_moves_only_the_refused_cursor_to_the_floor() {
+        let mut gaps = Vec::new();
+        note_gap(&mut gaps, gap("idle", "3", "40"));
+        note_gap(&mut gaps, gap("idle", "40", "55"));
+        note_gap(&mut gaps, gap("acked", "7", "40"));
+        assert_eq!(gaps, vec![gap("idle", "3", "55"), gap("acked", "7", "40")]);
+        let header = gap_header_value(&gaps).expect("gap header");
+        assert_eq!(
+            serde_json::from_slice::<Value>(header.as_bytes()).expect("gap header JSON"),
+            json!([
+                {"sessionId": "gen", "after": "3", "oldestRevision": "55"},
+                {"sessionId": "gen", "after": "7", "oldestRevision": "40"},
+            ]),
+        );
+        let mut cursors = HashMap::from([
+            (String::from("idle"), cursor("gen", "3")),
+            (String::from("acked"), cursor("gen", "41")),
+        ]);
+        settle_told_gaps(&mut cursors, &gaps);
+        assert_eq!(cursors.get("idle"), Some(&cursor("gen", "55")));
+        assert_eq!(cursors.get("acked"), Some(&cursor("gen", "41")));
+    }
+
+    /// Retention deleted the records after the stored cursor: the daemon
+    /// refuses that cursor with `cursor.gap` and names its floor. The same
+    /// cursor is refused for ever, so the worker must subscribe from the floor
+    /// (`oldest_revision`), and the receiver must learn which revisions it lost.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cursor_below_the_retention_floor_continues_from_the_floor_and_names_the_gap() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // A short name: a Unix socket path holds about 100 bytes.
+        let socket_root = std::env::temp_dir().join(format!("cmg-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&socket_root).await;
+        tokio::fs::create_dir_all(&socket_root).await.expect("socket directory");
+        tokio::fs::set_permissions(&socket_root, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("socket directory permissions");
+        let socket = socket_root.join("gap.sock");
+        let daemon_listener =
+            tokio::net::UnixListener::bind(&socket).expect("bind the daemon stub");
+        let (subscribes, mut seen) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        // The daemon stub: its retention floor is revision 40 and its head
+        // is revision 41.
+        let daemon = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = daemon_listener.accept().await else { return };
+                let (read_half, mut write_half) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read_half).lines();
+                let Ok(Some(_identity_request)) = lines.next_line().await else { continue };
+                let identity = json!({
+                    "protocol": PROTOCOL,
+                    "type": "response",
+                    "id": "chatmux-journal-identity",
+                    "ok": true,
+                    "result": [{"name": "gap"}],
+                });
+                if tokio::io::AsyncWriteExt::write_all(
+                    &mut write_half,
+                    format!("{identity}\n").as_bytes(),
+                )
+                .await
+                .is_err()
+                {
+                    continue;
+                }
+                let Ok(Some(line)) = lines.next_line().await else { continue };
+                let request = serde_json::from_str::<Value>(&line).expect("subscribe request");
+                let params = request["params"].clone();
+                let below_floor = params
+                    .pointer("/cursor/revision")
+                    .and_then(Value::as_str)
+                    .is_some_and(|revision| decimal_less(revision, "40"));
+                let _ = subscribes.send(params.clone());
+                if below_floor {
+                    let refused = json!({
+                        "protocol": PROTOCOL,
+                        "type": "response",
+                        "id": SUBSCRIBE_REQUEST_ID,
+                        "ok": false,
+                        "error": {
+                            "code": "cursor.gap",
+                            "message": "journal cursor is no longer retained",
+                            "details": {
+                                "requested": params["cursor"],
+                                "current": {"generation": "gen", "revision": "41"},
+                                "oldest_revision": "40",
+                            },
+                            "retryable": true,
+                        },
+                    });
+                    let refused = format!("{refused}\n");
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut write_half, refused.as_bytes())
+                            .await;
+                    continue;
+                }
+                let opened = json!({
+                    "protocol": PROTOCOL,
+                    "type": "response",
+                    "id": SUBSCRIBE_REQUEST_ID,
+                    "ok": true,
+                    "result": {"cursor": params["cursor"]},
+                });
+                let item = json!({
+                    "protocol": PROTOCOL,
+                    "type": "stream_item",
+                    "stream_id": params["stream_id"],
+                    "sequence": "41",
+                    "cursor": {"generation": "gen", "revision": "41"},
+                });
+                let opened = format!("{opened}\n{item}\n");
+                let _ =
+                    tokio::io::AsyncWriteExt::write_all(&mut write_half, opened.as_bytes()).await;
+                // The stream stays open: the worker has no reason to connect again.
+                let _ = lines.next_line().await;
+            }
+        });
+        // The receiver stub keeps the whole POST (head and body) and
+        // acknowledges the cursor of the one record.
+        let receiver_listener =
+            tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("bind the receiver stub");
+        let address = receiver_listener.local_addr().expect("receiver stub address");
+        let receiver = tokio::spawn(async move {
+            let (mut stream, _) = receiver_listener.accept().await.expect("accept the POST");
+            let mut buffer = Vec::new();
+            loop {
+                let mut chunk = [0_u8; 4096];
+                let read = tokio::io::AsyncReadExt::read(&mut stream, &mut chunk)
+                    .await
+                    .expect("read the POST");
+                assert!(read > 0, "connection closed before one full POST");
+                buffer.extend_from_slice(&chunk[..read]);
+                if http_request_body(&buffer).is_some() {
+                    break;
+                }
+            }
+            let ack =
+                json!({"cursors": {"gen": {"generation": "gen", "revision": "41"}}}).to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{ack}",
+                ack.len()
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write the ack");
+            let _ = tokio::io::AsyncWriteExt::shutdown(&mut stream).await;
+            buffer
+        });
+
+        let (cursor_root, cursor_path) = cursor_test_path("gap").await;
+        let (shared, _cues) = test_shared(format!("http://{address}"), cursor_path);
+        shared.cursors.lock().await.insert(String::from("gap"), cursor("gen", "3"));
+        let worker = tokio::spawn(run_session(
+            shared.clone(),
+            Some(String::from("gap")),
+            String::from("gap"),
+            vec![socket.clone()],
+        ));
+
+        let first = tokio::time::timeout(Duration::from_secs(10), seen.recv())
+            .await
+            .expect("the worker must subscribe")
+            .expect("daemon stub");
+        assert_eq!(
+            first["cursor"],
+            json!({"generation": "gen", "revision": "3"}),
+            "setup: the first subscription must carry the stored cursor below the floor"
+        );
+        let second = tokio::time::timeout(Duration::from_secs(20), seen.recv())
+            .await
+            .expect("the worker must subscribe again after cursor.gap")
+            .expect("daemon stub");
+        assert_eq!(
+            second["cursor"],
+            json!({"generation": "gen", "revision": "40"}),
+            "after cursor.gap the worker must subscribe from the floor, not send the refused cursor again"
+        );
+        assert!(second.get("start").is_none(), "a cursor and a start exclude each other");
+
+        // The first retained record reaches the shared pool.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                {
+                    let pool = shared.pool.lock().expect("lock pool");
+                    if pool.pending.iter().any(|entry| !entry.records.is_empty()) {
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the record after the floor must reach the pool");
+        let mut armed = false;
+        let mut timer = Box::pin(tokio::time::sleep(Duration::from_secs(60)));
+        assert!(flush_cycle(&shared, None, &mut armed, &mut timer).await);
+
+        let posted = receiver.await.expect("receiver stub");
+        let body = http_request_body(&posted).expect("posted body");
+        let body = serde_json::from_slice::<Value>(&body).expect("posted JSON body");
+        assert_eq!(body["sessions"][0]["sessionId"], "gen");
+        assert_eq!(body["sessions"][0]["records"][0]["sequence"], "41");
+        // The body is the unchanged wire contract; the gap goes in a header.
+        let head = String::from_utf8_lossy(&posted);
+        let gap = head
+            .lines()
+            .take_while(|line| !line.is_empty())
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("x-chatmux-journal-gap").then(|| value.trim().to_owned())
+            })
+            .expect("the POST after a gap must name the gap to the receiver");
+        assert_eq!(
+            serde_json::from_str::<Value>(&gap).expect("gap header JSON"),
+            json!([{"sessionId": "gen", "after": "3", "oldestRevision": "40"}]),
+        );
+        // The acknowledged cursor is above the floor: a restart does not
+        // meet the gap again.
+        assert_eq!(shared.cursors.lock().await.get("gap"), Some(&cursor("gen", "41")));
+
+        shared.cancellation.cancel();
+        worker.await.expect("session worker");
+        daemon.abort();
+        tokio::fs::remove_dir_all(&socket_root).await.expect("remove socket directory");
+        remove_cursor_test_path(&cursor_root).await;
     }
 }
