@@ -309,6 +309,17 @@ def main_arm(args, state, before, report):
         return False
     staged = counts(args, state)
     say("RMP-COUNTS", {"at": "built", **staged})
+    # The generated History fold is behind the head (as on his Mac). The first start folds to
+    # the head before it deletes a record, so the count to keep is the one at the head, read
+    # here: the registry still has every record and no pruned range.
+    if (staged["records"] == before["records"]
+            and staged["pruned_ranges"] == before["pruned_ranges"]
+            and int(staged.get("history_cursor") or 0) > int(before.get("history_cursor") or 0)):
+        say("RMP", {"arm": "history-base", "fold_behind_the_head": before["history_sessions"],
+                    "fold_at_the_head_before_a_delete": staged["history_sessions"],
+                    "cursor": [before.get("history_cursor"), staged.get("history_cursor")]})
+        report["history_sessions_fold_behind_the_head"] = before["history_sessions"]
+        before["history_sessions"] = staged["history_sessions"]
     for name in ("kill-swap", "kill-renamed"):
         if name in args.arms:
             clone(state, Path(args.scratch) / name)
