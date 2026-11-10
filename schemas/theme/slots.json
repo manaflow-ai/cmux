@@ -120,10 +120,69 @@
           "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
         }
       ]
+    },
+    {
+      "id": "chat.jumpToBottom",
+      "title": "Jump to latest",
+      "docs": "The mark inside the transcript's Jump to latest button (the glass circle above the composer, shown while the reader is scrolled up from the latest message): how it arrives, rests, answers a press and says the agent is still working. Drawn by webviews/src/agent-session/acpmux/VirtualTranscript.tsx's JumpToLatest inside the button; the button's glass, place, fade, label, focus and click are not the slot's, and the Needs your input pill that replaces it while an ask waits is not either.",
+      "props": {
+        "shown": { "type": "boolean", "docs": "The button is on screen. It stays mounted (inert) while hidden, so a variant may play its arrival off `.acpmux-jump-latest[data-shown]`." },
+        "working": { "type": "boolean", "docs": "The agent is working, so new content is still arriving below. A variant may move only while this and `shown` hold." }
+      },
+      "box": {
+        "block": "The button's 32px circle (`.acpmux-jump-latest`): a variant draws inside it and never resizes it.",
+        "inline": "The same 32px circle; the mark keeps the default's centered `.acpmux-jump-latest__arrow` cell, and moves only by transform inside it."
+      },
+      "motion": {
+        "durations": {
+          "press": "--cmux-motion-quick",
+          "arrive": "--cmux-motion-standard",
+          "loop": "--cmux-spinner-period",
+          "breath": "--cmux-breath-period"
+        },
+        "easings": {
+          "press": "--cmux-ease-spring",
+          "arrive": "--cmux-ease-spring",
+          "loop": "linear",
+          "breath": "--cmux-ease-settle"
+        },
+        "reducedMotion": "No arrival, no press dip and no loop: the variant draws its still frame, the mark at rest in the circle's center at full strength, as the default's static arrow. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "A loop runs only while the button shows (`[data-shown]`) and the agent works: back at the latest message the button hides and every loop stops; a turn's end stops it too. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Arrow",
+          "docs": "What the button drew before slots, unchanged: a static down arrow on the glass's legibility pool (conversation.css `.acpmux-jump-latest__arrow`).",
+          "source": "webviews/src/slots/jumpToBottom/DefaultJumpArrow.tsx",
+          "styles": []
+        },
+        {
+          "id": "nudge",
+          "label": "Nudge",
+          "docs": "The arrow drops into the circle on the spring as the button appears, and dips toward the latest message while pressed.",
+          "source": "webviews/src/slots/jumpToBottom/NudgeArrow.tsx",
+          "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
+        },
+        {
+          "id": "bob",
+          "label": "Bob",
+          "docs": "While the agent works, the arrow bobs gently toward the latest message once per breath; idle, it rests. Dips while pressed.",
+          "source": "webviews/src/slots/jumpToBottom/BobArrow.tsx",
+          "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
+        },
+        {
+          "id": "cascade",
+          "label": "Cascade",
+          "docs": "Two small arrows stacked; while the agent works they light upper then lower, a cascade pointing down. Dips while pressed.",
+          "source": "webviews/src/slots/jumpToBottom/CascadeChevrons.tsx",
+          "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
+        }
+      ]
     }
   ],
   "next": [
-    { "id": "chat.jumpToBottom", "docs": "The transcript's jump-to-latest button: how it appears, rests and leaves." },
     { "id": "chat.sendTransition", "docs": "A sent prompt's arrival in the transcript (today `--cmux-motion-send`)." },
     { "id": "chat.receiveTransition", "docs": "A reply's first words arriving under the live line." },
     { "id": "chat.sideInteraction", "docs": "The /side interaction: how a side question opens beside the thread and folds back." },

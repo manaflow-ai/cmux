@@ -1,0 +1,82 @@
+/* Theme slot `chat.jumpToBottom` (schemas/theme/slots.json): the built-in variants other than the
+   default, whose static arrow stays in conversation.css with the button (.acpmux-jump-latest__arrow).
+   Every variant keeps that class, so the glass's legibility pool behind the mark still applies.
+   The budget every variant keeps (check:theme-slots): keyframes and transitions change only transform
+   and opacity; every duration is a motion token and every easing a token, `linear` or `steps()`; every
+   animation sits inside `prefers-reduced-motion: no-preference` and under the slot's motion gate, so
+   Reduce Motion, static status indicators and animations off draw the still frame written outside it:
+   the arrow at rest in the circle's center. The box: the 32px circle; a mark moves inside it and never
+   resizes the button. */
+.slot-jump {
+  pointer-events: none;
+}
+.slot-jump__nudge,
+.slot-jump__bob {
+  display: inline-flex;
+}
+
+/* cascade: two 10px arrows in one cell, a few px apart. Still frame: both at full strength. */
+.slot-jump__cascade {
+  display: inline-grid;
+  place-items: center;
+}
+.slot-jump__step {
+  grid-area: 1 / 1;
+  display: inline-flex;
+}
+.slot-jump__step[data-step="0"] {
+  --slot-step: 0;
+  transform: translateY(-3px);
+}
+.slot-jump__step[data-step="1"] {
+  --slot-step: 1;
+  transform: translateY(3px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Every variant: the mark dips toward the latest message while the button is pressed. */
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest:active .slot-jump {
+    transform: translateY(2px);
+  }
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-jump {
+    transition: transform var(--cmux-motion-quick) var(--cmux-ease-spring);
+  }
+  /* nudge: hidden, the arrow waits above the center; shown, it drops in on the spring. */
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest:not([data-shown]) .slot-jump__nudge {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-jump__nudge {
+    transition:
+      transform var(--cmux-motion-standard) var(--cmux-ease-spring),
+      opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+  }
+  /* bob: only while the button shows and the agent works. */
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest[data-shown] .slot-jump[data-working] .slot-jump__bob {
+    animation: slot-jump-bob var(--cmux-breath-period) var(--cmux-ease-settle) infinite alternate;
+  }
+  /* cascade: the upper arrow lights, then the lower, while the button shows and the agent works. */
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest[data-shown] .slot-jump__cascade[data-working] .slot-jump__step {
+    animation: slot-jump-cascade var(--cmux-spinner-period) linear infinite;
+    animation-delay: calc(var(--cmux-spinner-period) * (var(--slot-step) / 2 - 1));
+  }
+}
+
+@keyframes slot-jump-bob {
+  from {
+    transform: translateY(-1px);
+  }
+  to {
+    transform: translateY(2px);
+  }
+}
+@keyframes slot-jump-cascade {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  25% {
+    opacity: 1;
+  }
+}

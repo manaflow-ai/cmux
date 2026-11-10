@@ -135,11 +135,39 @@ with the line's existing one-second clock (that is how `counting-dots` grows a f
 If a variant throws while rendering, its slot alone falls back to the default (an error boundary per
 slot), logs a warning, and the chat keeps going. The `fallback-on-error` gallery state shows it.
 
+## The second slot: Jump to latest
+
+`chat.jumpToBottom` is the mark inside the transcript's Jump to latest button, the glass circle above
+the composer. The button (its glass, place, fade, label and click) stays cmux's; the slot draws only
+what is inside it, and gets two props: `shown` (the button is on screen) and `working` (the agent is
+still writing below).
+
+```json
+{ "slots": { "chat.jumpToBottom": "nudge" } }
+```
+
+cmux ships `default` (the static arrow), `nudge` (the arrow drops in on the spring as the button
+appears), `bob` (the arrow bobs once per breath while the agent works) and `cascade` (two arrows light
+upper then lower while the agent works). Every variant but the default dips toward the latest message
+while the button is pressed, the click you can see.
+
+The rules are the same as above, plus the slot's own:
+
+- Keep the `acpmux-jump-latest__arrow` class on your mark's outer element: it centers the mark in the
+  circle and keeps the glass's legibility pool behind it.
+- Play an arrival off `.acpmux-jump-latest[data-shown]` and a press off `.acpmux-jump-latest:active`,
+  both under the motion gate. The button stays mounted while hidden, so a CSS transition is enough.
+- Loop only under `.acpmux-jump-latest[data-shown]` and while `working`: back at the latest message
+  the button hides and the loop stops.
+
+Copy `webviews/src/slots/jumpToBottom/NudgeArrow.tsx` and its rules in `jumpToBottom.css`, register it
+in `index.ts`, list it under `chat.jumpToBottom` in `slots.json`, and add a state to
+`JumpToBottom.gallery.tsx` (`agent-pane.jump-to-bottom-slot`).
+
 ## Next slots
 
 Named in the same id scheme, not built yet:
 
-- `chat.jumpToBottom`: the transcript's jump-to-latest button, how it appears, rests and leaves.
 - `chat.sendTransition`: a sent prompt's arrival in the transcript.
 - `chat.receiveTransition`: a reply's first words arriving under the live line.
 - `chat.sideInteraction`: the /side interaction, how a side question opens beside the thread and folds back.
