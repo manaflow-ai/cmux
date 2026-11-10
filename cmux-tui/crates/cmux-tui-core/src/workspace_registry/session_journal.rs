@@ -1679,6 +1679,27 @@ pub(crate) fn unproven_kind_maps(
     unproven_kind_maps_after(connection, marker.as_deref())
 }
 
+impl WorkspaceRegistry {
+    /// One slice of a legacy kind backfill that started and has not
+    /// finished ([`unproven_kind_maps`]): while it is unfinished, every kind
+    /// read decodes the segments it has not proven whole. It runs inside a
+    /// kind read on this (the writer's) connection, but on a persistent
+    /// registry the roster's replays read on their own read-only
+    /// connection, so without the owner's index backfill worker calling
+    /// this nothing would finish it. True while it remains. Never starts a
+    /// backfill: segments sealed before kind maps with no marker get their
+    /// maps from the reducer record backfill
+    /// ([`Self::plan_reducer_record_backfill`]).
+    pub(crate) fn continue_legacy_kind_backfill(&self) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        if unproven_kind_maps(&db)?.is_none() {
+            return Ok(false);
+        }
+        backfill_legacy_journal_segment_kinds(&db)?;
+        Ok(unproven_kind_maps(&db)?.is_some())
+    }
+}
+
 /// How long one call of the kind backfill, and one kind read's sealed part
 /// after it, may decode: each stops at the first segment or batch past it.
 pub(super) fn kind_slice() -> std::time::Duration {
@@ -2673,6 +2694,8 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+#[cfg(test)]
+mod kind_map_backfill_tests;
 pub(crate) mod reducer_records;
 use digest_reader::DigestReader;
 #[cfg(test)]
