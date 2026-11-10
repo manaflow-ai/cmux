@@ -413,14 +413,37 @@ class Matrix:
         self.launcher = None
         self.lock = threading.Lock()
         self.machines: set[str] = set()
+        self.stopping = threading.Event()
+        self.children: set[subprocess.Popen] = set()
 
     def cmux(self, *words: str, timeout: int = 120) -> tuple[int, str, str]:
+        # Once stop() ran, a cell's thread starts nothing more; the main thread's cleanup still runs.
+        if self.stopping.is_set() and threading.current_thread() is not threading.main_thread():
+            return 130, "", "stopped: the run was cancelled"
+        child = subprocess.Popen([self.cli, *words], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True)
+        with self.lock:
+            self.children.add(child)
         try:
-            done = subprocess.run([self.cli, *words], env=self.env, capture_output=True, text=True,
-                                  timeout=timeout)
-            return done.returncode, done.stdout, done.stderr
+            out, err = child.communicate(timeout=timeout)
+            return child.returncode, out, err
         except subprocess.TimeoutExpired:
+            child.kill()
+            child.communicate()
             return 124, "", f"timed out after {timeout}s"
+        finally:
+            with self.lock:
+                self.children.discard(child)
+
+    def stop(self) -> None:
+        """A cancelled run (SIGTERM): no cell starts another step, and the CLI calls cells are waiting on
+        (this run's own children) end now, so cleanup runs at once rather than after 900 s starts."""
+        self.stopping.set()
+        with self.lock:
+            children = list(self.children)
+        for child in children:
+            if threading.current_thread() is threading.main_thread():
+                child.terminate()
 
     @staticmethod
     def parsed(text: str) -> dict:
@@ -547,6 +570,9 @@ class Matrix:
     def run_cell(self, name: str, agent: str, folder: Path | None, note: str, *, word: str, canary: str,
                  read_only: bool) -> dict:
         cell = {"workspace": name, "agent": agent, "result": "", "notes": []}
+        if self.stopping.is_set():
+            cell["result"] = "skipped: the run was cancelled"
+            return cell
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
@@ -702,9 +728,13 @@ def main(argv=None) -> int:
     root = Path(tempfile.mkdtemp(prefix="cmux-matrix-"))
     canary = f"cmxcanary{random.token_hex(10)}"
     matrix = Matrix(args)
-    # A cancelled CI job sends SIGTERM, which skips `finally`: turn it into SystemExit so quit() still
-    # quits the app and deletes its scratch cmux.json, and the machines are swept.
-    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+    # A cancelled CI job sends SIGTERM, which skips `finally`: stop the cells' work, then SystemExit, so
+    # `finally` sweeps the machines, quits the app and deletes its scratch cmux.json.
+    def cancelled(signum, frame):
+        matrix.stop()
+        sys.exit(128 + signum)
+    signal.signal(signal.SIGTERM, cancelled)
+    swept = False
     report = {"tag": args.tag, "agents": agents, "cells": [], "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     try:
         problem = matrix.launch()
@@ -734,7 +764,8 @@ def main(argv=None) -> int:
             folder = Path(path).expanduser()
             jobs.append((f"own:{name}", agents[0], folder if folder.is_dir() else None,
                          "" if folder.is_dir() else "skipped: not a folder", "", "", True, 0.0))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as pool:
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel)
+        try:
             futures = [pool.submit(matrix.run_cell, kind, agent, folder, note, word=word, canary=canary_value,
                                    read_only=read_only) for kind, agent, folder, note, word, canary_value, read_only, _
                        in jobs]
@@ -746,13 +777,19 @@ def main(argv=None) -> int:
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
                 print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+        finally:
+            # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
+            pool.shutdown(wait=True, cancel_futures=True)
         left = matrix.sweep()
+        swept = True
         report["machines_left"] = left
         failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
         report["result"] = "pass" if not failed and not left else f"fail: {len(failed)} cells" + (
             f", {len(left)} machines left" if left else "")
         return finish(report, out, 0 if report["result"] == "pass" else 1)
     finally:
+        if not swept:
+            matrix.sweep()  # a cancelled or crashed run still deletes the machines it made
         matrix.quit()
         if not args.keep_fixtures:
             shutil.rmtree(root, ignore_errors=True)

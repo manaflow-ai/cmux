@@ -116,5 +116,35 @@ class GrantTests(unittest.TestCase):
         self.assertFalse(config.exists())
 
 
+class StopTests(unittest.TestCase):
+    def test_a_cancelled_run_starts_no_more_cell_work(self):
+        import threading
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        m.stop()
+        self.assertTrue(m.run_cell("small-repo", "claude", Path("/tmp"), "", word="w", canary="",
+                                   read_only=False)["result"].startswith("skipped"))
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600")))
+        worker.start()
+        worker.join(5)
+        self.assertEqual(answer[0][0], 130)
+
+    def test_stop_ends_the_calls_cells_wait_on(self):
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not m.children and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        m.stop()
+        worker.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
