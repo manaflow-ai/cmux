@@ -87,15 +87,15 @@ import Testing
 /// only while Settings → Terminal → Jump to Bottom Button is on.
 @Suite struct TerminalJumpToBottomTests {
     @Test func showsOnlyWhenScrolledUpInScrollMode() {
-        #expect(TerminalJumpToBottom.isShown(scrolledUp: true, isTUI: false, enabled: true))
-        #expect(!TerminalJumpToBottom.isShown(scrolledUp: false, isTUI: false, enabled: true))
+        #expect(JumpToBottomVisibility.showsInTerminal(scrolledUp: true, isTUI: false, enabled: true))
+        #expect(!JumpToBottomVisibility.showsInTerminal(scrolledUp: false, isTUI: false, enabled: true))
     }
 
     @Test func neverInAFullScreenApp() {
-        #expect(!TerminalJumpToBottom.isShown(scrolledUp: true, isTUI: true, enabled: true))
+        #expect(!JumpToBottomVisibility.showsInTerminal(scrolledUp: true, isTUI: true, enabled: true))
     }
 
     @Test func settingOffRemovesIt() {
-        #expect(!TerminalJumpToBottom.isShown(scrolledUp: true, isTUI: false, enabled: false))
+        #expect(!JumpToBottomVisibility.showsInTerminal(scrolledUp: true, isTUI: false, enabled: false))
     }
 }

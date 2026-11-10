@@ -50,7 +50,9 @@ public enum CmuxMobilePreferences {
     }
 
     public static func terminalJumpToBottom(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: Key.terminalJumpToBottom) as? Bool ?? defaultTerminalJumpToBottom
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalJumpToBottom) == nil
+            ? defaultTerminalJumpToBottom : defaults.bool(forKey: Key.terminalJumpToBottom)
     }
 
     /// Typed characters show at once over a slow link, underlined until the

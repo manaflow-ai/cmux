@@ -192,7 +192,10 @@ public final class SettingsStore {
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
-        terminalJumpToBottom = bool("terminalJumpToBottom", true)
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string
+        // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
+        terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
+            ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
         predictiveEcho = bool("predictiveEcho", true)
         ultraOnCellular = bool("ultraOnCellular", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".

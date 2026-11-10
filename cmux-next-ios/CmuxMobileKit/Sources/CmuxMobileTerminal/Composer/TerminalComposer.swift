@@ -24,7 +24,7 @@ struct TerminalComposer: View {
     private var jumpToBottomEnabled = CmuxMobilePreferences.defaultTerminalJumpToBottom
 
     private var showsJumpToBottom: Bool {
-        TerminalJumpToBottom.isShown(scrolledUp: model.isScrolledUp, isTUI: model.isTUI, enabled: jumpToBottomEnabled)
+        JumpToBottomVisibility.showsInTerminal(scrolledUp: model.isScrolledUp, isTUI: model.isTUI, enabled: jumpToBottomEnabled)
     }
 
     var body: some View {
@@ -42,11 +42,11 @@ struct TerminalComposer: View {
                         .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Scroll to bottom")
+                .accessibilityIdentifier("terminal.jumpToBottom")
                 // Centered, as it first shipped and as the agent chat's
                 // jump circle sits (CMUX-10); it had drifted to the trailing edge.
                 .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityLabel("Scroll to bottom")
-                .accessibilityIdentifier("terminal.jumpToBottom")
                 .transition(.opacity)
             }
             if let notice = model.composerNotice {

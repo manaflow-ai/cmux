@@ -42,14 +42,12 @@ public struct JumpToBottomVisibility: Equatable, Sendable {
         if keyboardDragging { return false }
         return away > showDistance
     }
-}
 
-/// The terminal's Jump to bottom row (CMUX-10): centered above the composer,
-/// like the agent chat's jump circle; only in scroll mode (a full-screen app
-/// on the alternate screen owns its own scrolling, so the row never shows
-/// there), and never when Settings → Terminal → Jump to Bottom Button is off.
-public enum TerminalJumpToBottom {
-    public static func isShown(scrolledUp: Bool, isTUI: Bool, enabled: Bool) -> Bool {
+    /// The terminal's Jump to bottom row (CMUX-10), centered above the
+    /// composer like the agent chat's jump circle: only in scroll mode (a
+    /// full-screen app on the alternate screen owns its scrolling), and never
+    /// when Settings → Terminal → Jump to Bottom Button is off.
+    public static func showsInTerminal(scrolledUp: Bool, isTUI: Bool, enabled: Bool) -> Bool {
         enabled && scrolledUp && !isTUI
     }
 }
