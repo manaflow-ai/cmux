@@ -25,9 +25,12 @@ import Testing
 /// The tab strip is the same view over terminal, Markdown and browser content, so its gaps hold
 /// for every tab kind; the omnibar row is the browser's.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenGapTests {
-    /// Applies `style` the way a settings load does, with nothing else set.
-    private func load(_ style: ChromeStyle?) {
-        let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
+    /// Applies `style` (and `density`, when given) the way a settings load does, with nothing else set.
+    private func load(_ style: ChromeStyle?, density: String? = nil) {
+        var members: [String: JSONValue] = [:]
+        if let style { members["chromeStyle"] = .string(style.rawValue) }
+        if let density { members["density"] = .string(density) }
+        let appearance: JSONValue = .object(members)
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
         _ = SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
@@ -105,31 +108,37 @@ import Testing
         #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the omnibar, \(below) pt below")
     }
 
-    /// The toolbar buttons are Helium's size (`kToolbarButtonHeight` 28, a 20 pt icon in an 8 pt
-    /// rounded-square highlight; Lawrence 2026-10-20 "match Helium not Chrome"), the omnibar's own
-    /// height. The row's one gap runs from the tallest thing in it: the same above the buttons as
-    /// below them, and the omnibar sits on their center line.
+    /// The toolbar buttons are square. At Compact they are Helium's size
+    /// (`kToolbarButtonHeight` 28, a 20 pt icon in an 8 pt rounded-square highlight; Lawrence 2026-10-20
+    /// "match Helium not Chrome"). Default, the fresh-install density since #37274 (94c25f3088c, level
+    /// 0.5), sits halfway between Helium's 28 and Chrome's 34 at Comfortable: 31. At each density the
+    /// row's one gap runs from the tallest thing in it: the same above the buttons as below them, and
+    /// the omnibar sits on their center line.
     @Test(arguments: ChromeStyle.allCases)
     func theToolbarButtonsAreHeliumsSizeAndKeepTheRowsEvenGap(style: ChromeStyle) throws {
         defer { load(nil) }
-        load(style)
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
-        let window = window(CGSize(width: 1000, height: 600))
-        defer { window.close() }
-        let chrome = BrowserChromeView(tab: tab)
-        chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
-        window.contentView = chrome
-        chrome.layoutSubtreeIfNeeded()
-        let gap = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
-        let top = topLeft(chrome.bounds, in: chrome, window: window).minY
-        let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
-        let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
-        let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
-        #expect(reload.width == 28 && reload.height == 28, "\(style): the reload button is \(reload.size)")
-        #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
-        let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
-        let below = page.minY - reload.maxY
-        #expect(abs(above - gap) <= 0.5, "\(style): \(above) pt above the buttons, the gap is \(gap)")
-        #expect(abs(below - gap) <= 0.5, "\(style): \(below) pt below the buttons, the gap is \(gap)")
+        let densities: [(name: String?, side: CGFloat)] = [("compact", 28), (nil, 31)]
+        for density in densities {
+            load(style, density: density.name)
+            let label = "\(style) at \(density.name ?? "the default density")"
+            let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+            let window = window(CGSize(width: 1000, height: 600))
+            defer { window.close() }
+            let chrome = BrowserChromeView(tab: tab)
+            chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
+            window.contentView = chrome
+            chrome.layoutSubtreeIfNeeded()
+            let gap = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
+            let top = topLeft(chrome.bounds, in: chrome, window: window).minY
+            let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
+            let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
+            let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
+            #expect(reload.width == density.side && reload.height == density.side, "\(label): the reload button is \(reload.size)")
+            #expect(abs(reload.midY - bar.midY) <= 0.5, "\(label): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
+            let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
+            let below = page.minY - reload.maxY
+            #expect(abs(above - gap) <= 0.5, "\(label): \(above) pt above the buttons, the gap is \(gap)")
+            #expect(abs(below - gap) <= 0.5, "\(label): \(below) pt below the buttons, the gap is \(gap)")
+        }
     }
 }
