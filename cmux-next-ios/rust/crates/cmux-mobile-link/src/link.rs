@@ -1518,10 +1518,6 @@ mod tests {
         assert_eq!(old.lane, Lane::Bulk);
     }
 
-    /// A channel its owner never reads (a terminal screen that never got
-    /// attached) fills up; the link reader must not stall behind it, or
-    /// pings and every other channel stop and the peer's keepalive closes a
-    /// healthy link. The stuck channel is closed `overflow` instead.
     #[tokio::test]
     async fn a_channel_read_slowly_does_not_delay_the_others() {
         // A god session's backlog applied 1 ms per delta: the owner reads, just
@@ -1579,6 +1575,10 @@ mod tests {
         let _ = server.await.unwrap();
     }
 
+    /// A channel its owner never reads (a terminal screen that never got
+    /// attached) fills up; the link reader must not stall behind it, or
+    /// pings and every other channel stop and the peer's keepalive closes a
+    /// healthy link. The stuck channel is closed `overflow` instead.
     #[tokio::test]
     async fn an_unread_channel_does_not_stall_the_link() {
         let (phone, mac) = pair();

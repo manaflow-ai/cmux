@@ -3,7 +3,7 @@
 
 Reads cmux-next-ios/reliability-matrix/cells.json and the logs of the runs that
 hold its cells (cargo test for `rust` cells, xcodebuild/swift test for `ios`
-cells), and prints a Markdown table: one row per cell, pass / fail / not run,
+cells), and prints a Markdown table: one row per cell, pass / fail / crashed / not run,
 with the numbers the cell printed (`MATRIX {json}` lines).
 
 Exit status: 1 when a cell with `gate: true` failed or did not run in a suite
@@ -26,11 +26,37 @@ CELLS = Path(__file__).resolve().parents[2] / "cmux-next-ios" / "reliability-mat
 # libtest: `test path::name ... ok` / `... FAILED` / `... ignored`, or with --nocapture the
 # test's own output after the dots and its result on a later line.
 RUST_START = re.compile(r"^test (?P<name>\S+) \.\.\.(?P<rest>.*)$")
+# cargo starts each test binary with `     Running tests/x.rs (target/debug/deps/x-0123abcd)`
+# (or `   Doc-tests crate`); libtest then prints `running N tests`.
+RUST_BINARY = re.compile(r"^\s*(?:Running (?P<source>.*?)(?: \((?P<path>[^)]*)\))?|Doc-tests (?P<doc>\S+))\s*$")
+RUST_RUNNING = re.compile(r"^running \d+ tests?$")
+# cargo after a binary that died: `process didn't exit successfully: `...` (signal: 6, SIGABRT...)`.
+RUST_SIGNAL = re.compile(r"process didn't exit successfully: .*\(signal: \d+")
 # Swift Testing (swift test / xcodebuild): `✔ Test name() passed`, `✘ Test name() failed`,
-# and XCTest-style `Test case 'Suite/name()' passed|failed`.
+# and xcodebuild's `Test case 'Suite/name()' passed|failed` (also `Suite.name()`), and
+# XCTest's `Test Case '-[Module.Suite name]' passed|failed`.
 SWIFT_RESULT = re.compile(
-    r"(?:Test (?:case )?['\"]?(?:[\w.]+/)?(?P<name>\w+)\((?:[^)]*)\)['\"]? (?P<result>passed|failed))"
+    r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? "
+    r"(?P<result>passed|failed)"
 )
+SWIFT_STARTED = re.compile(
+    r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? started"
+)
+# The test process died: xcodebuild restarts it (`Restarting after unexpected exit, crash, or
+# test timeout in Suite/name(); ...`), Swift prints `Fatal error: ...`, swift test says
+# `error: Exited with unexpected signal code 11` / `Exited with signal code 6`.
+SWIFT_RESTARTED = re.compile(
+    r"Restarting after unexpected exit, crash, or test timeout in (?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\()?"
+)
+# (Swift's runtime `Fatal error:`, capitalized; a compiler's `fatal error:` is a build that
+# failed, whose cells read not run.)
+SWIFT_CRASH = re.compile(
+    r"Fatal error: |Exited with (?:unexpected )?signal code|Test crashed with signal|terminated due to signal|"
+    r"\(signal: \d+|[Tt]est runner (?:crashed|exited)|Early unexpected exit"
+)
+# How a run that finished ends: xcodebuild's `** TEST SUCCEEDED **` / `** TEST FAILED **`,
+# Swift Testing's `Test run with N tests ... passed|failed`, XCTest's `Executed N tests`.
+SWIFT_SUMMARY = re.compile(r"\*\* TEST (?:SUCCEEDED|FAILED) \*\*|Test run with \d+ tests?|Executed \d+ tests?")
 MATRIX_LINE = re.compile(r"MATRIX (\{.*\})\s*$")
 
 
@@ -42,33 +68,99 @@ def _record(results: dict[str, str], name: str, verdict: str) -> None:
             results[key] = verdict
 
 
+def _binary_key(match: re.Match) -> str:
+    """The same test binary across cargo runs (debug, then release with --ignored):
+    `target/debug/deps/reliability_matrix-0123abcd` -> `reliability_matrix`."""
+    if match["doc"]:
+        return "doc:" + match["doc"]
+    if match["path"]:
+        return re.sub(r"-[0-9a-f]{8,}$", "", Path(match["path"]).name)
+    return match["source"] or ""
+
+
 def parse_rust(log: str) -> dict[str, str]:
     """libtest output, `--nocapture` included: a test's `ok`/`FAILED` can come lines after its
-    `test NAME ...` start, so a started test that is not in the `failures:` list passed once its
-    binary printed `test result:`."""
+    `test NAME ...` start (alone on its line), and otherwise a started test that is not in the
+    `failures:` list passed once its binary printed `test result:`.
+
+    A binary that died (a signal, an abort, no `test result:` before the next binary or the end
+    of the log) passed nothing it did not print an explicit `ok` for: its started tests, and every
+    test the same binary listed in another run (ignored there, say) without an `ok`, read crashed."""
     results: dict[str, str] = {}
+    explicit_pass: set[str] = set()
+    members: dict[str, set[str]] = {}
+    crashed_binaries: set[str] = set()
+
+    binary = ""
     started: list[str] = []
     failed: set[str] = set()
+    pending = ""  # the --nocapture test whose result line has not come yet
+    finished = False
+    seen = False  # this binary printed anything of its own
     in_failures = False
+
+    def passed(name: str) -> None:
+        explicit_pass.update({name, name.rsplit("::", 1)[-1]})
+        _record(results, name, "pass")
+
+    def close(signal: bool = False) -> None:
+        nonlocal started, failed, pending, finished, seen, in_failures
+        if seen and (signal or not finished):
+            crashed_binaries.add(binary)
+            for name in started:
+                if name not in explicit_pass:
+                    _record(results, name, "crashed")
+        started, failed, pending, finished, seen, in_failures = [], set(), "", False, False, False
+
     for line in log.splitlines():
+        header = RUST_BINARY.match(line)
+        if header:
+            close()
+            binary = _binary_key(header)
+            continue
+        if RUST_SIGNAL.search(line):
+            # cargo reports the dead binary after it ends, before the next one starts.
+            if seen:
+                close(signal=True)
+            else:
+                crashed_binaries.add(binary)
+            continue
+        if RUST_RUNNING.match(line.strip()):
+            if seen:
+                close()
+            seen = True
+            continue
         match = RUST_START.match(line)
         if match:
+            seen = True
             in_failures = False
+            pending = ""
             name, rest = match["name"], match["rest"].strip()
-            if rest.startswith("ok"):
-                _record(results, name, "pass")
+            members.setdefault(binary, set()).add(name)
+            if rest == "ok" or rest.startswith("ok "):
+                passed(name)
             elif rest.startswith("FAILED"):
                 _record(results, name, "fail")
             elif rest.startswith("ignored"):
                 _record(results, name, "skip")
             else:
                 started.append(name)
+                pending = name
             continue
-        if line.strip() == "failures:":
+        stripped = line.strip()
+        if pending and stripped in ("ok", "FAILED"):
+            if stripped == "ok":
+                passed(pending)
+            else:
+                _record(results, pending, "fail")
+            started.remove(pending)
+            pending = ""
+            continue
+        if stripped == "failures:":
             in_failures = True
             continue
-        if in_failures and line.startswith("    ") and line.strip() and " " not in line.strip():
-            failed.add(line.strip())
+        if in_failures and line.startswith("    ") and stripped and " " not in stripped:
+            failed.add(stripped)
             continue
         if line.startswith("test result:"):
             in_failures = False
@@ -76,19 +168,51 @@ def parse_rust(log: str) -> dict[str, str]:
                 _record(results, name, "fail" if name in failed else "pass")
             for name in failed:
                 _record(results, name, "fail")
-            started, failed = [], set()
-    # A binary that never finished (crash, timeout): its started tests did not pass.
-    for name in started:
-        _record(results, name, "fail")
+            started, failed, pending = [], set(), ""
+            finished = True
+    close()
+    for key in crashed_binaries:
+        for name in members.get(key, ()):
+            if name not in explicit_pass and results.get(name) != "fail":
+                _record(results, name, "crashed")
     return results
 
 
 def parse_swift(log: str) -> dict[str, str]:
+    """Swift Testing and XCTest under xcodebuild or swift test. When the test process died (a
+    restart after an unexpected exit, a fatal error, a signal, or no run summary at the end), a
+    test the log never reported passed reads crashed, not missing: see `crashed`."""
     results: dict[str, str] = {}
+    crashed = False
+    summary = False
     for line in log.splitlines():
         match = SWIFT_RESULT.search(line)
         if match:
-            _record(results, match["name"], "pass" if match["result"] == "passed" else "fail")
+            _record(results, match["name"] or match["objc"], "pass" if match["result"] == "passed" else "fail")
+            continue
+        match = SWIFT_RESTARTED.search(line)
+        if match:
+            crashed = True
+            name = match["name"] or match["objc"]
+            if name and results.get(name) != "pass":
+                _record(results, name, "crashed")
+            continue
+        match = SWIFT_STARTED.search(line)
+        if match:
+            name = match["name"] or match["objc"]
+            results.setdefault(name, "started")
+            continue
+        if SWIFT_CRASH.search(line):
+            crashed = True
+        if SWIFT_SUMMARY.search(line):
+            summary = True
+    if log.strip() and not summary:
+        crashed = True
+    for name, verdict in list(results.items()):
+        if verdict == "started":
+            results[name] = "crashed" if crashed else "fail"
+    if crashed:
+        results["*"] = "crashed"
     return results
 
 
@@ -139,13 +263,15 @@ def build(cells: list[dict], logs: dict[str, str]) -> list[dict]:
         if suite not in logs:
             status = "not run"
         else:
-            status = results.get(suite, {}).get(test) or results.get(suite, {}).get(test.rsplit("::", 1)[-1]) or "not run"
+            found = results.get(suite, {})
+            # A suite whose test process died ("*"): a cell it never reported crashed with it.
+            status = found.get(test) or found.get(test.rsplit("::", 1)[-1]) or found.get("*") or "not run"
         rows.append({**cell, "status": status, "numbers": numbers(metrics.get(cell["id"], []))})
     return rows
 
 
 def table(rows: list[dict]) -> str:
-    mark = {"pass": "pass", "fail": "**fail**", "skip": "skipped", "not run": "not run"}
+    mark = {"pass": "pass", "fail": "**fail**", "crashed": "**crashed**", "skip": "skipped", "not run": "not run"}
     out = [
         "| Axis | Case | Result | Gate | Asserts | Numbers | Test |",
         "| --- | --- | --- | --- | --- | --- | --- |",
