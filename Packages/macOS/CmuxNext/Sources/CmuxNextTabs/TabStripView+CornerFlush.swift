@@ -20,11 +20,31 @@ extension TabStripView: TabStripCorner {
         reportFolder(animated: false, onlyIfMoved: true)
     }
 
-    /// The selected tab's folder (`TabCell+CornerFeet`) while it runs into the card.
+    /// The selected tab's folder (`TabCell+CornerFeet`) while it runs into the card, cut to the part
+    /// the strip shows: a tab scrolled partly out of an overflowed strip, or under the pinned tabs, is
+    /// clipped by `tabsClip` and `scrollingLayer`, so the shade's hole under it is clipped the same way
+    /// and never opens beside the strip. nil when nothing of it shows.
     public var selectedFolder: (path: CGPath, layer: CALayer)? {
         guard let id = model.selectedID, let cell = cells[id], cell.runsIntoCard,
               let folder = cell.cornerFeetLayer, let path = folder.path else { return nil }
-        return (path, folder)
+        var shown = path
+        for clip in [scrollingLayer, tabsClip.layer].compactMap({ $0 }) where Self.layer(folder, isInside: clip) {
+            let visible = clip.convert(clip.bounds, to: folder)
+            // The usual case, a folder wholly shown, costs a rect compare, not a path intersection.
+            if !visible.contains(shown.boundingBoxOfPath) {
+                shown = shown.intersection(CGPath(rect: visible, transform: nil))
+            }
+        }
+        return shown.isEmpty ? nil : (shown, folder)
+    }
+
+    private static func layer(_ layer: CALayer, isInside ancestor: CALayer) -> Bool {
+        var next = layer.superlayer
+        while let current = next {
+            if current === ancestor { return true }
+            next = current.superlayer
+        }
+        return false
     }
 
     /// Tells the window chrome where the selected folder tab is (design/selected-is-foreground.md): on
@@ -36,10 +56,12 @@ extension TabStripView: TabStripCorner {
         let folder = selectedFolder
         let inStrip = layer.flatMap { own in folder.map { own.converted($0.path, from: $0.layer) } }
         let place = cornerFrameInWindow, band = cornerChrome?.bandShade(for: self) ?? 0
+        let shown = isShownInWindow && CornerFlush.current.isOn
+        // A strip still without its chrome (new, or just moved into a window) looks it up, so its band appears.
         if onlyIfMoved, let last = reportedFolder, last.path == inStrip, last.frame == place, last.band == band,
-           cornerChrome != nil || folder == nil { return }
+           cornerChrome != nil || !shown { return }
         reportedFolder = (inStrip, place, band)
-        let chrome = isShownInWindow && CornerFlush.current.isOn ? CornerFlushChrome.chrome(of: self) : nil
+        let chrome = shown ? CornerFlushChrome.chrome(of: self) : nil
         if let old = cornerChrome, old !== chrome { old.folderDidChange(self, animated: false, gone: true) }
         cornerChrome = chrome
         let band = chrome?.folderDidChange(self, animated: animated) ?? 0

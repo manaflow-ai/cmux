@@ -100,8 +100,13 @@ public struct Palette {
     /// (the folder tab, `ChromeShadeHoles`). A row there keeps `selectionFill`
     /// (``ThemeTokens/selectedSurface(panesPaint:)``). `check-selected-surface.py` keeps every
     /// selected tab and row on these tokens.
+    ///
+    /// The content's surface reads as the foreground only against a shaded chrome. A chrome that shares
+    /// the content's surface (no shade: bare, panes, flat-sidebar-line, a shared sidebar surface) would
+    /// lose the selection entirely, so a row there keeps `selectionFill` too.
     public static var selectedSurface: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        guard Metrics.mainPaneChromeShade(isDark: tokens.isDark) > 0 else { return selectionFill }
         let paints = WindowBackdrop.current(tokens).panesPaintBackground
         return tokens.selectedSurface(panesPaint: paints)?.nsColor ?? selectionFill
     }

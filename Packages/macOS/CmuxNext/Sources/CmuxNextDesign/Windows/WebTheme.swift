@@ -121,7 +121,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         // see-through page shows the window's tint, which no fill over the shade can match (it would
         // add the tint twice), so a selected item there keeps the selection fill.
         let chromeShade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
-        let selectedOnChrome = page.alpha >= 1 ? page : nil
+        // No shade (a chrome that shares the content's surface) would hide a content-coloured selection.
+        let selectedOnChrome = chromeShade > 0 && page.alpha >= 1 ? page : nil
         variables = [
             "--cmux-content-surface": Self.css(page),
             "--cmux-chrome-shade": Self.css(ThemeRGB.black.withAlpha(chromeShade)),
