@@ -2514,7 +2514,8 @@ export default agentPaneEntry({
       checks: {
         anchorMovePx: {
           value: 30,
-          reason: "The recording's video chip goes in at the caret and the prompt grows by its row, the same growth a dropped recording makes.",
+          reason:
+            "The recording's video chip goes in at the caret and the prompt grows by its row, the same growth a dropped recording makes.",
         },
         layoutShiftMax: { value: 0.02, reason: "The video chip's row the recording adds to the prompt." },
       },
