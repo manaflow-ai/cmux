@@ -60,7 +60,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cmux_next_tree_notify import Api  # noqa: E402
-from github_quota_client import Deadline, QuotaExhausted, QuotaGitHub  # noqa: E402
+from github_quota_client import REQUEST_TIMEOUT_S, Deadline, QuotaExhausted, QuotaGitHub  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 BRANCH = "feat-cmux-next"
@@ -73,6 +73,9 @@ TIERS = ("daemon", "scheme", "generated")
 WINDOW_S = 15 * 60
 # After a dispatch: long enough that the next kick's listing shows the new run.
 SETTLE_S = 20
+# What a dispatch needs before the job's deadline: its POST, which can wait up to the client's request
+# timeout, and then SETTLE_S (Codex review of #40520: 21 s left and a 10 s POST ended the settle 9 s late).
+DISPATCH_RESERVE_S = REQUEST_TIMEOUT_S + SETTLE_S
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
 # The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
@@ -87,7 +90,7 @@ JOB_TIMEOUT_S = 20 * 60
 MARGIN_S = 2 * 60
 # Of the time left when the window opens, what the steps after it need: the listing, the compare, the
 # dispatch, SETTLE_S and the cancels. A window that would leave less is not waited for.
-AFTER_WINDOW_S = SETTLE_S + 60
+AFTER_WINDOW_S = DISPATCH_RESERVE_S + 30
 STARTED = time.monotonic()
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -381,12 +384,12 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
     # The settle is reserved before the dispatch, never skipped after it (Codex review of #40471): a
     # dispatch with no settle frees the kick's concurrency slot before GitHub lists the new run, and the
     # next kick, seconds later, finds no run at the tip and dispatches the same Mac work again.
-    if deadline is not None and deadline.left() < SETTLE_S:
+    if deadline is not None and deadline.left() < DISPATCH_RESERVE_S:
         if covered():
             return None
         raise PastDeadline(f"{max(0, int(deadline.left()))} s left before this job's deadline, less than the "
-                           f"{SETTLE_S} s settle a dispatch needs; not dispatching {tip[:12]}; the next "
-                           f"push's kick dispatches at a tip that contains it")
+                           f"{DISPATCH_RESERVE_S} s a dispatch needs (its POST, then the {SETTLE_S} s settle); "
+                           f"not dispatching {tip[:12]}; the next push's kick dispatches at a tip that contains it")
     status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
                       {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
     if status != 204:
