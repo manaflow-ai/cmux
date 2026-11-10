@@ -15,6 +15,8 @@ public nonisolated struct AgentLaneLinks: Hashable, Sendable {
     public var chat: String?
     /// Working, waiting on you, idle, failed or lost (the session tree's roll-up).
     public var state: AgentActivityLane.State
+    /// How to try what it finished: the row's Try pill.
+    public var tryIt: AgentLaneTry?
 
     /// The links of `lane`.
     public init(_ lane: AgentActivityLane) {
@@ -24,5 +26,6 @@ public nonisolated struct AgentLaneLinks: Hashable, Sendable {
         peer = lane.peer
         chat = lane.chat
         state = lane.state
+        tryIt = lane.tryIt
     }
 }

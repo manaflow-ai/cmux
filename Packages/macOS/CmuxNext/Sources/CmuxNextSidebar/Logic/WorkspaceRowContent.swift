@@ -76,6 +76,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
+    /// What the workspace's agent finished and how to try it: the row's Try pill.
+    public var tryIt: SidebarTry?
     /// The session tree: a parent's chevron (nil without children).
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.

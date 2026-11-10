@@ -110,6 +110,30 @@ public nonisolated struct SidebarPullRequestItem: Hashable, Sendable, Codable {
     }
 }
 
+/// How to try what a workspace's agent finished (acpmux `tryIt`, from its wrap-up's `try`): the
+/// row's Try pill. Aziz, 2026-11-09: "whenever a workspace agent finished its task, theres a direct
+/// way for me to try out and verify its work in addition to the artifact."
+public nonisolated struct SidebarTry: Hashable, Sendable {
+    /// The pill's words, as the agent named the launch ("Open try-agent-work build").
+    public var label: String
+    /// The page it opens in a browser tab (a Tag Opener address launches its build).
+    public var url: String?
+    /// The shell line it runs in a new terminal of the workspace.
+    public var command: String?
+    /// What to check once it runs; the pill's tooltip lists them.
+    public var verify: [String]
+    /// The HTML report.
+    public var report: String?
+
+    public init(label: String, url: String? = nil, command: String? = nil, verify: [String] = [], report: String? = nil) {
+        self.label = label
+        self.url = url
+        self.command = command
+        self.verify = verify
+        self.report = report
+    }
+}
+
 /// What the session tree draws: which workspace's agent started each workspace's agent (one level,
 /// as acpmux keeps `spawnedBy`), and each workspace's pull requests.
 public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
@@ -165,6 +189,10 @@ public final class SidebarSessionTree {
     public var state: SidebarSessionTreeState?
     /// Every row's pull request badge, with the tree on or off.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
+    /// Each row's Try pill: what its agent finished and how to try it, tree or not.
+    public var tries: [WorkspaceID: SidebarTry] = [:]
+    /// Opens a row's Try in its workspace (the app's tab opener); nil draws no pill.
+    @ObservationIgnored public var onTry: (@MainActor (WorkspaceID, SidebarTry) -> Void)?
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>
     @ObservationIgnored private let defaults: UserDefaults

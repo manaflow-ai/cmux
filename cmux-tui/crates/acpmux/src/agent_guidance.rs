@@ -57,7 +57,7 @@ pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your
 - Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; do not also write it as a numbered list.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose. A turn that finished something to try also gives the wrap-up try (a page or command), verify (what to check) and report (the HTML report): the person gets a Try button.
 - Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
 
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
@@ -66,7 +66,7 @@ pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person'
 - Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose. A turn that finished something to try also gives the wrap-up try (a page or command), verify (what to check) and report (the HTML report): the person gets a Try button.
 - Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.

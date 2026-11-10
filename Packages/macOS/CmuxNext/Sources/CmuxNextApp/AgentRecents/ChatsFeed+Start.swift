@@ -30,6 +30,7 @@ extension ChatsFeed {
         turns.start(localHost: localHost)
         startChiefTurnStates(tag: services.environment.tag)
         SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost)
+        SidebarTryOpener.install(services)
         let feed = ChatsFeed(socketPath: environment.socketPath, drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
         // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
         // open through the shared Open Chat path.

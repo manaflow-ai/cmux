@@ -81,6 +81,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let agentSession: String?
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
+    /// How to try what the session last finished (acpmux `tryIt`, its wrap-up's `try`): the
+    /// workspace row's Try pill. Nil when no wrap-up gave one.
+    public let tryIt: AgentLaneTry?
     /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
     /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
     public let usageWarnings: [String]
@@ -92,8 +95,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, tryIt: AgentLaneTry? = nil) {
         self.id = id
+        self.tryIt = tryIt
         self.agentSession = agentSession
         self.shortName = shortName
         self.name = name
@@ -165,7 +169,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]),
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
-                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]))
+                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 tryIt: AgentLaneTry(summary["tryIt"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

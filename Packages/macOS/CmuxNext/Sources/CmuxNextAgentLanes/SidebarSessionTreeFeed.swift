@@ -42,6 +42,11 @@ public final class SidebarSessionTreeFeed {
         /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
         /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
         var showsTree = true
+        /// The pull request reads run (the tree, the Priority view or a row's badge is on); off, the
+        /// pass carries only the Try pills.
+        var readsPullRequests = true
+        /// Each row's Try pill (``tries(_:links:)``), drawn whatever the sections.
+        var tries: [SidebarWorkspaceID: SidebarTry] = [:]
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
@@ -58,7 +63,7 @@ public final class SidebarSessionTreeFeed {
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+                let readsPullRequests = Self.readsPullRequests(sections) || Self.readsBadges(sections)
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
                 let models = workspaces()
@@ -69,16 +74,22 @@ public final class SidebarSessionTreeFeed {
                         if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                     }
                 }
+                // The Try pills show whatever the sections: a pass of the links alone, no pull request read.
+                guard readsPullRequests else {
+                    return Pass(state: SidebarSessionTreeState(), asks: [], showsTree: false, readsPullRequests: false,
+                                tries: Self.tries(chats, links: links, localHost: localHost))
+                }
                 var pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
                                      localHost: localHost, pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
+                pass.tries = Self.tries(chats, links: links, localHost: localHost)
                 // Captures: sample pull requests on every row, and no GitHub reads.
                 if fixture { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
                 return pass
             }) {
                 Self.publish(pass, to: tree)
-                if let pass, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                if let pass, pass.readsPullRequests, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
@@ -110,6 +121,27 @@ public final class SidebarSessionTreeFeed {
         if tree.state != state { tree.state = state }
         let badges = pass?.state.pullRequests ?? [:]
         if tree.pullRequests != badges { tree.pullRequests = badges }
+        let tries = pass?.tries ?? [:]
+        if tree.tries != tries { tree.tries = tries }
+    }
+
+    /// Each workspace's Try pill: of its chats on this Mac, the newest wrap-up that gave a page or a
+    /// command to try (acpmux `tryIt`). Another machine's chats have no lane here yet, so no pill.
+    static func tries(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], links: [String: AgentLaneLinks],
+                      localHost: String?) -> [SidebarWorkspaceID: SidebarTry] {
+        var out: [SidebarWorkspaceID: SidebarTry] = [:]
+        for (id, refs) in chats {
+            let newest = refs.compactMap { ref -> AgentLaneTry? in
+                guard ref.host == localHost, let session = ref.session, let found = links[session]?.tryIt,
+                      found.url != nil || found.command != nil else { return nil }
+                return found
+            }.max { $0.at < $1.at }
+            if let newest {
+                out[id] = SidebarTry(label: newest.label ?? String(localized: "sidebar.try.default", defaultValue: "Try it", bundle: .module),
+                                     url: newest.url, command: newest.command, verify: newest.verify, report: newest.report)
+            }
+        }
+        return out
     }
 
     /// Each workspace's agent chat tabs, in model order.
