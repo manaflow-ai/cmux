@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()

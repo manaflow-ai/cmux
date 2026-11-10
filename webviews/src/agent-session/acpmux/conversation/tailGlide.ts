@@ -110,6 +110,9 @@ export type TailGlide = {
   hold(): void;
   /// Followed again: what the reader's input held plays on.
   resume(): void;
+  /// Ends each held glide whose row lies wholly outside `view` (the scroller's box): nobody sees it
+  /// land, so it never plays on under a view the reader comes back to. O(held glides).
+  dropUnseen(view: DOMRect): void;
   /// Whether a row is drawn away from its place now (a glide playing or held).
   moving(): boolean;
 };
@@ -131,6 +134,15 @@ export function createTailGlide(): TailGlide {
     },
     resume() {
       for (const animation of playing) if (animation.playState === "paused") animation.play();
+    },
+    dropUnseen(view) {
+      for (const animation of playing) {
+        if (animation.playState !== "paused") continue;
+        const row = (animation.effect as KeyframeEffect | null)?.target;
+        if (!(row instanceof Element)) continue;
+        const box = row.getBoundingClientRect();
+        if (box.bottom <= view.top || box.top >= view.bottom) animation.cancel();
+      }
     },
     place(thread, glide, anchor, track = true) {
       if (!thread || !track || foldMs(thread) <= 0) {
