@@ -605,3 +605,59 @@ fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
     assert!(!renamed.to_string().contains(&private), "{renamed}");
     assert_ne!(renamed["tree_revision"], known["tree_revision"]);
 }
+
+#[test]
+fn a_remote_devices_first_screen_counts_and_fills_with_what_it_may_see() {
+    // hq#8813: `limit` takes the first N of the workspaces the phone may see,
+    // and `total` counts only those, so neither the page nor the count says
+    // that an incognito workspace exists.
+    let mux = test_mux();
+    let app = app(&mux);
+    let first_private = create(&mux, &app, "private-first", true);
+    let visible = ["one", "two", "three"].map(|name| create(&mux, &app, name, false));
+    let second_private = create(&mux, &app, "private-second", true);
+    let all = listed(&mux, &app).len();
+
+    let phone = phone(&mux);
+    let whole = listed(&mux, &phone);
+    let seen = whole.len();
+    assert_eq!(seen, all - 2, "{whole:?}");
+    let first_ids = |page: &Value| -> Vec<Value> {
+        page["workspaces"].as_array().unwrap().iter().map(|row| row["resource_id"].clone()).collect()
+    };
+    let whole_ids: Vec<Value> = whole.iter().map(|row| row["resource_id"].clone()).collect();
+    // The sidebar order of what the phone may see: every row of its whole list.
+    let all_page = line(&mux, &phone, json!({"id": "all", "cmd": "list-workspaces", "limit": seen + 5}));
+    let order = first_ids(&all_page["data"]);
+    let (mut sorted_order, mut sorted_whole) = (order.clone(), whole_ids.clone());
+    sorted_order.sort_by_key(Value::to_string);
+    sorted_whole.sort_by_key(Value::to_string);
+    assert_eq!(sorted_order, sorted_whole, "{all_page}");
+    for limit in [1, 2, seen, seen + 5] {
+        let reply = line(&mux, &phone, json!({"id": "first", "cmd": "list-workspaces", "limit": limit}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        let page = &reply["data"];
+        assert_eq!(page["total"], json!(seen), "limit {limit}: {page}");
+        assert_eq!(first_ids(page), order[..limit.min(seen)], "limit {limit}: {page}");
+        let text = page.to_string();
+        assert!(!text.contains(&first_private) && !text.contains(&second_private), "{text}");
+    }
+    for name in visible {
+        assert!(whole_ids.contains(&json!(name.clone())), "{name} missing: {whole_ids:?}");
+    }
+    // The Mac still counts and lists every workspace.
+    let reply = line(&mux, &app, json!({"id": "first", "cmd": "list-workspaces", "limit": 1}));
+    assert_eq!(reply["data"]["total"], json!(all), "{reply}");
+
+    // With `known`, a part never carries a revision; the whole one does, and is unchanged next.
+    let reply = line(&mux, &phone, json!({"id": "k", "cmd": "list-workspaces", "known": {}, "limit": 1}));
+    assert!(reply["data"].get("tree_revision").is_none(), "{reply}");
+    let reply =
+        line(&mux, &phone, json!({"id": "k", "cmd": "list-workspaces", "known": {}, "limit": seen}));
+    let page = &reply["data"];
+    assert_eq!(page["total"], json!(seen), "{page}");
+    assert!(page["tree_revision"].is_string(), "{page}");
+    let known = json!({"registry_id": page["registry_id"], "tree_revision": page["tree_revision"]});
+    let again = line(&mux, &phone, json!({"id": "k", "cmd": "list-workspaces", "known": known, "limit": 1}));
+    assert_eq!(again["data"]["unchanged"], true, "{again}");
+}
