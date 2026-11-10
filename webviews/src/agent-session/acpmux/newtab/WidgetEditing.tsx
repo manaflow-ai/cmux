@@ -231,6 +231,21 @@ export function GridWidgetFrame({
   );
 }
 
+/// The built-in widgets Add Widgets offers, in its order.
+const BUILTIN_ADDABLE: readonly PageWidget[] = [
+  "greeting",
+  "clock",
+  "timer",
+  "warmGreeting",
+  "quote",
+  "projects",
+  "actions",
+  "chats",
+  "styleDots",
+  "weather",
+  "machines",
+];
+
 /// An app's widget Add Widgets offers (ExtensionWidgets.tsx): placing it adds it to the row's end.
 export type AddableWidget = { id: string; title: string };
 
@@ -281,48 +296,31 @@ export function WidgetEditBar({
         </summary>
         {adding && (
           <div className="nt-edit-add-menu" role="menu">
-            {(
-              [
-                "greeting",
-                "clock",
-                "timer",
-                "warmGreeting",
-                "quote",
-                "projects",
-                "actions",
-                "chats",
-                "styleDots",
-                "weather",
-                "machines",
-              ] as PageWidget[]
-            ).map((widget) => (
+            {[
+              ...BUILTIN_ADDABLE.map((widget) => ({
+                key: widget,
+                label: widgetName(widget),
+                app: undefined as string | undefined,
+                add: () => onEdit({ edit: "show", widget }),
+              })),
+              ...(onAddApp
+                ? apps.map((app) => ({ key: app.id, label: app.title, app: app.id, add: () => onAddApp(app.id) }))
+                : []),
+            ].map((row) => (
+              // One row for both lists: the built-in widgets, then the installed apps' (#40270).
               <button
-                key={widget}
+                key={row.key}
                 type="button"
                 role="menuitem"
+                data-app-widget={row.app}
                 onClick={() => {
                   setAdding(false);
-                  onEdit({ edit: "show", widget });
+                  row.add();
                 }}
               >
-                {widgetName(widget)}
+                {row.label}
               </button>
             ))}
-            {onAddApp &&
-              apps.map((app) => (
-                <button
-                  key={app.id}
-                  type="button"
-                  role="menuitem"
-                  data-app-widget={app.id}
-                  onClick={() => {
-                    setAdding(false);
-                    onAddApp(app.id);
-                  }}
-                >
-                  {app.title}
-                </button>
-              ))}
           </div>
         )}
       </details>
