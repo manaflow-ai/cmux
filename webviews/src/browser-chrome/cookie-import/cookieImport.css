@@ -50,8 +50,8 @@
 
 /* TOAST LOOK (the app's): the overlay dialog's grammar (pages/overlay/dialog/dialog.css), Lawrence
    2026-11-09. The line reads in the title's weight in the full ink; Don't Show Again is quiet text,
-   Not Now a gray button and Import the filled primary, each 28 px with the dialog buttons' radius.
-   In a narrow pane the answers wrap under the line together. */
+   Not Now a gray button and Import the filled primary, each 28 px with the dialog buttons' radius,
+   on a row of their own under the line. */
 .ci-card[data-look="toast"] {
   --ci-icon: var(--ds-icon-32, 32px);
   --ci-button-height: calc(28px * var(--cmux-interface-scale, 1));
@@ -59,8 +59,14 @@
   column-gap: var(--ds-space-3);
   padding: var(--ds-space-3);
 }
+/* As the reference notice: the icon and the line on top, the answers on their own row under the line,
+   at the trailing edge, so the line never squeezes beside three buttons. */
 .ci-card[data-look="toast"] .ci-title {
+  flex: 1 1 calc(100% - var(--ci-icon) - var(--ds-space-3));
   font-weight: var(--weight-emphasis, 600);
+}
+.ci-card[data-look="toast"] .ci-toast-answers {
+  flex: 1 0 100%;
 }
 .ci-action {
   flex: none;
