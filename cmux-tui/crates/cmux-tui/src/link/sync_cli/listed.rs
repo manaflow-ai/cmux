@@ -193,7 +193,7 @@ fn add_in(
         Ok(file) => {
             let meta = file.metadata()?;
             if meta.is_file() {
-                set.files.insert(relative, LocalFile::listed(path, &meta));
+                set.add(relative, LocalFile::listed(path, &meta), meta.len())?;
             } else {
                 set.skips.note_entry(&relative, path, &meta);
             }
@@ -205,7 +205,7 @@ fn add_in(
             if let Some(id) = handle.inode(name)? {
                 let source = Source::File(path.to_path_buf());
                 let file = LocalFile { source, permissions: permissions_of(mode), id: Some(id) };
-                set.files.insert(relative, file);
+                set.add(relative, file, 0)?;
             }
         }
         Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
