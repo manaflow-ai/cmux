@@ -1,27 +1,33 @@
-//! The journal echoes of direct agent reports, from a report's commit until
-//! the roster folded its echo.
+//! What keeps an agent's public projection and the agent roster agreeing.
 //!
-//! A direct report commits its projection under the hook projector's lock
-//! (`agent_hook_fences`) and appends its echo, the record the roster folds,
-//! after releasing it; the roster's owner folds the echo later. Until the
-//! roster's cursor reached the echo, the roster holds the agent's state from
-//! before the report, so for that terminal:
-//! - a guarded send (`expect_agent`) is refused;
-//! - a projection reconcile does not write the roster's entry over the
-//!   report's row: it leaves the terminal to the owner, which reconciles it
-//!   once the echo is folded, and then the entry is the reducer's own
-//!   verdict on the report (its source precedence included);
-//! - an echo whose append failed is appended again by the owner, with the
-//!   same idempotency key, after the roster's read backoff, unless a later
-//!   report of the terminal supersedes it. After [`ECHO_ATTEMPTS`] it is
-//!   given up: the terminal's roster entry is unknown, its projection stays
-//!   as the report left it, and its guarded sends stay refused until the
-//!   roster's entry for it changes.
+//! The invariant: **a terminal's projection is written from the roster (a
+//! reconcile, or a fold's delta), and a guarded send (`expect_agent`) reads
+//! the roster, only when no record that projected for that terminal is past
+//! the roster's cursor**; the check and the write hold the hook projector's
+//! lock (`agent_hook_fences`), under which every such record projects. Two
+//! kinds of record project before the roster folds them:
+//! - a hook, which the projector applies at ingress: its fence holds its
+//!   journal sequence;
+//! - a direct report, which commits its row and then appends its journal
+//!   echo: tracked here from the commit (under that lock) until its echo is
+//!   journaled, then by the echo's journal sequence.
+//! A write the check refuses is owed: the roster's owner makes it after a
+//! pass whose fold reached every such record (`settle_report_echoes`), and
+//! then the row is the reducer's own verdict on them, its source precedence
+//! included.
 //!
-//! #39830 review, rounds 2 to 4: a fence that kept a report's row whatever
-//! the reducer folded, a counter that let go at the append, not the fold,
-//! and a failed echo retried forever all disagreed with the reducer. Every
-//! check here asks where the roster's cursor is.
+//! Every echo is journaled, in its terminal's commit order, so the reducer
+//! folds what base folded. A failed append is tried again by the owner with
+//! the same idempotency key after the roster's read backoff, the terminal's
+//! later echoes waiting behind it. After [`ECHO_ATTEMPTS`] it is given up:
+//! the terminal is unknown (its row stays, guarded sends are refused) until
+//! the roster's cursor passed the journal head of the give-up and its entry
+//! changed after that.
+//!
+//! #39830 review, rounds 2 to 5: a fence that kept a report's row whatever
+//! the reducer folded, a counter that let go at the append, a failed echo
+//! retried forever, skipped echoes, and a check that ignored hooks all broke
+//! the invariant on one path; each path is now checked against it here.
 
 use super::*;
 
@@ -32,6 +38,7 @@ const ECHO_ATTEMPTS: u32 = 8;
 const ECHO_ATTEMPTS: u32 = 3;
 
 /// A direct report's journal echo ([`Mux::append_agent_report_echo`]).
+#[derive(Clone)]
 pub(in crate::mux) struct ReportEcho {
     pub(in crate::mux) terminal_id: TerminalPublicId,
     pub(in crate::mux) state: AgentState,
@@ -60,34 +67,36 @@ impl ReportEcho {
 #[derive(Default)]
 pub(in crate::mux) struct ReportEchoes {
     terminals: HashMap<TerminalPublicId, TerminalEchoes>,
-    /// Numbers the reports of every terminal, in commit order.
-    numbered: u64,
-    /// Echoes whose append failed, oldest first.
-    failed: Vec<FailedEcho>,
-    /// Terminals whose projection a reconcile left while their echo was not
-    /// folded: the owner reconciles each once it is.
+    /// Terminals whose projection write the check refused: the owner makes
+    /// it once their records are folded.
     owed: HashSet<TerminalPublicId>,
-    /// Terminals whose echo was given up, with their roster entry then
-    /// (`entry_mark`): unknown until that entry changes.
-    lost: HashMap<TerminalPublicId, Option<(String, String, u64)>>,
+    /// Terminals whose echo was given up.
+    lost: HashMap<TerminalPublicId, LostEcho>,
 }
 
 #[derive(Default)]
 struct TerminalEchoes {
-    /// The terminal's last committed direct report.
-    latest: u64,
-    /// Its echoes being appended now.
-    appending: usize,
-    /// The highest journal sequence of its echoes the roster may not have
-    /// folded yet.
+    /// Echoes committed and not journaled yet, in commit order. The front
+    /// stays here while it is appended.
+    queue: VecDeque<QueuedEcho>,
+    /// The highest journal sequence of the terminal's echoes.
     journaled: u64,
 }
 
-struct FailedEcho {
-    number: u64,
+struct QueuedEcho {
     echo: ReportEcho,
+    /// Failed appends so far.
     attempts: u32,
-    retry_at: Instant,
+    /// After a failed append: when the owner tries it again.
+    retry_at: Option<Instant>,
+}
+
+struct LostEcho {
+    /// The journal head when the echo was given up.
+    head: u64,
+    /// The terminal's roster entry once the cursor passed `head`: the guard
+    /// clears when the entry differs from it.
+    mark: Option<Option<(String, String, u64)>>,
 }
 
 /// One append at a time per terminal, so a terminal's echoes reach the
@@ -114,13 +123,11 @@ impl EchoAppends {
 
 impl ReportEchoes {
     /// Whether `terminal_id` has an echo the roster at `cursor` has not
-    /// folded: being appended, failed, or journaled past the cursor.
+    /// folded: queued (being appended, or failed), or journaled past it.
     fn unfolded(&self, terminal_id: &TerminalPublicId, cursor: u64) -> bool {
-        self.terminals.get(terminal_id).is_some_and(|terminal| {
-            terminal.appending > 0
-                || terminal.journaled > cursor
-                || self.failed.iter().any(|failed| &failed.echo.terminal_id == terminal_id)
-        })
+        self.terminals
+            .get(terminal_id)
+            .is_some_and(|terminal| !terminal.queue.is_empty() || terminal.journaled > cursor)
     }
 
     fn forget_if_folded(&mut self, terminal_id: &TerminalPublicId, cursor: u64) {
@@ -130,12 +137,30 @@ impl ReportEchoes {
     }
 }
 
-/// What identifies a roster entry's state for a lost echo: it is known again
-/// once this changes.
+/// Whether a hook of `terminal_id` projected past the roster at `cursor`.
+fn hook_unfolded(
+    fences: &HashMap<TerminalPublicId, HookFence>,
+    terminal_id: &TerminalPublicId,
+    cursor: u64,
+) -> bool {
+    fences.get(terminal_id).is_some_and(|fence| fence.sequence > cursor)
+}
+
+/// What identifies a roster entry's state for a lost echo.
 fn entry_mark(
     entry: Option<&crate::journal_reducers::RosterEntry>,
 ) -> Option<(String, String, u64)> {
     entry.map(|entry| (entry.state.clone(), entry.source.clone(), entry.updated_at_ms))
+}
+
+/// How a terminal's queue is written.
+#[derive(Clone, Copy, PartialEq)]
+enum Writer {
+    /// The reporting thread: it stops at an echo that failed before, which
+    /// the owner tries again after its backoff.
+    Reporter,
+    /// The roster's owner, retrying due echoes; it may give one up.
+    Owner,
 }
 
 impl Mux {
@@ -147,106 +172,128 @@ impl Mux {
         self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor
     }
 
-    /// A direct report of `terminal_id` committed, under the hook projector's
-    /// lock: its echo is unfolded until the roster's cursor passed it.
-    pub(in crate::mux) fn note_report_echo(&self, terminal_id: &TerminalPublicId) -> u64 {
+    /// A direct report committed its row, under the hook projector's lock:
+    /// its echo goes behind the terminal's earlier ones.
+    pub(in crate::mux) fn note_report_echo(&self, echo: ReportEcho) {
         let mut echoes = self.report_echoes();
-        echoes.numbered += 1;
-        let number = echoes.numbered;
-        let terminal = echoes.terminals.entry(terminal_id.clone()).or_default();
-        terminal.latest = number;
-        terminal.appending += 1;
-        number
+        let terminal = echoes.terminals.entry(echo.terminal_id.clone()).or_default();
+        terminal.queue.push_back(QueuedEcho { echo, attempts: 0, retry_at: None });
     }
 
-    /// Appends report `number`'s echo in its terminal's turn, unless a later
-    /// report of the terminal committed since (its echo carries the newer
-    /// state, and an older one must not fold after it). A failed append is
-    /// kept for the owner to try again after the roster's read backoff.
-    pub(in crate::mux) fn write_report_echo(&self, number: u64, echo: ReportEcho) {
+    /// The reporting thread appends its terminal's queued echoes, its own
+    /// among them, then asks the owner to fold them.
+    pub(in crate::mux) fn write_report_echoes(&self, terminal_id: &TerminalPublicId) {
+        self.drain_report_echoes(terminal_id, Writer::Reporter);
+        self.continue_agent_roster_replay_later();
+    }
+
+    /// Appends `terminal_id`'s queued echoes in order, in its turn, each
+    /// while it stays at the front, so the terminal never looks folded in
+    /// between. No other lock is held across an append.
+    fn drain_report_echoes(&self, terminal_id: &TerminalPublicId, writer: Writer) {
         let appends = &self.agent_roster_worker.echo_appends;
-        let turn = appends.turn(&echo.terminal_id);
+        let turn = appends.turn(terminal_id);
         let held = turn.lock().unwrap_or_else(PoisonError::into_inner);
-        let latest = self.report_echoes().terminals.get(&echo.terminal_id).map(|t| t.latest);
-        let journaled = if latest == Some(number) {
-            self.append_agent_report_echo(&echo).map(Some).ok_or(())
-        } else {
-            Ok(None)
-        };
-        let terminal_id = echo.terminal_id.clone();
-        let retry = {
+        let mut retry = None;
+        loop {
+            let now = Instant::now();
+            let front = {
+                let echoes = self.report_echoes();
+                let Some(queued) =
+                    echoes.terminals.get(terminal_id).and_then(|terminal| terminal.queue.front())
+                else {
+                    break;
+                };
+                let waiting =
+                    queued.retry_at.is_some_and(|at| writer == Writer::Reporter || at > now);
+                if waiting {
+                    break;
+                }
+                (queued.echo.clone(), queued.attempts)
+            };
+            let (echo, attempts) = front;
+            let journaled = self.append_agent_report_echo(&echo);
+            let give_up_head =
+                (journaled.is_none() && writer == Writer::Owner && attempts + 1 >= ECHO_ATTEMPTS)
+                    .then(|| self.session_journal_head().ok())
+                    .flatten();
             let mut echoes = self.report_echoes();
-            if let Some(terminal) = echoes.terminals.get_mut(&terminal_id) {
-                terminal.appending = terminal.appending.saturating_sub(1);
-                if let Ok(Some(sequence)) = journaled {
+            let Some(terminal) = echoes.terminals.get_mut(terminal_id) else { break };
+            match (journaled, give_up_head) {
+                (Some(sequence), _) => {
+                    terminal.queue.pop_front();
                     terminal.journaled = terminal.journaled.max(sequence);
                 }
-            }
-            match journaled {
-                Ok(_) => {
-                    echoes.failed.retain(|failed| {
-                        failed.echo.terminal_id != terminal_id || failed.number > number
-                    });
-                    None
+                (None, Some(head)) => {
+                    terminal.queue.pop_front();
+                    eprintln!(
+                        "cmux-tui: gave up journaling an agent report for {terminal_id} after \
+                         {ECHO_ATTEMPTS} attempts; its roster entry is unknown until it changes"
+                    );
+                    echoes.lost.insert(terminal_id.clone(), LostEcho { head, mark: None });
                 }
-                Err(()) => {
-                    let delay = agent_roster_rebuild::roster_read_retry_delay(1);
-                    let retry_at = Instant::now() + delay;
-                    echoes.failed.push(FailedEcho { number, echo, attempts: 1, retry_at });
-                    Some(delay)
+                (None, None) => {
+                    let Some(queued) = terminal.queue.front_mut() else { break };
+                    queued.attempts += 1;
+                    let delay = agent_roster_rebuild::roster_read_retry_delay(queued.attempts);
+                    queued.retry_at = Some(Instant::now() + delay);
+                    retry = Some(delay);
+                    break;
                 }
             }
-        };
+        }
         drop(held);
-        appends.release(&terminal_id, turn);
+        appends.release(terminal_id, turn);
         // Read after the record: the owner moves the cursor before it looks
         // at the echoes, so one of the two sees the other.
         let cursor = self.agent_roster_cursor();
-        self.report_echoes().forget_if_folded(&terminal_id, cursor);
-        match retry {
-            Some(delay) => self.retry_agent_roster_replay_after(delay),
-            None => self.continue_agent_roster_replay_later(),
+        self.report_echoes().forget_if_folded(terminal_id, cursor);
+        if let Some(delay) = retry {
+            self.retry_agent_roster_replay_after(delay);
         }
     }
 
-    /// Whether `terminal_id`'s roster state is not the reducer's verdict on
-    /// its last direct report yet: an echo not folded, a reconcile owed, or
-    /// an echo given up. A guarded send to it is refused.
+    /// Whether `terminal_id`'s roster state may be older than its projected
+    /// records: a hook or an echo not folded, a write owed, or an echo given
+    /// up. A guarded send to it is refused.
     pub(crate) fn agent_report_unsettled(&self, terminal_id: &TerminalPublicId) -> bool {
         let cursor = self.agent_roster_cursor();
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        if hook_unfolded(&fences, terminal_id, cursor) {
+            return true;
+        }
         let echoes = self.report_echoes();
         echoes.unfolded(terminal_id, cursor)
             || echoes.owed.contains(terminal_id)
             || echoes.lost.contains_key(terminal_id)
     }
 
-    /// For a projection reconcile under the hook projector's lock, with the
-    /// roster at `cursor`: whether it may write `terminal_id`'s roster entry
-    /// now. A terminal whose echo is not folded is left for the owner
-    /// (`settle_report_echoes`), and one whose echo was given up keeps its
-    /// projection.
+    /// The invariant's check, for a write of `terminal_id`'s projection from
+    /// the roster at `cursor`, with the hook projector's lock held (`fences`):
+    /// true when it may write now. Otherwise the write is owed to the owner.
     pub(in crate::mux) fn reconcile_may_write(
         &self,
+        fences: &HashMap<TerminalPublicId, HookFence>,
         terminal_id: &TerminalPublicId,
         cursor: u64,
     ) -> bool {
         let mut echoes = self.report_echoes();
-        if echoes.lost.contains_key(terminal_id) {
-            return false;
+        if !hook_unfolded(fences, terminal_id, cursor)
+            && !echoes.unfolded(terminal_id, cursor)
+            && !echoes.lost.contains_key(terminal_id)
+        {
+            return true;
         }
-        if echoes.unfolded(terminal_id, cursor) {
-            echoes.owed.insert(terminal_id.clone());
-            drop(echoes);
-            self.continue_agent_roster_replay_later();
-            return false;
-        }
-        true
+        echoes.owed.insert(terminal_id.clone());
+        drop(echoes);
+        self.continue_agent_roster_replay_later();
+        false
     }
 
     /// The owner, after each pass: forgets the echoes the roster folded,
-    /// a lost echo's terminal whose entry changed, and reconciles the owed
-    /// terminals whose echoes are folded now, under the hook projector's
-    /// lock (no report commits meanwhile).
+    /// clears a lost echo's guard once a change after its give-up is folded,
+    /// and makes the owed writes whose terminals are folded now, under the
+    /// hook projector's lock.
     pub(in crate::mux) fn settle_report_echoes(&self) {
         {
             let echoes = self.report_echoes();
@@ -298,8 +345,16 @@ impl Mux {
                 echoes.forget_if_folded(&terminal_id, cursor);
             }
             for (terminal_id, mark) in marks {
-                if echoes.lost.get(&terminal_id).is_some_and(|lost| *lost != mark) {
-                    echoes.lost.remove(&terminal_id);
+                let Some(lost) = echoes.lost.get_mut(&terminal_id) else { continue };
+                if cursor < lost.head {
+                    continue;
+                }
+                match &lost.mark {
+                    None => lost.mark = Some(mark),
+                    Some(at_head) if *at_head != mark => {
+                        echoes.lost.remove(&terminal_id);
+                    }
+                    Some(_) => {}
                 }
             }
             // A stale roster's rebuild, and a replay's own reconcile, write
@@ -307,13 +362,15 @@ impl Mux {
             let stale = self.agent_roster_stale() || self.agent_roster_replaying();
             let mut settled = Vec::new();
             for (terminal_id, entry) in entries {
-                if stale || echoes.unfolded(&terminal_id, cursor) {
+                if stale
+                    || hook_unfolded(&fences, &terminal_id, cursor)
+                    || echoes.unfolded(&terminal_id, cursor)
+                    || echoes.lost.contains_key(&terminal_id)
+                {
                     continue;
                 }
                 echoes.owed.remove(&terminal_id);
-                if !echoes.lost.contains_key(&terminal_id) {
-                    settled.extend(entry.map(|entry| (terminal_id, entry)));
-                }
+                settled.extend(entry.map(|entry| (terminal_id, entry)));
             }
             settled
         };
@@ -323,81 +380,39 @@ impl Mux {
         drop(fences);
     }
 
-    /// The owner appends the failed echoes whose retry is due, oldest first,
-    /// each in its terminal's turn and only while it is still the terminal's
-    /// last report. One that failed [`ECHO_ATTEMPTS`] times is given up.
-    /// No lock but the terminal's turn is held across an append.
+    /// The owner appends the failed echoes whose retry is due, each terminal
+    /// in its turn, then asks for a pass when the next one is due.
     pub(in crate::mux) fn retry_failed_report_echoes(&self) {
         let now = Instant::now();
         let due = {
-            let mut echoes = self.report_echoes();
-            let (due, later) = std::mem::take(&mut echoes.failed)
-                .into_iter()
-                .partition::<Vec<_>, _>(|failed| failed.retry_at <= now);
-            echoes.failed = later;
-            // Out of the failed list until its append ends, so it counts as
-            // being appended: its terminal never looks folded in between.
-            for failed in &due {
-                echoes.terminals.entry(failed.echo.terminal_id.clone()).or_default().appending += 1;
-            }
-            due
+            let echoes = self.report_echoes();
+            echoes
+                .terminals
+                .iter()
+                .filter(|(_, terminal)| {
+                    terminal
+                        .queue
+                        .front()
+                        .and_then(|queued| queued.retry_at)
+                        .is_some_and(|at| at <= now)
+                })
+                .map(|(terminal_id, _)| terminal_id.clone())
+                .collect::<Vec<_>>()
         };
-        let appends = &self.agent_roster_worker.echo_appends;
-        for mut failed in due {
-            let terminal_id = failed.echo.terminal_id.clone();
-            let turn = appends.turn(&terminal_id);
-            let held = turn.lock().unwrap_or_else(PoisonError::into_inner);
-            let latest = self.report_echoes().terminals.get(&terminal_id).map(|t| t.latest);
-            let journaled = if latest == Some(failed.number) {
-                self.append_agent_report_echo(&failed.echo).map(Some).ok_or(())
-            } else {
-                Ok(None)
-            };
-            let lost_mark =
-                (journaled.is_err() && failed.attempts + 1 >= ECHO_ATTEMPTS).then(|| {
-                    let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-                    entry_mark(host.roster.entries.get(terminal_id.as_str()))
-                });
-            {
-                let mut echoes = self.report_echoes();
-                if let Some(terminal) = echoes.terminals.get_mut(&terminal_id) {
-                    terminal.appending = terminal.appending.saturating_sub(1);
-                }
-                match journaled {
-                    Ok(sequence) => {
-                        if let (Some(sequence), Some(terminal)) =
-                            (sequence, echoes.terminals.get_mut(&terminal_id))
-                        {
-                            terminal.journaled = terminal.journaled.max(sequence);
-                        }
-                    }
-                    Err(()) => match lost_mark {
-                        Some(mark) => {
-                            eprintln!(
-                                "cmux-tui: gave up journaling an agent report for {terminal_id} \
-                                 after {ECHO_ATTEMPTS} attempts; its roster entry is unknown \
-                                 until it changes"
-                            );
-                            echoes.lost.insert(terminal_id.clone(), mark);
-                            echoes.owed.remove(&terminal_id);
-                        }
-                        None => {
-                            failed.attempts += 1;
-                            failed.retry_at = Instant::now()
-                                + agent_roster_rebuild::roster_read_retry_delay(failed.attempts);
-                            echoes.failed.push(failed);
-                        }
-                    },
-                }
-            }
-            drop(held);
-            appends.release(&terminal_id, turn);
-            let cursor = self.agent_roster_cursor();
-            self.report_echoes().forget_if_folded(&terminal_id, cursor);
+        for terminal_id in &due {
+            self.drain_report_echoes(terminal_id, Writer::Owner);
         }
-        let next = self.report_echoes().failed.iter().map(|failed| failed.retry_at).min();
+        let next = self
+            .report_echoes()
+            .terminals
+            .values()
+            .filter_map(|terminal| terminal.queue.front().and_then(|queued| queued.retry_at))
+            .min();
         if let Some(next) = next {
             self.retry_agent_roster_replay_after(next.saturating_duration_since(Instant::now()));
+        }
+        if !due.is_empty() {
+            self.continue_agent_roster_replay_later();
         }
     }
 }

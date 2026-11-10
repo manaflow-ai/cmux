@@ -630,8 +630,12 @@ impl Mux {
         if let Some(reconciled) = reconciled {
             self.finish_replay_reconcile(reconciled);
         }
+        // The fold's own projection writes keep the invariant too
+        // (`agent_report_echoes.rs`): one of a terminal with a projected
+        // record past the cursor is owed until that record is folded.
+        let cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
         for (delta, kind) in deltas {
-            self.apply_roster_delta(delta, &kind);
+            self.apply_folded_roster_delta(delta, &kind, cursor);
         }
         // The live agent count reads the roster; an activity event sent
         // between the request and this pass read the old count. The end of a
@@ -701,7 +705,7 @@ impl Mux {
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
         for (terminal_id, entry) in entries {
             let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
-            if self.reconcile_may_write(&terminal_id, cursor) {
+            if self.reconcile_may_write(&fences, &terminal_id, cursor) {
                 self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
             }
         }
@@ -788,7 +792,7 @@ impl Mux {
             // terminal whose echo the roster has not folded is left to the
             // owner, which writes the reducer's verdict on it once folded;
             // the other terminals' guarded sends do not wait for it.
-            if self.reconcile_may_write(&terminal_id, cursor) {
+            if self.reconcile_may_write(&fences, &terminal_id, cursor) {
                 self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
             }
         }
@@ -824,7 +828,7 @@ impl Mux {
         // folded: the owner reconciles it once it is (`agent_report_echoes.rs`).
         // Under the hook projector's lock, so none commits between.
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
-        if self.reconcile_may_write(terminal_id, cursor) {
+        if self.reconcile_may_write(&fences, terminal_id, cursor) {
             self.reconcile_agent_roster_projection_with(terminal_id, entry, true);
         }
         drop(fences);
@@ -884,6 +888,30 @@ impl Mux {
             "startup-reconcile",
             sequence_lock_held,
         );
+    }
+
+    /// A delta the fold through `cursor` made: an upsert or removal is
+    /// applied under the hook projector's lock once the invariant allows it,
+    /// and owed otherwise; a hook session's end checks its own fence.
+    fn apply_folded_roster_delta(
+        &self,
+        delta: crate::journal_reducers::RosterDelta,
+        kind: &str,
+        cursor: u64,
+    ) {
+        use crate::journal_reducers::RosterDelta;
+        let terminal_id = match &delta {
+            RosterDelta::Upsert { terminal_id, .. } | RosterDelta::Remove { terminal_id, .. } => {
+                terminal_id
+            }
+            RosterDelta::EndHookSession { .. } => return self.apply_roster_delta(delta, kind),
+        };
+        let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { return };
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.reconcile_may_write(&fences, &terminal_id, cursor) {
+            self.apply_roster_delta_with(delta, kind, true);
+        }
+        drop(fences);
     }
 
     /// Apply one roster delta's side effects: the durable agent projection

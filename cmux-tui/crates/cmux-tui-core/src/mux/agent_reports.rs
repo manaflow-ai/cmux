@@ -403,8 +403,16 @@ impl Mux {
         // A direct report's echo, noted before the hook projector's lock
         // goes: until it is in the journal the roster holds the agent's older
         // state (`ReportEchoes`).
-        let echo_number = (origin == AgentReportOrigin::Direct && !commit.replayed)
-            .then(|| self.note_report_echo(&terminal_id));
+        let echoed = origin == AgentReportOrigin::Direct && !commit.replayed;
+        if echoed {
+            self.note_report_echo(ReportEcho::new(
+                terminal_id.clone(),
+                record.state,
+                record.source,
+                record.session.clone(),
+                record.updated_at_ms,
+            ));
+        }
         drop(sequence_guard);
         let agent = AgentRecord {
             surface,
@@ -456,15 +464,9 @@ impl Mux {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                let echo = ReportEcho::new(
-                    agent.terminal_id.clone(),
-                    agent.state,
-                    agent.source,
-                    agent.session.clone(),
-                    agent.updated_at_ms,
-                );
-                if let Some(number) = echo_number {
-                    self.write_report_echo(number, echo);
+                // Every echo, in the terminal's commit order (`agent_report_echoes.rs`).
+                if echoed {
+                    self.write_report_echoes(&agent.terminal_id);
                 }
             }
         }
