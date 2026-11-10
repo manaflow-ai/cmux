@@ -130,7 +130,7 @@ public final class AgentPaneSeedSource {
     /// `give` (at most `limit`, then goes without a draft); ``peek()`` never waits. `give` counts once.
     public static func handingOffDraft(_ seed: AgentPaneSeed, limit: Duration)
         -> (source: AgentPaneSeedSource, give: @MainActor (String?) -> Void) {
-        let source = AgentPaneSeedSource(seed), handOff = AgentPaneHandOff()
+        let source = AgentPaneSeedSource(seed), handOff = AgentPaneLateDraft()
         source.lateDraft = { await handOff.value() }
         source.lateDraftLimit = limit
         return (source, { handOff.give($0) })
@@ -251,7 +251,7 @@ extension AgentPaneSeedSource {
 /// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:limit:)``).
 /// A wait that gives up (``agentPaneFirst(within:_:)``) is resumed by the give, its answer dropped.
 @MainActor
-final class AgentPaneHandOff {
+final class AgentPaneLateDraft {
     private var given: String??
     private var waiting: [CheckedContinuation<String?, Never>] = []
 
