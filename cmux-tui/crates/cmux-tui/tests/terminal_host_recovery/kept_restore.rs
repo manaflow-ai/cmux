@@ -333,18 +333,20 @@ fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
 /// ended, beside the launch that had the turn. After the wait it takes its
 /// place at the end of the line, as a try with no wait does.
 ///
-/// 4 kept tabs, 1 slot, each launch held 3 s in its turn, and the first 5
-/// launches fail: one terminal fails two times, so its third try waits 7.5 s
-/// and comes due in the middle of another terminal's turn. The other 3
-/// terminals restart one turn (3 s) apart; the try with no turn restarted
-/// between two of them.
+/// 4 kept tabs in hidden workspaces (a shown one goes first, which changes
+/// the order), 1 slot, each launch held 3 s in its turn, and the first 5
+/// launches fail: the terminal that is first in line fails two times, so its
+/// third try waits 7.5 s and comes due in the middle of the last terminals'
+/// turns. The other 3 terminals restart one turn (3 s) apart; the try with
+/// no turn restarted between two of them.
 #[test]
 fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
     const TABS: usize = 4;
     const HOLD_MS: u64 = 3_000;
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("kept-restore-wait-turn");
-    let terminals = create_workspaces(&harness, "late", TABS);
+    // One more workspace is the shown one; its tab is not restarted.
+    create_workspaces(&harness, "late", TABS + 1);
     end_sessions_keep_layout(&mut harness);
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
@@ -352,9 +354,19 @@ fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
     // A restart's tries: at once, at once, then after 7.5 s.
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_BACKOFF_MS".into(), "0,7500,7500,7500".into()));
     harness.restart();
-    let kept = all_tabs(&harness);
-    assert_eq!(kept.len(), TABS, "the restart did not keep every tab");
-    restart_kept_tabs(&harness, &kept);
+    let tree = request(&harness.socket, serde_json::json!({"id": 310, "cmd": "list-workspaces"}));
+    let hidden = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|workspace| workspace["active"] != true)
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(hidden.len(), TABS, "the restart did not keep one shown and {TABS} hidden tabs");
+    restart_kept_tabs(&harness, &hidden);
 
     let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
     let deadline = Instant::now() + test_timeout(Duration::from_secs(90));
@@ -366,7 +378,7 @@ fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
             .filter(|event| event["event"] == "terminal_respawned")
             .filter_map(|event| event["at_ms"].as_u64())
             .collect::<Vec<_>>();
-        if at.len() >= terminals.len() {
+        if at.len() >= TABS {
             break at;
         }
         assert!(Instant::now() < deadline, "only {} of {TABS} terminals restarted", at.len());
