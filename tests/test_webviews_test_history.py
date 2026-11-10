@@ -102,8 +102,10 @@ class Known(unittest.TestCase):
         base, replay = history.known(runs(True, True), "same", {TEST: False, f"{FILE} > other": True})
         self.assertEqual((base, replay), ({TEST: True}, []))
 
-    def test_a_red_any_such_push_had_is_the_bases(self):
+    def test_the_newest_such_push_decides(self):
         self.assertEqual(history.known(runs(True, False), "same", {TEST: False}), ({TEST: False}, []))
+        # One old red at the key (a flake) does not excuse a change once a newer push ran it green.
+        self.assertEqual(history.known(runs(False, True), "same", {TEST: False}), ({TEST: True}, []))
 
     def test_other_inputs_or_a_timed_out_file_say_nothing_and_the_file_replays(self):
         self.assertEqual(history.known(runs(True, keys=["older"]), "same", {TEST: False}), ({}, [FILE]))
@@ -482,6 +484,50 @@ class Workflow(unittest.TestCase):
         self.assertEqual(compare["env"]["KNOWN_REPLAY"], "${{ steps.history.outputs.replay }}")
         self.assertIn('base-replay-files', compare["run"])
         self.assertIn('base-known.json', compare["run"])
+
+    def test_the_history_job_records_the_key_the_shards_computed_and_never_an_empty_one(self):
+        # The history job's checkout is sparse; inputs() reads routed files it does not have (#40223 review).
+        shard = self.job("react-apps-check-shard")
+        self.assertIn('webviews_test_history.py inputs > "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key"', shard)
+        upload = shard[shard.index("      - name: Upload this push's webview results"):]
+        upload = upload[:upload.index("\n      - name:", 10)]
+        self.assertIn("webviews-head-results/webviews-inputs-key", upload)
+        upkeep = self.job("webviews-test-history")
+        self.assertNotIn("webviews_test_history.py inputs", upkeep)
+        record = upkeep[upkeep.index("      - name: Add this push to the history"):]
+        record = record[:record.index("\n      - name:", 10)]
+        body = record[record.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, "scripts/ci").mkdir(parents=True)
+            Path(temp, "scripts/ci/webviews_test_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            Path(temp, "scripts/ci/web_subareas.py").write_text(
+                (ROOT / "scripts/ci/web_subareas.py").read_text(encoding="utf-8"), encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=temp, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"],
+                           cwd=temp, check=True)
+            Path(temp, "webviews-test-history").mkdir()
+
+            def record(*keys):
+                for i, key in enumerate(keys, 1):
+                    shard = Path(temp, f"history-results/webviews-test-history-shard{i}")
+                    shard.mkdir(parents=True, exist_ok=True)
+                    (shard / "webviews-head-results.json").write_text(json.dumps({FILE: True}), encoding="utf-8")
+                    if key is not None:
+                        (shard / "webviews-inputs-key").write_text(key + "\n", encoding="utf-8")
+                done = subprocess.run(["bash", "-e", "-c", script], cwd=temp, capture_output=True, text=True, env={
+                    "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
+                    "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ATTEMPT": "1"})
+                saved = Path(temp, "webviews-test-history/history.json")
+                runs_ = json.loads(saved.read_text())["runs"] if saved.exists() else []
+                subprocess.run(["rm", "-rf", str(Path(temp, "history-results")), str(saved)], check=True)
+                return done.returncode, [r["inputs"] for r in runs_]
+
+            self.assertEqual(record("k1", "k1"), (0, ["k1"]))
+            self.assertNotEqual(record(None, None)[0], 0)
+            self.assertNotEqual(record("k1", "k2")[0], 0)
+        self.assertNotEqual(subprocess.run([sys.executable, str(SCRIPT), "record", "/nonexistent", "/tmp/x", "--sha", "a",
+                                            "--time", "1", "--inputs", "", "/nonexistent"]).returncode, 0)
 
 
 if __name__ == "__main__":

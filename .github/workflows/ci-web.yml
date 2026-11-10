@@ -538,6 +538,12 @@ jobs:
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
+          # A push records its webview inputs key with its verdicts (the history job's checkout is sparse, and the key
+          # reads files the router routes on). Best effort: no key, and the history job records nothing.
+          if [ "${GITHUB_EVENT_NAME:-}" = push ]; then
+            python3 ../scripts/ci/webviews_test_history.py inputs > "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key" ||
+              rm -f "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key"
+          fi
           # The comparison and the flake history are the head's too: the base's copies may predate --flaky.
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
             ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py \
@@ -568,7 +574,9 @@ jobs:
         with:
           name: webviews-test-history-shard${{ matrix.shard }}
           overwrite: true
-          path: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+          path: |
+            ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+            ${{ runner.temp }}/webviews-head-results/webviews-inputs-key
           if-no-files-found: ignore
           retention-days: 1
 
@@ -1110,9 +1118,12 @@ jobs:
           shards=("$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-head-results.json)
           [ -e "${shards[0]}" ] || { echo "no shard recorded results"; exit 1; }
           history="$RUNNER_TEMP/webviews-test-history/history.json"
+          # The shards' full checkouts computed the key (this checkout is sparse); they must agree.
+          keys="$(cat "$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-inputs-key 2>/dev/null | sort -u)"
+          [ -n "$keys" ] && [ "$(printf '%s\n' "$keys" | wc -l)" -eq 1 ] || { echo "no single inputs key: '$keys'"; exit 1; }
           python3 scripts/ci/webviews_test_history.py record "$history" "$history.new" \
             --sha "$GITHUB_SHA" --attempt "$GITHUB_RUN_ATTEMPT" --time "$(git log -1 --format=%ct)" \
-            --inputs "$(python3 scripts/ci/webviews_test_history.py inputs)" "${shards[@]}"
+            --inputs "$keys" "${shards[@]}"
           mv "$history.new" "$history"
 
       - name: Save the history

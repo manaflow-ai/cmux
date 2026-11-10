@@ -14,8 +14,8 @@
         {name: passed} map, a head's results), only names among its reds.
     webviews_test_history.py known HISTORY --inputs KEY --names NAMES.json --out BASE.json
         write to BASE the base verdicts the history already holds for NAMES' reds (a head's results):
-        a red name whose file ran on a push with the same inputs KEY is green there only when no such
-        push named it (or its file) red. Print, one a line, the files the history cannot answer for,
+        a red name whose file ran on a push with the same inputs KEY takes the newest such push's
+        verdict. Print, one a line, the files the history cannot answer for,
         which the base must still run
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
@@ -205,8 +205,8 @@ def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, 
 
     react-apps-base-check replays each head red file once on the merge parent. A push with the same
     inputs key ran the same webview tree, so its verdict answers the same question without the replay's
-    install, bundle build and browsers (3 to 11 min a shard). A name red on any such push is red on
-    the base (it is not the change's); one that ran green on every such push is green. A file with any
+    install, bundle build and browsers (3 to 11 min a shard). A name takes the newest such push's
+    verdict, as the replay would take its one run's (flaky() still names a name those pushes flip on). A file with any
     name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
     at = [run for run in runs if run["inputs"] == key]
     base: dict[str, bool] = {}
@@ -214,7 +214,7 @@ def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, 
     for name in sorted(name for name, ok in head.items() if not ok):
         found = [ok for _, ok in verdicts(at, name)]
         if found:
-            base[name] = all(found)
+            base[name] = found[-1]  # the newest such push: one old flake does not excuse a change for the whole window
         else:
             replay.add(name.split(" > ", 1)[0])
     return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)
@@ -341,6 +341,9 @@ def main(argv: list[str]) -> int:
             print(file)
         return 0
     if args.command == "record":
+        if not args.inputs.strip():
+            print("webview test history: no inputs key; nothing recorded", file=sys.stderr)
+            return 1
         runs = record(load(args.history), args.sha, args.time, results(args.results), args.inputs, args.attempt)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({"runs": runs}, separators=(",", ":")) + "\n", encoding="utf-8")
