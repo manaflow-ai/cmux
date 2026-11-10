@@ -149,3 +149,10 @@ describe("Cloud cleanup: archives", () => {
     expect(archives(list).map((s) => s.id)).toEqual(["s3", "s2"]);
   });
 });
+
+describe("Cloud cleanup: the policy line", () => {
+  test("camel-case placeholders are filled", async () => {
+    const { format } = await import("./strings");
+    expect(format("{days} days, {headsUp} before", { days: 60, headsUp: 14 })).toBe("60 days, 14 before");
+  });
+});

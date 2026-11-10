@@ -576,8 +576,9 @@ export class CloudStore {
       }
     }
     if (offer.kind === "archive" && this.state.machines.some((machine) => machine.id === offer.machine)) {
+      // Cancel stays open while the archive runs: closing the sheet drops the waiting create, and
+      // the archive and delete goes on by itself.
       back({ offer: undefined, waitingFor: offer.machine });
-      this.set({ create: { ...this.state.create!, submitting: true } });
       return;
     }
     back({ offer: undefined });

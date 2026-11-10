@@ -138,6 +138,7 @@ describe("Cloud cleanup: the cap offer", () => {
     await store.makeRoom();
     await flush();
     expect(store.getSnapshot().create?.waitingFor).toBe("vm_b2");
+    expect(store.getSnapshot().create?.submitting).toBe(false);
     expect(actions(p, CloudOps.machineCreate)).toHaveLength(1);
     p.finishArchives();
     for (let i = 0; i < 4; i++) await flush();
@@ -145,6 +146,25 @@ describe("Cloud cleanup: the cap offer", () => {
     expect(store.getSnapshot().create).toBeUndefined();
     unsubscribe();
   });
+});
+
+test("Cancel while the archive runs closes the sheet; the removal then creates nothing", async () => {
+  const p = provider();
+  p.archiveAtOnce = false;
+  p.machinesCap = p.machines.length;
+  const { store, unsubscribe } = await started(p);
+  store.openCreate();
+  await flush();
+  store.updateDraft({ memoryMb: 4096 });
+  await store.submitCreate();
+  await store.makeRoom();
+  await flush();
+  store.closeCreate();
+  expect(store.getSnapshot().create).toBeUndefined();
+  p.finishArchives();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(actions(p, CloudOps.machineCreate)).toHaveLength(1);
+  unsubscribe();
 });
 
 describe("Cloud cleanup: settings", () => {

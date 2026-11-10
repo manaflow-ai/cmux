@@ -11,7 +11,6 @@ import { costLine, costTicks, useCostClock } from "./cost";
 import {
   canPause,
   canResume,
-  changeable,
   formatDate,
   formatMegabytes,
   IntentLabel,
@@ -22,7 +21,7 @@ import {
   type MachineLayout,
   type MachineRow,
 } from "./model";
-import { archiving, canArchive, canKeep, deleteDate, shownNotice, type DeleteDate } from "./retention";
+import { archiving, deleteDate, shownNotice, type DeleteDate } from "./retention";
 import { format, L } from "./strings";
 
 /** The row's quiet delete line ("Deletes in 12 days"). */
@@ -46,7 +45,6 @@ export interface MachineListProps {
   /** Retention notices dismissed in this browser (`machine:notice.at`). */
   dismissed?: ReadonlySet<string>;
   onKeep?: (id: string, keep: boolean) => void;
-  onArchive?: (id: string) => void;
   onDismissNotice?: (id: string, at: number) => void;
 }
 
@@ -61,11 +59,11 @@ export function MachineList({
   onResume,
   dismissed = new Set<string>(),
   onKeep,
-  onArchive,
   onDismissNotice,
 }: MachineListProps) {
   const { t, language } = strings;
-  const now = useCostClock(rows.some((row) => costTicks(row.machine)));
+  // A running cost or a delete date moves with the clock (once a minute), so neither goes stale.
+  const now = useCostClock(rows.some((row) => costTicks(row.machine) || typeof row.machine?.evict_at === "number"));
   const open = (id: string) => {
     if (!rows.find((row) => row.id === id)?.classic) onOpen(id);
   };
@@ -94,10 +92,8 @@ export function MachineList({
         const leaving = !row.pending && archiving(machine);
         const notice = row.pending || row.classic ? undefined : shownNotice(machine, dismissed);
         const kept = !!machine?.keep;
-        const keepable = !row.pending && !row.classic && canKeep(machine);
-        const archivable = changeable(row) && canArchive(machine);
-        // The disk is what a paused machine is paid for; the platform answers no storage price yet.
-        const disk = row.machine?.size?.disk_mb ?? 0;
+        // Keep and Archive and delete live in the machine's detail header: the row stays one line of
+        // status and date, with Keep only on the one-time notice.
         const memory = row.machine?.size?.memory_mb;
         const size = memory ? formatMegabytes(memory, t, language) : "";
         return (
@@ -132,6 +128,7 @@ export function MachineList({
                 {size && layout === "cards" ? ` · ${size}` : ""}
                 {date && <span className="cloud-machine-deletes">{` · ${deleteText(date, t)}`}</span>}
                 {leaving && <span className="cloud-machine-deletes">{` · ${t(L.archivingNote)}`}</span>}
+                {kept && <span className="cloud-machine-deletes cloud-machine-kept">{` · ${t(L.kept)}`}</span>}
               </span>
               {notice && (
                 // The one notice before a delete, once: Keep, or Dismiss (remembered per notice).
@@ -158,27 +155,6 @@ export function MachineList({
                 </span>
               )}
             </span>
-            {keepable && !notice && (
-              <button
-                type="button"
-                className={`cloud-link-button cloud-machine-keep${kept ? " on" : ""}`}
-                aria-pressed={kept}
-                title={t(L.keepHint)}
-                onClick={(event) => (event.stopPropagation(), onKeep?.(row.id, !kept))}
-              >
-                {t(kept ? L.kept : L.keep)}
-              </button>
-            )}
-            {archivable && (
-              <button
-                type="button"
-                className="cloud-link-button cloud-machine-archive"
-                title={disk ? format(t(L.archiveHint), { size: formatMegabytes(disk, t, language) }) : undefined}
-                onClick={(event) => (event.stopPropagation(), onArchive?.(row.id))}
-              >
-                {t(L.archiveDelete)}
-              </button>
-            )}
             {canPause(row) && (
               <button
                 type="button"

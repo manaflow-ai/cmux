@@ -258,7 +258,7 @@ export type StringKey = (typeof L)[keyof typeof L];
 
 /** Fills `{name}` placeholders. Missing values stay visible as `{name}`. */
 export function format(template: string, values: Record<string, string | number>): string {
-  return template.replace(/\{([a-z]+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
+  return template.replace(/\{([a-zA-Z]+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
 }
 
 /** Server codes the page shows as its own sentence instead of the backend text (`errorText`). */

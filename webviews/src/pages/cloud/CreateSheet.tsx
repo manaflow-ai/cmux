@@ -32,7 +32,7 @@ export function CreateSheet({
   const plan = state.plan;
   const choices = memoryChoices(plan);
   // A size is required; without a plan there is no size to offer.
-  const canSubmit = !draft.submitting && draft.memoryMb !== undefined;
+  const canSubmit = !draft.submitting && !draft.waitingFor && draft.memoryMb !== undefined;
   const reached = !!plan && plan.usage.active >= plan.limits.max_active;
   // Each field takes plain Escape (close) and, for inputs, plain Return (create).
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {

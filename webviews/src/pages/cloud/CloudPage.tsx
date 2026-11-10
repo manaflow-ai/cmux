@@ -117,7 +117,6 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
               onResume={(id) => void store.resume(id)}
               dismissed={snap.dismissed}
               onKeep={(id, keep) => void store.keep(id, keep)}
-              onArchive={(id) => void store.archiveDelete(id)}
               onDismissNotice={(id, at) => store.dismissNotice(id, at)}
             />
             <ArchiveList
