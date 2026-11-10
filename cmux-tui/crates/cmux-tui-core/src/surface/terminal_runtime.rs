@@ -113,12 +113,19 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        if self.tail_pin.feed(bytes)
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_tail(self.event_surface_id);
+        }
         metadata.take_admitted_notifications(Instant::now())
     }
 
     /// Applies the OSC 133 marks of the output just written to `term`. With
-    /// `recording` false (the default) marks are dropped, any running command
-    /// is forgotten, and nothing is read from the screen. The command line
+    /// `recording` [`Off`](crate::shell_history::Recording::Off) (the
+    /// default) marks are dropped, any running command and the last one are
+    /// forgotten, and nothing is read from the screen; with `LastCommand` the
+    /// tracker keeps its newest command and returns none. The command line
     /// comes from Ghostty's semantic input cells, so a command typed before
     /// recording turned on is still read whole at `C`. It also notes whether
     /// a running command set the terminal up for interactive use
@@ -126,8 +133,9 @@ impl PtyTerminalRuntime {
     pub(super) fn observe_shell_marks(
         &self,
         term: &mut Terminal,
-        recording: impl FnOnce() -> bool,
+        recording: impl FnOnce() -> crate::shell_history::Recording,
     ) -> Vec<crate::shell_history::FinishedCommand> {
+        use crate::shell_history::Recording;
         let marks = {
             let mut metadata = self.terminal_metadata.lock().unwrap();
             // The modes after this output: a running command that took the
@@ -138,14 +146,33 @@ impl PtyTerminalRuntime {
         if marks.is_empty() {
             return Vec::new();
         }
-        let mut tracker = self.command_tracker.lock().unwrap();
-        if !recording() {
+        let mut tracker =
+            self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let recording = recording();
+        if recording == Recording::Off {
             tracker.reset();
             return Vec::new();
         }
         let mut screen = crate::shell_history::TerminalCommandScreen(term);
         let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
+        let finished: Vec<_> =
+            marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect();
+        if recording == Recording::History { finished } else { Vec::new() }
+    }
+
+    /// The newest finished command the tracker kept, if any.
+    pub(super) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.command_tracker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .cloned()
+    }
+
+    /// The command a park keeps: the running one, else the newest finished one.
+    pub(super) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kept(now_ms)
     }
 
     pub(super) fn terminal_osc_progress(&self) -> String {
@@ -264,6 +291,9 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     pub(super) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
+    /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
+    /// unless the terminal is pinned.
+    pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,

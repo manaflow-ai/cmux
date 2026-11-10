@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Install cmux CLI in PATH: a symlink at /usr/local/bin/cmux to the bundled
@@ -52,11 +53,17 @@ public nonisolated struct CLIPathInstaller: Sendable {
     public nonisolated enum Failure: Error, Equatable {
         /// No CLI at `path` in the app bundle.
         case bundledCLIMissing(path: String)
+        /// The app runs from the disk image or a translocated copy, `path`:
+        /// a link to it would dangle once the image is ejected.
+        case bundleNotInstalled(path: String)
         /// Another app's CLI (a link elsewhere) or a file is at `path`;
         /// install replaces it only when asked to (`replacing: true`).
         case occupied(path: String, existing: Replaced)
         /// The link's folder, `path`, is a file.
         case destinationParentNotDirectory(path: String)
+        /// The link's `path` is inside an app bundle: never written, since
+        /// that would break the app's signature and its own CLI.
+        case destinationInsideApp(path: String)
         /// A folder is at the link's `path`; it is never removed.
         case destinationIsDirectory(path: String)
         /// The link at `path` does not point to the bundled CLI afterwards.
@@ -96,6 +103,7 @@ public nonisolated struct CLIPathInstaller: Sendable {
     /// silently.
     @concurrent public func install(replacing: Bool = false) async throws -> InstallOutcome {
         let source = try bundledCLI()
+        try ensureOutsideApp()
         let replaced = previousEntry()
         if let replaced, !replacing {
             throw Failure.occupied(path: destination.path, existing: replaced)
@@ -116,6 +124,7 @@ public nonisolated struct CLIPathInstaller: Sendable {
 
     /// Removes the destination, through the administrator prompt when a direct removal is refused.
     @concurrent public func uninstall() async throws -> UninstallOutcome {
+        try ensureOutsideApp()
         do {
             let removed = try uninstallDirectly()
             return UninstallOutcome(usedAdministratorPrivileges: false, destination: destination, removedExistingEntry: removed)
@@ -141,7 +150,15 @@ public nonisolated struct CLIPathInstaller: Sendable {
         guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             throw Failure.bundledCLIMissing(path: source.path)
         }
+        if Self.runsFromImage(source) { throw Failure.bundleNotInstalled(path: source.path) }
         return source
+    }
+
+    /// Whether `url` is on a read-only volume (a mounted disk image) or in
+    /// Gatekeeper's translocated copy, which goes away when the app quits.
+    public static func runsFromImage(_ url: URL) -> Bool {
+        if url.path.contains("/AppTranslocation/") { return true }
+        return (try? url.blockingResourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true
     }
 
     private func installDirectly(_ source: URL) throws {
@@ -190,6 +207,10 @@ public nonisolated struct CLIPathInstaller: Sendable {
         guard FileManager.default.fileExists(atPath: destination.path),
               let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path) else { return nil }
         return URL(fileURLWithPath: target, relativeTo: destination.deletingLastPathComponent()).standardizedFileURL
+    }
+
+    private func ensureOutsideApp() throws {
+        if CLIPathCheck.isInsideApp(destination) { throw Failure.destinationInsideApp(path: destination.path) }
     }
 
     private func ensureParentDirectory() throws {

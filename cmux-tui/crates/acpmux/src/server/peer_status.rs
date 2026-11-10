@@ -28,7 +28,7 @@ const NEXT: &str = "acpmux machine doctor";
 /// verdict and this daemon's turns, without the formula, the sessions' names
 /// (`top`) or `warning` (it names the host, which a Web or peer caller does
 /// not get).
-const PRESSURE_KEYS: [&str; 9] = [
+const PRESSURE_KEYS: [&str; 10] = [
     "ok",
     "over",
     "load1",
@@ -37,12 +37,22 @@ const PRESSURE_KEYS: [&str; 9] = [
     "cores_kind",
     "pressure",
     "available_ram_fraction",
+    "swap_mb_per_min",
     "local_turns",
 ];
 
 /// This machine's own health (`_acpmux/host_health`). A Web or peer caller
 /// gets no host name (`hub::host_label`): the caller names its peer.
 pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
+    host_health_with(hub, origin, crate::wireguard::link_state_dir().as_deref()).await
+}
+
+/// [`host_health`] with the cmux link state directory `link_dir` (none: no link here).
+pub(crate) async fn host_health_with(
+    hub: &Hub,
+    origin: Origin,
+    link_dir: Option<&std::path::Path>,
+) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
         "build": crate::hub::build(),
@@ -62,6 +72,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         v.set("load", json!(load));
     }
     let pressure = hub.host_pressure_status().await;
+    // How old the meter's sample is: a reader subtracts it from its own clock
+    // (`shadow_admission.rs`), so no two hosts' clocks are compared.
+    if let Some(age) = pressure_age_ms() {
+        v.set("pressureAgeMs", json!(age));
+    }
     let fraction = pressure["available_ram_fraction"].as_f64();
     if let Some(total) = ram_total() {
         let mut ram = json!({"totalBytes": total});
@@ -85,6 +100,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     if !origin.web_class() {
         v.set("host", json!(crate::hub::host_label()));
     }
+    if let Some(link) =
+        link_identity(origin, link_dir.and_then(crate::peer::overlay::own_install_in))
+    {
+        v.set("link", link);
+    }
     // The public node identity is safe to show in status and is what the
     // platform join/registry APIs use to address this machine. The private
     // key stays in the transport-owned helper and is never serialized.
@@ -92,6 +112,23 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
     }
     v
+}
+
+/// `link` of `host_health`: the install this machine's cmux link runs as, so a daemon that
+/// reaches it over ssh and is paired with that install adds the link as a backup path
+/// (`peer_overlay.rs`). For every origin but the Web: a peer daemon (`Origin::Peer`, which is
+/// web-class for rights) is the one that asks, and a Web client gets no machine identity.
+pub(crate) fn link_identity(origin: Origin, install: Option<String>) -> Option<Value> {
+    if origin == Origin::Web {
+        return None;
+    }
+    install.map(|install| json!({"install": install}))
+}
+
+/// How long ago this host's meter took its last sample, in ms.
+pub(crate) fn pressure_age_ms() -> Option<u64> {
+    let (age, _) = crate::host_pressure::Meter::shared().last_with_age(Instant::now())?;
+    Some(u64::try_from(age.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// `_acpmux/peer_status`: `{"hosts": [ROW...]}`, this machine first (`self`),
@@ -205,7 +242,7 @@ fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
 
 /// Installed RAM in bytes: macOS `hw.memsize`, Linux `/proc/meminfo` `MemTotal`.
 #[cfg(target_os = "macos")]
-fn ram_total() -> Option<u64> {
+pub(crate) fn ram_total() -> Option<u64> {
     let mut bytes = 0u64;
     let mut len = std::mem::size_of::<u64>();
     // SAFETY: a NUL-terminated name and a writable u64 with its length.
@@ -222,7 +259,7 @@ fn ram_total() -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn ram_total() -> Option<u64> {
+pub(crate) fn ram_total() -> Option<u64> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = text
         .lines()
@@ -235,7 +272,7 @@ fn ram_total() -> Option<u64> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn ram_total() -> Option<u64> {
+pub(crate) fn ram_total() -> Option<u64> {
     None
 }
 
@@ -243,7 +280,7 @@ fn ram_total() -> Option<u64> {
 /// (`SwapTotal` less `SwapFree`). A host can read fine on pressure while its
 /// swap is nearly full; placement weighs both (`placement.rs`).
 #[cfg(target_os = "macos")]
-fn swap() -> Option<(u64, u64)> {
+pub(crate) fn swap() -> Option<(u64, u64)> {
     /// `struct xsw_usage` (`sys/sysctl.h`).
     #[repr(C)]
     struct XswUsage {
@@ -269,7 +306,7 @@ fn swap() -> Option<(u64, u64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn swap() -> Option<(u64, u64)> {
+pub(crate) fn swap() -> Option<(u64, u64)> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb = |key: &str| -> Option<u64> {
         text.lines().find_map(|l| l.strip_prefix(key))?.split_whitespace().next()?.parse().ok()
@@ -279,19 +316,19 @@ fn swap() -> Option<(u64, u64)> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn swap() -> Option<(u64, u64)> {
+pub(crate) fn swap() -> Option<(u64, u64)> {
     None
 }
 
 /// The 1, 5 and 15 minute load averages.
 #[cfg(unix)]
-fn load() -> Option<[f64; 3]> {
+pub(crate) fn load() -> Option<[f64; 3]> {
     let mut l = [0f64; 3];
     // SAFETY: a writable array of the three entries asked for.
     (unsafe { libc::getloadavg(l.as_mut_ptr(), 3) } == 3).then_some(l)
 }
 
 #[cfg(not(unix))]
-fn load() -> Option<[f64; 3]> {
+pub(crate) fn load() -> Option<[f64; 3]> {
     None
 }

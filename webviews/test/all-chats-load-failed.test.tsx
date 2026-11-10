@@ -1,6 +1,6 @@
 // POLISH pass (cx-9br4q): when the chat index does not answer, All chats says it could not load and
 // offers Try again, instead of an empty area that never fills.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -83,12 +83,20 @@ test("a search that fails says so instead of leaving the unfiltered list under t
   root = createRoot(host);
   await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
   await act(async () => {});
+  const { SEARCH_SETTLE_MS } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   const input = host.querySelector<HTMLInputElement>(".nt-all-search input")!;
   const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
-  await act(async () => {
-    setValue.call(input, "build");
-    input.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  // The field reads its query once it settles (one read per query, not per key).
+  jest.useFakeTimers();
+  try {
+    await act(async () => {
+      setValue.call(input, "build");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => void jest.advanceTimersByTime(SEARCH_SETTLE_MS));
+  } finally {
+    jest.useRealTimers();
+  }
   await act(async () => {});
   expect(host.textContent).toContain("Couldn't load your chats.");
   expect(host.textContent).not.toContain("Fix the build");
@@ -157,7 +165,8 @@ test("the index scan completes to an empty state after a host push", async () =>
 test("a first page that never answers says it couldn't load past the ceiling, and Try again reads again", async () => {
   const { jest } = await import("bun:test");
   const { createRoot } = await import("react-dom/client");
-  const { AllChatsList, CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   let calls = 0;
   const load = () => {
     calls += 1;

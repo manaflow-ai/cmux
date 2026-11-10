@@ -148,8 +148,19 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         let callback = move || {
-            drop(input_handoff);
+            // Tests only: the prompt is written and its `on_sent` has not run yet.
+            #[cfg(test)]
+            if let Some((arrived, release)) =
+                session.sent_seam.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
+            // What the written prompt records (the rules it carried, `turns.rs`) is recorded
+            // before the handoff is let go: a fork, which takes the handoff for its copy and
+            // cut (`fork.rs`), sees a written prompt with its record.
             on_sent();
+            drop(input_handoff);
         };
         if confirm_written {
             child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await
@@ -241,7 +252,15 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
+        // A person's steer tells the agent who sent it (`author::agent_label`), as a turn's
+        // prompt does; the record above and the fallback keep their words alone.
+        let labeled = match crate::author::agent_label(opts.provenance.as_ref()) {
+            Some(label) if super::forum::slash_command(&blocks).is_none() => {
+                std::iter::once(label).chain(blocks.iter().cloned()).collect()
+            }
+            _ => blocks.clone(),
+        };
+        let wire_blocks = super::turns::agent_blocks(self, session, &labeled).await?;
         // Stopped while its copies were made: written now, it would reach no turn, and its
         // fallback would start one after the Stop. Another agent's message goes on: it is kept
         // out of the stopping turn, or comes back if that turn ends before its agent read it
@@ -276,11 +295,13 @@ impl Hub {
                 text: text.clone(),
                 line: super::prompt_line::prompt_line(&text, client, opts.provenance.as_ref()),
                 control,
+                needs_withdrawal: from_agent,
                 continues: super::carried_turn::Continues {
                     from,
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);
@@ -356,6 +377,8 @@ impl Hub {
                 false
             }
         };
+        // Told once the steer is handed to the agent: a held or refused one never is.
+        let written = tokio::sync::Notify::new();
         let answer = agent_prompt_hook(
             session,
             &child,
@@ -367,12 +390,25 @@ impl Hub {
             inbox_notice,
             Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
+                written.notify_one();
+                // A question it carries is answered by this turn (`question_replies.rs`).
+                self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }
             },
-        )
-        .await;
+        );
+        // The person's message does not wait behind a long foreground call: once it is written,
+        // the call goes to the background until the agent reads the message
+        // (`auto_background.rs`).
+        let answer = if super::auto_background::persons_message(
+            opts.provenance.as_ref(),
+            opts.agent.as_deref(),
+        ) {
+            self.answer_moving_work(session, &child, &written, answer).await
+        } else {
+            answer.await
+        };
         // A Stop ended the turn before its agent answered another agent's message. Never
         // written (it waited behind the Stop), it comes back and starts the next turn (module
         // docs of `cancel.rs`). Written, it comes back only once its agent confirms it dropped it
@@ -380,7 +416,10 @@ impl Hub {
         // the turn's end (codex-acp), one whose line went in batched with others, or one that
         // does not answer may have read it, and a second copy would repeat its work.
         let stopped = stopped_unread_answer(&answer);
-        let forced_err = super::cancel::forced_turn(session, turn_id)
+        // A restart can close this request before its forced-end watch is delivered,
+        // including a steer sent into the predecessor of the cancelled carried turn.
+        let restarted = session.stopped_agent.load(Ordering::SeqCst) == child.generation;
+        let forced_err = (super::cancel::forced_turn(session, turn_id) || restarted)
             && answer.is_err()
             && steer_entered_turn(&answer)
             && stopped.is_none();
@@ -394,6 +433,7 @@ impl Hub {
             // Anyone else's (the person's) steer a Stop ended, and one its agent may have read,
             // ends with the turn, as before.
             (Err(_), Some((turn, _))) if !unread => Ok(turn),
+            (Err(_), None) if forced_err && !unread => Ok(super::cancel::forced_answer(restarted)),
             (answer, _) => answer,
         };
         // Read in a turn its agent ran on after the one it was steered into ended: it went into
@@ -492,6 +532,15 @@ impl Hub {
             }
             r => r?,
         };
+        // Read: the log says so at once, so a chat stops offering the X on its row then. Until
+        // now a chat learned it only from the agent's next words, which may come a minute later
+        // or never (a reply that is only a tool call), and a take-back meanwhile was refused
+        // with nothing to show why (Leo, 2026-11-06: "I can't ... cancel and edit these
+        // messages").
+        if r.get("stopReason").and_then(Value::as_str) == Some("steered") {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+            self.append(session, "mux", "steer_read", msg);
+        }
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
     }

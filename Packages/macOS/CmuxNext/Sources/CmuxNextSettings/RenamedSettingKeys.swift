@@ -8,7 +8,7 @@ nonisolated enum RenamedSettingKeys {
     static func legacyPath(for path: [String]) -> [String]? {
         // `appearance.background` replaced the paintings-only `appearance.backdropArt`
         // (BackdropSelectionSetting reads it when `appearance.background` is absent).
-        if path == BackdropSelectionSetting().configPath { return BackdropArtSetting().configPath }
+        if path == BackdropSelectionSetting.configPath { return BackdropArtSetting.configPath }
         // `agentPane.display.sessionInfo.placement` replaced `agentPane.display.inspector.placement`, the
         // panel's old name (Leo, 2026-11-01: "WHY THE F***ING HAS IT STILL BEEN CALLED INSPECTOR").
         if path == AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath { return AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath }
@@ -22,7 +22,7 @@ nonisolated enum RenamedSettingKeys {
     static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
         guard let legacy = legacyPath(for: path), let value = root.value(at: legacy) else { return nil }
         if legacy == ComputerUseSettings.enabledPath { return ComputerUseSettings.legacyMode(value) }
-        guard legacy == BackdropArtSetting().configPath else { return value }
+        guard legacy == BackdropArtSetting.configPath else { return value }
         // As BackdropArtSetting parses it: a bundled work (a retired id names its stand-in), else
         // nothing is painted, which the background row calls none.
         return .string(value.stringValue.flatMap(BackdropArt.init(id:))?.rawValue ?? "none")

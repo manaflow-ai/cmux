@@ -36,5 +36,7 @@ extension SettingsSchema {
         "computerUse.enabled": "computerUse.mode replaces it: set it to \"off\" to turn Computer Use off",
         // cmux Computer Use replaced the legacy cmux-cua and upstream Cua Driver helpers (Aziz 2026-11-05).
         "computerUse.driver": "cmux Computer Use is built in; there is no driver to pick",
+        // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
+        "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
     ]
 }

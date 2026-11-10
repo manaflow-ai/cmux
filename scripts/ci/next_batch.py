@@ -131,7 +131,6 @@ WEB_GENERATED = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app/*",
     # fnmatch's * crosses "/": every strings table gen-strings.mjs writes
     # (build output since #21946; an older branch still tracks them).
@@ -139,6 +138,9 @@ WEB_GENERATED = (
     "webviews/src/pages/home-channels/generated/pane-strings.json",
     "webviews/src/pages/diff/generated/locales/*",
     "webviews/src/pages/diff/generated/localeLoaders.ts",
+    # export-next-docs.ts, which regenerate-web-bundles.sh runs (and
+    # regenerate-swift-exports.sh, after the exports it reads).
+    "web/data/next-docs/*.generated.json",
 )
 def settings_exports() -> tuple[str, ...]:
     """scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes, so

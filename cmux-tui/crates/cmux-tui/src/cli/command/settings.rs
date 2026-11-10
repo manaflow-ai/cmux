@@ -45,7 +45,19 @@ pub(super) fn parse(
     }
 }
 
+/// Short CLI names of settings keys: (alias, key). An alias is never a schema key itself. Both
+/// settings parsers read them (this one and the app's, cli/app/settings.rs); they live here
+/// because the app's parser is Unix-only and this one builds everywhere.
+pub(in crate::cli) const KEY_ALIASES: &[(&str, &str)] = &[("on", "chat.on")];
+
+/// The key `path` names: its key when it is an alias, else `path` itself.
+pub(in crate::cli) fn resolve_alias(path: &str) -> &str {
+    KEY_ALIASES.iter().find(|(alias, _)| *alias == path).map_or(path, |(_, key)| *key)
+}
+
+/// The request's `key`: a CLI alias (`on`) is its schema key, as the app's parser reads it.
 fn key_params(key: &str) -> Map<String, Value> {
+    let key = resolve_alias(key);
     Map::from_iter([(String::from("key"), Value::String(key.to_owned()))])
 }
 

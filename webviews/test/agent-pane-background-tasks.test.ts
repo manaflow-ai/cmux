@@ -6,11 +6,12 @@
 // ("Background command completed pytest -x"). Session Info's Background tasks (Debug Settings
 // `agent.sessionInfo`; with it off, the header's summary) lists the chat's background tasks with how
 // each stands, the ones only the transcript knows included (this daemon keeps no process registry).
-// A click on a task's row in Session Info or the summary opens the task's terminal
-// (`chat.processTerminal`, background-task-terminal-DESIGN.md). A click on a note opens it in place
-// (the whole command, how it ended), never a terminal; only its Open in terminal opens one (Leo
-// 2026-10-21). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
-// stand-in acpmux daemon.
+// A click on a task's row in Session Info opens the chat's Background tasks panel on that task's
+// card (Leo, 2026-11-07: "only showing the terminal thing, I don't think is very useful"); one in the
+// summary opens the task's terminal (`chat.processTerminal`, background-task-terminal-DESIGN.md). A
+// click on a note opens it in place (the whole command, how it ended), never a terminal; only its
+// Open in terminal opens one (Leo 2026-10-21). The page is the pane's dev entry with its browser
+// host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -178,6 +179,21 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
+    // A finished Claude turn folds its work under one Worked for (Codex parity): open both turns'.
+    const closed = page.locator('button.cv-worked[aria-expanded="false"]');
+    while (await closed.count()) {
+      await closed.first().click();
+      await page.waitForFunction(
+        () =>
+          !document
+            .getAnimations()
+            .some(
+              (each) =>
+                each.playState === "running" &&
+                Number.isFinite(Number(each.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY)),
+            ),
+      );
+    }
     // No second row for a shell whose call is in the transcript.
     expect(await page.getByText(/Background (task|command) .*npm run dev/).count()).toBe(0);
     // The one whose call is not loaded is noted in the turn it ended, before its reply.
@@ -188,8 +204,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
     // The first turn's calls: the dev server stopped (a later turn said so), the watcher still runs
-    // in the background. A finished Claude turn folds its two calls under their run's line, as Claude
-    // desktop does (turns.ts claudeGroups): open it to their rows.
+    // in the background. Inside its Worked for, the turn folds its two calls under their run's line
+    // (turns.ts claudeGroups): open it to their rows.
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
@@ -327,7 +343,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
   /// Where the chat lists its background tasks: Session Info's section (the App pushes Debug
-  /// Settings `agent.sessionInfo` with the header state; Session Info opens by default), or, with it
+  /// Settings `agent.sessionInfo` with the header state; its toggle opens it), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {
@@ -337,6 +353,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
+        // A new chat starts with Session Info closed (#37576): the person opens it.
+        const toggle = page.locator("button.acpmux-session-info-toggle");
+        await toggle.waitFor({ timeout: 5_000 });
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
         const section = page.locator('aside.acpmux-session-info section[data-section="tasks"]');
         await section.waitFor({ timeout: 5_000 });
         return section;
@@ -359,17 +379,68 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     },
   };
 
-  for (const [name, surface] of Object.entries(surfaces)) {
-    test(`clicking a background task in the ${name} opens its terminal, a running one included`, async () => {
-      const page = await recordingPage();
-      const section = await surface.open(page);
-      await section.getByRole("button", { name: /cargo watch -x test/ }).click();
-      await page.waitForFunction(() =>
-        ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
-      );
-      expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
-      await page.close();
+  /// The Background tasks panel's card of `command`, wherever the panel draws in this page.
+  const panelCard = (page: Page, command: string) =>
+    page.locator(".acpmux-bg-card", {
+      has: page.locator(".acpmux-bg-card__title", { hasText: command }),
     });
+
+  // Session Info opens a command rendered, in the chat's Background tasks panel, on its own card:
+  // open, its command in the body, Open in terminal inside it; never a bare terminal tab. The dev
+  // host opens no panel tab, so the panel draws in the chat's column, as the gallery's does.
+  test("clicking a background task in the inspector opens the Background tasks panel on that task, not its terminal", async () => {
+    const page = await recordingPage();
+    const section = await surfaces.inspector.open(page);
+    // A finished one: its card sits under the folded Finished heading, which the click opens.
+    await section.getByRole("button", { name: "2 finished" }).click();
+    await section.getByRole("button", { name: /npm run dev/ }).click();
+    // The panel was asked for as the chat's tab first (the dev host declines it).
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string; params: { subagent?: string } }[]).some(
+        (post) => post.method === "chat.subagentPane" && post.params.subagent === "cmux:background-tasks",
+      ),
+    );
+    const card = panelCard(page, "npm run dev");
+    await card.waitFor({ timeout: 5_000 });
+    expect(
+      await page.locator('.acpmux-bg__section[data-section="finished"] > button').getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(await card.getAttribute("data-open")).toBe("true");
+    expect(await card.getAttribute("data-focused")).toBe("true");
+    expect(await card.locator(".acpmux-bg-card__toggle").getAttribute("aria-expanded")).toBe("true");
+    // Only that card is the one asked for.
+    expect(await page.locator(".acpmux-bg-card[data-focused]").count()).toBe(1);
+    // No terminal opened.
+    expect(await opened(page)).toEqual([]);
+    // The running one: a second click moves the request to its card.
+    await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+    const running = panelCard(page, "cargo watch -x test");
+    await page.waitForFunction(() =>
+      document.querySelector(".acpmux-bg-card[data-focused]")?.textContent?.includes("cargo watch -x test"),
+    );
+    expect(await running.getAttribute("data-open")).toBe("true");
+    expect(await opened(page)).toEqual([]);
+    // Open in terminal stays, inside the card.
+    await running.getByRole("button", { name: "Open in terminal" }).click();
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+    );
+    expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
+    await page.close();
+  });
+
+  for (const [name, surface] of Object.entries(surfaces)) {
+    if (name !== "inspector")
+      test(`clicking a background task in the ${name} opens its terminal, a running one included`, async () => {
+        const page = await recordingPage();
+        const section = await surface.open(page);
+        await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+        await page.waitForFunction(() =>
+          ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+        );
+        expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
+        await page.close();
+      });
 
     test(`the ${name} lists the chat's background tasks: running ones first, the finished folded`, async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });

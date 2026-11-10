@@ -1,0 +1,964 @@
+{
+  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
+  "lists": [
+    {
+      "name": "computerUse",
+      "section": "general",
+      "group": {
+        "key": "settings.group.computerUse",
+        "text": "Computer Use"
+      },
+      "rows": [
+        {
+          "key": "computerUse.mode",
+          "note": "How much agents may do with the apps on this Mac; the raw values are the engine's (cmux_computer_use::policy::Mode).",
+          "title": {
+            "key": "settings.computerUse.mode",
+            "text": "Computer Use"
+          },
+          "help": {
+            "key": "settings.computerUse.mode.help",
+            "text": "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."
+          },
+          "summary": {
+            "key": "settings.computerUse.mode.summary",
+            "text": "What agents may do with your apps"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "fullAccess",
+              "title": {
+                "key": "settings.computerUse.mode.fullAccess",
+                "text": "Full Access"
+              }
+            },
+            {
+              "value": "approvedApps",
+              "title": {
+                "key": "settings.computerUse.mode.approvedApps",
+                "text": "Approved Apps"
+              }
+            },
+            {
+              "value": "askEveryTime",
+              "title": {
+                "key": "settings.computerUse.mode.askEveryTime",
+                "text": "Ask Every Time"
+              }
+            },
+            {
+              "value": "lookOnly",
+              "title": {
+                "key": "settings.computerUse.mode.lookOnly",
+                "text": "Look Only"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.computerUse.mode.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "fullAccess",
+          "swift_enum": {
+            "name": "ComputerUseMode",
+            "generated": false
+          },
+          "keywords": [
+            "computer use",
+            "agents",
+            "automation",
+            "apps",
+            "access",
+            "permission",
+            "look only",
+            "approve"
+          ]
+        },
+        {
+          "key": "computerUse.deniedApps",
+          "note": "The engine's default deny list, entry for entry (cmux-tui/crates/cmux-computer-use/src/policy.rs, default_denied_apps; ComputerUseSettingsTests compares the two).",
+          "title": {
+            "key": "settings.computerUse.deniedApps",
+            "text": "Denied Apps"
+          },
+          "help": {
+            "key": "settings.computerUse.deniedApps.help",
+            "text": "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."
+          },
+          "summary": {
+            "key": "settings.computerUse.deniedApps.summary",
+            "text": "Apps agents may never use"
+          },
+          "kind": "string_list",
+          "default": [
+            "com.apple.keychainaccess",
+            "com.apple.Passwords",
+            "com.1password.*",
+            "com.agilebits.onepassword*",
+            "com.bitwarden.*",
+            "com.dashlane.*",
+            "com.lastpass.*",
+            "com.nordpass.*",
+            "me.proton.pass",
+            "org.keepassxc.keepassxc",
+            "com.markmcguill.strongbox",
+            "in.sinew.enpass*",
+            "com.keepersecurity.*",
+            "1password.exe",
+            "bitwarden.exe",
+            "keepass.exe",
+            "keepassxc.exe",
+            "org.keepassxc.KeePassXC",
+            "1password",
+            "bitwarden",
+            "com.apple.systempreferences",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "net.kovidgoyal.kitty",
+            "com.github.wez.wezterm",
+            "org.alacritty",
+            "dev.warp.*",
+            "windowsterminal.exe",
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "org.gnome.Terminal",
+            "org.gnome.Ptyxis",
+            "org.kde.konsole",
+            "com.cmuxterm.app",
+            "com.cmuxterm.app.*"
+          ],
+          "keywords": [
+            "computer use",
+            "deny",
+            "block",
+            "apps",
+            "password",
+            "terminal",
+            "exclude"
+          ]
+        },
+        {
+          "key": "computerUse.allowOwnMachines",
+          "title": {
+            "key": "settings.computerUse.allowOwnMachines",
+            "text": "Allow My Other Machines"
+          },
+          "help": {
+            "key": "settings.computerUse.allowOwnMachines.help",
+            "text": "Agents on your other machines, signed in to the same account, may use this Mac's apps."
+          },
+          "summary": {
+            "key": "settings.computerUse.allowOwnMachines.summary",
+            "text": "Agents on your other machines may use this Mac"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "remote",
+            "machines",
+            "devices",
+            "same account"
+          ]
+        },
+        {
+          "key": "computerUse.pauseOnTakeover",
+          "title": {
+            "key": "settings.computerUse.pauseOnTakeover",
+            "text": "Pause When I Use the Mouse or Keyboard"
+          },
+          "help": {
+            "key": "settings.computerUse.pauseOnTakeover.help",
+            "text": "While you use the mouse or keyboard, agents wait before their next click or key press."
+          },
+          "summary": {
+            "key": "settings.computerUse.pauseOnTakeover.summary",
+            "text": "Agents wait while you use this Mac"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "pause",
+            "takeover",
+            "mouse",
+            "keyboard",
+            "interrupt"
+          ]
+        },
+        {
+          "key": "computerUse.showCursor",
+          "title": {
+            "key": "settings.computerUse.showCursor",
+            "text": "Show Agent Cursor"
+          },
+          "help": {
+            "key": "settings.computerUse.showCursor.help",
+            "text": "A blue cursor shows wherever an agent clicks or types."
+          },
+          "summary": {
+            "key": "settings.computerUse.showCursor.summary",
+            "text": "A blue cursor shows where agents act"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "cursor",
+            "pointer",
+            "blue",
+            "overlay"
+          ]
+        },
+        {
+          "key": "computerUse.cursorTag",
+          "note": "When an agent cursor shows its tag (the agent's workspace name, or the tag the agent set).",
+          "title": {
+            "key": "settings.computerUse.cursorTag",
+            "text": "Agent Cursor Tag"
+          },
+          "help": {
+            "key": "settings.computerUse.cursorTag.help",
+            "text": "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."
+          },
+          "summary": {
+            "key": "settings.computerUse.cursorTag.summary",
+            "text": "When the agent cursor shows its tag"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "hover",
+              "title": {
+                "key": "settings.computerUse.cursorTag.hover",
+                "text": "When I Point at It"
+              },
+              "note": "The tag shows while the person's pointer is over the agent cursor."
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.computerUse.cursorTag.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.computerUse.cursorTag.never",
+                "text": "Never"
+              }
+            }
+          ],
+          "default": "hover",
+          "swift_enum": {
+            "name": "ComputerUseCursorTag"
+          },
+          "keywords": [
+            "computer use",
+            "cursor",
+            "tag",
+            "label",
+            "workspace",
+            "name",
+            "hover"
+          ]
+        },
+        {
+          "key": "computerUse.settle",
+          "note": "What the engine waits for after an action before its screenshot (PolicyConfig settle).",
+          "title": {
+            "key": "settings.computerUse.settle",
+            "text": "After Each Action"
+          },
+          "help": {
+            "key": "settings.computerUse.settle.help",
+            "text": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."
+          },
+          "summary": {
+            "key": "settings.computerUse.settle.summary",
+            "text": "What agents wait for after each action"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "adaptive",
+              "title": {
+                "key": "settings.computerUse.settle.adaptive",
+                "text": "Wait for the change (adaptive)"
+              },
+              "note": "Waits until the screen stops changing."
+            },
+            {
+              "value": "anthropic",
+              "title": {
+                "key": "settings.computerUse.settle.anthropic",
+                "text": "Fixed 2 s, then screenshot (Anthropic)"
+              },
+              "note": "Anthropic's reference loop: a fixed 2 s wait."
+            },
+            {
+              "value": "openai",
+              "title": {
+                "key": "settings.computerUse.settle.openai",
+                "text": "Screenshot at once (OpenAI)"
+              },
+              "note": "OpenAI's reference loop: no wait."
+            }
+          ],
+          "default": "adaptive",
+          "swift_enum": {
+            "name": "ComputerUseSettle"
+          },
+          "keywords": [
+            "computer use",
+            "settle",
+            "wait",
+            "delay",
+            "screenshot",
+            "action",
+            "anthropic",
+            "openai"
+          ]
+        },
+        {
+          "key": "computerUse.livePreview",
+          "title": {
+            "key": "settings.computerUse.livePreview",
+            "text": "Live Preview in Chat"
+          },
+          "help": {
+            "key": "settings.computerUse.livePreview.help",
+            "text": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+          },
+          "summary": {
+            "key": "settings.computerUse.livePreview.summary",
+            "text": "Shows the app an agent uses in its chat"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "computer use",
+            "live preview",
+            "preview",
+            "agent activity",
+            "screenshot",
+            "chat"
+          ]
+        },
+        {
+          "key": "computerUse.allowForeground",
+          "title": {
+            "key": "settings.computerUse.allowForeground",
+            "text": "Allow Foreground Input"
+          },
+          "help": {
+            "key": "settings.computerUse.allowForeground.help",
+            "text": "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."
+          },
+          "summary": {
+            "key": "settings.computerUse.allowForeground.summary",
+            "text": "Advanced: agents may take focus and move the pointer"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "foreground",
+            "focus",
+            "pointer",
+            "advanced",
+            "background"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "freeModel",
+      "section": "general",
+      "group": {
+        "key": "settings.group.freeModel",
+        "text": "AI Models"
+      },
+      "rows": [
+        {
+          "key": "freeModel.enabled",
+          "title": {
+            "key": "settings.freeModel.enabled",
+            "text": "Free AI Model Without Sign-In"
+          },
+          "help": {
+            "key": "settings.freeModel.enabled.help",
+            "text": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+          },
+          "summary": {
+            "key": "settings.freeModel.enabled.summary",
+            "text": "Free AI model while signed out"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "ai",
+            "model",
+            "free",
+            "sign in",
+            "agents",
+            "models"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sshLinks",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.sshLinks",
+        "text": "SSH Links"
+      },
+      "rows": [
+        {
+          "key": "ssh.linkAllowedHosts",
+          "title": {
+            "key": "settings.machines.sshLinkHosts",
+            "text": "Always Allowed SSH Link Hosts"
+          },
+          "help": {
+            "key": "settings.machines.sshLinkHosts.help",
+            "text": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": null,
+            "text": "devbox.local"
+          },
+          "keywords": [
+            "ssh",
+            "link",
+            "url",
+            "host",
+            "trust",
+            "allow",
+            "always",
+            "machine",
+            "security"
+          ],
+          "swift_owner": "SSHLinkHostsSetting"
+        }
+      ]
+    },
+    {
+      "name": "cloud",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.cloudWorkspaces",
+        "text": "Cloud Workspaces"
+      },
+      "rows": [
+        {
+          "key": "cloud.newWorkspacesInCloud",
+          "name": "inCloud",
+          "title": {
+            "key": "settings.cloud.newWorkspacesInCloud",
+            "text": "Run New Workspaces in Cloud"
+          },
+          "help": {
+            "key": "settings.cloud.newWorkspacesInCloud.help",
+            "text": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "vm",
+            "remote",
+            "machine",
+            "new workspace",
+            "cmd-n",
+            "agent",
+            "local",
+            "toggle"
+          ]
+        },
+        {
+          "key": "cloud.newWorkspaceFolder",
+          "name": "folder",
+          "note": "What a new Cloud workspace starts with.",
+          "title": {
+            "key": "settings.cloud.newWorkspaceFolder",
+            "text": "New Cloud Workspaces Start In"
+          },
+          "help": {
+            "key": "settings.cloud.newWorkspaceFolder.help",
+            "text": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inherit",
+              "title": {
+                "key": "settings.choice.cloudFolderInherit",
+                "text": "Current Folder"
+              },
+              "note": "The person's current folder, synced to the machine."
+            },
+            {
+              "value": "empty",
+              "title": {
+                "key": "settings.choice.cloudFolderEmpty",
+                "text": "Empty Folder"
+              },
+              "note": "The machine's empty work folder (the image's working snapshot)."
+            }
+          ],
+          "default": "inherit",
+          "keywords": [
+            "cloud",
+            "vm",
+            "folder",
+            "sync",
+            "copy",
+            "inherit",
+            "empty",
+            "snapshot",
+            "working directory"
+          ],
+          "swift_enum": {
+            "name": "CloudWorkspaceFolder"
+          }
+        },
+        {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": {
+            "key": "settings.cloud.useMyClaudeLogin",
+            "text": "Use My Claude Login on My Own Cloud Machines"
+          },
+          "help": {
+            "key": "settings.cloud.useMyClaudeLogin.help",
+            "text": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "claude",
+            "login",
+            "sign in",
+            "token",
+            "credential",
+            "machine",
+            "consent",
+            "copy"
+          ],
+          "swift_owner": "CloudLoginCopyConsentSetting"
+        },
+        {
+          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
+          "title": {
+            "key": "settings.cloud.useMyCodexLogin",
+            "text": "Use My Codex Login on My Own Cloud Machines"
+          },
+          "help": {
+            "key": "settings.cloud.useMyCodexLogin.help",
+            "text": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "codex",
+            "chatgpt",
+            "login",
+            "sign in",
+            "token",
+            "credential",
+            "machine",
+            "consent"
+          ],
+          "swift_owner": "CloudCodexSignInConsentSetting"
+        },
+        {
+          "key": "cloud.agentsStartWithoutAsking",
+          "title": {
+            "key": "settings.cloud.agentsStartWithoutAsking",
+            "text": "Let Agents Use Cloud Without Asking"
+          },
+          "help": {
+            "key": "settings.cloud.agentsStartWithoutAsking.help",
+            "text": "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "cloud",
+            "vm",
+            "machine",
+            "agent",
+            "start",
+            "session",
+            "create",
+            "new machine",
+            "move",
+            "ask",
+            "approve",
+            "permission",
+            "bypass",
+            "without asking",
+            "delegate"
+          ],
+          "swift_owner": "CloudAgentStartSetting"
+        }
+      ]
+    },
+    {
+      "name": "mobile",
+      "section": "accounts",
+      "group": {
+        "key": "settings.group.mobile",
+        "text": "iPhone"
+      },
+      "rows": [
+        {
+          "key": "mobile.allowIPhoneConnections",
+          "title": {
+            "key": "settings.mobile.allowIPhoneConnections",
+            "text": "Allow iPhone Connections"
+          },
+          "help": {
+            "key": "settings.mobile.allowIPhoneConnections.help",
+            "text": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+          },
+          "summary": {
+            "key": "settings.mobile.allowIPhoneConnections.summary",
+            "text": "Lets your iPhone reach this Mac"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "iphone",
+            "phone",
+            "mobile",
+            "remote",
+            "connect"
+          ]
+        },
+        {
+          "key": "mobile.terminalSizing",
+          "note": "How a terminal shown on several devices is sized. The raw values are the daemon's.",
+          "title": {
+            "key": "settings.mobile.terminalSizing",
+            "text": "Terminal Size When Shared"
+          },
+          "help": {
+            "key": "settings.mobile.terminalSizing.help",
+            "text": "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "smallest",
+              "title": {
+                "key": "settings.choice.terminalSizing.smallest",
+                "text": "Fit the Smallest Viewer"
+              },
+              "note": "Every viewer sees the whole grid (the default)."
+            },
+            {
+              "value": "mac",
+              "title": {
+                "key": "settings.choice.terminalSizing.mac",
+                "text": "Prefer This Mac"
+              },
+              "note": "This Mac keeps its size; a phone pans or letterboxes."
+            },
+            {
+              "value": "latest",
+              "title": {
+                "key": "settings.choice.terminalSizing.latest",
+                "text": "Prefer the Active Device"
+              },
+              "note": "The viewer that typed, pasted or focused last."
+            },
+            {
+              "value": "priority",
+              "title": {
+                "key": "settings.choice.terminalSizing.priority",
+                "text": "Priority Order"
+              },
+              "note": "`terminalSizingOrder`, highest first."
+            }
+          ],
+          "default": "smallest",
+          "keywords": [
+            "iphone",
+            "phone",
+            "mobile",
+            "terminal",
+            "size",
+            "sizing",
+            "shared",
+            "priority",
+            "columns"
+          ],
+          "swift_enum": {
+            "name": "MobileTerminalSizing"
+          }
+        },
+        {
+          "key": "mobile.terminalSizingOrder",
+          "note": "Device tokens, highest first: `mac` (this Mac's own views) or `device:<id>`.",
+          "title": {
+            "key": "settings.mobile.terminalSizingOrder",
+            "text": "Terminal Size Priority"
+          },
+          "help": {
+            "key": "settings.mobile.terminalSizingOrder.help",
+            "text": "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "iphone",
+            "phone",
+            "terminal",
+            "size",
+            "priority",
+            "order"
+          ],
+          "page_hidden": "device ids, set in the cmux app on the iPhone"
+        }
+      ]
+    },
+    {
+      "name": "macScreen",
+      "section": "keyboard",
+      "group": {
+        "key": "settings.group.macScreenKeyboard",
+        "text": "Mac Screen"
+      },
+      "rows": [
+        {
+          "key": "macScreen.systemShortcuts",
+          "title": {
+            "key": "settings.macScreen.systemShortcuts",
+            "text": "Send System Shortcuts to the Remote Mac"
+          },
+          "help": {
+            "key": "settings.macScreen.systemShortcuts.help",
+            "text": "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+          },
+          "summary": {
+            "key": "settings.macScreen.systemShortcuts.summary",
+            "text": "System shortcuts go to the remote Mac"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "mac screen",
+            "remote",
+            "system shortcuts",
+            "command tab",
+            "spotlight",
+            "mission control",
+            "keyboard",
+            "accessibility"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "macScreenDebug",
+      "section": "development",
+      "group": {
+        "key": "settings.group.macScreen",
+        "text": "Mac Screen"
+      },
+      "rows": [
+        {
+          "key": "macScreen.debug.relayOnly",
+          "title": {
+            "key": "settings.macScreen.debug.relayOnly",
+            "text": "Relay Only"
+          },
+          "help": {
+            "key": "settings.macScreen.debug.relayOnly.help",
+            "text": "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
+          },
+          "summary": {
+            "key": "settings.macScreen.debug.relayOnly.summary",
+            "text": "Mac Screen streams use the relay only"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "mac screen",
+            "relay",
+            "turn",
+            "webrtc",
+            "ice",
+            "development",
+            "debug"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "remote",
+      "section": "general",
+      "group": {
+        "key": "settings.group.cmuxRemote",
+        "text": "cmux Remote"
+      },
+      "rows": [
+        {
+          "key": "remote.endSharingOnQuit",
+          "title": {
+            "key": "settings.remote.endSharingOnQuit",
+            "text": "End Sharing When cmux Quits"
+          },
+          "help": {
+            "key": "settings.remote.endSharingOnQuit.help",
+            "text": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."
+          },
+          "summary": {
+            "key": "settings.remote.endSharingOnQuit.summary",
+            "text": "A session ends when cmux quits"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "mac screen",
+            "quit",
+            "background",
+            "device hub"
+          ]
+        },
+        {
+          "key": "remote.ultraMode",
+          "name": "ultraMode",
+          "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.",
+          "title": {
+            "key": "settings.remote.ultraMode",
+            "text": "Ultra Connection Mode"
+          },
+          "help": {
+            "key": "settings.remote.ultraMode.help",
+            "text": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+          },
+          "summary": {
+            "key": "settings.remote.ultraMode.summary",
+            "text": "Uses more data to stay fast on lossy networks"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "ultra",
+            "lossy",
+            "packet loss",
+            "bandwidth",
+            "data",
+            "wireguard",
+            "cloud",
+            "latency",
+            "fec"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "deviceHub",
+      "section": "development",
+      "group": {
+        "key": "settings.group.deviceHub",
+        "text": "Device Hub"
+      },
+      "rows": [
+        {
+          "key": "deviceHub.url",
+          "title": {
+            "key": "settings.deviceHub.url",
+            "text": "Device Hub Address"
+          },
+          "help": {
+            "key": "settings.deviceHub.url.help",
+            "text": "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
+          },
+          "summary": {
+            "key": "settings.deviceHub.url.summary",
+            "text": "Device hub address"
+          },
+          "kind": "url",
+          "default": "",
+          "keywords": [
+            "device hub",
+            "devices",
+            "mac screen",
+            "backend",
+            "development",
+            "debug"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "imessage",
+      "section": "accounts",
+      "group": {
+        "key": "settings.section.accounts",
+        "text": "Accounts"
+      },
+      "rows": [
+        {
+          "key": "imessage.enabled",
+          "name": "imessageEnabled",
+          "title": {
+            "key": "settings.imessage.enabled",
+            "text": "Connect iMessage"
+          },
+          "help": {
+            "key": "settings.imessage.enabled.help",
+            "text": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "imessage",
+            "messages",
+            "connector",
+            "privacy"
+          ],
+          "page_hidden": "connect and disconnect from Session Info's iMessage connector"
+        },
+        {
+          "key": "imessage.automationSkipped",
+          "name": "imessageAutomationSkipped",
+          "title": {
+            "key": "settings.imessage.automationSkipped",
+            "text": "Skip Messages Automation"
+          },
+          "help": {
+            "key": "settings.imessage.automationSkipped.help",
+            "text": "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "imessage",
+            "messages",
+            "automation",
+            "connector"
+          ],
+          "page_hidden": "permission walkthrough state, set only by the iMessage connector"
+        }
+      ]
+    }
+  ]
+}

@@ -37,6 +37,9 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// - `allowOwnMachines` (on): agents on the person's other machines (same account) may use this one.
 /// - `pauseOnTakeover` (on): agents pause while the person uses the mouse or keyboard.
 /// - `showCursor` (on): the blue agent cursor shows where an agent acts.
+/// - `cursorTag` (`hover`): when an agent cursor shows its tag (the agent's workspace name, or a tag
+///   the agent set): while the person's pointer is over it, always, or never.
+/// - `settle` (`adaptive`): what the engine waits for after each action before it looks again.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
 /// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
 ///
@@ -44,45 +47,26 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// `"enabled": false` still turns Computer Use off (mode `off`) until the person picks a mode
 /// (``RenamedSettingKeys``: a write of `computerUse.mode` removes the old key).
 public nonisolated struct ComputerUseSettings: Sendable, Equatable {
-    public static let modePath = ["computerUse", "mode"]
-    public static let deniedAppsPath = ["computerUse", "deniedApps"]
-    public static let allowOwnMachinesPath = ["computerUse", "allowOwnMachines"]
-    public static let pauseOnTakeoverPath = ["computerUse", "pauseOnTakeover"]
-    public static let allowForegroundPath = ["computerUse", "allowForeground"]
-    public static let showCursorPath = ["computerUse", "showCursor"]
-    public static let livePreviewPath = ["computerUse", "livePreview"]
-    /// Retired keys (`schemas/settings/retired-keys.json`); `enabledPath` is read once as the
-    /// legacy value of `modePath`.
+    // The paths and defaults of the rows are generated from schemas/settings/source/machines.json
+    // (SettingsSchema+Machines.generated.swift).
     public static let enabledPath = ["computerUse", "enabled"]
     public static let driverPath = ["computerUse", "driver"]
 
     /// The engine's default deny list, entry for entry
     /// (`cmux-tui/crates/cmux-computer-use/src/policy.rs`, `default_denied_apps`;
-    /// `ComputerUseSettingsTests` compares the two).
-    public static let defaultDeniedApps: [String] = [
-        // Password managers and keychains.
-        "com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*",
-        "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass",
-        "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*",
-        "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC",
-        "1password", "bitwarden",
-        // Where an agent could change OS security settings.
-        "com.apple.systempreferences",
-        // Terminals: typing there would run commands outside the agent's own sandbox and prompts.
-        "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe",
-        "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole",
-        // cmux itself (an agent driving cmux could approve its own requests).
-        "com.cmuxterm.app", "com.cmuxterm.app.*",
-    ]
+    /// `ComputerUseSettingsTests` compares the two): password managers and keychains, System
+    /// Settings, terminals and cmux itself.
+    public static var defaultDeniedApps: [String] { deniedAppsDefault }
 
-    public var mode: ComputerUseMode = .fullAccess
-    public var deniedApps: [String] = Self.defaultDeniedApps
-    public var allowOwnMachines = true
-    public var pauseOnTakeover = true
-    public var allowForeground = false
-    public var showCursor = true
-    public var livePreview = true
+    public var mode = ComputerUseSettings.modeDefault
+    public var deniedApps = ComputerUseSettings.deniedAppsDefault
+    public var allowOwnMachines = ComputerUseSettings.allowOwnMachinesDefault
+    public var pauseOnTakeover = ComputerUseSettings.pauseOnTakeoverDefault
+    public var allowForeground = ComputerUseSettings.allowForegroundDefault
+    public var showCursor = ComputerUseSettings.showCursorDefault
+    public var cursorTag = ComputerUseSettings.cursorTagDefault
+    public var settle = ComputerUseSettings.settleDefault
+    public var livePreview = ComputerUseSettings.livePreviewDefault
     public init() {}
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -100,6 +84,8 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         if let value = reader.bool("pauseOnTakeover") { settings.pauseOnTakeover = value }
         if let value = reader.bool("allowForeground") { settings.allowForeground = value }
         if let value = reader.bool("showCursor") { settings.showCursor = value }
+        if let value = reader.choice("cursorTag", ComputerUseCursorTag.self) { settings.cursorTag = value }
+        if let value = reader.choice("settle", ComputerUseSettle.self) { settings.settle = value }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
         diagnostics = reader.diagnostics
         if let value = root.value(at: deniedAppsPath) {
@@ -120,11 +106,12 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         enabled.boolValue == false ? .string(ComputerUseMode.off.rawValue) : nil
     }
 
-    /// The engine's `PolicyConfig` JSON (camelCase keys) for this Mac: never a cloud VM.
+    /// The engine's `PolicyConfig` JSON (camelCase keys) for this Mac: never a cloud VM. `cursorTag`
+    /// is read by cmux Remote's worker for the agent cursor (the engine ignores it).
     public func policyConfigJSON() -> Data {
         let config = PolicyConfig(mode: mode.rawValue, deniedApps: deniedApps, allowOwnMachines: allowOwnMachines,
                                   pauseOnTakeover: pauseOnTakeover, allowForeground: allowForeground,
-                                  showCursor: showCursor, cloudVm: false)
+                                  showCursor: showCursor, cursorTag: cursorTag.rawValue, settle: settle.rawValue, cloudVm: false)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         // A struct of strings and booleans always encodes; an empty object is the engine's default.
@@ -138,76 +125,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let pauseOnTakeover: Bool
         let allowForeground: Bool
         let showCursor: Bool
+        let cursorTag: String
+        let settle: String
         let cloudVm: Bool
     }
 }
 
-/// The Computer Use rows (Settings > Computer Use; the page's Computer Use card draws them).
-nonisolated enum ComputerUseSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.computerUse", "Computer Use")
-        let defaults = ComputerUseSettings()
-        func toggle(_ path: [String], _ title: SettingText, help: SettingText, summary: SettingText, _ value: Bool,
-                    keywords: [String]) -> SettingDescriptor {
-            SettingDescriptor(path, section: .general, group: group, title: title, help: help, summary: summary,
-                              kind: .toggle, default: .bool(value), keywords: ["computer use"] + keywords)
-        }
-        return [
-            SettingDescriptor(
-                ComputerUseSettings.modePath, section: .general, group: group,
-                title: SettingsText.keyed("settings.computerUse.mode", "Computer Use"),
-                help: SettingsText.keyed("settings.computerUse.mode.help",
-                                         "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."),
-                summary: SettingsText.keyed("settings.computerUse.mode.summary", "What agents may do with your apps"),
-                kind: .choice([
-                    SettingChoice(ComputerUseMode.fullAccess.rawValue, SettingsText.keyed("settings.computerUse.mode.fullAccess", "Full Access")),
-                    SettingChoice(ComputerUseMode.approvedApps.rawValue, SettingsText.keyed("settings.computerUse.mode.approvedApps", "Approved Apps")),
-                    SettingChoice(ComputerUseMode.askEveryTime.rawValue, SettingsText.keyed("settings.computerUse.mode.askEveryTime", "Ask Every Time")),
-                    SettingChoice(ComputerUseMode.lookOnly.rawValue, SettingsText.keyed("settings.computerUse.mode.lookOnly", "Look Only")),
-                    SettingChoice(ComputerUseMode.off.rawValue, SettingsText.keyed("settings.computerUse.mode.off", "Off")),
-                ]),
-                default: .string(defaults.mode.rawValue),
-                keywords: ["computer use", "agents", "automation", "apps", "access", "permission", "look only", "approve"]
-            ),
-            SettingDescriptor(
-                ComputerUseSettings.deniedAppsPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.computerUse.deniedApps", "Denied Apps"),
-                help: SettingsText.keyed("settings.computerUse.deniedApps.help",
-                                         "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."),
-                summary: SettingsText.keyed("settings.computerUse.deniedApps.summary", "Apps agents may never use"),
-                kind: .stringList, default: .array(ComputerUseSettings.defaultDeniedApps.map(JSONValue.string)),
-                keywords: ["computer use", "deny", "block", "apps", "password", "terminal", "exclude"]
-            ),
-            toggle(ComputerUseSettings.allowOwnMachinesPath,
-                   SettingsText.keyed("settings.computerUse.allowOwnMachines", "Allow My Other Machines"),
-                   help: SettingsText.keyed("settings.computerUse.allowOwnMachines.help",
-                                            "Agents on your other machines, signed in to the same account, may use this Mac's apps."),
-                   summary: SettingsText.keyed("settings.computerUse.allowOwnMachines.summary", "Agents on your other machines may use this Mac"),
-                   defaults.allowOwnMachines, keywords: ["remote", "machines", "devices", "same account"]),
-            toggle(ComputerUseSettings.pauseOnTakeoverPath,
-                   SettingsText.keyed("settings.computerUse.pauseOnTakeover", "Pause When I Use the Mouse or Keyboard"),
-                   help: SettingsText.keyed("settings.computerUse.pauseOnTakeover.help",
-                                            "While you use the mouse or keyboard, agents wait before their next click or key press."),
-                   summary: SettingsText.keyed("settings.computerUse.pauseOnTakeover.summary", "Agents wait while you use this Mac"),
-                   defaults.pauseOnTakeover, keywords: ["pause", "takeover", "mouse", "keyboard", "interrupt"]),
-            toggle(ComputerUseSettings.showCursorPath,
-                   SettingsText.keyed("settings.computerUse.showCursor", "Show Agent Cursor"),
-                   help: SettingsText.keyed("settings.computerUse.showCursor.help",
-                                            "A blue cursor shows wherever an agent clicks or types."),
-                   summary: SettingsText.keyed("settings.computerUse.showCursor.summary", "A blue cursor shows where agents act"),
-                   defaults.showCursor, keywords: ["cursor", "pointer", "blue", "overlay"]),
-            toggle(ComputerUseSettings.livePreviewPath,
-                   SettingsText.keyed("settings.computerUse.livePreview", "Live Preview in Chat"),
-                   help: SettingsText.keyed("settings.computerUse.livePreview.help",
-                                            "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
-                   summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
-                   defaults.livePreview, keywords: ["live preview", "preview", "agent activity", "screenshot", "chat"]),
-            toggle(ComputerUseSettings.allowForegroundPath,
-                   SettingsText.keyed("settings.computerUse.allowForeground", "Allow Foreground Input"),
-                   help: SettingsText.keyed("settings.computerUse.allowForeground.help",
-                                            "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."),
-                   summary: SettingsText.keyed("settings.computerUse.allowForeground.summary", "Advanced: agents may take focus and move the pointer"),
-                   defaults.allowForeground, keywords: ["foreground", "focus", "pointer", "advanced", "background"]),
-        ]
-    }
-}

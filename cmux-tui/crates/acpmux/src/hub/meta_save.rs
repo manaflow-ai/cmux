@@ -25,6 +25,12 @@
 //! (the chat was unread already) waits for every earlier change ([`Hub::meta_barrier`]). The
 //! shutdown's flush waits for each chat's commit before the store is sealed.
 //!
+//! A kept change (a draft, a name: [`ShowAfter::Written`], `store/durability.rs`) is committed with
+//! [`Hub::save_meta_kept`]: its answer waits until the copy is saved, as any answered change does,
+//! and the store saves the copy as a kept record (written, not synced, before a line shows it).
+//! A copy holds every change up to its version, so it is saved as kept only when every change it
+//! is the first copy of is kept: one durable change among them makes the whole copy durable.
+//!
 //! Test seam (debug builds): `ACPMUX_TEST_SAVE_META_HOLD_DIR` names a folder. When it holds
 //! `hold-<session id>`, the writer's next commit for that chat takes the file (renames it to
 //! `held-<session id>`) after it copied the metadata and before it writes the copy, and waits until
@@ -35,6 +41,7 @@
 //! (`tests/meta_save_kill_point.rs`).
 
 use super::*;
+use crate::store::ShowAfter;
 use std::sync::Condvar;
 
 /// One chat's metadata writer (module text). Its lock is never held across a write.
@@ -67,6 +74,13 @@ struct WriterState {
     /// The versions requests wait for (`Wait::Durable`), with how many wait for each: the writer
     /// hands the next commit to one of them once its own is durable.
     waiting: std::collections::BTreeMap<u64, usize>,
+    /// The newest version of a change that must be durable ([`ShowAfter::Durable`]): a copy whose
+    /// versions after `durable` reach it is saved durable, else kept (module text).
+    strong: u64,
+    /// The target of the newest copy chosen to be saved kept, set when it is chosen.
+    kept: u64,
+    /// The target of the newest copy saved durable.
+    synced: u64,
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -80,24 +94,53 @@ impl MetaWriter {
     /// Takes the next version for the change the caller just made, and commits it: as the
     /// writer, when none is at work; else it waits for the writer (`Wait::Durable`) or returns
     /// (`Wait::No`). `write` copies the metadata and writes the copy.
+    #[cfg(test)]
     pub(super) fn commit(&self, wait: Wait, write: &dyn Fn() -> Result<()>) -> Result<()> {
+        self.commit_as(wait, ShowAfter::Durable, &|_| write())
+    }
+
+    /// `commit` of a change of class `keep`; `write` is told the class of the copy it writes
+    /// (module text).
+    pub(super) fn commit_as(
+        &self,
+        wait: Wait,
+        keep: ShowAfter,
+        write: &dyn Fn(ShowAfter) -> Result<()>,
+    ) -> Result<()> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // After the caller's change: a copy taken once this version is the target holds it.
         state.requested += 1;
         let version = state.requested;
+        if keep == ShowAfter::Durable {
+            state.strong = version;
+        }
         self.reach(state, version, wait, write)
     }
 
     /// Waits until every change made so far is durable, taking no version of its own: the
     /// answer of a request that changed nothing, because an earlier change made it so already
     /// (`markUnread` on an unread chat), must not come before that change is on disk.
+    #[cfg(test)]
     pub(super) fn barrier(&self, write: &dyn Fn() -> Result<()>) -> Result<()> {
+        self.barrier_as(&|_| write())
+    }
+
+    /// `barrier`; `write` is told the class of the copy it writes.
+    pub(super) fn barrier_as(&self, write: &dyn Fn(ShowAfter) -> Result<()>) -> Result<()> {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // The last commit failed and nothing newer was committed since: this request commits
-        // again, as a new version, instead of failing until some other change comes.
+        // again, as a new version, instead of failing until some other change comes. Durable:
+        // the request may answer for any change of the failed copy.
         let failed = state.failed.as_ref().is_some_and(|(upto, _)| *upto >= state.requested);
-        if failed && state.durable < state.requested {
+        // A barrier answers that every change made so far is durable. A kept copy (saved or
+        // under way) newer than the last durable one holds changes it may answer for (an unread
+        // mark another request made, saved in a draft's copy): a durable copy follows it, as a
+        // new version. Else the copy not yet chosen is saved durable.
+        if (failed && state.durable < state.requested) || state.kept > state.synced {
             state.requested += 1;
+            state.strong = state.requested;
+        } else if state.durable < state.requested {
+            state.strong = state.requested;
         }
         let version = state.requested;
         self.reach(state, version, Wait::Durable, write)
@@ -110,7 +153,7 @@ impl MetaWriter {
         mut state: std::sync::MutexGuard<'a, WriterState>,
         version: u64,
         wait: Wait,
-        write: &dyn Fn() -> Result<()>,
+        write: &dyn Fn(ShowAfter) -> Result<()>,
     ) -> Result<()> {
         loop {
             if state.durable >= version {
@@ -157,7 +200,7 @@ impl MetaWriter {
     fn run(
         &self,
         own: u64,
-        write: &dyn Fn() -> Result<()>,
+        write: &dyn Fn(ShowAfter) -> Result<()>,
     ) -> Option<Box<dyn std::any::Any + Send>> {
         // A writer that unwinds hands the role back, so no waiter waits for it forever.
         struct Unwind<'a>(&'a MetaWriter);
@@ -185,20 +228,33 @@ impl MetaWriter {
                     self.done.notify_all();
                     return panicked;
                 }
-                state.requested
-            };
-            // Copied after the target is read: the copy holds every change up to it.
-            let written = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(write)) {
-                Ok(written) => written,
-                Err(panic) => {
-                    panicked = Some(panic);
-                    Err(anyhow::anyhow!("the metadata write panicked"))
+                let keep = if state.strong > state.durable {
+                    ShowAfter::Durable
+                } else {
+                    ShowAfter::Written
+                };
+                if keep == ShowAfter::Written {
+                    state.kept = state.requested;
                 }
+                (state.requested, keep)
             };
+            let (target, keep) = target;
+            // Copied after the target is read: the copy holds every change up to it.
+            let written =
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write(keep))) {
+                    Ok(written) => written,
+                    Err(panic) => {
+                        panicked = Some(panic);
+                        Err(anyhow::anyhow!("the metadata write panicked"))
+                    }
+                };
             let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             match written {
                 Ok(()) => {
                     state.durable = state.durable.max(target);
+                    if keep == ShowAfter::Durable {
+                        state.synced = state.synced.max(target);
+                    }
                     if state.failed.as_ref().is_some_and(|(upto, _)| *upto <= target) {
                         state.failed = None;
                     }
@@ -225,7 +281,7 @@ impl MetaWriter {
 impl Hub {
     /// Commits a change no request answers for; a failed commit is logged.
     pub(super) fn save_meta(&self, session: &Session) {
-        if let Err(e) = self.commit_meta(session, Wait::No) {
+        if let Err(e) = self.commit_meta(session, Wait::No, ShowAfter::Durable) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
     }
@@ -233,7 +289,17 @@ impl Hub {
     /// Commits a change a request answers for: returns once it is durable; a failed commit
     /// fails the request.
     pub(super) fn save_meta_answered(&self, session: &Session) -> Result<(), RpcError> {
-        self.write_meta(session).map_err(|e| {
+        Self::answered(session, self.write_meta(session))
+    }
+
+    /// `save_meta_answered` of a kept change (a draft, a name: module text): the store saves it
+    /// as a kept record, which a line shows once written, not synced.
+    pub(super) fn save_meta_kept(&self, session: &Session) -> Result<(), RpcError> {
+        Self::answered(session, self.commit_meta(session, Wait::Durable, ShowAfter::Written))
+    }
+
+    fn answered(session: &Session, committed: Result<()>) -> Result<(), RpcError> {
+        committed.map_err(|e| {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
             RpcError::internal(format!("the chat's change was not saved: {e}"))
                 .with_data(json!({"reason": "store.save_failed"}))
@@ -243,13 +309,13 @@ impl Hub {
     /// Commits the chat's metadata and waits until it is durable (a chat's first save, a fork's,
     /// the shutdown's flush).
     pub(super) fn write_meta(&self, session: &Session) -> Result<()> {
-        self.commit_meta(session, Wait::Durable)
+        self.commit_meta(session, Wait::Durable, ShowAfter::Durable)
     }
 
     /// For a request that changed nothing: waits until every earlier change of the chat is
     /// durable ([`MetaWriter::barrier`]); a failed commit fails the request.
     pub(super) fn meta_barrier(&self, session: &Session) -> Result<(), RpcError> {
-        session.meta_writer.barrier(&|| self.write_snapshot(session)).map_err(|e| {
+        session.meta_writer.barrier_as(&|keep| self.write_snapshot(session, keep)).map_err(|e| {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
             RpcError::internal(format!("the chat's change was not saved: {e}"))
                 .with_data(json!({"reason": "store.save_failed"}))
@@ -257,24 +323,34 @@ impl Hub {
     }
 
     /// The commit of the change just made to `session`'s metadata (module text).
-    fn commit_meta(&self, session: &Session, wait: Wait) -> Result<()> {
-        // A metadata change can affect another closed row too (for example a child's count in its
-        // parent). Mark every cached projection stale before the writer is scheduled; the next
-        // full build then observes the in-memory change even while this write is queued.
-        self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
-        session.meta_writer.commit(wait, &|| self.write_snapshot(session))
+    fn commit_meta(&self, session: &Session, wait: Wait, keep: ShowAfter) -> Result<()> {
+        // Mark the cached rows the change may reach stale before the writer is scheduled; the
+        // next full build then observes the in-memory change even while this write is queued.
+        // Its own row always. Every row only when what other rows read of it changed (whether it
+        // is a listed parent, its lineage: `views::parent_print_of`); a child's count in its
+        // parent follows the status (`subsessions.generation`). Before, every commit (each turn's
+        // end, title and usage) rebuilt every closed row on the next list: ~3,000 of them.
+        let print = session.read_meta(super::views::parent_print_of);
+        if session.parent_print.swap(print, Ordering::SeqCst) != print {
+            self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        }
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        session.meta_writer.commit_as(wait, keep, &|keep| self.write_snapshot(session, keep))
     }
 
     /// One copy of the metadata, written; never a purged chat's. A late save (a generated title
     /// after the turn, a tag) would write its record back after the purge deleted it, and the next
     /// daemon start loaded it as a closed session: the Chief's compactor, which purges each node's
     /// session when the node is built, left about 450 of them in two hours (2026-10-20).
-    fn write_snapshot(&self, session: &Session) -> Result<()> {
+    fn write_snapshot(&self, session: &Session, keep: ShowAfter) -> Result<()> {
         if session.purged.load(Ordering::SeqCst) {
             self.remove_cached_closed_summary(&session.id);
             return Ok(());
         }
         let meta = session.meta();
+        // Every other change of a ledgered field (a generated title, a workspace move, the
+        // account, the branch) reaches the ledger with the save that carries it.
+        self.ledger.note_session_info(&session.id, super::ledger::TurnContext::of(&meta).info);
         if meta.status != SessionStatus::Closed {
             self.remove_cached_closed_summary(&session.id);
         }
@@ -287,7 +363,10 @@ impl Hub {
             let _ = arrived.send(());
             let _ = release.recv();
         }
-        let saved = self.store.save(&meta);
+        let saved = match keep {
+            ShowAfter::Durable => self.store.save(&meta),
+            ShowAfter::Written => self.store.save_kept(&meta),
+        };
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
             && let Err(e) = self.store.delete(&session.id)

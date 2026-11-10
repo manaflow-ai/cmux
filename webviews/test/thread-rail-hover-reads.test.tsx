@@ -275,7 +275,7 @@ async function forcedLayouts(run: () => Promise<unknown>): Promise<number> {
   }
   return layouts;
 }
-test("a row the sweep reaches forces at most three layouts, and a row it comes back to forces one", async () => {
+test("every row the sweep reaches forces one layout, seen before or not", async () => {
   const view = await mount(40);
   // No timer lands in a row's turn: a row is its commit alone.
   jest.useFakeTimers();
@@ -301,12 +301,11 @@ test("a row the sweep reaches forces at most three layouts, and a row it comes b
     // row's turn: that commit renders the rail and its card again with the same props, and the card's
     // place() reads once more. So each row may take one read past its own, and most rows take none.
     const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
-    // A row seen first: the card's reads come first and its writes after, in at most three passes
-    // (the prompt's lines with the card's place, the reply's natural height, the card's own height).
-    expect(median(out)).toBeLessThanOrEqual(3);
-    expect(Math.max(...out)).toBeLessThanOrEqual(4);
-    // A row seen before: its fit is remembered, so the card writes it and reads its place once
-    // (base: four on every row).
+    // The card's size is CSS's (a one-line title, the reply clamped to its lines), so a row reads its
+    // place and height once and writes the transform: no measuring passes (#34711 took three on a new
+    // row and one on a row seen before; base before that, four on every row).
+    expect(median(out)).toBeLessThanOrEqual(1);
+    expect(Math.max(...out)).toBeLessThanOrEqual(2);
     expect(median(back)).toBeLessThanOrEqual(1);
     expect(Math.max(...back)).toBeLessThanOrEqual(2);
   } finally {
@@ -314,28 +313,23 @@ test("a row the sweep reaches forces at most three layouts, and a row it comes b
   }
 });
 
-test("a row the card fitted before measures again once the text size changed, at the same width", async () => {
+test("the card measures no text: the reply's lines are the arm's, in CSS", async () => {
   const view = await mount(40);
   jest.useFakeTimers();
-  const sized = document.createElement("style");
   try {
-    for (const index of [4, 5, 6, 7]) {
+    for (const index of [4, 5, 6]) {
       await enter(index);
       await frame();
     }
-    const reply = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__reply")!;
-    const before = reply().style.getPropertyValue("--acpmux-minimap-reply-line-height");
-    // A larger text size (or a denser layout) while the card is elsewhere: its observer sees no
-    // resize for this row, and the card is as wide as it was.
-    sized.textContent = ".acpmux-minimap__reply { line-height: 31px; } .acpmux-minimap__prompt { line-height: 27px; }";
-    document.head.append(sized);
-    await enter(5);
-    await frame();
-    expect(card()!.textContent).toContain("Question 5");
-    expect(before).not.toBe("31px");
-    expect(reply().style.getPropertyValue("--acpmux-minimap-reply-line-height")).toBe("31px");
+    const node = card()!;
+    expect(node.textContent).toContain("Question 6");
+    const reply = node.querySelector<HTMLElement>(".acpmux-minimap__reply")!;
+    // No measured budget on the reply; the card carries the arm's lines (card.experiment.ts).
+    expect(reply.getAttribute("style")).toBeNull();
+    expect(node.style.getPropertyValue("--acpmux-minimap-reply-lines")).toBe("5");
+    expect(node.style.getPropertyValue("--acpmux-minimap-reply-open-lines")).toBe("14");
+    expect(node.style.getPropertyValue("--acpmux-minimap-card-max")).toBe("520px");
   } finally {
-    sized.remove();
     await view.unmount();
   }
 });

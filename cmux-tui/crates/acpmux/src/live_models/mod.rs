@@ -59,6 +59,10 @@ pub struct LiveModel {
     /// The CLI's default model.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
+    /// The model the CLI's own catalog moves this one to (Codex's `upgrade`): set, the model is
+    /// a legacy one, listed but not among the harness's current models (`topModels`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<String>,
 }
 
 /// Which CLI a harness's live list comes from.
@@ -78,7 +82,7 @@ pub async fn probe(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Vec<LiveModel>> {
-    let mut child = Probe::spawn(cli, argv, env, cwd)?;
+    let mut child = Probe::spawn(cli, argv, env, cwd).await?;
     let listed = tokio::time::timeout(timeout, async {
         match cli {
             Cli::Claude => claude::list(&mut child).await,
@@ -99,7 +103,7 @@ pub async fn codex_rate_limits(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Value> {
-    let mut child = Probe::spawn(Cli::Codex, argv, env, cwd)?;
+    let mut child = Probe::spawn(Cli::Codex, argv, env, cwd).await?;
     let read = tokio::time::timeout(timeout, codex::rate_limits(&mut child)).await;
     child.kill().await;
     read.map_err(|_| anyhow!("the usage limits did not arrive within {} s", timeout.as_secs()))?
@@ -113,35 +117,57 @@ pub(crate) struct Probe {
 }
 
 impl Probe {
-    fn spawn(
+    async fn spawn(
         cli: Cli,
         argv: &[String],
         env: &BTreeMap<String, String>,
         cwd: &Path,
     ) -> Result<Self> {
         let (program, rest) = argv.split_first().ok_or_else(|| anyhow!("no program to run"))?;
-        let mut cmd = Command::new(program);
         let family = match cli {
             Cli::Claude => "claude",
             Cli::Codex => "codex",
         };
-        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-        for k in crate::config::inherited_caller_scoped_keys() {
-            cmd.env_remove(k);
-        }
-        crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
-        crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
-        cmd.args(rest)
-            .args(match cli {
-                Cli::Claude => claude::args(),
-                Cli::Codex => codex::args(),
-            })
-            .envs(env)
-            .current_dir(cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true);
+        let build = || {
+            let mut cmd = Command::new(program);
+            // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+            for k in crate::config::inherited_caller_scoped_keys() {
+                cmd.env_remove(k);
+            }
+            crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
+            crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+            // Never another harness's login (`agent/foreign_login.rs`).
+            let runs = crate::agent::foreign_login::Runs::Agent(family.to_owned());
+            crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
+                cmd.env_remove(key);
+            });
+            cmd.args(rest)
+                .args(match cli {
+                    Cli::Claude => claude::args(),
+                    Cli::Codex => codex::args(),
+                })
+                .envs(env)
+                .current_dir(cwd)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true);
+            cmd
+        };
+        // As an agent spawn: the login values this probe's env plan takes (`login_env::ChildEnv`).
+        let mut plan = crate::login_env::ChildEnv {
+            family,
+            profile: Some(env),
+            remote: false,
+            explicit: None,
+        };
+        let mut cmd = crate::login_env::build_ready(
+            &mut plan,
+            || Ok(build()),
+            |cmd| crate::agent::explicit_env(cmd.as_std()),
+            |e| anyhow!(e),
+        )
+        .await?;
         let mut child = cmd.spawn().with_context(|| format!("cannot start {program}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("{program} has no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("{program} has no stdout"))?;
@@ -218,12 +244,7 @@ impl Cache {
     }
 
     fn path(&self, harness: &str) -> PathBuf {
-        // Profile ids are `[a-z0-9-]`; anything else is kept out of the path.
-        let safe: String = harness
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
-            .collect();
-        self.dir.join(format!("{safe}.json"))
+        cache_path(&self.dir, harness)
     }
 
     /// Every cached list whose program is unchanged, by harness.
@@ -269,6 +290,109 @@ impl Cache {
         let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec(&CacheFile { key: key.clone(), models })?;
         std::fs::write(&tmp, body)?;
+        std::fs::rename(&tmp, &path)
+    }
+}
+
+/// `<dir>/<harness>.json`. Profile ids are `[a-z0-9-]`; anything else is kept out of the path.
+fn cache_path(dir: &Path, harness: &str) -> PathBuf {
+    let safe: String = harness
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect();
+    dir.join(format!("{safe}.json"))
+}
+
+/// A cached ACP list's file: the profile it was probed under and its `(id, name)` pairs.
+#[derive(Serialize, Deserialize)]
+struct AcpCacheFile {
+    profile: String,
+    models: Vec<AcpModel>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AcpModel {
+    id: String,
+    name: String,
+}
+
+/// The last list each ACP harness's model probe reported (OpenCode, Gemini, any ACP agent;
+/// `hub/model_probe.rs`), one file per harness under `$ACPMUX_HOME/acp-models/`. Those agents
+/// name their models only in a live `session/new`, which waits for the login environment, so
+/// until it answered the picker showed only "default" (Leo, 2026-11-08: "we know what the
+/// models are"). A list is keyed by its profile ([`AcpCache::profile_key`]): one probed under
+/// another argv, env or family is never served. A stale list (the agent updated under the same
+/// profile) lasts only until the fresh probe replaces it.
+pub struct AcpCache {
+    dir: PathBuf,
+}
+
+impl AcpCache {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
+    /// `$ACPMUX_HOME/acp-models`.
+    pub fn default_dir() -> PathBuf {
+        crate::config::home().join("acp-models")
+    }
+
+    /// The profile's identity in a cache file: the SHA-256 of its JSON, so the file names no
+    /// env value (an API key) of the profile's.
+    pub fn profile_key(profile: &crate::config::HarnessProfile) -> String {
+        crate::sha256::sha256_hex(&serde_json::to_vec(profile).unwrap_or_default())
+    }
+
+    /// Every cached list, by harness: `(profile key, models)`. Matched to the profiles later
+    /// ([`AcpCache::profile_key`]), since a profile may appear only after the login environment.
+    pub fn load_all(&self) -> BTreeMap<String, (String, Vec<(String, String)>)> {
+        let mut out = BTreeMap::new();
+        let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(harness) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|_| path.extension().is_some_and(|e| e == "json"))
+            else {
+                continue;
+            };
+            let Some(file) = std::fs::read(&path)
+                .ok()
+                .and_then(|body| serde_json::from_slice::<AcpCacheFile>(&body).ok())
+            else {
+                continue;
+            };
+            if file.models.is_empty() {
+                continue;
+            }
+            let models = file.models.into_iter().map(|m| (m.id, m.name)).collect();
+            out.insert(harness.to_owned(), (file.profile, models));
+        }
+        out
+    }
+
+    /// Keeps `models` for `harness`, probed under the profile `profile_key` (write to a
+    /// temporary file, then rename).
+    pub fn store(
+        &self,
+        harness: &str,
+        profile_key: &str,
+        models: &[(String, String)],
+    ) -> std::io::Result<()> {
+        // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
+        std::fs::create_dir_all(&self.dir)?;
+        let path = cache_path(&self.dir, harness);
+        let tmp = path.with_extension("json.tmp");
+        let file = AcpCacheFile {
+            profile: profile_key.to_owned(),
+            models: models
+                .iter()
+                .map(|(id, name)| AcpModel { id: id.clone(), name: name.clone() })
+                .collect(),
+        };
+        std::fs::write(&tmp, serde_json::to_vec(&file)?)?;
         std::fs::rename(&tmp, &path)
     }
 }

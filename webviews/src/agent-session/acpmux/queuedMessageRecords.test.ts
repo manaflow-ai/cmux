@@ -130,7 +130,7 @@ async function pane() {
 
 const senders = (shown: Shown) => (shown.queue ?? []).map((entry) => [entry.id, entry.message?.name ?? null]);
 
-test("a queued agent's message keeps its sender on every rebuild of its row, and an edit drops it", async () => {
+test("a queued agent's message keeps its sender on every rebuild of its row, and through an edit", async () => {
   const { daemon, view, until, id, close } = await pane();
   try {
     daemon.emit(id, { mux: "queued", msg: fromAgentRecord("p-bot", "Build is green", "builder") });
@@ -164,7 +164,8 @@ test("a queued agent's message keeps its sender on every rebuild of its row, and
       ["p-bot", "builder"],
       ["p-dep", "coord-deputy"],
     ]);
-    // The edit's record (hub/queue_edit.rs): no provenance, no `fromAgent`. The row is the person's.
+    // The edit's record (hub/queue_edit.rs): it keeps its sender's provenance and names the
+    // editor beside it (`editedBy`). The row stays the agent's, never the person's.
     daemon.emit(id, {
       mux: "queue_updated",
       msg: {
@@ -174,19 +175,31 @@ test("a queued agent's message keeps its sender on every rebuild of its row, and
         prompt: blocks("Rebase onto main first"),
         control: "local",
         trustGate: false,
+        _meta: {
+          provenance: {
+            kind: "agent_message",
+            from: "fromAgent",
+            fromName: "coord-deputy",
+            to: id,
+            verified: false,
+            transport: "unix",
+            editedBy: { actor: "owner" },
+          },
+        },
       },
     });
     await until(() => view.shown.queue?.[2]?.prompt === "Rebase onto main first");
     expect(senders(view.shown)).toEqual([
       ["p-req", "linter"],
       ["p-bot", "builder"],
-      ["p-dep", null],
+      ["p-dep", "coord-deputy"],
     ]);
-    // A later reorder rebuilds the rows again: the edited row stays the person's, the others keep theirs.
+    expect((view.shown.queue?.[2]?.message as { edited?: boolean } | undefined)?.edited).toBe(true);
+    // A later reorder rebuilds the rows again: the edited row stays the agent's, the others keep theirs.
     daemon.emit(id, { mux: "queue_order", msg: { promptId: "p-dep", next: true, order: ["p-dep", "p-req", "p-bot"] } });
     await until(() => view.shown.queue?.[0]?.id === "p-dep");
     expect(senders(view.shown)).toEqual([
-      ["p-dep", null],
+      ["p-dep", "coord-deputy"],
       ["p-req", "linter"],
       ["p-bot", "builder"],
     ]);

@@ -1,6 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::mac_approvers::MacProof;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 use std::collections::{HashSet, VecDeque};
@@ -88,7 +89,8 @@ pub(super) fn plain_tool_ask(request: &Value) -> bool {
 
 fn not_interactive(request: &Value) -> bool {
     let tool = &request["toolCall"];
-    request.get("interactive").and_then(Value::as_bool) != Some(true)
+    !super::permissions::external::is_external(request)
+        && request.get("interactive").and_then(Value::as_bool) != Some(true)
         && request.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) != Some(true)
         && tool.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) != Some(true)
         && tool.pointer("/_meta/claude/interactive").and_then(Value::as_bool) != Some(true)
@@ -252,6 +254,16 @@ impl PermissionState {
         g.items.push(Item { id: id.into(), request: request.clone(), state: "pending" });
         g.revision += 1;
         Ok((g.id.clone(), fresh))
+    }
+
+    /// Tests: opens collecting group `id` for answers, as its timer does
+    /// (`start_permission_group_timer`); its revision then.
+    #[cfg(test)]
+    pub(super) fn open_group(&mut self, id: &str) -> Option<u64> {
+        let g = self.groups.iter_mut().find(|g| g.id == id)?;
+        g.state = "pending";
+        g.revision += 1;
+        Some(g.revision)
     }
 
     fn prune(&mut self) {
@@ -608,6 +620,15 @@ impl Hub {
         g.receipt = Some((body, result.clone()));
         self.append(session, "mux", "permission_group", json!({"group":result["group"]}));
         state.prune();
+        // A member a group deny dismissed (it has no single-use reject option): the caller
+        // dismissed it, as a one-ask dismissal is (`respond_permission`), so the audit trail logs
+        // a cancel instead of taking it for a withdrawal. Marked before the asking task wakes
+        // and logs the decision.
+        for (id, _, outcome) in &replies {
+            if outcome["outcome"] == "cancelled" {
+                self.review_index.mark_settled(&session.id, id, Settled::Caller);
+            }
+        }
         // All callbacks were removed and the receipt saved before any wake.
         for (_, reply, outcome) in replies {
             let _ = reply.send(outcome);

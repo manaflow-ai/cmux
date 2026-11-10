@@ -5,7 +5,8 @@
 // shifted its position sure but it itself and its text shouldn't be affected by the session info if it
 // would need to be then session info should be an overlay". Opening and closing Session Info may move
 // the transcript's column, never resize it: on every painted frame of the open and the close, at every
-// stage (floating 1600px, pushing 1100px and 1420px, over the chat 740px and 1200px), each transcript
+// stage (floating in the gutter at 1600px, pushing 1200px and 1420px by only what the gutter lacks; over
+// the chat 740px and 1100px), each transcript
 // row keeps its width and its height, and a long reply keeps its line count (SessionInfo.tsx
 // pushKeepsColumn, sessionInfo.css --acpmux-session-info-column).
 //
@@ -128,8 +129,11 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
   for (const name of browsers.keys())
     for (const [width, stage] of [
       [740, "overlay"],
-      [1100, "push"],
-      [1200, "overlay"],
+      [1100, "overlay"],
+      // Where the gutter lacks room and the pinned column fits beside the panel it pushes, and still
+      // rewraps no line; where the gutter holds it, it floats and moves nothing (Leo, 2026-11-09: "if it
+      // has enough space, then don't push the layout").
+      [1200, "push"],
       [1420, "push"],
       [1600, "overlay"],
     ] as const)

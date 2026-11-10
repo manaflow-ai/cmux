@@ -80,6 +80,9 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
+    /// Whether the chat's first frame drew from a kept tail (tailCache.ts, a fork's forkTail.ts):
+    /// on the frame it opened, with no cold fade (scripts/cmux-next/fork-open-bench.py).
+    drewKeptTail: snapshot.drewKeptTail === true,
     /// Whether older history remains to page in, and the oldest event seq the pane holds.
     canLoadOlder: snapshot.canLoadOlder,
     historyFrom: snapshot.historyFrom ?? null,

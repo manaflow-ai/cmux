@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ee7c6f1c06086aab4e240884256ce374ab43f41d342040ba1556a7dfd720e807.
+// cmux-tui mux protocol 12, IR 5d248cfda26944e2e3fcc2564f81df0b8a607ed5cf1e21bcdd29ebc448f9e557.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2830,6 +2830,8 @@ pub type ParkTabsResult = T::JsonValue;
 pub struct PasteImageRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub filename: Optional<String>,
     pub lease: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mime: Optional<String>,
@@ -3695,6 +3697,16 @@ pub struct SetTerminalKeepRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalTailPinRequest {
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetViewportPaneWidthRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3746,6 +3758,43 @@ pub type SetWorkspaceMetadataResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellReadRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub after: Option<u64>,
+    pub run: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub wait_ms: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ShellReadResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellRunRequest {
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub run: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scope: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ShellRunResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellStopRequest {
+    pub run: String,
+}
+
+#[rustfmt::skip]
+pub type ShellStopResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub end_terminals: Option<bool>,
@@ -3755,6 +3804,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub restart: Optional<bool>,
 }
 
 #[rustfmt::skip]
@@ -3781,6 +3832,8 @@ pub struct SnapshotRequestRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3888,6 +3941,15 @@ pub struct TerminalHistoryRequest {
 
 #[rustfmt::skip]
 pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalLastCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5303,6 +5365,9 @@ impl CmuxClient {
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        if !request.filename.is_missing() {
+            self.require_capability_field("paste-image", "terminal-file-paste-v1")?;
+        }
         self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
@@ -5705,6 +5770,10 @@ impl CmuxClient {
         self.execute(&SET_TERMINAL_KEEP_METADATA, &request)
     }
 
+    pub fn set_terminal_tail_pin(&mut self, request: SetTerminalTailPinRequest) -> Result<T::SetTerminalTailPinResult> {
+        self.execute(&SET_TERMINAL_TAIL_PIN_METADATA, &request)
+    }
+
     pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {
         if !request.transaction.is_missing() {
             self.require_protocol_field("set-viewport-pane-width", 9)?;
@@ -5729,6 +5798,18 @@ impl CmuxClient {
         self.execute(&SET_WORKSPACE_METADATA_METADATA, &request)
     }
 
+    pub fn shell_read(&mut self, request: ShellReadRequest) -> Result<ShellReadResult> {
+        self.execute(&SHELL_READ_METADATA, &request)
+    }
+
+    pub fn shell_run(&mut self, request: ShellRunRequest) -> Result<ShellRunResult> {
+        self.execute(&SHELL_RUN_METADATA, &request)
+    }
+
+    pub fn shell_stop(&mut self, request: ShellStopRequest) -> Result<ShellStopResult> {
+        self.execute(&SHELL_STOP_METADATA, &request)
+    }
+
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {
         if request.end_terminals.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;
@@ -5742,6 +5823,9 @@ impl CmuxClient {
             self.require_protocol_field("shutdown-daemon", 12)?;
             self.require_capability_field("shutdown-daemon", "end-terminals-keep-layout-v1")?;
         }
+        if !request.restart.is_missing() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+        }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
 
@@ -5754,6 +5838,10 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if request.before.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-before-v1")?;
+        }
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-env-v1")?;
@@ -5830,6 +5918,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_last_command(&mut self, request: TerminalLastCommandRequest) -> Result<T::TerminalLastCommandResult> {
+        self.execute(&TERMINAL_LAST_COMMAND_METADATA, &request)
     }
 
     pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {

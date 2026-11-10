@@ -70,6 +70,11 @@
       "key": "computerUse.driver",
       "reason": "cmux Computer Use is built in; there is no driver to pick",
       "why": "cmux Computer Use replaced the legacy cmux-cua and upstream Cua Driver helpers (Aziz 2026-11-05)."
+    },
+    {
+      "key": "tabs.cmdWClosesPinnedTabs",
+      "reason": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
+      "why": "One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: \"make it consistent, match chrome's behavior\"): no kept pinned tab."
     }
   ]
 }

@@ -90,9 +90,11 @@ clear_state() {
   local bundle="$1" key="${2:-$1}" path
   [[ "$bundle" == *.side-"$name"-* && "$key" == "$bundle"* ]] || die "unexpected bundle id $bundle or key $key"
   defaults delete "$bundle" >/dev/null 2>&1 || true
-  for path in "$HOME/Library/Application Support/cmux/builds/$key" "$HOME/.acpmux/builds/$key" \
-    "$HOME/.cmux/chief/$key" "$HOME/.cmux/chief/$key@"* \
-    "$HOME/Library/Application Support/cmux/builds/$bundle" "$HOME/.acpmux/builds/$bundle" \
+  # cmux/builds: the same roots of a build from before NEXT's own folder (cmux-next/builds).
+  for path in "$HOME/Library/Application Support/cmux-next/builds/$key" "$HOME/.acpmux/builds/$key" \
+    "$HOME/Library/Application Support/cmux/builds/$key" "$HOME/.cmux/chief/$key" "$HOME/.cmux/chief/$key@"* \
+    "$HOME/Library/Application Support/cmux-next/builds/$bundle" "$HOME/.acpmux/builds/$bundle" \
+    "$HOME/Library/Application Support/cmux/builds/$bundle" \
     "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
     "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
     "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \

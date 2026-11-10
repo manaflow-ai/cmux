@@ -28,8 +28,9 @@
 //! - Only after `MIN_TURNS` turns, and `TURNS_BETWEEN` more since the last
 //!   recap (Claude Code's own limits), so a short chat gets none.
 //! - The person shows the chat again after `AWAY` or more: the recap is
-//!   logged as a `mux` `recap` record (`{text, awayMs}`), which clients draw
-//!   as a recap row. A turn since it was asked makes it stale: it is dropped.
+//!   logged as a `mux` `recap` record (`{text, awayMs, since}`), which clients
+//!   draw with the "New since you looked" divider at `since` (`seen.rs`). A
+//!   turn since it was asked makes it stale: it is dropped.
 //!
 //! The recap never goes to the model as a prompt and is never in Claude
 //! Code's transcript. `agents.chats.sessionRecap` (the app's chat settings
@@ -152,7 +153,7 @@ impl Hub {
         if away_for < AWAY {
             return;
         }
-        let turns = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count;
+        let (turns, since) = session.read_meta(|meta| (meta.turn_count, meta.seen_seq));
         let Some((text, at_turns)) = away.ready.take() else { return };
         if at_turns != turns || !self.recap_applies(session) {
             return;
@@ -163,7 +164,9 @@ impl Hub {
             session,
             "mux",
             "recap",
-            json!({"text": text, "awayMs": away_for.as_millis() as u64}),
+            // `since`: where the person left off, so a client draws the recap with its
+            // "New since you looked" divider instead of twice (`seen.rs`).
+            json!({"text": text, "awayMs": away_for.as_millis() as u64, "since": since}),
         );
     }
 

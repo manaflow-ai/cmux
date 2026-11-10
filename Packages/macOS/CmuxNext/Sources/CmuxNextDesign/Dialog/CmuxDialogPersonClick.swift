@@ -18,8 +18,10 @@ public final class CmuxDialogPersonClick {
     public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
     /// The event the app is handling now (tests set it).
     public var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent }
-    /// How long after the prompt shows, and after the previous mouse-down, a click is not taken.
-    public let activationDelay: TimeInterval
+    /// How long after the prompt shows, and after the previous mouse-down, a click is not taken
+    /// (worked out at each click).
+    public var activationDelay: TimeInterval { delay() }
+    private let delay: @MainActor () -> TimeInterval
     /// When the prompt showed or last moved, in system uptime (`NSEvent.timestamp`).
     private var shownAt: TimeInterval?
     /// The person's previous mouse-down in the prompt (a run of fast clicks is not taken).
@@ -35,7 +37,13 @@ public final class CmuxDialogPersonClick {
     /// - Parameter activationDelay: Chrome's guard against a click aimed at what was there before the
     ///   prompt; 0 takes a click at once (``shown(at:)`` is then not needed).
     public init(activationDelay: TimeInterval = 0) {
-        self.activationDelay = activationDelay
+        delay = { activationDelay }
+    }
+
+    /// - Parameter activationDelay: the delay as of each click (one that follows a live setting,
+    ///   such as the system's double-click interval).
+    public init(activationDelay: @escaping @MainActor () -> TimeInterval) {
+        delay = activationDelay
     }
 
     /// The prompt shows, or moves under the pointer, now: a click begun before `uptime` plus
@@ -79,6 +87,7 @@ public final class CmuxDialogPersonClick {
     /// `IsPossiblyUnintendedInteraction`): not within ``activationDelay`` of the prompt showing, nor of the
     /// person's previous mouse-down. A prompt with a delay that never said it showed takes none.
     private func settled(_ down: NSEvent) -> Bool {
+        let activationDelay = activationDelay
         guard activationDelay > 0 else { return true }
         guard let shownAt, down.timestamp >= shownAt + activationDelay else { return false }
         return lastDown.map { down.timestamp >= $0 + activationDelay } ?? true

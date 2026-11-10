@@ -30,6 +30,8 @@ done
 
 # The browser host, when the bundle carries one: Developer ID, hardened runtime.
 "$ROOT/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" --hardened
+# The Chromium helpers that start pages, extensions and the GPU process can JIT.
+"$ROOT/scripts/cmux-next/check-cef-helper-jit.sh" "$APP_PATH"
 
 SIGNED_ENTITLEMENTS="$work/signed.entitlements"
 /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null > "$SIGNED_ENTITLEMENTS" || {
@@ -78,4 +80,4 @@ for helper_dir in bin libexec; do
     fi
   done
 done
-echo "==> entitlements, helpers and browser host: OK"
+echo "==> entitlements, helpers, Chromium helpers and browser host: OK"

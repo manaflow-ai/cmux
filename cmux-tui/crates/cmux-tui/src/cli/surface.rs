@@ -11,6 +11,11 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     // The session daemon's lifecycle (`server` on the `cmux-tui` surface);
     // `cmux server` is the machine server, routed before this parser.
     "daemon",
+    // The whole session (`session current snapshot`, `stop`, the journal) and
+    // the clients attached to it: an agent in a cmux-tui pane reads its
+    // topology and cleans up with the `cmux` on its PATH, not only `cmux-tui`.
+    "session",
+    "client",
     "workspace",
     "screen",
     "pane",
@@ -83,41 +88,53 @@ impl std::fmt::Display for ProgramName {
     }
 }
 
+/// `cmux machine --help`: the device noun's old name (cmuxterm-hq#7487 item 6). Its verbs stay;
+/// the VM verbs are `cmux vm` ([`VM_POINTER`]).
 pub(super) const MACHINE_CATALOG_HELP: &str = "\
 USAGE
   cmux machine ls [--catalog]
   cmux machine <selector> show [--catalog]
   cmux machine add | revoke | rotate | doctor
 
+`cmux machine` is the old name of `cmux device`: `cmux device <selector> show`
+and `cmux device revoke | rotate | doctor` run the same. `cmux device list`
+lists every device that can reach this one; `machine ls` is the machine catalog,
+whose ids `cmux chat --on` takes. `cmux device --help` has every device verb.
+
 With the cmux app running, `machine ls` also lists its Cloud machines
 (`kind: cloud`, `target: machine:<id>`); without it a note says they are missing.
 ";
 
-/// `cmux machine`'s Cloud machine verbs (cli/vm.rs), in every `machine` help.
-pub(super) const MACHINE_VM_HELP: &str = "\
-Cloud machines through the cmux VM API (vm.cmux.dev):
-  run       Run a command on a fresh machine, deleted when it ends (--sync, --pull, --keep)
-  new       Make a Cloud machine (with the app signed in, the one your sidebar
-            shows; `cmux machine new --help`)
-  show      Show a machine (`cmux machine show ID`)
-  pause     Pause a machine, keeping its memory
-  resume    Resume a paused machine
-  start     Start a stopped machine
-  stop      Stop a machine; its disk stays
-  rm        Delete a machine for good
-  exec      Run a command on a machine
-  fork      Fork a machine
+/// Where a `machine` help sends a person for VMs: `vm` is the one noun that makes them (CMUX-43).
+pub(super) const VM_POINTER: &str = "\
+Cloud VMs (new, run, show, pause, resume, rm, exec, key, access) are `cmux vm`:
+`cmux vm --help`. `cmux machine new|pause|...` still work as old spellings.
+";
+
+/// `cmux vm`'s VM API verbs (cli/vm.rs), in `cmux vm --help` and a `vm` usage error.
+pub(super) const VM_VERBS_HELP: &str = "\
+Cloud VMs through the cmux VM API (vm.cmux.dev):
+  run       Run a command on a fresh VM, deleted when it ends (--sync, --pull, --keep)
+  new       Make a Cloud VM (with the app signed in, the one your sidebar
+            shows; `cmux vm new --help`)
+  show      Show a VM (`cmux vm show ID`)
+  pause     Pause a VM, keeping its memory
+  resume    Resume a paused VM
+  start     Start a stopped VM
+  stop      Stop a VM; its disk stays
+  rm        Delete a VM for good
+  exec      Run a command on a VM
+  fork      Fork a VM
   snapshot  Snapshots (new, show, ls, rm)
-  access    Short-lived access to one machine (new, ls, revoke, exec)
-  key       A machine-only agent key for any process (new, status, revoke)
+  access    Short-lived access to one VM (new, ls, revoke, exec)
+  key       A VM-only agent key for any process (new, status, revoke)
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
 
-`cmux machine access new|exec --target machine:VM_ID` mints access through the
-cmux API instead, for `cmux cloud`'s machines. Use `cmux cloud resize-machine`
+`cmux vm access new|exec --target machine:VM_ID` mints access through the
+cmux API instead, for the app's Cloud VMs. Use `cmux vm resize-machine`
 to resize one.
 
-Old spellings still work: `cmux vm …` for every verb (`cmux vm ls` lists the
-VM API's machines), `cmux cloud new-machine` for `machine new`, and create, get,
-delete, `token create` and `client-session create` for new, show, rm, `key new`
-and `access new`.
+Old spellings still work: `cmux machine VERB` for each of these verbs,
+`cmux cloud new-machine` for `vm new`, and create, get, delete, `token create`
+and `client-session create` for new, show, rm, `key new` and `access new`.
 ";

@@ -37,11 +37,11 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let settings = try await settings(home: home)
         let calls = watch(settings)
-        try await settings.setSetting(at: HangReportsSetting.path, to: .bool(true), by: .user)
+        try await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(true), by: .user)
         // A caller other than the person (refused for this key) never reaches the hook.
-        _ = try? await settings.setSetting(at: HangReportsSetting.path, to: .bool(true), by: .caller("cli"))
-        try await settings.setSetting(at: HangReportsSetting.path, to: nil, by: .user)
-        #expect(calls.seen.map(\.path) == [HangReportsSetting.path, HangReportsSetting.path])
+        _ = try? await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(true), by: .caller("cli"))
+        try await settings.setSetting(at: HangReportsSetting.configPath, to: nil, by: .user)
+        #expect(calls.seen.map(\.path) == [HangReportsSetting.configPath, HangReportsSetting.configPath])
         #expect(calls.seen.map(\.value) == [.bool(true), nil])
         #expect(calls.undone == 0)
     }
@@ -59,7 +59,7 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: home.path)
         await #expect(throws: (any Error).self) {
-            try await settings.setSetting(at: HangReportsSetting.path, to: .bool(true), by: .user)
+            try await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(true), by: .user)
         }
         #expect(calls.seen.count == 1)
         #expect(calls.undone == 1)
