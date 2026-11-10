@@ -802,6 +802,35 @@ def report(args):
     return code
 
 
+def judge_check(check):
+    """Honesty rule 5 on made-up callback lists, with no app: which inputs are blind and which stay lost."""
+    ms, refresh = 1_000_000, 1000.0 / 120
+    t0, t1 = 1000 * ms, 1250 * ms
+    awake = list(range(0, 2000 * ms, 16 * ms))                       # the stream calls back all the time
+    stopped = [c for c in awake if c <= t0 + 12 * ms or c >= t1 + 17 * ms]  # ...or stops 12 ms after the first input
+    next_frame = [{"t": t1 + 17 * ms}]
+
+    def judged(stamps, changed, callbacks):
+        samples, lost, _missed, blind = latencies(stamps, changed, 300, refresh, callbacks)
+        return len(samples), lost, blind
+
+    cases = [
+        ("the stream stops after the input, no frame: blind", ([t0, t1], next_frame, stopped), (1, 0, 1)),
+        ("the stream stays awake, no frame: lost", ([t0, t1], next_frame, awake), (1, 1, 0)),
+        ("no callback list: lost", ([t0, t1], next_frame, []), (1, 1, 0)),
+        ("a frame that ends the silence 200 ms late: blind, no sample",
+         ([t0], [{"t": t0 + 200 * ms}], [c for c in awake if c <= t0 + 12 * ms or c >= t0 + 200 * ms]), (0, 0, 1)),
+        ("the stream stops 100 ms after the input, no frame: lost",
+         ([t0], [], [c for c in awake if c <= t0 + 100 * ms]), (0, 1, 0)),
+        ("the stream was silent before the input already, no frame: lost",
+         ([t0], [], [c for c in awake if c <= t0 - 200 * ms]), (0, 1, 0)),
+        ("a late frame while the stream is awake: a sample", ([t0], [{"t": t0 + 200 * ms}], awake), (1, 0, 0)),
+    ]
+    for name, given, want in cases:
+        got = judged(*given)
+        check(f"rule 5 (made-up frames): {name}", got == want, f"samples, lost, blind = {got}, want {want}")
+
+
 def selfcheck(args):
     """The honesty proofs on this host, with the real app (docstring rules 2-4). Prints one line per check."""
     out = os.path.abspath(args.out)
@@ -813,6 +842,7 @@ def selfcheck(args):
         checks.append(bool(ok))
         print(f"APPCLOCK-SELFCHECK {'ok ' if ok else 'BAD'} {name}: {detail}", flush=True)
 
+    judge_check(check)
     with gui_lock(not args.no_lock):
         cmux = None
         try:
