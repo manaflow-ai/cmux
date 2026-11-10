@@ -254,7 +254,10 @@ DECLARATION_CSS = re.compile(
     r"(?<![\w-])(?:-webkit-)?(transition|transition-duration|animation|animation-duration|--[\w-]+)\s*:\s*([^;{}]*)")
 DECLARATION_SCRIPT = re.compile(
     r"(?<![\w-])[\"']?(?:-webkit-)?(transition|transition-duration|animation|animation-duration|transitionDuration|"
-    r"animationDuration|WebkitTransition|--[\w-]+)[\"']?\s*:\s*([^;{}\n]*)")
+    r"animationDuration|WebkitTransition|--[\w-]+)[\"']?"
+    # `transition: ...` in a style object or CSS string, `el.style.transition = "..."`,
+    # `style.setProperty("transition", "...")`.
+    r"(?:\s*:|\s*=(?![=>])|\s*,)\s*([^;{}\n]*)")
 TAILWIND = re.compile(r"(?<![\w-])duration-(\d+|\[[^\]\s]+\]|\([^)\s]+\))(?![\w-])")
 SCRIPT_CONST = re.compile(r"\b(?:const|let|var)\s+([A-Z][A-Z0-9_]*_MS)\s*(?::\s*\w+\s*)?=\s*([^;\n]+)")
 # test/motion-scale.ts MOTION_CONST: a constant named for a motion's length (a *_SETTLE_MS is a timer, not one).
@@ -312,7 +315,10 @@ def scan_web_file(surface: str, rel: str, text: str, defs: WebDefs, out: list[Si
 
     pattern = DECLARATION_SCRIPT if script else DECLARATION_CSS
     for m in pattern.finditer(body):
-        prop, value = m.group(1), m.group(2).strip().strip("\"'`").strip()
+        value = m.group(2).strip()
+        if script and value[:1] in "\"'`" and value.endswith(")"):
+            value = value[:-1].strip()  # setProperty("transition", "opacity 120ms")
+        prop, value = m.group(1), value.strip().strip("\"'`").strip()
         prop = CAMEL.get(prop, prop)
         line = line_of(m.start())
         if prop.startswith("--"):

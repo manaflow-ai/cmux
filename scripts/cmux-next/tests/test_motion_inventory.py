@@ -65,6 +65,12 @@ class WebSites(unittest.TestCase):
         self.assertEqual(got, [(2, "def", False, 160), (3, "site", True, None), (4, "site", False, 250),
                                (5, "site", True, None)])
 
+    def test_scripts_read_style_assignments_and_set_property(self):
+        ts = ('el.style.transition = "opacity 300ms";\nel.style.transitionDuration = "250ms";\n'
+              'el.style.setProperty("transition", "transform 220ms ease");\nconst transition = useTransition();\n')
+        got = sorted((s.line, s.tokened, s.ms) for s in web_sites(ts, "a.ts"))
+        self.assertEqual(got, [(1, False, 300), (2, False, 250), (3, False, 220)])
+
     def test_marked_lines_are_allowed(self):
         site = web_sites(".a { transition: width 1s linear; } /* motion-allow: playback progress */")[0]
         self.assertTrue(site.allowed)
