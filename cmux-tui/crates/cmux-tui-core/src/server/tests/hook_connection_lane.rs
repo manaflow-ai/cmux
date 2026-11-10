@@ -98,6 +98,10 @@ fn connect_from_a_terminal_then_from_the_app(own_session: bool) -> Seen {
         ],
         ..SurfaceOptions::default()
     };
+    // What the daemon does at its start (`cmux-tui` owner_start.rs). This process holds the
+    // daemon's end of every connection and the app's end too: the default soft limit of open
+    // files (256 on macOS) is too low for that, and the terminal's processes get it back.
+    crate::raise_open_file_limit(crate::OPEN_FILE_LIMIT_CEILING).unwrap();
     // A real PTY and a real process: the accept loop reads the peer's process session.
     let mux = Mux::new("hook-lane", options);
     serve_paused(mux.clone(), Some(socket.path.clone())).unwrap().mark_ready().unwrap();
