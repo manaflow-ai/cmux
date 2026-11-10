@@ -65,6 +65,8 @@ public import os
     /// Runs `body` with a new record current, and answers what it returned and the record.
     public static func recording<T>(_ body: () async throws -> T) async throws -> (T, CloudStartStepRecord) {
         let record = CloudStartStepRecord(), began = ContinuousClock.now
+        // concurrency-allow: the async overload of withValue binds inside the calling task (always current in an async
+        // function), never in the thread's fallback storage that cx-bpcj is about (the shared-package rule exempts it too).
         let value = try await $current.withValue(record) { try await body() }
         record.total = CloudStartSteps.milliseconds(began.duration(to: .now))
         return (value, record)

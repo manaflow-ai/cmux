@@ -137,7 +137,7 @@ nonisolated enum AgentTabRemoteStart {
         let surface: UInt64
         let session: String
         /// The machine's own phases of the start (`timings_ms`), when its daemon sent them.
-        var phases: [String: Int]? = nil
+        var phases: [String: Int]?
     }
 }
 
