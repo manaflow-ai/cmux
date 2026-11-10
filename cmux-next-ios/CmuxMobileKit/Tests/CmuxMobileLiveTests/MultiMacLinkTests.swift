@@ -29,6 +29,20 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
 
+    private var signaling = 0
+    /// Prewarms and roams asked of the dialer: each opens the signaling socket.
+    var signalingCount: Int { lock.withLock { signaling } }
+
+    func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        lock.withLock { signaling += 1 }
+        return []
+    }
+
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        lock.withLock { signaling += 1 }
+        return []
+    }
+
     func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let mac = endpoint.macDeviceID
         lock.withLock { dials[mac, default: 0] += 1 }
@@ -312,6 +326,34 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m2") == 2)
         #expect(live.sessions["m2"]?.link.phase == .signedOut)
         #expect(store.macConnection["m1"] == .connected)
+    }
+
+    /// A revoked session opens no signaling socket from the app's lifecycle:
+    /// a foreground prewarms nothing and a network change roams nothing, so the
+    /// refused token is never sent again (review F1 of #40493).
+    @Test func aRevokedSessionOpensNoSignalingOnForegroundOrNetworkChange() async {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer(refused: ["m2"])
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected && live.sessions["m2"]?.link.phase == .signedOut }
+        #expect(live.sessions["m2"]?.link.phase == .signedOut)
+        #expect(live.sessionRevoked)
+        await drain()
+        let before = dialer.signalingCount
+        live.background()
+        live.foreground()
+        live.networkPathChanged(.changed("wifi"))
+        // Past the roam's settle, and the detached prewarm and roam.
+        try? await Task.sleep(for: LinkController.networkSettle + .milliseconds(200))
+        await drain()
+        #expect(dialer.signalingCount == before)
+        #expect(dialer.dialCount("m2") == 2)
+        #expect(live.sessions["m2"]?.link.phase == .signedOut)
     }
 
     /// Transport settings reach every Mac's link.
