@@ -48,7 +48,7 @@ impl Runner for Fake {
 
 fn request(words: &[&str]) -> Request {
     match parse(&strings(words), || Ok(String::new())) {
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         other => panic!("{words:?}: {other:?}"),
     }
 }
