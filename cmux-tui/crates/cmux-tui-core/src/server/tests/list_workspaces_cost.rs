@@ -173,10 +173,11 @@ fn cost_of(workspaces: usize) -> Cost {
     }
 }
 
-/// An answer may make this many times the allocations of a deep copy of itself: one for the tree,
-/// one for all the rest (the tree decorations, the short IDs, the strings it reads from surfaces).
-/// A list that is built and then copied by its parent takes the answer above this.
-const COPIES_ALLOWED: u64 = 2;
+/// An answer may make 1.5 times the allocations of a deep copy of itself: one for the tree, a half
+/// for all the rest (the tree decorations, the short IDs, the strings it reads from surfaces;
+/// measured: 0.16). One list that is built and then copied by its parent takes the answer above
+/// this: the copy of the tabs alone adds up to 0.71 (the three copies together added 2.13).
+const COPIES_ALLOWED_TIMES_2: u64 = 3;
 
 /// Prints what the answer cost and fails when it built nodes of its tree more than one time.
 fn check(cost: &Cost) {
@@ -203,10 +204,10 @@ fn check(cost: &Cost) {
         cost.session_made_ms,
     );
     assert!(
-        cost.answer_allocations <= COPIES_ALLOWED * cost.copy_allocations,
+        2 * cost.answer_allocations <= COPIES_ALLOWED_TIMES_2 * cost.copy_allocations,
         "the first list-workspaces answer at {} workspaces made {} allocations, {:.2} times the \
-         {} of one deep copy of it (allowed: {COPIES_ALLOWED} times): it builds nodes of its tree \
-         more than one time",
+         {} of one deep copy of it (allowed: 1.5 times): it builds nodes of its tree more than one \
+         time",
         cost.workspaces,
         cost.answer_allocations,
         cost.answer_allocations as f64 / cost.copy_allocations as f64,
