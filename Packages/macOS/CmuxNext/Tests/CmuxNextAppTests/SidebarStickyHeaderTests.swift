@@ -131,9 +131,14 @@ struct SidebarStickyHeaderTests {
         let point = CGPoint(x: bench.list.bounds.midX, y: top + header.height / 2)
         let windowPoint = bench.list.convert(point, to: nil)
         let (proposal, rect) = try #require(bench.list.externalDragMoved(windowPoint: windowPoint, sourceMachine: nil))
-        if case let .intoWorkspace(id) = proposal { #expect(SidebarRowKey.workspace(id) != covered.key, "not the row under the veil") }
-        if case .intoGroup = proposal { #expect(rect == view.frame) }
-        bench.list.externalDragExited()
+        defer { bench.list.externalDragExited() }
+        // The middle of a group header takes a tab into its group, at rest and stuck alike.
+        guard case let .intoGroup(id) = proposal else {
+            Issue.record("a tab on the stuck header drops into its group, not \(proposal) (the row under the veil is \(covered.key))")
+            return
+        }
+        #expect(id == Self.group)
+        #expect(rect == view.frame, "highlighted where the stuck header draws")
     }
 
     @Test func rowsUnderTheStuckHeaderLeaveVoiceOverAndTheKeyLoopWhileCovered() throws {

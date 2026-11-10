@@ -66,19 +66,14 @@ class SidebarRowView: NSView {
 
     /// The stuck project header covers the row (`SidebarListView.updateVeiledRows`): it is no accessibility element and
     /// its controls leave the key view loop until it shows again, so VoiceOver and Tab reach the header over it, not a
-    /// row nobody can see. A control that had focus hands it to the list.
+    /// row nobody can see. A control made while it is covered (a workspace row makes close, more and Unpin on first show,
+    /// `RowControlSlot`) leaves it too (`didAddSubview`). A control that had focus hands it to the list.
     var isVeiled = false {
         didSet {
             guard isVeiled != oldValue else { return }
-            for case let control as NSControl in interactiveSubviews {
-                if isVeiled {
-                    if control.refusesFirstResponder { continue }
-                    control.refusesFirstResponder = true
-                    veiledControls.append(control)
-                    if window?.firstResponder === control { window?.makeFirstResponder(superview) }
-                }
-            }
-            if !isVeiled {
+            if isVeiled {
+                for control in interactiveSubviews { veil(control) }
+            } else {
                 for control in veiledControls { control.refusesFirstResponder = false }
                 veiledControls = []
             }
@@ -86,6 +81,18 @@ class SidebarRowView: NSView {
     }
     /// The controls `isVeiled` took out of the key view loop (and only those: one that refused focus already stays so).
     private var veiledControls: [NSControl] = []
+
+    private func veil(_ view: NSView) {
+        guard let control = view as? NSControl, !control.refusesFirstResponder else { return }
+        control.refusesFirstResponder = true
+        veiledControls.append(control)
+        if window?.firstResponder === control { window?.makeFirstResponder(superview) }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if isVeiled { veil(subview) }
+    }
 
     override func isAccessibilityElement() -> Bool { isVeiled ? false : super.isAccessibilityElement() }
 

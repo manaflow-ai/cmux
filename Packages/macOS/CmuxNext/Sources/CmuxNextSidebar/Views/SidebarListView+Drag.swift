@@ -243,11 +243,14 @@ extension SidebarListViewComponents {
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
-        let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
+        let cardY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
             + drag.restFrame.height / 2 : drag.probeCard.midY
+        // On the stuck header the drop is the header's (`dropY`), not the row under its veil, and its edges decide nothing.
+        let displayY = dropY(cardY)
+        let onStuckHeader = displayY != cardY
         var y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
-        if drag.blockTarget == nil {
+        if drag.blockTarget == nil, !onStuckHeader {
             // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
             // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
             // edges, as for the centre above, so a morph does not move them. A block's tiles keep the centre.
