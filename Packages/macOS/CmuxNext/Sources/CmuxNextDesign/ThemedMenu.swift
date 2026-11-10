@@ -11,7 +11,8 @@ extension NSMenu {
     /// A native row's image goes in the menu grid's icon box (`MenuMetrics.iconSize`, its shape
     /// kept), so AppKit's one image column is the grid's in every menu and every row's text starts
     /// on `MenuMetrics.textX(iconColumn:)`: an avatar or a wide symbol no longer moves it.
-    /// AppKit's checkmark column shows only in a menu with a checked or mixed row
+    /// A menu has one leading column: its icons', with a checked row's mark in that row's icon
+    /// slot, or, in a menu with no icons, AppKit's checkmark column when a row is checked or mixed
     /// (``fitStateColumn()``). Call it last, once the menu is built.
     ///
     /// `runsInPlace` is kept for callers: a native row always runs as the menu closes.
@@ -35,12 +36,26 @@ extension NSMenu {
         fitStateColumn()
     }
 
-    /// AppKit keeps an empty checkmark column at a menu's leading edge unless told otherwise, so a
-    /// menu with no checked or mixed row opened with every icon and title pushed right (Leo,
-    /// 2026-11-02, on the chat's right-click menu: "why IS THERE SO MUCH ... SPACE AT THE LEFT").
-    /// The column stays in a menu that has such a row (`MenuMetrics.stateIconX`).
+    /// One leading column per menu. AppKit keeps an empty checkmark column at a menu's leading edge
+    /// unless told otherwise, so a menu with no checked or mixed row opened with every icon and title
+    /// pushed right (Leo, 2026-11-02, on the chat's right-click menu: "why IS THERE SO MUCH ... SPACE
+    /// AT THE LEFT"). A menu whose rows carry icons and has a checked row stacked the checkmark column
+    /// and the icon column, a double gutter left of every row (Leo, 2026-11-10, on the profile
+    /// menu's team rows: "this is too big at the left i think", "at the very least it's awkward
+    /// looking"). So:
+    /// - a menu with an icon column never shows the checkmark column: a checked or mixed row draws
+    ///   its mark in its own icon slot, in place of its icon (`MenuMetrics.iconX`), and gets its icon
+    ///   back when it is no longer checked;
+    /// - a menu without icons shows the column only when a row is checked or mixed, as a macOS menu
+    ///   with no icons does (`MenuMetrics.stateX`, the text at `MenuMetrics.stateIconX`).
+    /// The row's `state` is left as it is, so VoiceOver still reads it as checked.
     public func fitStateColumn() {
-        showsStateColumn = items.contains { !$0.isSeparatorItem && !$0.isHidden && $0.state != .off }
+        let rows = items.filter { !$0.isSeparatorItem && !$0.isHidden && $0.view == nil }
+        let marked = rows.contains { $0.state != .off }
+        let iconColumn = rows.contains { $0.image != nil }
+        showsStateColumn = marked && !iconColumn
+        guard iconColumn else { return }
+        for row in rows { MenuStateMarkImage.fit(row) }
     }
 
     /// Every native row's image, its submenus' too, in the grid's icon box.
@@ -84,6 +99,50 @@ extension NSImage {
         fitted.isTemplate = isTemplate
         fitted.accessibilityDescription = accessibilityDescription
         return fitted
+    }
+}
+
+/// A checked row's mark in its icon slot (`NSMenu.fitStateColumn()`): the checkmark (a dash for a
+/// mixed row) in the grid's icon box. The mark carries the icon it stands in for, so the row gets
+/// that icon back when it is no longer checked; nothing outside the row keeps it.
+final class MenuStateMarkImage: NSImage, @unchecked Sendable {
+    /// The row's own icon, in the grid's box (nil for a row that had none).
+    let icon: NSImage?
+    let state: NSControl.StateValue
+
+    init?(state: NSControl.StateValue, replacing icon: NSImage?) {
+        let name = state == .mixed ? "minus" : "checkmark"
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .semibold, scale: .small)
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return nil }
+        self.icon = icon?.fittedToMenuIconBox()
+        self.state = state
+        let side = MenuMetrics.iconSize
+        super.init(size: NSSize(width: side, height: side))
+        let natural = symbol.size
+        addRepresentation(NSCustomImageRep(size: size, flipped: false) { rect in
+            let fit = min(1, rect.width / max(natural.width, 1), rect.height / max(natural.height, 1))
+            let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
+            symbol.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
+            return true
+        })
+        isTemplate = true
+        accessibilityDescription = state == .mixed ? "Mixed" : "Checked"
+    }
+
+    required init?(coder: NSCoder) { nil }
+    required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) { nil }
+
+    /// Puts `row`'s mark in its icon slot when it is checked or mixed, and its icon back when not.
+    /// A caller that set a new image since the mark went in owns the slot again.
+    @MainActor static func fit(_ row: NSMenuItem) {
+        let current = row.image as? MenuStateMarkImage
+        guard row.state != .off else {
+            if let current { row.image = current.icon }
+            return
+        }
+        guard current?.state != row.state else { return }
+        let icon = if let current { current.icon } else { row.image }
+        if let mark = MenuStateMarkImage(state: row.state, replacing: icon) { row.image = mark }
     }
 }
 

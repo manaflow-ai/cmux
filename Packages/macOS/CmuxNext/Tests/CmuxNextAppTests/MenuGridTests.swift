@@ -36,7 +36,10 @@ struct MenuGridTests {
             }
         }
         let iconColumn = menu.items.contains { $0.image != nil }
-        let stateColumn = menu.items.contains { $0.state != .off }
+        // One leading column: AppKit's checkmark column only in a menu with no icon column
+        // (`NSMenu.fitStateColumn()`); in an icon menu a checked row's mark is in its icon slot.
+        let stateColumn = menu.showsStateColumn
+        #expect(!(iconColumn && stateColumn), "\(name): a checkmark column stacked left of the icon column")
         guard menu.items.contains(where: { !$0.isSeparatorItem && $0.view == nil }) else { return nil }
         return (MenuMetrics.iconX(stateColumn: stateColumn), MenuMetrics.textX(iconColumn: iconColumn, stateColumn: stateColumn))
     }

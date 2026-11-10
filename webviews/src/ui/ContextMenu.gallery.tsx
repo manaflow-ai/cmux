@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
+import { Icon } from "../icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 type Props = {
@@ -13,6 +14,8 @@ type Props = {
   longLabel?: boolean;
   /** A toggle row checked, one unchecked and plain rows in one menu: every label on one line. */
   mixed?: boolean;
+  /** Rows with icons and one checked row: the check takes that row's icon slot, one leading column. */
+  icons?: boolean;
 };
 
 function ContextMenuGallery({
@@ -21,10 +24,18 @@ function ContextMenuGallery({
   edge = false,
   longLabel = false,
   mixed = false,
+  icons = false,
 }: Props) {
   const [receipt, setReceipt] = useState("Ready");
   const items = useMemo<ContextMenuItem[]>(
     () => [
+      ...(icons
+        ? [
+            { id: "eye", label: "Show Preview", icon: <Icon name="eye" />, checked: true, onSelect: () => setReceipt("Hid") },
+            { id: "files", label: "Show Files", icon: <Icon name="files" />, checked: false, onSelect: () => setReceipt("Files") },
+            { id: "copy", label: "Copy Path", icon: <Icon name="clipboard" />, onSelect: () => setReceipt("Copied") },
+          ]
+        : []),
       ...(mixed
         ? [
             { id: "pin", label: "Pin Tab", checked: true, onSelect: () => setReceipt("Unpinned") },
@@ -50,7 +61,7 @@ function ContextMenuGallery({
         onSelect: () => setReceipt("Deleted"),
       },
     ],
-    [disabled, longLabel, mixed],
+    [disabled, longLabel, mixed, icons],
   );
   return (
     <div className={`context-menu-gallery-stage${edge ? " context-menu-gallery-stage--edge" : ""}`}>
@@ -208,6 +219,11 @@ export default componentEntry<Props>({
     mixed: {
       note: "A checked toggle, an unchecked toggle and plain rows in one menu: every label starts on one line.",
       props: { mixed: true },
+      play: open,
+    },
+    "icons-checked": {
+      note: "Rows with icons and a checked toggle: the check takes its row's icon slot, no state column opens left of the icons (one leading column).",
+      props: { icons: true },
       play: open,
     },
   },

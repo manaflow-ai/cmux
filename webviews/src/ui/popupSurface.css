@@ -345,6 +345,22 @@
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-check) {
   --ui-menu-lead: var(--cmux-menu-state-icon-x);
 }
+/* One leading column (Leo, 2026-11-10, on the account menu's checked team row: "this is too big at
+   the left i think", "at the very least it's awkward looking"; the native menus do the same,
+   ThemedMenu.swift fitStateColumn). A menu whose rows carry icons opens no state column left of
+   them: its rows stay on the icon column, a checked row's check sits in that row's icon slot, and
+   the checked row's own icon gives the slot up while it is checked. */
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-check):has(.ui-menu-item > :is(.ui-menu-icon, .icon-menu-emoji)) {
+  --ui-menu-lead: var(--cmux-menu-icon-x);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-item > :is(.ui-menu-icon, .icon-menu-emoji))
+  .ui-menu-item .ui-menu-check {
+  inset-inline-start: calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset));
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item))
+  .ui-menu-item:is([data-checked], [aria-checked="true"], [aria-checked="mixed"]) > :is(.ui-menu-icon, .icon-menu-emoji) {
+  visibility: hidden;
+}
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item {
   position: relative;
   box-sizing: border-box;

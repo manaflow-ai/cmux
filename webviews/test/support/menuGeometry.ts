@@ -7,7 +7,9 @@
 // - One text line per menu: every row's label starts at the same x, from the popup's left edge.
 // - That x is AppKit's: 15 (no state column, no icons), 22 (a state column), or the icon column + 20
 //   (an icon box of 14 and a gap of 6, at 15 or 22): never an empty gutter.
-// - A checkmark centres on the state column, 10 from the popup's edge.
+// - A checkmark centres on the state column, 10 from the popup's edge; in a menu with icons it takes
+//   its row's icon slot (centred at 22) and no state column opens left of the icons (Leo, 2026-11-10:
+//   "this is too big at the left i think", "at the very least it's awkward looking").
 // - A one-line row is the menu row token (--ds-control-row) high.
 // - A menu opened from a field-like trigger (data-field-trigger) starts at the trigger's leading edge
 //   and is at least as wide.
@@ -141,9 +143,14 @@ export function menuFindings(menu: MenuMeasure): string[] {
   for (const row of icons)
     if (!near(row.iconX!, 15, 1) && !near(row.iconX!, 22, 1))
       findings.push(`"${row.label}": icon at ${row.iconX!.toFixed(1)}, not 15 or 22`);
+  // One leading column: in a menu with icons a check sits in its row's icon slot (centred at 15 + 7),
+  // never on a state column stacked left of the icons; in a menu without icons, on the state column at 10.
+  const checkAt = icons.length > 0 ? 22 : 10;
   for (const row of rows)
-    if (row.checkX !== null && !near(row.checkX, 10, 0.5))
-      findings.push(`"${row.label}": check centred at ${row.checkX.toFixed(1)}, not 10`);
+    if (row.checkX !== null && !near(row.checkX, checkAt, 0.5))
+      findings.push(`"${row.label}": check centred at ${row.checkX.toFixed(1)}, not ${checkAt}`);
+  if (icons.length > 0 && rows.some((row) => row.checkX !== null) && icons.some((row) => !near(row.iconX!, 15, 1)))
+    findings.push("a state column stacked left of the icon column: icons not at 15");
   const tall = rows.filter((row) => !row.multiline && !near(row.height, menu.rowToken, 0.5));
   if (tall.length)
     findings.push(`rows ${[...new Set(tall.map((row) => row.height.toFixed(1)))].join(", ")} px, not ${menu.rowToken}`);

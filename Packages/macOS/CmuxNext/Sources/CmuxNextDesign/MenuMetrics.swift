@@ -12,9 +12,9 @@ public nonisolated struct MenuMetrics: Sendable {
     public static let highlightRadius: CGFloat = 5
     /// A separator's distance from the menu's edges, on both sides: AppKit's own, where a row's content starts.
     public static let separatorInset: CGFloat = 15
-    /// A checkmark or dash, in a menu that has one.
+    /// A checkmark or dash, in a menu with no icons that has one; in a menu with icons it takes its row's icon slot.
     public static let stateX: CGFloat = 10
-    /// Where a row's icon starts in a menu with a checkmark or dash.
+    /// Where a row's title starts in a menu with no icons and a checkmark or dash (a menu with icons opens no state column).
     public static let stateIconX: CGFloat = 22
     /// Where a row's icon starts (its title without an icon column): AppKit's own leading.
     public static let iconX: CGFloat = 15
@@ -27,7 +27,7 @@ public nonisolated struct MenuMetrics: Sendable {
     /// The least room between a title and its shortcut or chevron.
     public static let shortcutGap: CGFloat = 28
 
-    /// Where a row's icon starts: after the state column when any row of the menu has a checkmark or dash.
+    /// Where a row's icon starts: after the state column when the menu shows one.
     public static func iconX(stateColumn: Bool) -> CGFloat { stateColumn ? stateIconX : iconX }
 
     /// The text column: after the icon column when any row of the menu has an icon, else on it.

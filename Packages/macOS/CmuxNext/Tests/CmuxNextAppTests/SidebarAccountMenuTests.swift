@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 @testable import CmuxNextApp
 import Testing
 
@@ -48,6 +49,34 @@ struct SidebarAccountMenuTests {
             #expect(teams.map(\.subtitle) == ["Team · Team plan", "Team", "ada@example.com"])
         }
         #expect(menu.items.last?.representedObject as? String == "palette.auth.signOut")
+    }
+
+    /// The whole profile menu, themed as the footer opens it, with the active team checked: one
+    /// leading column (Leo, 2026-11-10: "this is too big at the left i think", "at the very least
+    /// it's awkward looking"). No checkmark column opens left of the icons, the active team's
+    /// checkmark takes its icon's slot, the other teams keep their icons, and checking a team adds
+    /// no width.
+    @Test func theActiveTeamsCheckTakesItsIconSlot() throws {
+        _ = NSApplication.shared
+        let registry = Self.registry()
+        func profileMenu(active: String?) throws -> NSMenu {
+            registry.choiceState = { id, _ in id == "openTeamPicker" ? active : nil }
+            let menu = ProfileMenuBuilder(registry: registry).make(profile: ProfileMenuProfile(name: "Default"))
+            let account = try #require(SidebarAccount(name: "Ada Lovelace", email: "ada@example.com", team: "cmux"))
+            SidebarAccount.addRows(to: menu, account: account, registry: registry)
+            return menu.themeRows(in: ThemeScope(level: .room))
+        }
+        let menu = try profileMenu(active: "t1")
+        let unchecked = try profileMenu(active: nil)
+        #expect(!menu.showsStateColumn, "a checkmark column left of every icon")
+        let teams = menu.items.filter { $0.identifier?.rawValue == "profileMenu.team" }
+        let plainTeams = unchecked.items.filter { $0.identifier?.rawValue == "profileMenu.team" }
+        #expect(teams.map(\.state) == [.on, .off, .off])
+        let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
+        #expect(teams.allSatisfy { $0.image?.size == box })
+        #expect(teams[0].image?.accessibilityDescription == "Checked", "the active team's slot draws the checkmark")
+        #expect(teams[1].image?.accessibilityDescription == plainTeams[1].image?.accessibilityDescription)
+        #expect(menu.size.width == unchecked.size.width, "checking a team widened the menu: \(menu.size.width) vs \(unchecked.size.width)")
     }
 
     @Test func noTeamNoTeamRow() throws {
