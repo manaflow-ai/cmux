@@ -1,5 +1,6 @@
 public import CmuxConnectivityTelemetry
 import Foundation
+import os
 
 extension ConnectivityTelemetry {
     /// Starts the iPhone's connectivity recording once per process: its journal
@@ -15,15 +16,14 @@ extension ConnectivityTelemetry {
 }
 
 /// ``ConnectivityTelemetry/startOnPhone()`` runs its setup once.
-private final class PhoneConnectivityStart: @unchecked Sendable {
-    private static let shared = PhoneConnectivityStart()
-    private let lock = NSLock()
-    private var started = false
+private struct PhoneConnectivityStart {
+    private static let started = OSAllocatedUnfairLock(initialState: false)
 
+    /// True for the first caller only.
     static func claim() -> Bool {
-        shared.lock.withLock {
-            defer { shared.started = true }
-            return !shared.started
+        started.withLock { started in
+            defer { started = true }
+            return !started
         }
     }
 }

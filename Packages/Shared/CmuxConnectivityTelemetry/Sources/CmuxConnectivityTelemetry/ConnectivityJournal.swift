@@ -1,16 +1,24 @@
 import Foundation
+import os
 
 /// The device's own connectivity log: one JSON line per kept record, in a file that rolls to
 /// `<name>.1` when it passes ``maxBytes`` (so at most twice that is on disk). It is read from
 /// the app (Settings, the debug socket, a support export) and never leaves the device by itself.
 ///
-/// Not thread-safe: ``ConnectivityTelemetry`` writes through one instance from its drain task
-/// only. A reader (Copy Logs) makes its own instance for the same file and only reads.
-public final class ConnectivityJournal: @unchecked Sendable {
+/// ``ConnectivityTelemetry`` writes through one instance from its drain task; a reader (Copy
+/// Logs) may make its own instance for the same file and only read.
+public final class ConnectivityJournal: Sendable {
     public let url: URL
     public let maxBytes: Int
-    private var handle: FileHandle?
-    private var size: Int = 0
+    /// The open file and its size; every write and roll runs under it.
+    private struct FileState: Sendable {
+        var handle: FileHandle?
+        var size = 0
+    }
+
+    // lint:allow lock - appends come from the recorder's one drain task; the lock makes the
+    // class Sendable and serializes a reader's flush with a write, never contended in practice.
+    private let file = OSAllocatedUnfairLock(initialState: FileState())
 
     /// - Parameters:
     ///   - url: The current file; the rolled one is beside it with `.1` added.
@@ -20,7 +28,7 @@ public final class ConnectivityJournal: @unchecked Sendable {
         self.maxBytes = max(1024, maxBytes)
     }
 
-    deinit { try? handle?.close() }
+    deinit { file.withLock { try? $0.handle?.close() } }
 
     /// The rolled file.
     public var previousURL: URL { url.appendingPathExtension("1") }
@@ -41,19 +49,22 @@ public final class ConnectivityJournal: @unchecked Sendable {
     /// Appends one record. A write that fails is dropped: the journal never stops the app.
     public func append(_ record: ConnectivityRecord) {
         let line = Data((record.jsonLine() + "\n").utf8)
-        guard let handle = openHandle() else { return }
-        if size > 0, size + line.count > maxBytes {
-            roll()
-            guard let fresh = openHandle() else { return }
-            write(line, to: fresh)
-            return
+        file.withLock { state in
+            if state.size > 0, state.size + line.count > maxBytes { roll(&state) }
+            guard let handle = open(&state) else { return }
+            do {
+                try handle.write(contentsOf: line)
+                state.size += line.count
+            } catch {
+                try? handle.close()
+                state.handle = nil
+            }
         }
-        write(line, to: handle)
     }
 
     /// Both files' lines, oldest first.
     public func contents() -> String {
-        try? handle?.synchronize()
+        file.withLock { _ = try? $0.handle?.synchronize() }
         let previous = (try? String(contentsOf: previousURL, encoding: .utf8)) ?? ""
         let current = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         return previous + current
@@ -78,40 +89,30 @@ public final class ConnectivityJournal: @unchecked Sendable {
 
     /// Removes both files (the account changed: the next one never reads the last one's log).
     public func clear() {
-        try? handle?.close()
-        handle = nil
-        size = 0
-        try? FileManager.default.removeItem(at: url)
-        try? FileManager.default.removeItem(at: previousURL)
+        file.withLock { state in
+            try? state.handle?.close()
+            state = FileState()
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
     }
 
-    private func openHandle() -> FileHandle? {
-        if let handle { return handle }
+    private func open(_ state: inout FileState) -> FileHandle? {
+        if let handle = state.handle { return handle }
         let manager = FileManager.default
         try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !manager.fileExists(atPath: url.path) {
             guard manager.createFile(atPath: url.path, contents: nil) else { return nil }
         }
         guard let opened = try? FileHandle(forWritingTo: url) else { return nil }
-        size = Int((try? opened.seekToEnd()) ?? 0)
-        handle = opened
+        state.size = Int((try? opened.seekToEnd()) ?? 0)
+        state.handle = opened
         return opened
     }
 
-    private func write(_ line: Data, to handle: FileHandle) {
-        do {
-            try handle.write(contentsOf: line)
-            size += line.count
-        } catch {
-            try? handle.close()
-            self.handle = nil
-        }
-    }
-
-    private func roll() {
-        try? handle?.close()
-        handle = nil
-        size = 0
+    private func roll(_ state: inout FileState) {
+        try? state.handle?.close()
+        state = FileState()
         let manager = FileManager.default
         try? manager.removeItem(at: previousURL)
         try? manager.moveItem(at: url, to: previousURL)
