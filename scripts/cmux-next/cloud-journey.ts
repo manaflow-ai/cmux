@@ -2298,15 +2298,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
-      // `--agent claude/MODEL`: the session must run the model asked for (the session record, not the reply's own
-      // words, which a model gets wrong about itself).
-      if (askedModel && !modelStub) {
+      // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
+      // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
+      // about itself) and never `acp session info`, whose record names the model asked for and lists every model
+      // the harness offers (so it named the asked model even when a pooled agent ran another one: a second chat
+      // on one machine asked claude-sonnet-5-5 and ran claude-haiku-5-5, and this step passed, 2026-11-10).
+      if (askedModel && !modelStub && harness === "claude") {
         await J.step("session model", async () => {
           const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
-          const named = [...new Set(r.stdout.match(/claude-(?:opus|sonnet|haiku)[a-z0-9.-]*/g) ?? [])];
-          if (!named.length) return { value: null, detail: `asked ${askedModel}; the session record names no Claude model` };
-          if (!named.includes(askedModel)) throw new Error(`asked ${askedModel}; the session runs ${named.join(", ")}`);
-          return { value: null, detail: `asked ${askedModel}; the session runs ${named.join(", ")}` };
+          const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
+          if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
+          const t = await exec(`${GUEST}grep -ho '"model":"[^"]*"' "$HOME"/.claude/projects/*/${shq(`${asid}.jsonl`)} 2>/dev/null | sort -u`, 45_000);
+          const ran = [...new Set([...t.stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]).filter((m) => m !== "<synthetic>"))];
+          if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
+          if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
+          return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
         });
       }
       if (modelStub && provider) {
