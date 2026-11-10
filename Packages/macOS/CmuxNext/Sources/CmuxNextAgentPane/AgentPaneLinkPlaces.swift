@@ -40,7 +40,7 @@ public final class AgentPaneLinkPlaces {
     private let views = NSHashTable<AgentPaneView>.weakObjects()
     /// The App's watch of the workspace list (``follow(_:titles:)``).
     private var watch: Task<Void, Never>?
-    /// One observation per workspace, by object (two machines' workspaces may share an id).
+    /// One observation per workspace, by object and machine name (two machines' workspaces may share an id).
     private var observed: ObservedItems<WorkspaceModel, [Place]>?
     /// The workspaces listed last, in order, and the machine name of each (nil for this Mac).
     private var listed: [WorkspaceModel] = []
@@ -125,20 +125,19 @@ public final class AgentPaneLinkPlaces {
                 }
                 var hosts: [ObjectIdentifier: String] = [:]
                 for (workspace, host) in next { if let host { hosts[ObjectIdentifier(workspace)] = host } }
-                // A machine renamed: its workspaces' places carry the name, so every item maps again.
-                let renamed = hosts != self.hosts
                 self.hosts = hosts
                 listed = next.map(\.0)
-                settle(refresh: renamed)
+                settle()
             }
         }
     }
 
     /// The listed workspaces' places now: only workspaces new to the list are named (their own
     /// observations keep the rest), and the pages are owed a push when a list changed.
-    private func settle(refresh: Bool = false) {
+    private func settle() {
         guard let observed else { return }
-        let slices = observed.items(for: listed, id: { "\(ObjectIdentifier($0))" }, refresh: refresh)
+        // By object and machine name: a workspace whose machine is renamed is named again, no other.
+        let slices = observed.items(for: listed, id: { "\(ObjectIdentifier($0))\t\(hosts[ObjectIdentifier($0)] ?? "")" })
         guard slices != self.slices else { return }
         self.slices = slices
         joined = nil
