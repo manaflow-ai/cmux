@@ -8864,8 +8864,7 @@ class StallMove(unittest.TestCase):
         started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS)
         self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
                          ["cancel:2", "rerun-failed:3"])
-        self.assertIn("attempt 3 stays: cmux-next generated files still running", results[0])
-        self.assertIn("no owned job waits for a runner", results[0])
+        self.assertIn("attempt 3 stays: no owned job waits for a runner", results[0])
 
     def test_no_move_without_blacksmith_room_and_one_move_a_run(self):
         clock = Clock()
