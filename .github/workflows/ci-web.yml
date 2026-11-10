@@ -482,7 +482,7 @@ jobs:
         id: engines
         continue-on-error: true
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
@@ -690,6 +690,9 @@ jobs:
       - name: Use the merge parent as the base
         id: head
         run: |
+          # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
+          # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
+          cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
           git checkout -q --detach HEAD^1
           if failed="$(python3 scripts/ci/webviews_test_results.py --failed-files "$RUNNER_TEMP/head-results/webviews-head-results.json")"; then
             reds="$(printf '%s' "$failed" | grep -c . || true)"
@@ -744,7 +747,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.head.outputs.reds != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # The base's recent push verdicts (the webviews-test-history artifact its newest push
       # uploaded). A test whose verdict flipped by itself there passed this replay by chance
@@ -846,7 +849,7 @@ jobs:
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Re-run the change's reds alone on the head
         id: rerun
@@ -936,22 +939,32 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
           required_jobs = ["react-apps-check-shard", "react-doctor"]
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
-          allowed = {"success"} if required else {"success", "skipped"}
-          bad = {
-              name: needs[name]["result"]
-              for name in required_jobs
-              if needs[name]["result"] not in allowed
-          }
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
+          exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
+                            () if required else required_jobs)
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
@@ -1234,6 +1247,24 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           for route in ("web", "macos", "agent_session_web"):
@@ -1244,9 +1275,7 @@ jobs:
           scope = needs["web-subarea-scope"]
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
           if scope_required:
-              if scope["result"] != "success":
-                  print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
-                  sys.exit(1)
+              exit_with_verdict({"web-subarea-scope": scope["result"]}, "Web status")
               subareas = scope.get("outputs", {})
               for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
                   if subareas.get(name) not in {"true", "false"}:
@@ -1273,18 +1302,8 @@ jobs:
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
           }
-          bad = {}
-          for job, is_required in sorted(required.items()):
-              result = needs[job]["result"]
-              if is_required:
-                  if result != "success":
-                      bad[job] = result
-              elif result not in {"success", "skipped"}:
-                  bad[job] = result
-          if bad:
-              for job, result in bad.items():
-                  print(f"{job}: {result}", file=sys.stderr)
-              sys.exit(1)
+          exit_with_verdict({job: needs[job]["result"] for job in sorted(required)}, "Web status",
+                            {job for job, is_required in required.items() if not is_required})
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY
