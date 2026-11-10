@@ -26,8 +26,11 @@ each test's inputs, transitively:
 An input it cannot resolve without guessing (an import of no tracked module outside the standard library, a path
 that keeps a `$VAR` or a `${{ }}`, a directory listing) is listed as unknown and never fails the check. A push filter
 on a workflow no pull request runs picks what to release, not what to test (widening it would publish more), so it
-is listed, not checked. A gap is a resolved input the event's filter does not admit; `covered`, a repository's own
-router that already runs the test for that input on every PR, can excuse one.
+is listed, not checked. A gap is a resolved input the event's filter does not admit; `covered(test, input, workflow,
+event, document)`, a repository's own router that already runs that test for that input whenever the event runs,
+can excuse a test; the input is a gap unless it excuses every test that reads it. GitHub's `?` and `+` filter
+operators (zero-or-one and one-or-more of the previous character) are read as one character and a literal `+`:
+that can only miss a gap, never report a false one.
 
     python3 workflow_paths_cover_inputs.py [--root DIR] [--json] [--unknown]   # exit 1 when a gap is found
 """
@@ -172,6 +175,11 @@ class Repo:
         if norm.startswith(root + os.sep):
             return norm[len(root) + 1:].replace(os.sep, "/")
         return None
+
+    def sorted(self) -> list[str]:
+        if not self.ordered:
+            self.ordered = sorted(self.tracked)
+        return self.ordered
 
     def abs(self, rel: str) -> str:
         return str(self.root / rel) if rel else str(self.root)
@@ -426,7 +434,7 @@ def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown:
             continue
         command: list[str] = []
         for word in words + [";"]:
-            if word and set(word) <= set(";&|()<>"):
+            if word and set(word) <= set(";&|()<>") and not set(word) & set("<>"):
                 if command:
                     yield command
                 command = []
@@ -434,8 +442,23 @@ def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown:
                 command.append(word)
 
 
+def without_redirections(words: list[str]) -> list[str]:
+    """The command's words with each redirection (`<`, `>`, `2>&1`, `>>`) and its operand taken out."""
+    out, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+            continue
+        if word and set(word) & set("<>") and set(word) <= set("<>&|0123456789"):
+            skip = not word.endswith(("&", "&1", "&2"))
+            continue
+        out.append(word)
+    return out
+
+
 def run_targets(words: list[str]) -> list[str]:
     """The words a command runs: its first word, an interpreter's script, or a `for X in ...` list."""
+    words = without_redirections(words)
     while words and (words[0] in PREFIXES or (ASSIGN.match(words[0]) and "=" in words[0])):
         words = words[1:]
     if not words:
@@ -472,7 +495,8 @@ class Walker:
         self.py_cache: dict[str, PyFacts | None] = {}
         self.unknown: dict[str, set[str]] = {}
         self.closures: dict[tuple[str, str], dict[str, tuple[str, ...]]] = {}
-        self.results: dict[tuple, list[str]] = {}
+        self.results: dict[tuple, tuple[list[str], tuple[str, ...]]] = {}
+        self.go_const_cache: dict[str, dict[str, str]] = {}
 
     def note_unknown(self, where: str, what: str, sink: dict | None = None):
         sink = self.unknown if sink is None else sink
@@ -484,7 +508,20 @@ class Walker:
         repo = self.repo
         found: list[str] = []
         env = {"GITHUB_WORKSPACE": str(repo.root), **env}
+        # `pkgs=$(go list ./... | ...)` then `go test $pkgs`: the variable stands for go list's own patterns (a
+        # filter after the pipe only drops packages, so this reads at most a few more tests than run).
+        for name, patterns in re.findall(r"(?m)^\s*([A-Za-z_]\w*)=\$\(\s*go\s+list\s+([^|)]*)", run):
+            words = [w for w in patterns.split() if not w.startswith("-")]
+            if words and all("$" not in w for w in words):
+                env[name] = " ".join(words)
         for words in shell_words(run, None, env, []):
+            if words[0] == "cd" and len(words) == 2 and "$" not in words[1] and not words[1].startswith("-"):
+                target = os.path.normpath(os.path.join(cwd, words[1]))
+                if repo.is_dir(repo.rel(target)):
+                    cwd = target  # the step's later commands run from here
+                continue
+            if len(words) > 1 and words[0] == "go" and words[1] == "test":
+                words = [part for w in words for part in w.split(" ")]  # an expanded package list
             found.extend(self.command_entries(words, cwd))
         return [p for p in dict.fromkeys(found) if is_test(p)]
 
@@ -529,7 +566,7 @@ class Walker:
                     pattern = positional[1]
             base = repo.rel(os.path.join(cwd, start))
             if base is not None and "$" not in start:
-                for path in repo.tracked:
+                for path in repo.sorted():
                     if (base == "" or path.startswith(base + "/")) and fnmatch.fnmatchcase(path.rsplit("/", 1)[-1], pattern):
                         out.append(path)
         # python -m unittest a.b.c / pytest DIR
@@ -537,7 +574,7 @@ class Walker:
             module = words[words.index("-m") + 1] if words.index("-m") + 1 < len(words) else ""
             if module == "unittest":
                 for w in words[words.index("-m") + 2:]:
-                    if re.fullmatch(r"[A-Za-z_][\w]*(\.[A-Za-z_]\w*)+", w):
+                    if w != "discover" and re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*", w):
                         rel = repo.rel(os.path.join(cwd, w.replace(".", "/") + ".py"))
                         while rel and not repo.is_file(rel) and "/" in rel:
                             rel = rel.rsplit("/", 1)[0] + ".py"
@@ -547,7 +584,7 @@ class Walker:
             for w in words:
                 rel = repo.rel(os.path.join(cwd, w)) if "$" not in w and not w.startswith("-") else None
                 if rel and repo.is_dir(rel) and rel not in ("",):
-                    out.extend(p for p in repo.tracked if p.startswith(rel + "/") and re.match(
+                    out.extend(p for p in repo.sorted() if p.startswith(rel + "/") and re.match(
                         r"(test_.*|.*_test)\.py$", p.rsplit("/", 1)[-1]))
         # go test PKG... (./... recurses)
         if len(words) >= 2 and names[0] == "go" and words[1] == "test":
@@ -558,7 +595,7 @@ class Walker:
                 base = repo.rel(os.path.join(cwd, w[:-4] if recursive else w))
                 if base is None or not (w.startswith(".") or w.startswith("/")):
                     continue
-                for path in repo.tracked:
+                for path in repo.sorted():
                     parent = path.rsplit("/", 1)[0] if "/" in path else ""
                     if path.endswith("_test.go") and (parent == base or (recursive and (base == "" or path.startswith(base + "/")))):
                         out.append(path)
@@ -592,9 +629,13 @@ class Walker:
         """The files `rel` reads; with `unknown`, also records there what it could not resolve."""
         key = (rel, cwd, tuple(sys_path), unknown is not None)
         if key in self.results:
-            return self.results[key]
+            out, added = self.results[key]
+            sys_path.extend(d for d in added if d not in sys_path)  # what the file adds, whoever walked it first
+            return out
         sink = unknown if unknown is not None else {}
-        self.results[key] = out = self._inputs_of(rel, cwd, sys_path, sink)
+        before = len(sys_path)
+        out = self._inputs_of(rel, cwd, sys_path, sink)
+        self.results[key] = (out, tuple(sys_path[before:]))
         return out
 
     def _inputs_of(self, rel: str, cwd: str, sys_path: list[str], sink: dict) -> list[str]:
@@ -731,7 +772,7 @@ class Walker:
                 elif not any(c in run for c in "*?["):  # a script's glob is a listing, not a run list
                     out.extend(self.word_paths(run, cwd))
             for index, word in enumerate(words[:-1]):
-                if word == "<":
+                if word in ("<", "0<"):
                     out.extend(Data(p) for p in self.word_paths(words[index + 1], cwd))
         return out
 
@@ -739,8 +780,9 @@ class Walker:
         """A Go file's package siblings and the packages it imports from its own module."""
         repo = self.repo
         directory = rel.rsplit("/", 1)[0] if "/" in rel else ""
-        out = [p for p in repo.tracked if p.endswith(".go") and not p.endswith("_test.go")
+        out = [p for p in repo.sorted() if p.endswith(".go") and not p.endswith("_test.go")
                and (p.rsplit("/", 1)[0] if "/" in p else "") == directory]
+        out.extend(Data(p) for p in self.go_reads(rel, directory))
         module_dir, module = self.go_module(directory)
         if module is None:
             return out
@@ -754,9 +796,43 @@ class Walker:
             if path == module or path.startswith(module + "/"):
                 sub = path[len(module):].lstrip("/")
                 package = "/".join(x for x in (module_dir, sub) if x)
-                out.extend(p for p in repo.tracked if p.endswith(".go") and not p.endswith("_test.go")
+                out.extend(p for p in repo.sorted() if p.endswith(".go") and not p.endswith("_test.go")
                            and (p.rsplit("/", 1)[0] if "/" in p else "") == package)
         return out
+
+    def go_reads(self, rel: str, directory: str) -> list[str]:
+        """Tracked files a Go file opens (os.ReadFile / os.Open) by a path built only from string literals, its
+        package's string constants and filepath.Join, relative to the package directory (go test's working
+        directory). Any other argument is not followed."""
+        consts = self.go_consts(directory)
+        try:
+            text = Path(self.repo.abs(rel)).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return []
+        out = []
+        for match in re.finditer(r"\bos\.(?:ReadFile|Open)\(", text):
+            argument = balanced(text, match.end())
+            value = go_eval(argument, consts) if argument is not None else None
+            if value is None:
+                continue
+            target = self.repo.rel(os.path.join(self.repo.abs(directory), value))
+            if self.repo.is_file(target):
+                out.append(target)
+        return out
+
+    def go_consts(self, directory: str) -> dict[str, str]:
+        if directory not in self.go_const_cache:
+            consts: dict[str, str] = {}
+            for path in self.repo.tracked:
+                if path.endswith(".go") and (path.rsplit("/", 1)[0] if "/" in path else "") == directory:
+                    try:
+                        text = Path(self.repo.abs(path)).read_text(encoding="utf-8")
+                    except (OSError, UnicodeError):
+                        continue
+                    for name, value in re.findall(r'(?m)^\s*(?:const\s+)?([A-Za-z_]\w*)\s*=\s*"([^"\\]*)"\s*$', text):
+                        consts.setdefault(name, value)
+            self.go_const_cache[directory] = consts
+        return self.go_const_cache[directory]
 
     def go_module(self, directory: str) -> tuple[str, str | None]:
         current = directory
@@ -770,6 +846,55 @@ class Walker:
             current = current.rsplit("/", 1)[0] if "/" in current else ""
 
 
+def balanced(text: str, start: int) -> str | None:
+    """The text from `start` up to the `)` that closes the call opened just before it."""
+    depth = 1
+    for index in range(start, min(len(text), start + 400)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:index]
+    return None
+
+
+def split_top(text: str, separator: str) -> list[str]:
+    parts, depth, current, quoted = [], 0, "", False
+    for char in text:
+        if char == '"':
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+        if char == separator and depth == 0 and not quoted:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    return parts + [current]
+
+
+def go_eval(expression: str, consts: dict[str, str]) -> str | None:
+    """A Go string expression of literals, package constants, `+` and filepath.Join; None for anything else."""
+    pieces = []
+    for part in split_top(expression.strip(), "+"):
+        part = part.strip()
+        if re.fullmatch(r'"[^"\\]*"', part):
+            pieces.append(part[1:-1])
+        elif part in consts:
+            pieces.append(consts[part])
+        elif part.startswith(("filepath.Join(", "path.Join(")) and part.endswith(")"):
+            args = [go_eval(a, consts) for a in split_top(part[part.index("(") + 1:-1], ",")]
+            if any(a is None for a in args):
+                return None
+            pieces.append(os.path.join(*args) if args else "")
+        else:
+            return None
+    return "".join(pieces)
+
+
 # --------------------------------------------------------------------------------------------- workflows
 def load_yaml(path: Path):
     import yaml  # noqa: PLC0415 - the one dependency; CI installs PyYAML
@@ -777,25 +902,31 @@ def load_yaml(path: Path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def steps_for(repo: Repo, document, event: str, seen: set[str] | None = None):
+def mapping(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def steps_for(repo: Repo, document, event: str, seen: set[str] | None = None, unknown=None):
     """(run text, working directory (repo path), env) for each step `event` can run, reusable workflows and local
-    composite actions included."""
+    composite actions included. A nested file that cannot be read is noted in `unknown`, not followed."""
     seen = seen if seen is not None else set()
-    defaults = ((document.get("defaults") or {}).get("run") or {}) if isinstance(document, dict) else {}
-    top_env = literal_env(document.get("env") if isinstance(document, dict) else None)
-    for job in ((document.get("jobs") or {}) if isinstance(document, dict) else {}).values():
+    document = mapping(document)
+    defaults = mapping(mapping(document.get("defaults")).get("run"))
+    top_env = literal_env(document.get("env"))
+    for job in mapping(document.get("jobs")).values():
         if not isinstance(job, dict) or not may_run_for(job.get("if"), event):
             continue
-        job_dir = (((job.get("defaults") or {}).get("run") or {}).get("working-directory")
+        job_dir = (mapping(mapping(job.get("defaults")).get("run")).get("working-directory")
                    or defaults.get("working-directory") or "")
         job_env = {**top_env, **literal_env(job.get("env"))}
         uses = str(job.get("uses") or "")
         if uses.startswith("./.github/workflows/") and uses not in seen:
             seen.add(uses)
-            target = repo.root / uses[2:]
-            if target.is_file():
-                yield from steps_for(repo, load_yaml(target), event, seen)
-        for step in job.get("steps") or []:
+            nested = load_quietly(repo.root / uses[2:], unknown)
+            if nested is not None:
+                yield from steps_for(repo, nested, event, seen, unknown)
+        steps = job.get("steps")
+        for step in steps if isinstance(steps, list) else []:
             if not isinstance(step, dict) or not may_run_for(step.get("if"), event):
                 continue
             step_dir = str(step.get("working-directory") or job_dir)
@@ -808,12 +939,22 @@ def steps_for(repo: Repo, document, event: str, seen: set[str] | None = None):
                 for name in ("action.yml", "action.yaml"):
                     target = repo.root / action[2:] / name
                     if target.is_file():
-                        composite = load_yaml(target) or {}
-                        for inner in ((composite.get("runs") or {}).get("steps") or []):
+                        inner_steps = mapping(mapping(load_quietly(target, unknown)).get("runs")).get("steps")
+                        for inner in inner_steps if isinstance(inner_steps, list) else []:
                             if isinstance(inner, dict) and "run" in inner:
                                 yield (str(inner["run"]), str(inner.get("working-directory") or step_dir),
                                        {**env, **literal_env(inner.get("env"))})
                         break
+
+
+def load_quietly(path: Path, unknown):
+    """The parsed YAML file, or None (noted in `unknown`) when it is missing or does not parse."""
+    try:
+        return load_yaml(path) if path.is_file() else None
+    except Exception as error:  # noqa: BLE001 - a broken nested file is listed, not fatal
+        if unknown is not None:
+            unknown(str(path), f"unreadable: {error}")
+        return None
 
 
 def literal_env(env) -> dict[str, str]:
@@ -843,8 +984,8 @@ def find_gaps(root: Path, covered=None, workflows: list[Path] | None = None):
                 # No pull request runs it: the push filter picks what to release or publish, not what to test.
                 walker.note_unknown(name, "push-only filter (a release trigger) not checked")
                 continue
-            closures: dict[str, tuple[str, ...]] = {}
-            for run, workdir, env in steps_for(repo, document, event):
+            closures: dict[str, list[tuple[str, ...]]] = {}  # input -> one chain per test that reads it
+            for run, workdir, env in steps_for(repo, document, event, unknown=walker.note_unknown):
                 if "${{" in workdir or "$" in workdir:
                     walker.note_unknown(name, f"working-directory {workdir}")
                     continue
@@ -852,14 +993,18 @@ def find_gaps(root: Path, covered=None, workflows: list[Path] | None = None):
                 run = re.sub(r"\$\{\{[^}]*\}\}", "$__EXPR", run)
                 for test in walker.entries(run, cwd, env):
                     for found, chain in walker.closure(test, cwd).items():
-                        closures.setdefault(found, chain)
-            checked.setdefault(name, []).extend(sorted({c[0] for c in closures.values()}))
-            for found, chain in sorted(closures.items()):
+                        chains = closures.setdefault(found, [])
+                        if all(c[0] != chain[0] for c in chains):
+                            chains.append(chain)
+            checked.setdefault(name, []).extend(sorted({c[0] for cs in closures.values() for c in cs}))
+            for found, chains in sorted(closures.items()):
                 if admits(kind, patterns, found):
                     continue
-                if covered and covered(chain[0], found):
-                    continue
-                gaps.append(Finding(name, event, found, chain))
+                # A gap unless every test that reads it runs for it some other way (the repository's router).
+                open_chains = [c for c in sorted(chains) if not (covered and covered(c[0], found, name, event,
+                                                                                    document))]
+                if open_chains:
+                    gaps.append(Finding(name, event, found, open_chains[0]))
     unknown = {k: sorted(v) for k, v in sorted(walker.unknown.items())}
     return gaps, unknown, checked
 

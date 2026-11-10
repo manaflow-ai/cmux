@@ -15,6 +15,7 @@ them).
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -35,7 +36,11 @@ EXEMPT: dict[tuple[str, str], str] = {
 
 
 def guard_router():
-    """covered(test, path): whether cmux-next-guards' routed guard run executes `test` for a change to `path`."""
+    """covered(test, path, workflow, event, document): whether cmux-next-guards' routed guard run executes `test` for
+    a change to `path` every time `event` starts the workflow.
+
+    cmux-next-guards runs for feat-cmux-next pull requests and pushes only, so it covers an event only when that
+    event is limited to feat-cmux-next; a push run leaves out release-notary (it runs in nightly-guards)."""
     import detect_linux_guard_changes  # noqa: PLC0415 - scripts/ci, the router
     import run_ci_guards  # noqa: PLC0415
 
@@ -47,13 +52,23 @@ def guard_router():
             cwd = str(ROOT / step.working_directory) if step.working_directory else str(ROOT)
             for name in {unit.group, unit.job} - {None}:
                 tests.setdefault(name, set()).update(walker.entries(step.run, cwd, {}))
-    cache: dict[str, set[str]] = {}
+    cache: dict[tuple[str, str], set[str]] = {}
 
-    def covered(test: str, path: str) -> bool:
-        if path not in cache:
+    def feat_only(document, event: str) -> bool:
+        config = detector.triggers(document).get(event)
+        branches = config.get("branches") if isinstance(config, dict) else None
+        return isinstance(branches, list) and set(map(str, branches)) == {"feat-cmux-next"}
+
+    def covered(test: str, path: str, workflow: str, event: str, document) -> bool:
+        if not feat_only(document, event):
+            return False
+        key = (path, event)
+        if key not in cache:
             groups = set(run_ci_guards.FAST_GROUPS) | set(detect_linux_guard_changes.classify_feat([path]))
-            cache[path] = set().union(*(tests.get(group, set()) for group in groups))
-        return test in cache[path]
+            if event == "push":
+                groups.discard("release-notary")
+            cache[key] = set().union(*(tests.get(group, set()) for group in groups))
+        return test in cache[key]
 
     return covered
 
@@ -126,6 +141,64 @@ class DetectorUnits(unittest.TestCase):
             self.assertNotIn(str(Path(tmp) / "fixtures" / "a.json"), facts.runs)
             self.assertIn(("helper", 0, ()), facts.imports)
             ast.parse(source.read_text())
+
+    def test_review_findings_on_a_fixture_repo(self):
+        """Each case a review of the first version reproduced: a cached sys.path addition, an undotted unittest module,
+        `go test $(go list)` and a Go file read, a `<` operand, a test covered while another is not, and a broken
+        nested action file."""
+        import subprocess
+
+        files = {
+            ".github/workflows/w.yml": (
+                "on:\n  pull_request:\n    paths: ['a/**', '.github/workflows/w.yml']\n"
+                "jobs:\n  t:\n    runs-on: x\n    steps:\n"
+                "      - run: python3 a/test_one.py && python3 a/test_two.py\n"
+                "      - run: cd a && python3 -m unittest -v solo_test\n"
+                "      - run: bash a/test_redirect.sh\n"
+                "      - run: |\n          pkgs=$(go list ./... | grep -v x)\n          go test $pkgs\n"
+                "        working-directory: g\n"
+                "      - uses: ./.github/actions/broken\n"
+            ),
+            ".github/actions/broken/action.yml": "runs: [unclosed\n",
+            "a/test_one.py": "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))\nimport boot\n",
+            "a/test_two.py": "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))\nimport boot\n",
+            "lib/boot.py": "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'deep'))\nimport deepmod\n",
+            "deep/deepmod.py": "",
+            "a/solo_test.py": "import solo_dep\n",
+            "a/solo_dep.py": "",
+            "a/test_redirect.sh": "cat < data/input.py\n",  # relative to the step's directory
+            "data/input.py": "import shouldnotfollow\n",
+            "data/shouldnotfollow.py": "",
+            "g/go.mod": "module ex\n",
+            "g/p/p.go": "package p\n",
+            "g/p/p_test.go": 'package p\nconst wf = "x.yml"\nfunc f() { os.ReadFile(filepath.Join("..", "..", "spec", wf)) }\n',
+            "spec/x.yml": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, text in files.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            gaps, unknown, checked = detector.find_gaps(root)
+            found = {g.input for g in gaps}
+            # Both tests reach deep/deepmod.py through lib/boot.py, whichever was walked first.
+            self.assertIn("deep/deepmod.py", found)
+            self.assertLessEqual({"a/test_one.py", "a/test_two.py", "a/solo_test.py", "g/p/p_test.go"},
+                                 set(checked[".github/workflows/w.yml"]))
+            self.assertIn("spec/x.yml", found)  # the Go test's ReadFile
+            self.assertIn("data/input.py", found)  # read through `<`: data
+            self.assertNotIn("data/shouldnotfollow.py", found)  # ...so its imports are not followed
+            self.assertIn("lib/boot.py", found)
+            self.assertTrue(any("unreadable" in " ".join(v) for v in unknown.values()), unknown)
+
+            # An input read by two tests is a gap unless the router covers both.
+            only_one = detector.find_gaps(root, covered=lambda test, path, *_: test == "a/test_one.py")[0]
+            self.assertIn("lib/boot.py", {g.input for g in only_one})
+            both = detector.find_gaps(root, covered=lambda test, path, *_: test in ("a/test_one.py",
+                                                                                     "a/test_two.py"))[0]
+            self.assertNotIn("lib/boot.py", {g.input for g in both})
 
     def test_shell_forms(self):
         words = list(detector.shell_words('DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'

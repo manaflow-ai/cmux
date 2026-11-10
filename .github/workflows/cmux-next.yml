@@ -299,7 +299,8 @@ on:
       - Assets.xcassets/**
       - Resources/**
       # What the checks tier's tests import, run or read outside the paths above (tests/test_ci_workflow_paths_cover_inputs.py).
-      # scripts/ci/ is CI-only to the router (checks tier alone); the rest are pull-request only, like the lines above.
+      # Pull-request only, like the lines above. scripts/ci/ is CI-only to the router (checks tier alone); most of the
+      # others are unknown to it, so a PR changing only one of them also starts the Mac compile tiers.
       - scripts/ci/**
       - .claude/settings.json
       - .gitattributes
@@ -319,6 +320,8 @@ on:
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
       - scripts/web_lint_prepush.py
+      - scripts/strip-release-bundle.sh
+      - scripts/write-app-symbol-map.py
   push:
     branches: [main, feat-cmux-next]
     paths:
