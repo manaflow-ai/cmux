@@ -448,6 +448,41 @@ async fn an_attach_first_finishes_a_rekey_whose_answer_was_lost() {
     assert_eq!(platform.seen.lock().unwrap().len(), 2);
 }
 
+/// Review F2 at 6b797bbf: a link set up on this home puts its first adoption off while a
+/// rekey is pending (`mesh_node_key::rekey_pending`), so nothing depends on the key yet: the
+/// attach finishes the rekey (not `node_key.adopted`), and only then does the link serve the
+/// final key (`link_serves_node_key`).
+#[tokio::test]
+async fn an_attach_finishes_a_pending_rekey_the_link_put_off_adopting() {
+    let dir = tempfile::tempdir().unwrap();
+    public_of(dir.path());
+    let link = dir.path().join("link");
+    std::fs::create_dir_all(&link).unwrap();
+    std::fs::write(link.join("config.json"), r#"{"install":"inst_a","port":0}"#).unwrap();
+    crate::cli::mesh_node_key::record_link_home(&link, Some(dir.path())).unwrap();
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    let target = machine(&platform.origin);
+    let rekeys = tokio::sync::Mutex::new(());
+    // A rekey whose answer was lost left its candidate.
+    let lock = KeyHolder::acquire(dir.path()).unwrap();
+    crate::cli::mesh_node_key::write_pending_held(dir.path(), &lock, &[9u8; 32]).unwrap();
+    drop(lock);
+    let candidate = pending_public(dir.path()).unwrap();
+    assert!(crate::cli::mesh_node_key::rekey_pending(dir.path()));
+    assert!(
+        !crate::cli::mesh_node_key::link_serves_node_key(Some(&link), dir.path()),
+        "the link does not adopt while the rekey is pending"
+    );
+    let finished = finish_pending_rekey(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(()))
+        .await
+        .expect("a pending key")
+        .unwrap();
+    assert_eq!(pending_outcome(&finished)["wgPublicKey"], json!(candidate));
+    assert_eq!(public_of(dir.path()), candidate);
+    assert!(!crate::cli::mesh_node_key::rekey_pending(dir.path()));
+    assert!(crate::cli::mesh_node_key::link_serves_node_key(Some(&link), dir.path()));
+}
+
 #[tokio::test]
 async fn a_platform_that_answers_another_key_changes_nothing_here() {
     let dir = tempfile::tempdir().unwrap();

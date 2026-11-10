@@ -1074,3 +1074,105 @@ async fn a_fresh_link_never_adopts_a_copied_node_key() {
     let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
     assert_eq!(state::public_key(&served.key), fresh.public_key);
 }
+
+/// Review F1 at 6b797bbf: a home copied to B, settled there with B's own key (an older copy
+/// named), then joined again on B or not, and copied to C with a fresh link: C's link finds
+/// the copy live and never adopts or serves B's key. On B the same home adopts.
+#[tokio::test]
+async fn a_copy_of_a_settled_copy_never_serves_the_settling_machines_key() {
+    if !box_named() {
+        return;
+    }
+    let here = acpmux::cli::mesh_node_key::box_stamp().unwrap();
+    // (record as B left it, which box C is: another one, or this one for B itself)
+    for (cloned, on_c) in [(false, true), (true, true), (false, false), (true, false)] {
+        let machine = machine();
+        let home = &machine.home;
+        acpmux::cli::mesh_node_key::load_or_create_at(home).unwrap();
+        acpmux::cli::mesh_node_key::record_copied_key(home).unwrap();
+        let key_b = acpmux::cli::mesh_node_key::replace_at(home).unwrap().public_key;
+        let box_b = if on_c { "box-b".to_owned() } else { here.clone() };
+        let mut record = serde_json::json!({
+            "credential": "cmm_b", "machine_id": "machine_b", "team_id": "team",
+            "name": "b", "hub_origin": "https://example.com", "last_heartbeat": null,
+            "revoked": false, "wgPublicKey": "b-key", "credential_generation": 1,
+            "host_fingerprint": if cloned { "box-a" } else { box_b.as_str() },
+        });
+        if cloned {
+            record["cloned"] = serde_json::json!(true);
+            record["cloned_on"] = serde_json::json!(box_b);
+        }
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(home.join("machine-credential.json"))
+                .unwrap();
+            std::io::Write::write_all(&mut file, record.to_string().as_bytes()).unwrap();
+        }
+        assert!(!acpmux::cli::mesh_node_key::serves_copied_key(home), "the marker names A only");
+        let state = LinkState::open(Some(machine.link.clone())).unwrap();
+        let holder = KeyHolder::acquire(home).unwrap();
+        let served = serve_key(&state, &holder, Some(home)).await;
+        if on_c {
+            let Err(refused) = served else {
+                panic!("C served B's key (cloned {cloned})");
+            };
+            assert!(refused.to_string().starts_with("key_adoption.cloned_home:"), "{refused}");
+            assert!(adopted(&state).unwrap().is_none(), "C adopted B's key");
+            assert!(acpmux::cli::mesh_node_key::serves_copied_key(home), "C's copy not recorded");
+        } else {
+            let served = served.unwrap();
+            assert_eq!(state::public_key(&served.key), key_b, "B serves its own key");
+        }
+    }
+}
+
+/// Review F2 at 6b797bbf: a rekey pending (its answer lost) when the link first starts puts
+/// the adoption off: the link serves its own key, records nothing, and leaves the node key and
+/// the candidate as they are. Once acpmux promotes the candidate (or drops it), the next start
+/// adopts the final key.
+#[tokio::test]
+async fn a_pending_rekey_puts_off_the_first_adoption_until_it_is_settled() {
+    for promoted in [true, false] {
+        let machine = machine();
+        let home = &machine.home;
+        let before = acpmux::cli::mesh_node_key::load_or_create_at(home).unwrap().public_key;
+        let candidate = [9u8; 32];
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(KeyFile::NodePending.path_in(home))
+                .unwrap();
+            std::io::Write::write_all(&mut file, &candidate).unwrap();
+        }
+        let state = LinkState::open(Some(machine.link.clone())).unwrap();
+        let own = state.own_public_key().unwrap();
+        let holder = KeyHolder::acquire(home).unwrap();
+        let served = serve_key(&state, &holder, Some(home)).await.unwrap();
+        assert_eq!(state::public_key(&served.key), own, "adopted with a rekey pending");
+        assert!(adopted(&state).unwrap().is_none());
+        assert!(state.has_link_key());
+        assert_eq!(node_public(home), before);
+        assert!(acpmux::cli::mesh_node_key::rekey_pending(home), "the candidate went");
+        drop(holder);
+        // acpmux settles it (`machine.tunnel` attach): promoted, or dropped as refused.
+        if promoted {
+            std::fs::rename(KeyFile::NodePending.path_in(home), KeyFile::Node.path_in(home))
+                .unwrap();
+        } else {
+            std::fs::remove_file(KeyFile::NodePending.path_in(home)).unwrap();
+        }
+        let holder = KeyHolder::acquire(home).unwrap();
+        let served = serve_key(&state, &holder, Some(home)).await.unwrap();
+        let final_key = node_public(home);
+        assert_eq!(state::public_key(&served.key), final_key);
+        assert_eq!(final_key == before, !promoted);
+        assert!(adopted(&state).unwrap().is_some());
+    }
+}

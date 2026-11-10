@@ -291,9 +291,9 @@ fn refuse_copied(state: &LinkState, acpmux_home: Option<&Path>) -> anyhow::Resul
         None => write_stamp(state)?,
     }
     for home in acpmux_home.map(Path::to_path_buf).into_iter().chain(adopted_dir.clone()) {
-        // Records a copy it finds (`record_copied_key`) before it answers.
-        let _ = node_key::home_copied(&home);
-        if !node_key::serves_copied_key(&home) {
+        // Asked live (a copy of a copy carries a record of an older copy only), and it
+        // records a copy it finds (`record_copied_key`) before it answers.
+        if !node_key::home_copied(&home) {
             continue;
         }
         if adopted_dir.as_deref().is_some_and(|dir| canonical(dir) == canonical(&home)) {
@@ -406,6 +406,17 @@ fn adopt(state: &LinkState, holder: &KeyHolder) -> anyhow::Result<ServeKey> {
     let earlier = adopted(state)?;
     if earlier.is_some() {
         node_key_kept(holder.dir())?;
+    } else if acpmux::cli::mesh_node_key::rekey_pending(holder.dir()) {
+        // A rotation whose answer was lost: the platform may hold the candidate, not the key
+        // in place. The first adoption waits until acpmux finishes or drops it (its next
+        // attach, with this link stopped); this link serves its own key meanwhile. Asked under
+        // the key lock, held for this link's life, so no rekey begins before the commit.
+        eprintln!(
+            "cmux link: a rekey of this machine's node key is pending in {}; this link keeps its \
+             own key and adopts the node key at a start after the rekey is finished",
+            holder.dir().display()
+        );
+        return Ok(ServeKey { key: state.private_key(holder)?, retiring: None });
     }
     let (_, node) = acpmux::cli::mesh_node_key::load_or_create_held(holder.dir(), holder)
         .context("the node key this link adopts")?;

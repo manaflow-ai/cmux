@@ -231,37 +231,59 @@ pub(crate) fn recorded_link_dir(home: &Path) -> Option<std::path::PathBuf> {
     serde_json::from_slice::<LinkDirRecord>(&text).ok().map(|record| record.link_dir)
 }
 
-/// Whether acpmux home `home` was copied here from another machine: the one clone check
-/// (`cloud_join::copied_from_another_box_at`), for the daemon and the cmux link alike. A copy
-/// it finds is recorded ([`record_copied_key`]) before it answers.
+/// Whether the node key in acpmux home `home` is another machine's: by acpmux's own clone
+/// check, asked live (`cloud_join::node_key_copied_at`: a record copied and not settled on
+/// this box, a copy of a copy included), or a key recorded as copied ([`serves_copied_key`]).
+/// A copy it finds is recorded ([`record_copied_key`]) before it answers. A home settled on
+/// this box (its own fresh key) is not.
 pub fn home_copied(home: &Path) -> bool {
-    crate::cli::cloud_join::copied_from_another_box_at(home)
+    crate::cli::cloud_join::node_key_copied_at(home)
 }
 
-/// In an acpmux home: the public half of a node key found copied from another machine
-/// ([`record_copied_key`]). Never removed; it stops naming the key in use once the key is
-/// replaced.
+/// Whether a node key rotation is pending in `home` (`machine.tunnel.rekey` wrote its
+/// candidate, the platform's answer not settled): the cmux link never adopts the node key
+/// while one is, since the platform may already hold the candidate. Asked under the key lock,
+/// which every rekey takes, so none begins before the adoption commits.
+pub fn rekey_pending(home: &Path) -> bool {
+    std::fs::symlink_metadata(KeyFile::NodePending.path_in(home)).is_ok()
+}
+
+/// In an acpmux home: the public halves of every node key found copied from another machine
+/// ([`record_copied_key`]), a copy of a copy included. Never removed; a key stays named after
+/// it is replaced.
 pub const COPIED_KEY: &str = "node-key-copied.json";
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct CopiedKey {
-    /// Standard base64; none when the home had no node key yet.
+    /// Standard base64, one per copy found.
     #[serde(default)]
-    public_key: Option<String>,
+    public_keys: std::collections::BTreeSet<String>,
 }
 
 /// Record, synced, that the node key now in `home` was copied from another machine, before
 /// anything removes the evidence (a leave deletes the machine record) or keeps the key (the
-/// link adopted it). Only the first record counts: a later one would name the fresh key this
-/// box was given.
+/// link adopted it). It adds the key to the ones already named, under a lock of its own: a
+/// home copied, settled with a fresh key, and copied again names both, so a stale entry never
+/// lets a later copy through. A record that cannot be read is replaced by one naming this key
+/// (the keys it named are no longer in use: each was replaced when it was found).
 pub fn record_copied_key(home: &Path) -> Result<()> {
+    let Some(key) = public_key_at(home) else { return Ok(()) };
+    let key = base64::engine::general_purpose::STANDARD.encode(key);
+    crate::config::private_state_dir(home)?;
+    let lock = crate::config::private_state_rw(&home.join("node-key-copied.lock"))?;
+    lock.lock().context("lock the copied node key record")?;
     let path = home.join(COPIED_KEY);
-    if std::fs::symlink_metadata(&path).is_ok() {
-        return Ok(());
-    }
-    let public_key =
-        public_key_at(home).map(|key| base64::engine::general_purpose::STANDARD.encode(key));
-    write_record(&path, &serde_json::to_vec(&CopiedKey { public_key })?)
+    let mut record = std::fs::read(&path)
+        .ok()
+        .and_then(|text| serde_json::from_slice::<CopiedKey>(&text).ok())
+        .unwrap_or_default();
+    let written = if record.public_keys.insert(key) {
+        write_record(&path, &serde_json::to_vec(&record)?)
+    } else {
+        Ok(())
+    };
+    let _ = lock.unlock();
+    written
 }
 
 /// Whether the node key now in `home` is one recorded as copied from another machine
@@ -275,10 +297,9 @@ pub fn serves_copied_key(home: &Path) -> bool {
         Err(_) => return true,
     };
     let Ok(record) = serde_json::from_slice::<CopiedKey>(&text) else { return true };
-    let Some(named) = record.public_key else { return false };
     public_key_at(home)
         .map(|key| base64::engine::general_purpose::STANDARD.encode(key))
-        .is_some_and(|now| now == named)
+        .is_some_and(|now| record.public_keys.contains(&now))
 }
 
 /// This box's stamp: the fingerprint acpmux's clone check compares (`cloud_join`
@@ -319,7 +340,11 @@ pub fn link_serves_node_key(link_dir: Option<&Path>, home: &Path) -> bool {
         .is_some_and(|key_dir| canonical(&key_dir) == canonical(home));
     let recorded_here =
         recorded_home(link_dir).is_some_and(|recorded| canonical(&recorded) == canonical(home));
-    (adopted_here || recorded_here) && !link_dir.join(LINK_COPIED).exists() && !home_copied(home)
+    // Not adopted yet while a rekey is pending: the link puts the adoption off, and the
+    // transport may take the lock and finish the rekey.
+    (adopted_here || (recorded_here && !rekey_pending(home)))
+        && !link_dir.join(LINK_COPIED).exists()
+        && !home_copied(home)
 }
 
 /// `bytes` at `path`, owner-only: a synced temporary file renamed into place.

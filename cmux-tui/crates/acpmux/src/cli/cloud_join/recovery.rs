@@ -237,6 +237,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // Joined on this box: a later start on another box finds the copy.
         host_fingerprint: host_fingerprint::current(),
         cloned: false,
+        cloned_on: None,
     })))
 }
 
