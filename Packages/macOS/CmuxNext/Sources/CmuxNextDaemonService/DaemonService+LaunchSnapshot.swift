@@ -63,7 +63,8 @@ extension DaemonService {
     /// The daemon keeps its launch snapshot in its session folder: the app's slow request log goes beside the
     /// daemon's own (``SlowRequestLog``). Only a path is kept; the file is written off the main thread.
     private func noteSessionFolder(ofLaunchSnapshot path: String) {
-        store.slowRequestLog?.setDirectory(URL(fileURLWithPath: path).deletingLastPathComponent())
+        // `isDirectory: false`: without it Foundation examines the file system, here on the main thread.
+        store.slowRequestLog?.setDirectory(URL(fileURLWithPath: path, isDirectory: false).deletingLastPathComponent())
     }
 
     /// Begins the local daemon's first connect attempt off the main thread,

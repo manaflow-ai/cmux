@@ -7,7 +7,8 @@ import Foundation
 /// ``SlowRequestLog/maxFileBytes``, mode 0600. Used only on the log's writer queue.
 ///
 /// A line that would pass the limit first renames the file to `.1` (the older `.1` goes), so the two
-/// files never hold more than twice the limit. No `fsync`: a record is a diagnostic, not user data.
+/// files never hold more than twice the limit. When the rename fails, the file is emptied instead, so
+/// it holds the newest records and still obeys the limit. No `fsync`: a record is a diagnostic, not user data.
 struct SlowRequestLogFile {
     let directory: URL
 
@@ -21,10 +22,16 @@ struct SlowRequestLogFile {
         guard descriptor >= 0 else { return }
         var info = stat()
         if fstat(descriptor, &info) == 0, Int(truncatingIfNeeded: info.st_size) + bytes.count > SlowRequestLog.maxFileBytes {
-            close(descriptor)
-            rename(path, path + ".1")
-            descriptor = Self.open(path)
-            guard descriptor >= 0 else { return }
+            if rename(path, path + ".1") == 0 {
+                close(descriptor)
+                descriptor = Self.open(path)
+                guard descriptor >= 0 else { return }
+            } else if ftruncate(descriptor, 0) != 0 {
+                // No rotated copy can be made (its name is a folder, the folder is read-only) and the file
+                // cannot be emptied: the record goes, the file does not grow.
+                close(descriptor)
+                return
+            }
         }
         // One write of less than a page to an O_APPEND descriptor: the line is whole or absent.
         _ = bytes.withUnsafeBytes { blockingWrite(descriptor, $0.baseAddress, $0.count) }
