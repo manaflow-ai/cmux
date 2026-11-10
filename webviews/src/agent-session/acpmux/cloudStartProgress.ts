@@ -71,7 +71,8 @@ export type CloudStartProgress = {
   refusedHere?: boolean;
   /// The host has said nothing about this start for CLOUD_START_STALL_MS (no push, no answer) while
   /// nothing waits on the person: the card says so and the composer takes input again
-  /// (cloudStartLocksComposer). It holds until the start ends, so the composer is never locked again.
+  /// (cloudStartLocksComposer). It holds until the start ends; only its `opening` step locks the box
+  /// again, as the chat it opens takes what was typed.
   stalled?: true;
 };
 
@@ -212,8 +213,8 @@ export function cloudStartPushed(
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
-  // A stalled start stays stalled until it ends: the composer it gave back is never taken away
-  // again mid-typing; the steps still move.
+  // A stalled start stays stalled until it ends; the steps still move (its `opening` step locks the
+  // composer again for the handoff, cloudStartLocksComposer).
   const next = { ...current };
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
@@ -474,9 +475,11 @@ const REFUSED_HERE = new Set([
 export const CLOUD_START_STALL_MS = 5 * 60_000;
 
 /// The composer takes no input while a start is out (on success the host closes this tab with only
-/// the sent prompt), unless the start stalled: then it is the person's again.
+/// the sent prompt), unless the start stalled: then it is the person's again, what they type going
+/// with the start (cloudStartCarry.ts). From the host's `opening` step it takes none again: the chat
+/// opens now and reads the carry, so the last edit is written before that read.
 export function cloudStartLocksComposer(start: CloudStartProgress | undefined): boolean {
-  return start?.state === "starting" && start.stalled !== true;
+  return start?.state === "starting" && (start.stalled !== true || start.step === "opening");
 }
 
 /// Start `key` had no word from the host for CLOUD_START_STALL_MS: stalled, unless it waits on the

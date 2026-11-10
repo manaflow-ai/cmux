@@ -524,7 +524,14 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
-import { cloudStartCarry, cloudStartCarrySource, draftIsEmpty, type CloudStartDraft } from "./cloudStartCarry";
+import {
+  cloudStartCarry,
+  cloudStartCarrySource,
+  draftIsEmpty,
+  followCloudStartCarry,
+  sameDraft,
+  type CloudStartDraft,
+} from "./cloudStartCarry";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -7380,14 +7387,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (seeded) setDraft(seeded);
         // A chat a Cloud start opened: what the person typed on its first tab after the start
         // stalled comes into this composer, once (cloudStartCarry.ts).
-        const carried =
-          !reconnect && typeof host.cloudStartKey === "string" && host.cloudStartKey
-            ? cloudStartCarry().take(host.cloudStartKey)
-            : undefined;
+        const carryKey = !reconnect && typeof host.cloudStartKey === "string" ? host.cloudStartKey : "";
+        const carry = carryKey ? cloudStartCarry() : undefined;
+        const carried = carry?.take(carryKey);
         if (carried && !draftIsEmpty(carried))
           restoreComposerDraft(composerHandle, heldBack, carried.text, carried.attachments);
         // A chip that only named a file on that Mac stayed there: say so, never drop it silently.
         if (carried?.left) notices.transient(translate("cloudStart.carryLeftFiles", { count: carried.left }));
+        // A write that lands after this read replaces what it restored, while the box still holds that.
+        if (carry && carried) {
+          // What the box holds once the carry is in, as the composer wrote it: a later write replaces
+          // it only while the box still holds just that (the person has not typed here yet).
+          let shown: CloudStartDraft | undefined;
+          const note = () => setTimeout(() => (shown = composerHandle.current?.draft()), 0);
+          note();
+          followCloudStartCarry(window, carry, carryKey, carried, (next) => {
+            const handle = composerHandle.current;
+            if (!handle || !shown || !sameDraft(handle.draft(), shown)) return;
+            handle.clear();
+            handle.restore(next.text, next.attachments);
+            note();
+          });
+        }
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
