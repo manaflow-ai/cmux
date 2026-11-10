@@ -111,6 +111,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
+    var keepsClosedPage: ((NSView) -> Bool)? // asked before a closed tab's page leaves the window; true: `NewTabSparePool.keepInWindow` moved it
     let browserChrome = BrowserPaneChrome()  // the pane's browser tabs' one chrome
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
