@@ -652,10 +652,14 @@ def superseded_by_green(repo: str, sha: str, job: dict, github, seen: dict) -> l
     """The older red check runs of green JOB's name on SHA when every one is a cancelled (or stale) run of JOB's own
     workflow (an earlier attempt of JOB's run included: the rescue's re-run), so JOB, the newest, supersedes them all;
     [] when there is none, or any is a failure (a verdict that stays red whatever a later run says) or another
-    workflow's or a still-running run's."""
+    workflow's or a still-running run's. JOB is head_checks' pick by check run id, but recency is the linked job id:
+    when a check run of the name links a newer job that is not a skip, JOB is not the newest verdict and supersedes
+    nothing (supersede-rev-1 F1 on cmux#40209)."""
     mine = run_workflow(repo, job["run_id"], github, seen)
-    older = [(run, check) for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen)
-             if job_id < job["id"]]
+    linked = linked_checks(repo, sha, job.get("name", ""), github, seen)
+    if any(job_id > job["id"] and not is_skip(check) for job_id, _, check in linked):
+        return []
+    older = [(run, check) for job_id, run, check in linked if job_id < job["id"]]
     reds = [(run, check) for run, check in older if check.get("conclusion") not in GREEN]
     if mine is None or not reds:
         return []
@@ -1276,7 +1280,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     changed: set[str] | None = None
     refusals: list[str] = []
     evidence = Base(repo, base, sha, github, lookback)
-    jobs = head_jobs(repo, sha, runs, list(checks), github, ignored=audit)
+    seen: dict = {}  # the head's check runs and run workflows, read once for every head_jobs call below
+    jobs = head_jobs(repo, sha, runs, list(checks), github, ignored=audit, seen=seen)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused(f"no failed job found on the head {short(sha)} to compare with the base")
@@ -1326,8 +1331,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         reported = [] if head.lint or head.tests or head.errors or head.crash else reported_red(head_log)
         if reported:
             prefix = caller_prefix(name)
-            under = [found for found in head_jobs(repo, sha, [job["run_id"]], [], github)
+            dropped: list[str] = []
+            under = [found for found in head_jobs(repo, sha, [job["run_id"]], [], github, ignored=dropped, seen=seen)
                      if found["id"] != job["id"] and (not prefix or caller_prefix(found.get("name", "")) == prefix)]
+            # A superseded cancel of the status job's run says so once, however many reads reach it.
+            audit.extend(line for line in dict.fromkeys(dropped) if line not in audit)
             if not under:
                 refusals.append(f"'{name}' at {short(sha)} ({head.url}) reports {', '.join(reported)} red, but its run "
                                 f"has no failed job{f' under {prefix.strip()}' if prefix else ''} to compare with the base")
