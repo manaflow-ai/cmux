@@ -19,7 +19,10 @@ use serde_json::{Value, json};
 
 use super::read_paths::resource;
 use super::*;
-use crate::workspace_registry::agent_projection_rows_read_on_this_thread as rows_read;
+use crate::workspace_registry::{
+    agent_hook_fence_rows_read_on_this_thread as fences_read,
+    agent_projection_rows_read_on_this_thread as rows_read,
+};
 
 /// A workspace with one terminal; the terminal's public id.
 fn terminal(mux: &Arc<Mux>, name: &str) -> String {
@@ -401,4 +404,51 @@ fn the_start_removes_the_old_agent_records_of_closed_terminals() {
         drop(reopened);
     }
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The hook fences (`resource_agent_hook_state`) have the rule of the records. After N terminals
+/// with a hook session close, the registry stores no fence of them, and the load of the public
+/// projections (each daemon start reads every fence into memory with it) reads as many fences
+/// as before those terminals were made: the one of the terminal that is still open.
+#[test]
+fn closed_terminals_leave_no_hook_fence_and_the_start_load_reads_none() {
+    // (fence rows read, fences given) by one load of the public projections on this thread.
+    let load = |mux: &Arc<Mux>| {
+        let before = fences_read();
+        let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
+        (fences_read() - before, projections.agent_hook_states.len())
+    };
+    let mux = test_mux();
+    let open = terminal(&mux, "open");
+    start_hook_agent(&mux, &open);
+    settled(&mux);
+    assert_eq!(load(&mux), (1, 1), "setup: the load reads the one fence on this thread");
+
+    let closed = (0..CLOSED)
+        .map(|index| {
+            let id = terminal(&mux, &format!("closed-{index}"));
+            start_hook_agent(&mux, &id);
+            id
+        })
+        .collect::<Vec<_>>();
+    settled(&mux);
+    assert_eq!(
+        (stored_in_all(&mux).1, load(&mux)),
+        (CLOSED as i64 + 1, (CLOSED + 1, CLOSED + 1)),
+        "setup: one fence for each hook session before the closes"
+    );
+
+    for id in &closed {
+        close(&mux, id);
+    }
+    settled(&mux);
+
+    assert_eq!(stored(&mux, &open).1, 1, "the fence of the open terminal stays");
+    assert_eq!(
+        (stored_in_all(&mux).1, load(&mux)),
+        (1, (1, 1)),
+        "(fences stored, (fence rows read, fences given) by the load) after {CLOSED} terminals \
+         with a hook session closed"
+    );
+    mux.shutdown();
 }
