@@ -220,6 +220,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(run(&global, request, json_out, globals))
 }
 
+/// The daemon's `apps-list` names no `local_dir`: a daemon older than this
+/// CLI, or one with no state folder. A version skew names its one exact fix,
+/// never "update" (plans/cmux-next/version-skew.md step 4): restart the
+/// daemon in place with this build, which keeps its terminals.
+pub(super) fn no_local_dir(socket: Option<&std::path::Path>) -> String {
+    let what = "the cmux daemon does not say where it loads local apps from (it is older than this cmux, or has no state folder)";
+    match socket {
+        Some(socket) => format!(
+            "{what}; run it with this cmux's build: {}",
+            super::fix_command::restart_daemon_in_place(&super::fix_command::this_cli(), socket)
+        ),
+        None => format!("{what}; restart the daemon with this cmux's build: cmux daemon restart"),
+    }
+}
+
 fn absolute(dir: PathBuf) -> PathBuf {
     let dir = if dir.is_absolute() {
         dir
@@ -298,9 +313,7 @@ fn list_or_remove(global: &GlobalArgs, request: Request, json_out: bool) -> i32 
     match request {
         Request::Remove { app } => {
             let Some(local_dir) = data.field("local_dir").as_str() else {
-                eprintln!(
-                    "cmux: this cmux does not say where it loads local apps from; update cmux"
-                );
+                eprintln!("cmux: {}", no_local_dir(daemon.socket.as_deref()));
                 return 1;
             };
             // `parse` checked the id: `local/` once, then a plain folder name.
