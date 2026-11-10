@@ -449,7 +449,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the skills a Chief chat's `/` menu offers (ChatController+SlashSkills.swift); nil: no menu here.
     var slashSkills: SlashSkillSource? {
         didSet {
-            slashSkills?.onChange = { [weak self] in self?.updateSlashMenu() }
+            // A load that ended redraws the menu; it never starts another (a failed read would loop).
+            slashSkills?.onChange = { [weak self] in self?.updateSlashMenu(reading: false) }
             if slashSkills == nil { slashMenu = nil }
         }
     }

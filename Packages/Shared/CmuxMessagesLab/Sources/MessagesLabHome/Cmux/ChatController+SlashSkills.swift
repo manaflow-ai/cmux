@@ -8,7 +8,9 @@ import AppKit
 extension ChatController {
     /// The field changed: the menu opens, follows the command or closes. One character test for a
     /// draft that does not start with `/` (this runs on every key typed into the box).
-    func updateSlashMenu() {
+    /// - Parameter reading: Whether this update may read the list again (an edit); a finished
+    ///   read's redraw passes false.
+    func updateSlashMenu(reading: Bool = true) {
         guard let source = slashSkills, let field = demo?.compose.textView.view,
               field.string.utf16.first == 0x2F, !field.hasMarkedText() else {
             slashMenuDismissed = nil
@@ -20,7 +22,7 @@ extension ChatController {
         // A fresh `/` reads the list again in the background (folders, or a paired server's host);
         // the menu shows the last list now. Typing more never asks again: a host that is down would
         // get one request per key.
-        if field.string == "/" || !source.hasLoaded { source.refresh() }
+        if reading, field.string == "/" || !source.hasLoaded { source.refresh() }
         guard var menu = SlashSkillMenu(text: field.string, caret: field.selectedRange().location, skills: source.skills) else {
             if slashMenu != nil { slashMenu = nil }
             return
