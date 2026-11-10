@@ -27,7 +27,7 @@ function renderNewTab() {
   return VStack({ spacing: 4 }, [
     Text(() => now().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })).font("title"),
     ForEach({ items: computed(() => prs() || []), key: (p) => p.id }, (p) =>
-      Row({ title: () => p().title, subtitle: () => `${p().repo} #${p().number}`, symbol: "arrow.triangle.pull" })
+      Row({ title: () => p().title, subtitle: () => `${p().repo} · PR ${p().number}`, symbol: "arrow.triangle.pull" })
         .help(() => p().url)
         .onTap(() => cmux.actions.run("openBrowser", { url: p().url }))
     ),
