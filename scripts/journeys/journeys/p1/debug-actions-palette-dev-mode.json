@@ -1,0 +1,214 @@
+{
+  "id": "debug-actions-palette-dev-mode",
+  "priority": "P1",
+  "title": "Debug actions show in the Command Palette only with Internal Developer Mode on; no Debug main menu",
+  "why": "cmux-ad i11: debug things live only in Cmd-Shift-P, only while Internal Developer Mode is on; a toggle shows at the next palette open; scripts keep running debug actions. The main menu's absence of a Debug menu is NoDebugMainMenuTests (MainMenu.make, what AppDelegate installs): debug.menu_item answers a missing title as an error, which a journey cannot expect.",
+  "source": "cmux-ad i11 (PR #39980)",
+  "budget_seconds": 150,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "jr-ddm-${nonce}",
+      "as": "t"
+    },
+    {
+      "do": "type",
+      "text": "echo ddm-${nonce}-ok",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "the terminal works (daemon, app and frame)",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "ddm-${nonce}-ok"
+        },
+        {
+          "app_text_line": "ddm-${nonce}-ok"
+        },
+        {
+          "frame_text": "ddm-${nonce}-ok"
+        }
+      ]
+    },
+    {
+      "do": "settings_file",
+      "set": {
+        "app": {
+          "internalDeveloperMode": false
+        }
+      },
+      "mark": "off"
+    },
+    {
+      "do": "expect",
+      "title": "the setting reads off",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "settings.get",
+            "params": {
+              "key": "app.internalDeveloperMode"
+            },
+            "path": "value",
+            "in": [
+              false
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "p",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "open-off"
+    },
+    {
+      "do": "type",
+      "text": "tab bar playground"
+    },
+    {
+      "do": "expect",
+      "title": "toggle off: the palette has no Debug: Tab Bar Playground row",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.palette.capture",
+            "params": {
+              "path": "/tmp/jr-ddm-off-${nonce}.png"
+            },
+            "path": "query",
+            "equals": "tab bar playground"
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.palette.capture",
+            "params": {
+              "path": "/tmp/jr-ddm-off-${nonce}.png"
+            },
+            "path": "rows",
+            "lacks": "debug.tabBarPlayground"
+          }
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "do": "expect",
+      "title": "a script still runs a debug action with the toggle off",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "action.run",
+            "params": {
+              "action": "debug.actionLatencyHUD",
+              "wait": true
+            },
+            "path": "",
+            "lacks": "unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "do": "rpc",
+      "method": "action.run",
+      "params": {
+        "action": "debug.actionLatencyHUD",
+        "wait": true
+      }
+    },
+    {
+      "do": "settings_file",
+      "set": {
+        "app": {
+          "internalDeveloperMode": true
+        }
+      },
+      "mark": "on"
+    },
+    {
+      "do": "expect",
+      "title": "the setting reads on (no restart)",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "settings.get",
+            "params": {
+              "key": "app.internalDeveloperMode"
+            },
+            "path": "value",
+            "in": [
+              true
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "p",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "open-on"
+    },
+    {
+      "do": "type",
+      "text": "tab bar playground"
+    },
+    {
+      "do": "expect",
+      "title": "toggle on: the next palette open lists Debug: Tab Bar Playground",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.palette.capture",
+            "params": {
+              "path": "/tmp/jr-ddm-on-${nonce}.png"
+            },
+            "path": "rows",
+            "contains": "debug.tabBarPlayground"
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.palette.capture",
+            "params": {
+              "path": "/tmp/jr-ddm-on-${nonce}.png"
+            },
+            "path": "selected",
+            "contains": "Debug: Tab Bar Playground"
+          }
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "do": "settings_file",
+      "unset": [
+        "app.internalDeveloperMode"
+      ]
+    }
+  ]
+}
