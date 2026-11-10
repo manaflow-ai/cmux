@@ -107,6 +107,196 @@ struct TerminalKeyResizeFrameTests {
         #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
     }
 
+    /// T-KEYS 3 (keys bench 8554d26b, cmux10s, macOS 27.0.1, 120 Hz: in the first frame after a press every terminal
+    /// showed its old size): the frame that shows a key press shows each terminal's surface at its pane's size in it.
+    /// Chromium's model: the input changes the model in its own turn, and the frame that shows the change has its content
+    /// at that size.
+    ///
+    /// GI RENDERER SYNC 2 (#40174) port: the draw-ahead and the presenter are gone. The surface's layer takes its pane's
+    /// area in the first frame's commit; the frame in it is Ghostty's (fork tests "resize sync: the primary screen shows a
+    /// frame of a new host size at once" and "host present: a frame of a new host size on main is shown by default").
+    ///
+    /// Ctrl-Shift-L, then Ctrl-Shift-H at rest, on p2 of p1 | p2. After the key's turn and its commit the first frame is
+    /// stepped and its commit read, per terminal: the layer and its area.
+    @Test func theFirstFrameAfterAKeyPressShowsEachTerminalAtItsPanesSize() async throws {
+        let screen = try await PaneScreen()
+        defer { screen.close() }
+        // Warm-up press: one-time setup is not the press under test.
+        _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+        var off: [String] = [], resized = 0
+        for direction in [LayoutDirection.right, .left] {
+            let start = screen.sessions.map { $0.surfaceView.frame.size }
+            try #require(PaneResize.press("p2", direction, model: screen.model, view: screen.root), "Ctrl-Shift-\(direction) on p2 moved nothing")
+            await Self.commit() // the key's turn and its commit
+            let first = await Self.stepFrame(screen)
+            try #require(first.moving, "Ctrl-Shift-\(direction) did not spring")
+            for (index, session) in screen.sessions.enumerated() {
+                let view = session.surfaceView, host = session.view
+                let area = host.surfaceSize(forHostSize: host.bounds.size), layer = view.layer?.bounds.size ?? .zero
+                let scale = view.layer?.contentsScale ?? 2
+                let line = "Ctrl-Shift-\(direction) first frame p\(index + 1): layer \(Self.text(layer)), area \(Self.text(area))"
+                print("T-KEYS 3 \(line)")
+                guard area != start[index] else { continue }
+                resized += 1
+                if abs(layer.width - area.width) * scale > 1 || abs(layer.height - area.height) * scale > 1 { off.append(line) }
+            }
+            _ = await Self.step(screen, record: nil)
+            await Self.settle(screen)
+        }
+        try #require(resized > 0, "no first frame changed a terminal's area: the case under test did not happen")
+        #expect(off.isEmpty, "\(off.count) terminals' layers were not at their pane's size in the first frame after the key: \(off)")
+    }
+
+    /// Review of #35470 (F1): a terminal whose frames wait at the landing (a busy program, or one that holds its frames
+    /// with synchronized output, mode 2026, as agent TUIs do). The landing's release once sized the surface from a stale
+    /// size and reported its grid, then the final grid again: final, stale, final. cmux-ad m18 replaces "one grid per
+    /// press" with the coalescer's rule: its PTY gets at most one grid per refresh of the press (plus the landing's
+    /// flush), and the last grid is its view's grid at rest. The grids are locked as the daemon locks them (an announced
+    /// grid: a pixel resize keeps mode 2026 set).
+    ///
+    /// GI RENDERER SYNC 2 (#40174) port: "waits" is now "does not show its own frame" (``showsItsOwnFrame(_:)``), as the
+    /// presenter that kept the size in flight is gone.
+    @Test func aTerminalWhoseFrameWaitsAtTheLandingEndsAtTheLandingsGrid() async throws {
+        let screen = try await PaneScreen()
+        defer { screen.close() }
+        _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+        for (session, io) in zip(screen.sessions, screen.ios) {
+            let grid = try #require(session.surfaceView.fittedGrid, "a terminal fits no grid at rest")
+            io.send(.resize(cols: grid.columns, rows: grid.rows))
+        }
+        // p1 holds its frames from here. Ghostty ends a hold 1 s after the program's last `ESC[?2026h`, so the spring
+        // below sends it again in each frame.
+        let hold = Data("\u{1b}[?2026h".utf8)
+        screen.ios[0].send(.output(hold))
+        await Self.settle(screen)
+        let resizesBefore = screen.ios.map { $0.resizes.count }
+
+        let pressed = ContinuousClock.now
+        _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
+        var steps = 0, moving = true, waitedInSpring = 0, waitingAtLanding = false
+        while moving, steps < 240 {
+            screen.ios[0].send(.output(hold))
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            await Self.commit() // the frame's commit
+            let waiting = !Self.showsItsOwnFrame(screen.sessions[0])
+            if waiting { waitedInSpring += 1 }
+            if !moving { waitingAtLanding = waiting }
+            steps += 1
+        }
+        try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
+        try #require(waitedInSpring > 1, "p1's sizes waited in \(waitedInSpring) of \(steps) frames: p1 did not hold its frames")
+        try #require(waitingAtLanding, "p1 did not wait for its frame at the landing: the case under test did not happen")
+        screen.ios[0].send(.output(Data("\u{1b}[?2026l".utf8)))
+        await Self.settle(screen)
+        let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
+        let grids = screen.ios[0].resizes.suffix(resizes[0]).map { "\($0.columns)x\($0.rows)" }
+        let windows = Self.coalescingWindows(since: pressed)
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes) (p1: \(grids))")
+        let ends = Self.ptyEndsAtItsViewsGrid(screen)
+        #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
+    }
+
+    /// cmux-ad m14 (a P0 from Lawrence): in every frame each terminal shows pixels drawn at its pane's size, and its
+    /// program's grid changes at most once per refresh. pixel-perfect's films of a key spring (jjk-3kz) showed two failures
+    /// for a terminal whose prompt is low:
+    /// - F2: a pane a press grows kept its surface at the press's final size on its bottom edge (the low prompt's bottom
+    ///   hold), taller than the pane, so its top rows were cut for the whole spring;
+    /// - H3: a pane that shrinks drew the owner's grid from its top-left, so its last rows, the prompt with them, were cut
+    ///   until the owner announced the new grid, and then that grid was drawn padded.
+    ///
+    /// The terminal must draw, in each frame, the grid its size fits: Ghostty's reflow preview reflows a copy of the
+    /// terminal to that grid, and the reflow keeps the cursor row in view.
+    ///
+    /// p1 over p2, each with history and its prompt on its last row, an IO that announces each grid its view reports,
+    /// as the daemon does (``AnnouncingTerminalIO``, MANUAL_MIRROR). Ctrl-Shift-J on p1 (p1 grows down, p2 shrinks),
+    /// Ctrl-Shift-K (p1 shrinks, p2 grows up), and J, J, K two frames apart. Each frame's sizes land with their own frames
+    /// before the next frame (the test waits for them). After each frame, per terminal:
+    /// - the surface's frame is its area's (never taller, never on another edge);
+    /// - the grid Ghostty drew is the grid the shown frame's pixel size fits.
+    /// After the landing, each terminal rests at its area with the owner's grid drawn and its prompt on the last row,
+    /// and its program got at most one grid per refresh.
+    ///
+    /// GI RENDERER SYNC 2 (#40174) port: the presenter's per-pass read (`presentedHook`) is gone. With no size drawn
+    /// ahead, Ghostty's last draw after a frame's sizes showed is the shown frame's, so the sample reads it then.
+    @Test(arguments: [[LayoutDirection.down], [.up], [.down, .down, .up]])
+    func aLowPromptTerminalDrawsTheGridItsPaneFitsInEveryFrameOfAKeySpring(presses: [LayoutDirection]) async throws {
+        let screen = try await PaneScreen(axis: .vertical, announcesGrids: true)
+        defer { screen.close() }
+        // The prompt on the last row, under the history.
+        for io in screen.ios { io.send(.output(Data("\r\n$ ".utf8))) }
+        let low = await Self.commits(screen) { $0.sessions.allSatisfy(Self.restsWithItsPromptLow) }
+        try #require(low, "SETUP: a terminal does not rest with its prompt on the last row of the grid its owner announced")
+        await Self.settle(screen)
+        let resizesBefore = screen.ios.map { $0.resizes.count }
+        let pressed = ContinuousClock.now
+
+        var frames: [[GridSample]] = []
+        /// This frame's sizes land with their own frames (at most 2 s), then each terminal is sampled.
+        func sampleFrame() async {
+            _ = await Self.commits(screen, seconds: 2) { $0.sessions.allSatisfy(Self.showsItsOwnFrame) }
+            frames.append(screen.sessions.map { GridSample($0) })
+        }
+        var steps = 0
+        for (index, direction) in presses.enumerated() {
+            try #require(PaneResize.press("p1", direction, model: screen.model, view: screen.root),
+                         "Ctrl-Shift-\(direction) on p1 moved nothing")
+            // A press before the last lands two frames later, a key repeat apart; the last runs to its landing.
+            let last = index == presses.count - 1
+            var moving = true, stepped = 0
+            while moving, stepped < (last ? 240 : 2) {
+                moving = await Self.stepFrame(screen).moving
+                await sampleFrame()
+                stepped += 1
+            }
+            try #require(last || moving, "press \(index + 1) landed before the next press")
+            steps += stepped
+        }
+        // The landing's release.
+        for _ in 0..<6 {
+            await Self.commit()
+            await sampleFrame()
+        }
+        try #require(steps >= 4, "the presses' spring ran \(steps) frames: no spring ran")
+
+        var off: [String] = [], undrawn: [String] = [], unshown: [String] = []
+        for (index, frame) in frames.enumerated() {
+            for (terminal, sample) in frame.enumerated() {
+                let label = "frame \(index + 1) p\(terminal + 1)"
+                if !sample.onItsArea { off.append("\(label): surface \(sample.surface), its area \(sample.area)") }
+                guard sample.showsItsOwnFrame else {
+                    unshown.append(label)
+                    continue
+                }
+                if sample.drawn == nil || sample.drawn != sample.fits {
+                    undrawn.append("\(label): drew \(Self.text(sample.drawn)), its frame fits \(Self.text(sample.fits))")
+                }
+            }
+        }
+        await Self.settle(screen)
+        var rested: [String] = []
+        for (index, session) in screen.sessions.enumerated() {
+            let sample = GridSample(session), grids = session.drawnAndOwnerGrid
+            if !sample.onItsArea { rested.append("p\(index + 1): surface \(sample.surface), its area \(sample.area)") }
+            if !Self.restsWithItsPromptLow(session) || sample.fits != grids.owner {
+                rested.append("p\(index + 1): drew \(Self.text(grids.drawn)), owner's \(Self.text(grids.owner)), fits \(Self.text(sample.fits)), prompt not on its last row")
+            }
+        }
+        let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
+        print("m14 low prompt, presses \(presses): \(steps) spring frames; off their area \(off.count), drawn grid off \(undrawn.count), " +
+              "frame not shown \(unshown.count); PTY grids per terminal \(resizes)")
+        #expect(off.isEmpty, "\(off.count) frames showed a terminal off its area (a hold): \(off.prefix(6))")
+        #expect(undrawn.isEmpty, "\(undrawn.count) frames drew a grid other than the one the terminal's size fits (its prompt cut or padded): \(undrawn.prefix(6))")
+        #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
+        #expect(rested.isEmpty, "after the landing: \(rested)")
+        let windows = Self.coalescingWindows(since: pressed)
+        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
+    }
+
     /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
     /// its top edge, less a legacy scroller's strip), whether it shows the frame drawn at its size, the grid Ghostty drew
     /// and the grid the shown frame's pixel size fits.
