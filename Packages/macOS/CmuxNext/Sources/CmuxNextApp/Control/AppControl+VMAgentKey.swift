@@ -29,7 +29,7 @@ extension AppControl {
                 request.timeoutInterval = TimeInterval(planned.timeoutSeconds)
                 request.setValue("application/json", forHTTPHeaderField: "content-type")
                 request.setValue("Bearer \(issuer.accessToken)", forHTTPHeaderField: "authorization")
-                request.setValue(issuer.teamID, forHTTPHeaderField: "x-cmux-team-id")
+                if !CloudTeamIDs.isPlatformTeam(issuer.teamID) { request.setValue(issuer.teamID, forHTTPHeaderField: "x-cmux-team-id") } // Stack teams only
                 request.httpBody = try JSONEncoder().encode(planned.body)
                 // No answer at all is status 0, which Rust reads as unreachable.
                 let answer = try? await URLSession.shared.data(for: request)

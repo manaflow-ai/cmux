@@ -130,9 +130,10 @@ extension IPhoneHostService {
     }
 
     /// The account hostd registers under: the selected team, else the personal space; nil while signed out.
+    /// The mobile backend checks a team with Stack, so the platform personal team (`team_…`) is its personal space.
     public static func account(of auth: CloudAuth, signedIn: Bool) -> Account? {
         guard signedIn, let user = auth.user else { return nil }
-        let team = auth.teamID
+        let team = auth.teamID.flatMap { CloudTeamIDs.isPlatformTeam($0) ? nil : $0 }
         return Account(
             userID: user.id, teamID: MobileHostLaunch.teamID(selected: team, userID: user.id),
             teamName: team.flatMap { id in auth.teams.first { $0.id == id }?.displayName },

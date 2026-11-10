@@ -43,6 +43,9 @@ public final class CloudAuth {
     public var teams: [CMUXAuthTeam] { activeTeam.teams }
     /// The team API calls use (``ActiveTeam/id``).
     public var teamID: String? { activeTeam.id }
+    /// The active team as the Worker names it (`x-cmux-team`, the `team.<id>` subprotocol; its `selectTeam`
+    /// takes only `team_` ids): a Stack team's backend id, the personal team as is.
+    public var teamHeader: String? { teamID.map { CloudTeamIDs.teamHeader(project: configuration.stackProjectID, team: $0) } }
     /// Who is signed in and in which team, nil signed out: a change means the account's data (its
     /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
     public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }

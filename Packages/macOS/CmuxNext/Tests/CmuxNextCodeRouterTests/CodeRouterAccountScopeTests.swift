@@ -212,4 +212,16 @@ struct CodeRouterAccountScopeTests {
         #expect(requests.first?.value(forHTTPHeaderField: "X-Cmux-Team-Id") == account.teamID)
         #expect(requests.first?.httpMethod == "POST")
     }
+
+    /// The person's platform personal team (`team_…`, manaflow-ai/cmux#39950) is no Stack team: CodeRouter gets none.
+    @Test func thePlatformPersonalTeamSendsNoTeam() async throws {
+        let account = Account()
+        account.teamID = "team_249f328cf8ed89fd792e"
+        let (client, session) = try fixture(account)
+        defer { session.invalidateAndCancel() }
+        #expect(await upload(client))
+        let requests = Transport.requests.withLock { $0 }
+        #expect(requests.count == 1)
+        #expect(requests.first?.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
+    }
 }

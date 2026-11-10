@@ -174,6 +174,8 @@ struct ActiveTeamTests {
         #expect(active.id == Self.personal)
         #expect(active.team?.displayName == "Personal")
         #expect(active.refusal(requesting: Self.personal) == nil)
+        #expect(active.stackTeam == nil, "Stack's team routes (invite, details) never get the personal team")
+        #expect(active.stackTeams.map(\.id) == ["a", "b"], "Settings > Accounts manages the Stack teams")
         try await active.select("a")
         #expect(source.saved == ["a"], "the Stack team is saved even though it was Stack's selection")
         #expect(active.id == "a")

@@ -173,8 +173,9 @@ extension AccountsModel {
         guard let active = services.activeTeam else { return nil }
         let model = teamsModel
         let activeID = active.id
-        model.noteTeams(active.teams.map(\.id))
-        let rows = active.teams.map { team in
+        // Stack's team routes (details, rename, delete) never get the personal team: it is not a Stack team.
+        model.noteTeams(active.stackTeams.map(\.id))
+        let rows = active.stackTeams.map { team in
             let role = model.role(of: team.id)
             let open = model.openTeamID == team.id
             return AccountsPageState.TeamRow(

@@ -296,7 +296,8 @@ public struct CloudAPIClient: Sendable {
         request.setValue(appVersion, forHTTPHeaderField: "X-Cmux-App-Version")
         if sendsStackSession {
             request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
-            if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
+            // The legacy API knows Stack teams only: in the personal team it bills the account's own default.
+            if let team = await teamID(), !CloudTeamIDs.isPlatformTeam(team) { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
         } else if let team = await teamID() {
             request.setValue(team, forHTTPHeaderField: "x-cmux-team")
         }

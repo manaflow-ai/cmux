@@ -48,12 +48,8 @@ extension CloudAPIClient {
         return Self.sealedAnswer(output)
     }
 
-    /// `team_` and 20 lowercase hex digits (cmux-platform's team id).
-    static func isPlatformTeam(_ id: String) -> Bool {
-        guard id.hasPrefix("team_") else { return false }
-        let tail = id.utf8.dropFirst(5)
-        return tail.count == 20 && tail.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
-    }
+    /// `team_` and 20 lowercase hex digits (cmux-platform's team id; ``CloudTeamIDs/isPlatformTeam(_:)``).
+    static func isPlatformTeam(_ id: String) -> Bool { CloudTeamIDs.isPlatformTeam(id) }
 
     /// The child's last stdout line as an answer; anything else is `transport`.
     static func sealedAnswer(_ output: Data) -> SealedDelivery {

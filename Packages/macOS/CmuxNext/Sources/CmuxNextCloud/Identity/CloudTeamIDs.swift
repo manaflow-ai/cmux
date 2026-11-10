@@ -26,6 +26,11 @@ public nonisolated enum CloudTeamIDs {
         ids(project: project, stackUser: stackUser)?.personalTeam
     }
 
+    /// Whether an active team is a backend team (`team_` and 20 lowercase hex digits, Rust's `identity::is_team`):
+    /// the personal team, never a Stack id. Stack's own APIs (its team routes, the legacy VM and runs APIs'
+    /// `X-Cmux-Team-Id`, CodeRouter) know only Stack teams, so a caller leaves such a team out of them.
+    public static func isPlatformTeam(_ team: String) -> Bool { CloudAccessToken.isTeam(team) }
+
     /// The `x-cmux-team` of an active team: the personal team as is, a Stack team's `stackTeamIdFor`.
     /// Empty only when the FFI does not answer, a team no owner accepts.
     public static func teamHeader(project: String, team: String) -> String {

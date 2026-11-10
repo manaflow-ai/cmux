@@ -132,6 +132,13 @@ public final class ActiveTeam {
         return teams.first { $0.id == id }
     }
 
+    /// The active team when it is a Stack team, nil for the personal team: what Stack's team APIs (invite,
+    /// details, rename) may name.
+    public var stackTeam: CMUXAuthTeam? { team.flatMap { CloudTeamIDs.isPlatformTeam($0.id) ? nil : $0 } }
+
+    /// ``teams`` without the Personal row: the Stack teams, which Settings > Accounts manages.
+    public var stackTeams: [CMUXAuthTeam] { teams.filter { !CloudTeamIDs.isPlatformTeam($0.id) } }
+
     /// Whether the person can switch to another team here.
     public var canSwitch: Bool { managedTeamID == nil && teams.count > 1 && !isSwitching }
 

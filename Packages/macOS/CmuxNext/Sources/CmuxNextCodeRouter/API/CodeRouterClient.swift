@@ -116,7 +116,8 @@ public struct CodeRouterClient: Sendable {
         request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
         let team = override?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let team = team?.isEmpty == false ? team : await teamID() {
+        // CodeRouter knows Stack teams only: the personal team (`team_…`) sends none, the account's own default.
+        if let team = team?.isEmpty == false ? team : await teamID(), !CloudTeamIDs.isPlatformTeam(team) {
             request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         if let body {
