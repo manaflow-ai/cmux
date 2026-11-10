@@ -140,6 +140,7 @@ fn a_run_create_sends_its_key_through_the_daemon() {
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("POST /api/runs "));
     assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("k-1"));
+    assert!(String::from_utf8_lossy(&seen[0].body).contains("echo hi"), "the task is in the body");
 }
 
 #[test]
