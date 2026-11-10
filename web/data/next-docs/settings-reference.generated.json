@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -2022,6 +2022,14 @@
             "transcript",
             "messages"
           ]
+        },
+        {
+          "key": "agentPane.display.promptCoach",
+          "title": "Prompt Coach",
+          "help": "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.rail.side",

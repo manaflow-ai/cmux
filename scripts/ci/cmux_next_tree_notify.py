@@ -70,7 +70,11 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
 from typing import Callable, Protocol
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - every call's transport: nothing is sent past its bound
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ISO_TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -104,12 +108,27 @@ class Api(Protocol):
     def delete(self, path: str) -> int: ...
 
 
+# One call's longest wait for GitHub, from its start to the last byte of its answer. A caller that must
+# finish before a deadline budgets this much for each call it makes there, a write included.
+REQUEST_TIMEOUT_S = 30
+
+
+# A call that did not finish within its bound (deadline_http.RequestTimeout). It ran on the caller's
+# thread and stopped at its bound, so nothing was sent after it; a write sent before it (a dispatch, a
+# cancel) may have reached GitHub, so the caller treats it as unknown, never as done and never as refused.
+RequestTimeout = deadline_http.RequestTimeout
+
+
 class GitHub:
+    # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
+    timeout: float = REQUEST_TIMEOUT_S
+
     def __init__(self, token: str, api_url: str = "https://api.github.com"):
         self.token = token
         self.api_url = api_url.rstrip("/")
 
-    def _request(self, method: str, url: str, body: dict | None = None):
+    def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
+        """One call, with its response headers. RequestTimeout past self.timeout."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(url, data=data, method=method, headers={
             "Accept": "application/vnd.github+json",
@@ -118,11 +137,11 @@ class GitHub:
         # Unredirected: an artifact download redirects to blob storage, which
         # must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, response.read()
-        except urllib.error.HTTPError as error:
-            return error.code, error.read()
+        return deadline_http.request(request, self.timeout)
+
+    def _request(self, method: str, url: str, body: dict | None = None):
+        status, payload, _ = self._send(method, url, body)
+        return status, payload
 
     def get(self, path: str):
         status, payload = self._request("GET", f"{self.api_url}/{path}")
@@ -148,8 +167,8 @@ def fetch_completion(key: str) -> object | None:
     # The query string bypasses a cached 404 at the CDN edge.
     url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
-            return json.loads(response.read())
+        status, payload, _ = deadline_http.request(url, REQUEST_TIMEOUT_S)
+        return json.loads(payload) if status == 200 else None
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
 

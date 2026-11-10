@@ -204,6 +204,7 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -502,7 +503,7 @@ jobs:
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -513,7 +514,7 @@ jobs:
           name: cloud-workspace-matrix-staging
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-staging/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       - name: Machine status and kill
         if: inputs.cleanup_machine != ''
@@ -715,7 +716,7 @@ jobs:
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -726,7 +727,7 @@ jobs:
           name: cloud-workspace-matrix-prod
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-prod/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       - name: Summarize the evidence
         id: evidence

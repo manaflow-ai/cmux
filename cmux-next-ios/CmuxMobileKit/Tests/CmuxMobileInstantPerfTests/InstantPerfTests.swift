@@ -1,0 +1,243 @@
+import CmuxMobileAgentChat
+import CmuxMobileChief
+import CmuxMobileLive
+import CmuxMobileTransport
+import Foundation
+import Testing
+
+// The instant-list bench (Leo, 2026-11-10: "to load in my God sessions, it needs to be the exact
+// same, or I mean, close enough to the exact same as the small sessions"). Each test measures one
+// metric on the SMALL and the GOD fixture (InstantPerfFixtures.swift) side by side, reports it
+// (`INSTANTPERF {json}`, InstantPerfReport.swift) and asserts its budget (3x target) and the
+// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`.
+//
+// a. home_list_first_screen   `home-inbox` reply bytes to the list the first screen draws
+//                              (JSON, `MacHomeRow.rows`, `MacHomeList`). 20 vs 5,000 rows. 16 ms.
+// b. home_list_one_row_update  one row changes in a list of N: the next list (`MacHomeList.Memo`). 4 ms.
+// c. chat_open_last_messages   open a chat on a fake acpmux until `AgentChatStore` holds the
+//                              newest turn, finished. ~40 vs 50,000 records. 150 ms.
+// d. chat_reconnect_catch_up   reattach (`afterSeq`) after missing 10 vs 20,000 records until the
+//                              store shows the newest turn. 150 ms.
+// e. chat_older_page           one scroll-up page of older history. 50 ms.
+//
+// The suite is serialized and CI runs this target on its own (no other suite on the cores).
+// Numbers are from a Debug build (`swift test`, `xcodebuild test`), as the kit's tests build.
+//
+// Run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
+//      CMUX_INSTANT_PERF_OUT=/tmp/instant-perf.jsonl adds a JSONL report; CMUX_INSTANT_PERF_RUNS=N
+//      changes the number of measured runs (default 5, after one warm-up).
+// Docs: cmux-next-ios/design/instant-perf.md
+
+@MainActor
+@Suite("Instant list perf: small vs god", .serialized)
+struct InstantPerfTests {
+    static let summary = AgentSessionSummary(id: "s7", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",
+                                             workspaceTitle: "w", macName: "mini")
+
+    // MARK: Home list
+
+    /// The `data` of a `home-inbox` reply line.
+    static func inboxData(_ wire: Data) throws -> [String: Any] {
+        let object = try JSONSerialization.jsonObject(with: wire) as? [String: Any]
+        return object?["data"] as? [String: Any] ?? [:]
+    }
+
+    @Test("home_list_first_screen")
+    func homeListFirstScreen() async throws {
+        func firstScreen(_ size: InstantPerfSize) async throws -> [Double] {
+            let wire = HomeInboxFixture.wire(size)
+            return try await InstantPerfReport.sample {
+                var list: MacHomeList?
+                let elapsed = try ContinuousClock().measure {
+                    list = MacHomeList(MacHomeRow.rows(fromHomeInbox: try Self.inboxData(wire)))
+                }
+                let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
+                #expect(shown == HomeInboxFixture.rowCount(size), "the list lost rows: \(shown)")
+                return elapsed
+            }
+        }
+        let small = try await firstScreen(.small)
+        let god = try await firstScreen(.god)
+        InstantPerfReport.record(
+            "home_list_first_screen", target: 16, small: small, god: god,
+            knownRed: [.ratio, .godBudget],
+            why: "the first screen waits for every row of the reply to be parsed; reading only the window on screen is slice 2 of the design",
+            note: "home-inbox reply \(HomeInboxFixture.wire(.small).count) B (20 rows) vs \(HomeInboxFixture.wire(.god).count) B (5,000 rows)")
+    }
+
+    @Test("home_list_one_row_update")
+    func homeListOneRowUpdate() async throws {
+        /// The rows before and after one conversation in the middle of the list changes in place
+        /// (a Chief starts typing, a message is read, a mark is set): same order, one row new.
+        func change(_ size: InstantPerfSize) -> (before: [MacHomeRow], after: [MacHomeRow], afterWire: Data) {
+            var wire = HomeInboxFixture.rows(size)
+            let before = MacHomeRow.rows(fromHomeInbox: ["rows": wire])
+            let mid = wire.count / 2
+            wire[mid]["unread"] = ((wire[mid]["unread"] as? Int) ?? 0) + 1
+            wire[mid]["preview"] = "Typing: the relay is back, 24 tests pass."
+            let after = MacHomeRow.rows(fromHomeInbox: ["rows": wire])
+            return (before, after, HomeInboxFixture.encode(wire))
+        }
+        func memo(_ size: InstantPerfSize) async throws -> [Double] {
+            let rows = change(size)
+            return await InstantPerfReport.sample {
+                let memo = MacHomeList.Memo()
+                _ = memo.list(rows.before, query: "", unreadOnly: false)
+                var list: MacHomeList?
+                let elapsed = ContinuousClock().measure {
+                    list = memo.list(rows.after, query: "", unreadOnly: false)
+                }
+                #expect(memo.builds == 2)
+                #expect(list?.rows.contains { $0.preview.hasPrefix("Typing:") } == true)
+                return elapsed
+            }
+        }
+        /// What the feed does today on that change: the whole `home-inbox` reply read again and
+        /// parsed, compared with the rows shown, then the memo (reported in the note).
+        func refresh(_ size: InstantPerfSize) async throws -> [Double] {
+            let rows = change(size)
+            return try await InstantPerfReport.sample(runs: 3) {
+                let memo = MacHomeList.Memo()
+                _ = memo.list(rows.before, query: "", unreadOnly: false)
+                return try ContinuousClock().measure {
+                    let next = MacHomeRow.rows(fromHomeInbox: try Self.inboxData(rows.afterWire))
+                    if next != rows.before { _ = memo.list(next, query: "", unreadOnly: false) }
+                }
+            }
+        }
+        // What a person waits for is the feed's path on that change: the whole `home-inbox`
+        // reply read again, compared and listed. The memo alone is in the note.
+        let small = try await refresh(.small)
+        let god = try await refresh(.god)
+        let smallMemo = InstantPerfReport.median(try await memo(.small))
+        let godMemo = InstantPerfReport.median(try await memo(.god))
+        InstantPerfReport.record(
+            "home_list_one_row_update", target: 4, small: small, god: god,
+            knownRed: [.ratio, .godBudget],
+            why: "one row's change re-reads and re-parses the whole home-inbox reply, then the memo compares every row and rebuilds the list, so one row costs O(N)",
+            note: String(format: "row N/2 changes in place; timed: re-read of home-inbox, compare, memo. The memo alone: small %.3f ms, god %.3f ms",
+                         smallMemo, godMemo))
+    }
+
+    // MARK: Agent chat
+
+    /// Waits, with the main actor free, until `done`, for at most `timeout`. Polls every 0.1 ms:
+    /// fine enough for the targets, and leaves the cores to the work being timed.
+    static func waitUntil(_ timeout: Duration = .seconds(120), _ done: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !done() {
+            guard ContinuousClock.now < deadline else { return false }
+            try? await Task.sleep(for: .microseconds(100)) // test: polls the condition until a deadline
+        }
+        return true
+    }
+
+    /// The store shows `turn`, finished, with its items.
+    static func shows(_ store: AgentChatStore, _ turn: String) -> Bool {
+        guard let last = store.turns.last else { return false }
+        return last.id == turn && last.status == .completed && !last.items.isEmpty
+    }
+
+    /// A hub bound to a fake acpmux over `fake`'s log (initialize and watch done: the link is up).
+    static func boundHub(_ link: MockMacLink) async throws -> AcpmuxHub {
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        return hub
+    }
+
+    /// Opens the chat on a bound hub and waits for its newest turn (untimed setup for d and e).
+    static func openedChat(_ fake: InstantPerfAcpmux, link: MockMacLink) async throws -> (AcpmuxHub, AgentChatStore) {
+        let hub = try await boundHub(link)
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: summary))
+        let newest = try #require(fake.log.lastTurn(before: fake.end))
+        let shown = await waitUntil { shows(store, newest) }
+        try #require(shown, "the chat never showed \(newest)")
+        return (hub, store)
+    }
+
+    static func mb(_ bytes: Int) -> String { String(format: "%.1f MB", Double(bytes) / 1_048_576) }
+
+    @Test("chat_open_last_messages")
+    func chatOpenLastMessages() async throws {
+        func open(_ log: AgentChatLog) async throws -> [Double] {
+            try await InstantPerfReport.sample {
+                let fake = InstantPerfAcpmux(log)
+                let hub = try await Self.boundHub(fake.link())
+                let newest = try #require(log.lastTurn(before: log.count))
+                let start = ContinuousClock.now
+                let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
+                let shown = await Self.waitUntil { Self.shows(store, newest) }
+                let elapsed = start.duration(to: .now)
+                #expect(shown, "the chat never showed its newest turn \(newest)")
+                await hub.bind(nil)
+                withExtendedLifetime(store) {}
+                return elapsed
+            }
+        }
+        let small = try await open(AgentChatFixture.small)
+        let god = try await open(AgentChatFixture.god)
+        InstantPerfReport.record(
+            "chat_open_last_messages", target: 150, small: small, god: god,
+            // Green on base: the open reads one byte-capped page, the newest, whatever the chat holds.
+            note: "small \(AgentChatFixture.small.count) records (\(Self.mb(AgentChatFixture.small.totalBytes))) vs god \(AgentChatFixture.god.count) records (\(Self.mb(AgentChatFixture.god.totalBytes)))")
+    }
+
+    @Test("chat_reconnect_catch_up")
+    func chatReconnectCatchUp() async throws {
+        func reconnect(_ log: AgentChatLog, missing: Int, runs: Int) async throws -> (runs: [Double], missed: Int, bytes: Int) {
+            let cut = log.boundary(near: log.count - missing)
+            let newest = try #require(log.lastTurn(before: log.count))
+            let samples = try await InstantPerfReport.sample(runs: runs) {
+                let fake = InstantPerfAcpmux(log, end: cut)
+                let link = fake.link()
+                let (hub, store) = try await Self.openedChat(fake, link: link)
+                // The phone goes away; the Mac writes the rest of the log meanwhile.
+                await hub.bind(nil)
+                fake.end = log.count
+                let start = ContinuousClock.now
+                await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+                let shown = await Self.waitUntil { Self.shows(store, newest) }
+                let elapsed = start.duration(to: .now)
+                #expect(shown, "the chat never caught up to \(newest)")
+                await hub.bind(nil)
+                withExtendedLifetime(store) {}
+                return elapsed
+            }
+            return (samples, log.count - cut, log.bytes[cut...].reduce(0, +))
+        }
+        let small = try await reconnect(AgentChatFixture.small, missing: 10, runs: InstantPerfReport.defaultRuns)
+        let god = try await reconnect(AgentChatFixture.god, missing: 20_000, runs: min(InstantPerfReport.defaultRuns, 3))
+        InstantPerfReport.record(
+            "chat_reconnect_catch_up", target: 150, small: small.runs, god: god.runs,
+            knownRed: [.ratio, .godBudget],
+            why: "a reattach with afterSeq reads every missed record, 400 a page with no byte cap, before the chat shows any of them",
+            note: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown")
+    }
+
+    @Test("chat_older_page")
+    func chatOlderPage() async throws {
+        func older(_ log: AgentChatLog) async throws -> [Double] {
+            try await InstantPerfReport.sample {
+                let fake = InstantPerfAcpmux(log)
+                let (hub, store) = try await Self.openedChat(fake, link: fake.link())
+                try #require(store.hasEarlierHistory, "the open page reached the chat's start: no older page to read")
+                let before = store.turns.count
+                let start = ContinuousClock.now
+                store.loadEarlier()
+                let shown = await Self.waitUntil { !store.isLoadingEarlier && store.turns.count > before }
+                let elapsed = start.duration(to: .now)
+                #expect(shown, "the older page never showed")
+                await hub.bind(nil)
+                return elapsed
+            }
+        }
+        // The ~40-record chat opens whole; the small case is a short chat just over one open page.
+        let small = try await older(AgentChatFixture.smallPaged)
+        let god = try await older(AgentChatFixture.god)
+        InstantPerfReport.record(
+            "chat_older_page", target: 50, small: small, god: god,
+            knownRed: [.ratio],
+            why: "an older page is up to 256 KiB of whole records (more when one record is larger), decoded and turned into turns before it shows",
+            note: "small: \(AgentChatFixture.smallPaged.count)-record chat (one page over the open); god: \(AgentChatFixture.god.count) records")
+    }
+}
