@@ -160,3 +160,16 @@ test("a server without connector management (its older list, or a 400/404) says 
   });
   expect(card().querySelector("[data-connectors-message]")!.textContent).toBe("HTTP 502");
 });
+
+test("a click sends back the account and team the card showed; after a switch the app refuses it", async () => {
+  await open();
+  await click(button('[data-connector="slack"] [data-connector-action="connect"]'));
+  await settle();
+  // The person switches team (the palette) while the sharing question is open.
+  page!.provider.connectorsState = { ...page!.provider.connectorsState, scope: "scope-team-b" };
+  await click(button('[data-connector-action="confirmConnect"]'));
+  await settle();
+  expect(page!.provider.connectorScopes).toEqual(["scope-team-a"]);
+  expect(card().querySelector("[data-connectors-error]")!.textContent).toContain("account or team changed");
+  expect(card().querySelector('[data-connector="slack"][data-connection-status="pending"]')).toBeNull();
+});

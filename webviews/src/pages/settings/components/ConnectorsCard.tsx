@@ -55,7 +55,8 @@ export function ConnectorsCard() {
   ) => {
     setBusy(true);
     try {
-      const refused = await store.runConnector(gesture);
+      // The account and team the card shows: the app refuses the click if the person switched since.
+      const refused = await store.runConnector(gesture, state?.scope ?? "");
       setError(refused);
       if (gesture.action === "connect") setOpened(refused === null);
       await refresh();

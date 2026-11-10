@@ -908,6 +908,9 @@ export type ConnectorsState = {
   error?: string;
   /** The platform's HTTP status when it refused the list. */
   status?: number;
+  /** The account and team this list was read for, opaque: Connect and Disconnect send it back, and the
+   * app refuses them when the person switched account or team since. */
+  scope?: string;
 };
 
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
@@ -1258,9 +1261,9 @@ export type SettingsOps = {
   /** Native: the person's connectors (Settings > Accounts and Devices > Connectors). */
   "cmux.settings.connectors.list": [Record<string, never>, ConnectorsState];
   /** Native, a click only: asks the provider's approval page and opens it in the browser. */
-  "cmux.settings.connectors.connect": [{ provider: string; sharing: "private" | "team" }, unknown];
+  "cmux.settings.connectors.connect": [{ provider: string; sharing: "private" | "team"; scope: string }, unknown];
   /** Native, a click only: disconnects one connection; its stored credential is deleted at once. */
-  "cmux.settings.connectors.disconnect": [{ provider: string; connection: string }, unknown];
+  "cmux.settings.connectors.disconnect": [{ provider: string; connection: string; scope: string }, unknown];
   /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
    * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
    * connection: a page may not reach them itself. */

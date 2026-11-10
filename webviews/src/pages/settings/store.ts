@@ -764,13 +764,20 @@ export class SettingsStore {
     run:
       | { action: "connect"; provider: string; sharing: "private" | "team" }
       | { action: "disconnect"; provider: string; connection: string },
+    /** The list's `scope`: the account and team the person saw when they clicked. */
+    scope: string,
   ): Promise<string | null> {
     const reply =
       run.action === "connect"
-        ? await this.request("cmux.settings.connectors.connect", { provider: run.provider, sharing: run.sharing })
+        ? await this.request("cmux.settings.connectors.connect", {
+            provider: run.provider,
+            sharing: run.sharing,
+            scope,
+          })
         : await this.request("cmux.settings.connectors.disconnect", {
             provider: run.provider,
             connection: run.connection,
+            scope,
           });
     return reply.ok ? null : reply.error.message;
   }

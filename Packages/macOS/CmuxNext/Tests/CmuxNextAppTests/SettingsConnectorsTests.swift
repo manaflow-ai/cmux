@@ -12,6 +12,12 @@ import Testing
     private let listing = Data(#"{"connectors":[]}"#.utf8)
     private let approval = Data(#"{"provider":"github","url":"https://github.com/apps/cmux/installations/new"}"#.utf8)
 
+    /// The `scope` RELAY's list gave the page, as the page sends it back.
+    private func shown(_ relay: SettingsConnectors) async throws -> JSONValue {
+        let list = try await relay.call("cmux.settings.connectors.list", params: .object([:]), context: click)
+        return list["scope"] ?? .null
+    }
+
     @Test func managedTeamMissingSendsNothingForThePerson() async throws {
         var team: String? = nil
         var sent: [String] = []
@@ -46,23 +52,36 @@ import Testing
     @Test func aTeamSwitchDuringTheRequestOpensNoApprovalPage() async throws {
         var team: String? = "team-a"
         var scopes: [GitHubConnections.Scope] = []
+        var switchDuringSend = true
         var opened: [URL] = []
         let relay = SettingsConnectors(scope: {
             GitHubConnections.signedInScope(project: "project", user: "user", team: team, managedTeam: nil)
-        }, send: { _, _, query, bound in
+        }, send: { _, path, query, bound in
+            guard path.hasSuffix("install") else { return (200, listing) }
             scopes.append(bound)
             #expect(query == ["sharing": "team"])
-            team = "team-b" // The person switches teams while the request is out.
+            if switchDuringSend { team = "team-b" } // The person switches teams while the request is out.
             return (200, approval)
         }, open: { opened.append($0) }, preview: false)
+        let inA = try await shown(relay)
         await #expect(throws: PageError.self) {
-            _ = try await relay.call("cmux.settings.connectors.connect", params: ["provider": "github", "sharing": "team"], context: click)
+            _ = try await relay.call("cmux.settings.connectors.connect",
+                                     params: ["provider": "github", "sharing": "team", "scope": inA], context: click)
         }
         #expect(scopes == [GitHubConnections.Scope(user: GitHubConnections.backendUser(project: "project", stackUser: "user"), team: "team-a")])
         #expect(opened.isEmpty)
-        // In the new team, a fresh click acts for it.
-        let answer = try await relay.call("cmux.settings.connectors.connect", params: ["provider": "github", "sharing": "team"],
-                                          context: click)
+        // The page still shows team A (its sharing prompt stayed open through the switch): refused before any request.
+        switchDuringSend = false
+        await #expect(throws: PageError.self) {
+            _ = try await relay.call("cmux.settings.connectors.connect",
+                                     params: ["provider": "github", "sharing": "team", "scope": inA], context: click)
+        }
+        #expect(scopes.count == 1)
+        // Once the page reads the list for team B, a click there acts for B.
+        let inB = try await shown(relay)
+        #expect(inB != inA)
+        let answer = try await relay.call("cmux.settings.connectors.connect",
+                                          params: ["provider": "github", "sharing": "team", "scope": inB], context: click)
         #expect(answer["opened"] == .bool(true))
         #expect(scopes.last?.team == "team-b")
         #expect(opened.count == 1)

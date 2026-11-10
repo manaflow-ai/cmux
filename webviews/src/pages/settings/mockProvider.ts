@@ -738,10 +738,15 @@ export class MockSettingsProvider {
   connectorsState: ConnectorsState = mockConnectors();
   /** Every Connect and Disconnect the page sent, in order (tests). */
   connectorRuns: Array<{ action: string; provider: string; sharing?: string; connection?: string }> = [];
+  /** The `scope` each Connect or Disconnect sent back (the list's, or a stale one). */
+  connectorScopes: string[] = [];
 
   /** Connect opens the provider's page in the real app; here the connection waits for approval. */
-  private connectConnector(params: { provider: string; sharing: "private" | "team" }) {
-    this.connectorRuns.push({ action: "connect", ...params });
+  private connectConnector(params: { provider: string; sharing: "private" | "team"; scope?: string }) {
+    this.connectorRuns.push({ action: "connect", provider: params.provider, sharing: params.sharing });
+    this.connectorScopes.push(params.scope ?? "");
+    if ((params.scope ?? "") !== (this.connectorsState.scope ?? ""))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "account or team changed");
     const connector = this.connectorsState.connectors?.find((row) => row.provider === params.provider);
     if (!connector?.configured) throw new ProtocolError(ProtocolErrorCode.invalidParams, "connector.not_configured");
     const id = `conn_mock${String(this.connectorRuns.length).padStart(16, "0")}`;
@@ -761,8 +766,11 @@ export class MockSettingsProvider {
     return { opened: true };
   }
 
-  private disconnectConnector(params: { provider: string; connection: string }) {
-    this.connectorRuns.push({ action: "disconnect", ...params });
+  private disconnectConnector(params: { provider: string; connection: string; scope?: string }) {
+    this.connectorRuns.push({ action: "disconnect", provider: params.provider, connection: params.connection });
+    this.connectorScopes.push(params.scope ?? "");
+    if ((params.scope ?? "") !== (this.connectorsState.scope ?? ""))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "account or team changed");
     const connector = this.connectorsState.connectors?.find((row) => row.provider === params.provider);
     const connection = connector?.connections?.find((row) => row.id === params.connection);
     if (!connector || !connection) throw new ProtocolError(ProtocolErrorCode.invalidParams, "selector.not_found");
@@ -1908,6 +1916,7 @@ export function mockConnectors(): ConnectorsState {
     available: true,
     signedIn: true,
     team: "team_0123456789abcdef0123",
+    scope: "scope-team-a",
     connectors: [
       {
         provider: "github",

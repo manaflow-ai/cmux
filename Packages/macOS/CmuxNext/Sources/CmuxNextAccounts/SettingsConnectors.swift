@@ -78,8 +78,10 @@ public final class SettingsConnectors: PageProvider {
             guard provider.range(of: #"^[a-z][a-z-]{0,31}$"#, options: .regularExpression) != nil else {
                 throw PageError.invalidParams("provider")
             }
-            // The click acts for the account and team shown when it was made, never one switched to meanwhile.
+            // The click acts for the account and team the page showed when it was made (its list's `scope`),
+            // never one switched to meanwhile, whether before the click or while its request is out.
             guard let bound = scope() else { throw Self.signedOut }
+            guard params["scope"]?.stringValue == Self.key(bound) else { throw Self.changed }
             if verb == "connect" {
                 let sharing = params["sharing"]?.stringValue ?? "private"
                 guard sharing == "private" || sharing == "team" else { throw PageError.invalidParams("sharing") }
@@ -112,6 +114,7 @@ public final class SettingsConnectors: PageProvider {
             fields["available"] = .bool(true)
             fields["signedIn"] = .bool(true)
             fields["team"] = bound.team.map(JSONValue.string) ?? .null
+            fields["scope"] = .string(Self.key(bound))
             return .object(fields)
         } catch {
             let message = (error as? PageError)?.message ?? error.localizedDescription
@@ -144,6 +147,9 @@ public final class SettingsConnectors: PageProvider {
     }
 
     private static let changed = PageError(code: "cmux.settings.connectors.changed", message: "account or team changed")
+
+    /// SCOPE as the page holds it: opaque to the page, compared whole here.
+    nonisolated static func key(_ scope: Scope) -> String { scope.user + "\u{1F}" + (scope.team ?? "") }
 
     /// The platform's JSON on 2xx; its own `message` (fixed text, never a provider body) otherwise.
     private func answer(_ response: (status: Int, body: Data)) throws -> JSONValue {
