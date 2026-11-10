@@ -168,6 +168,72 @@ test("calls that never say they finished are tracked no further than their turn"
   expect((client as unknown as { streamedOutputs: Map<string, unknown> }).streamedOutputs.size).toBe(0);
 });
 
+/// Records of one chat by hand: a prompt, a call's start and its updates, a subagent's own (`owner`).
+function records() {
+  let seq = 0;
+  const events: EventRecord[] = [];
+  const text = (value: string) => [{ type: "content", content: { type: "text", text: value } }];
+  return {
+    events,
+    prompt: (value: string) =>
+      events.push({ sessionId: SESSION, seq: ++seq, at: seq, dir: "mux", kind: "user_message", msg: { text: value } }),
+    call: (value: Record<string, unknown>, output?: string, owner?: string) =>
+      events.push({
+        sessionId: SESSION,
+        seq: ++seq,
+        at: seq,
+        dir: "in",
+        kind: String(value.sessionUpdate),
+        msg: {
+          method: "session/update",
+          params: {
+            sessionId: SESSION,
+            update: { ...value, ...(output === undefined ? {} : { content: text(output) }) },
+            ...(owner ? { _meta: { acpmux: { subagent: owner } } } : {}),
+          },
+        },
+      }),
+  };
+}
+const contentOf = (event: EventRecord) => event.msg.params?.update?.content?.[0]?.content?.text;
+const heldBy = (client: AcpmuxDirectClient) => (client as unknown as { events: EventRecord[] }).events;
+
+test("a subagent's call under the chat's call id never thins the chat's output", () => {
+  const log = records();
+  log.prompt("Run both");
+  log.call({ sessionUpdate: "tool_call", toolCallId: "toolu_1", kind: "execute", status: "in_progress" });
+  log.call({ sessionUpdate: "tool_call", toolCallId: "toolu_1", kind: "execute", status: "in_progress" }, undefined, "child");
+  log.call({ sessionUpdate: "tool_call_update", toolCallId: "toolu_1", status: "in_progress" }, "parent output");
+  log.call({ sessionUpdate: "tool_call_update", toolCallId: "toolu_1", status: "in_progress" }, "child output", "child");
+  for (const held of [thinStreamedOutputs(log.events), (() => {
+    const client = AcpmuxDirectClient.fed(SESSION, () => {});
+    client.feed(log.events, "live");
+    return heldBy(client);
+  })()])
+    expect(held.map(contentOf).filter(Boolean)).toEqual(["parent output", "child output"]);
+});
+
+test("a call id used again in a later prompt never thins the earlier prompt's output", () => {
+  const log = records();
+  log.prompt("First");
+  log.call({ sessionUpdate: "tool_call", toolCallId: "call_1", kind: "execute", status: "in_progress" });
+  log.call({ sessionUpdate: "tool_call_update", toolCallId: "call_1", status: "in_progress" }, "partial");
+  log.call({ sessionUpdate: "tool_call_update", toolCallId: "call_1", status: "in_progress" }, "partial and the rest");
+  log.prompt("Second");
+  // The adapter numbers calls per prompt and starts this one with an update.
+  log.call({ sessionUpdate: "tool_call_update", toolCallId: "call_1", status: "in_progress" }, "second prompt's");
+  log.call({ sessionUpdate: "tool_call_update", toolCallId: "call_1", status: "completed" }, "second prompt's, whole");
+  const live = AcpmuxDirectClient.fed(SESSION, () => {});
+  live.feed(log.events, "live");
+  for (const held of [thinStreamedOutputs(log.events), heldBy(live)])
+    // Each prompt keeps its newest output: the first prompt's partial is moot, nothing else.
+    expect(held.map(contentOf).filter(Boolean)).toEqual([
+      "partial and the rest",
+      "second prompt's",
+      "second prompt's, whole",
+    ]);
+});
+
 test("heap per batch of records stays flat as the chat grows, near what the batch shows", () => {
   const client = AcpmuxDirectClient.fed(SESSION, () => {});
   const batches = 12;

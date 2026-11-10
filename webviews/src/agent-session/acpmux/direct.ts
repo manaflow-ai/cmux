@@ -1567,6 +1567,27 @@ function textOnlyContent(update: any): boolean {
   );
 }
 
+/// The call a tool call record belongs to, for thinning: its id within its owner (a subagent's own
+/// calls are numbered apart from the chat's, and a Codex thread names its own session).
+function streamedCallKey(event: EventRecord): string | undefined {
+  if (event.kind !== "tool_call" && event.kind !== "tool_call_update") return undefined;
+  const params = event.msg?.params;
+  const callId = params?.update?.toolCallId;
+  if (typeof callId !== "string") return undefined;
+  const owner = params?._meta?.acpmux?.subagent;
+  return `${typeof owner === "string" ? owner : ""}\u0000${String(params?.sessionId ?? "")}\u0000${callId}`;
+}
+
+/// A record that bounds a call's updates: a prompt or a turn's start or end. An adapter can reuse a
+/// call id in a later prompt, even without a new `tool_call`, so no update supersedes one across it.
+const endsStreamedCalls = (event: EventRecord) =>
+  event.dir === "mux" &&
+  (event.kind === "user_message" ||
+    event.kind === "turn_started" ||
+    event.kind === "turn_end" ||
+    event.kind === "turn_result" ||
+    event.kind === "turn_error");
+
 /// Each thinned record (`withoutSupersededContent`) and the seq of the update whose content made its
 /// own moot (a seq, never the record: that would hold the content again), for a cut (`cutAfter`) and
 /// the inspector.
@@ -1595,8 +1616,8 @@ export function cutAfter(events: readonly EventRecord[], lastSeq: number): Event
       continue;
     }
     const update = sessionUpdate(event);
-    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
-    if (callId && update.content !== undefined && event.seq > (cutContent.get(callId)?.seq ?? -1))
+    const callId = streamedCallKey(event);
+    if (callId && update?.content !== undefined && event.seq > (cutContent.get(callId)?.seq ?? -1))
       cutContent.set(callId, { seq: event.seq, content: update.content });
   }
   if (cutContent.size === 0) return kept;
@@ -1605,9 +1626,9 @@ export function cutAfter(events: readonly EventRecord[], lastSeq: number): Event
   for (let index = kept.length - 1; index >= 0; index -= 1) {
     const event = kept[index]!;
     const update = sessionUpdate(event);
-    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    const callId = streamedCallKey(event);
     if (!callId || settled.has(callId)) continue;
-    if (update.content !== undefined) settled.add(callId);
+    if (update?.content !== undefined) settled.add(callId);
     const by = thinnedRecords.get(event);
     const content = cutContent.get(callId);
     if (by === undefined || by <= lastSeq || !content) continue;
@@ -1631,10 +1652,10 @@ export function thinStreamedOutputs(events: readonly EventRecord[]): EventRecord
   let thinned: EventRecord[] | undefined;
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index]!;
-    if (event.kind !== "tool_call" && event.kind !== "tool_call_update") continue;
-    const update = sessionUpdate(event);
-    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    if (endsStreamedCalls(event)) calls.clear();
+    const callId = streamedCallKey(event);
     if (!callId) continue;
+    const update = sessionUpdate(event);
     const call = calls.get(callId);
     if (!call || event.kind === "tool_call") calls.set(callId, { first: index });
     else if (textOnlyContent(update) && event.seq > events[call.first]!.seq) {
@@ -6516,13 +6537,12 @@ export class AcpmuxDirectClient {
   /// keeps every one.
   private holdLive(event: EventRecord): void {
     this.events.push(event);
-    // A turn's end ends its calls: one that never said it finished is not tracked past it.
-    if (event.dir === "mux" && (event.kind === "turn_end" || event.kind === "turn_result" || event.kind === "turn_error"))
-      this.streamedOutputs.clear();
-    if ((event.kind !== "tool_call" && event.kind !== "tool_call_update") || this.replayThrough !== undefined) return;
-    const update = sessionUpdate(event);
-    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    // A prompt or a turn's start or end ends the calls before it: one that never said it finished is
+    // not tracked past it, and an id used again after it is another call.
+    if (endsStreamedCalls(event)) this.streamedOutputs.clear();
+    const callId = this.replayThrough === undefined ? streamedCallKey(event) : undefined;
     if (!callId) return;
+    const update = sessionUpdate(event);
     let call = this.streamedOutputs.get(callId);
     // A call's first record is never thinned: on a fold from the start it makes the call's row.
     if (!call || event.kind === "tool_call") this.streamedOutputs.set(callId, (call = { first: event.seq }));
@@ -6534,13 +6554,13 @@ export class AcpmuxDirectClient {
         if (held.seq < before) break;
         if (held.seq !== before) continue;
         const heldUpdate = sessionUpdate(held);
-        if (held.kind === "tool_call_update" && heldUpdate?.toolCallId === callId && textOnlyContent(heldUpdate))
+        if (held.kind === "tool_call_update" && streamedCallKey(held) === callId && textOnlyContent(heldUpdate))
           this.events[index] = withoutSupersededContent(held, event.seq);
         break;
       }
       call.last = event.seq;
     }
-    if (update.status === "completed" || update.status === "failed") this.streamedOutputs.delete(callId);
+    if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
   }
 
   private apply(event: EventRecord): void {
@@ -6798,7 +6818,8 @@ export class AcpmuxDirectClient {
   private rebuild(): void {
     // Records read as pages (an open, an older page) hold a streamed call's every update; a replay,
     // which can seek between updates, keeps them.
-    if (this.replayThrough === undefined) this.events = thinStreamedOutputs(this.events);
+    if (this.replayThrough === undefined)
+      this.events = thinStreamedOutputs([...this.events].sort((a, b) => a.seq - b.seq));
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
     const from = Math.min(events[0]?.seq ?? Infinity, this.turnOpener?.seq ?? Infinity);
