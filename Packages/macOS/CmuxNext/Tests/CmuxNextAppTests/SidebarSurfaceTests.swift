@@ -29,9 +29,12 @@ extension MainPaneGutterSuites {
 
         /// Loads `json` as the cmux.json, the way a settings load applies it. These cases measure the
         /// `default` chrome style's surfaces (curved main pane), so a file without
-        /// `appearance.chromeStyle` pins it: the app's default is flat (no card) since 2026-11-07.
+        /// `appearance.chromeStyle` pins it: the app's default is flat (no card) since 2026-11-07. The
+        /// flush corner (`chrome.cornerFlush`), the default over that style, shades the sidebar as part
+        /// of its one frame and has its own suites, so these pin it off.
         @discardableResult
         func load(_ json: JSONValue) -> [SettingsDiagnostic] {
+            MainPaneGutterSuites.pinsCornerFlushOff(true)
             var members = json.objectValue ?? [:]
             var look = members["appearance"]?.objectValue ?? [:]
             if look["chromeStyle"] == nil { look["chromeStyle"] = .string("default") }
