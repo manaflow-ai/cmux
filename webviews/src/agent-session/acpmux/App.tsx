@@ -22,7 +22,8 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
+import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
+import { sayActionRefusal } from "./actionRefusal";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { agentKey } from "../shared/agentKey";
@@ -2160,8 +2161,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const access = useMemo<AccessOffer>(
     () => ({
       addCredits: () =>
-        void callNative("action.run", { id: ACCESS_ACTIONS.addCredits }).catch(() =>
-          notices.transient(translate("composer.offloadNotRun", { action: translate("access.addCredits") })),
+        void callNative("action.run", { id: ACCESS_ACTIONS.addCredits }).catch(
+          sayActionRefusal(notices.transient, () =>
+            translate("composer.offloadNotRun", { action: translate("access.addCredits") }),
+          ),
         ),
     }),
     [notices],
@@ -4280,7 +4283,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // Show all chats opens the command palette's chats page (agentPane.searchChats, decision K1:
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
-  const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
+  const showAllChats = () =>
+    void callNative("action.run", { id: "agentPane.searchChats" }).catch(sayActionRefusal(notices.transient));
   // The + menu's Search chats and Search pages (Leo: "the chatgpt desktop app, let's do their +
   // symbol's capabiliities for our composer"): the command palette's chats page and its History
   // search page, both app actions the pane may run (AgentPaneModel.paletteActions). A refusal is
@@ -4288,8 +4292,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const plusSearchExtensions = useMemo(() => composerPlusSearchExtensions(t), [t]);
   const runPlusSearch = (id: string) => {
     const name = id === PLUS_SEARCH_ACTIONS.pages ? t("composer.plusSearchPages") : t("sidebar.search");
-    void callNative("action.run", { id }).catch(() =>
-      notices.transient(translate("composer.offloadNotRun", { action: name })),
+    void callNative("action.run", { id }).catch(
+      sayActionRefusal(notices.transient, () => translate("composer.offloadNotRun", { action: name })),
     );
   };
   // New Tab shows no transcript, so the page says a refusal itself (NewTabScreen plusRefused).
@@ -4297,37 +4301,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
-    void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
+    void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(sayActionRefusal(notices.transient));
   // Move to Cloud and Bring Back Local report their own progress and failures as the app's toasts;
-  // the pane's toast says only that the app did not start the move (turned off, or not for this chat).
+  // the pane's toast says why the app did not start the move (its reason: "Send a first message, then
+  // move this chat."), or that it did not when it gave none (turned off).
   /// `session`, when given (the title menu), binds the move to the chat whose menu offered it: the
   /// host runs it only while the tab still shows that chat (AgentPaneModel+Actions.swift).
   const offloadChat = (kind: OffloadKind, session?: string) => {
-    const notRun = () =>
-      notices.transient(
-        translate("composer.offloadNotRun", {
-          action: translate(kind === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
-        }),
-      );
+    const notRunText = () =>
+      translate("composer.offloadNotRun", {
+        action: translate(kind === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
+      });
     if (session !== undefined && directClient.current?.selectedSession !== session) {
-      notRun();
+      notices.transient(notRunText());
       return;
     }
     void callNative("action.run", { id: CONNECT_ACTIONS[kind], ...(session !== undefined ? { session } : {}) }).catch(
-      notRun,
+      sayActionRefusal(notices.transient, notRunText),
     );
   };
   /// `session`: the chat whose title menu offered the move. The host moves the tab only while it
   /// still shows that chat (AgentTabs+Header.swift), so a switch before the request is handled
   /// never moves the newly selected chat.
   const moveChatToMachine = (machine: string, session: string | undefined) => {
-    const notRun = () =>
-      notices.transient(translate("composer.offloadNotRun", { action: translate("composer.moveToCloud") }));
+    const notRunText = () => translate("composer.offloadNotRun", { action: translate("composer.moveToCloud") });
     if (!session || directClient.current?.selectedSession !== session) {
-      notRun();
+      notices.transient(notRunText());
       return;
     }
-    void callNative("pane.moveToMachine", { machine, session }).catch(notRun);
+    void callNative("pane.moveToMachine", { machine, session }).catch(sayActionRefusal(notices.transient, notRunText));
   };
   const cloudPreviewTurnId = useMemo(() => {
     for (let index = snapshot.rows.length - 1; index >= 0; index -= 1) {
@@ -5801,6 +5803,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
   const heldQuotes = useRef<string[] | undefined>(undefined);
+  // The subagent pane's composer (SubagentComposer.tsx) while it shows: Quote in Reply goes there,
+  // never held for the chat's composer, which a subagent pane does not mount.
+  const subagentQuote = useRef<{ quoteReply(markdown: string): void } | null>(null);
+  const quoteReply = useCallback((markdown: string) => {
+    if (subagentQuote.current) subagentQuote.current.quoteReply(markdown);
+    else quoteIntoComposer(composerHandle, heldQuotes, markdown);
+  }, []);
   /// Prompts sent while a new chat starts, shown as queued rows until acpmux takes each, in order
   /// (startingSends.ts). One refused comes back to the composer with those behind it.
   const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
@@ -6113,7 +6122,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The selection's Reply chip and a row's Reply quote through the same Quote in Reply as the
   // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
-  useEffect(() => setQuoteReplySink((markdown) => quoteIntoComposer(composerHandle, heldQuotes, markdown)), []);
+  useEffect(() => setQuoteReplySink(quoteReply), [quoteReply]);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -6531,6 +6540,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
       // the message to this chat).
       ...(quick && { canHandoff: false }),
+      // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
+      ...(cloudPicked && { startsOnCloud: true as const }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -6553,6 +6564,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sidePlace,
     quick,
     keptStopping,
+    cloudPicked,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -8201,7 +8213,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // draft, which stays as typed, and the caret waits in an empty paragraph below it. With no
           // composer mounted (a Sandboxed receipt shows), it waits for the composer to come back.
           "chat.quoteReply": async ({ markdown }) => {
-            quoteIntoComposer(composerHandle, heldQuotes, String(markdown ?? ""));
+            quoteReply(String(markdown ?? ""));
           },
           // Selected transcript text can be attached as a context chip without changing the
           // draft text. The rail/menu owns only the gesture; the composer owns chip rendering.
@@ -8847,6 +8859,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox,
     cloudTypingPrewarm,
     notices,
+    quoteReply,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -9100,12 +9113,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs, pullRequest: headerPullRequest, moves, moveTargets, lit: litSplits } = useHeaderState();
+  const {
+    sideTabs,
+    pullRequest: headerPullRequest,
+    moves,
+    moveReasons,
+    moveTargets,
+    lit: litSplits,
+  } = useHeaderState();
   // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
   const offloads = useMemo(
     () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
     [moves],
   );
+  // Why each offered move would refuse now: the picker greys its row and says it.
+  const offloadReasons = useMemo(() => offloadReasonsOf(offloads, moveReasons), [offloads, moveReasons]);
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -10872,6 +10894,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       chat={chatName}
       draftKey={subagentDraftKey}
       onSend={sendToSubagent}
+      quoteRef={subagentQuote}
     />
   ) : (
     !reviewing && (
@@ -11009,7 +11032,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }}
             onInvite={() => {
               shareNudge.close();
-              void callNative("action.run", { id: "agent.share.invite" }).catch(() => undefined);
+              void callNative("action.run", { id: "agent.share.invite" }).catch(sayActionRefusal(notices.transient));
             }}
             onDismiss={shareNudge.close}
           />
@@ -11516,7 +11539,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
-            {...(quick ? {} : { onOffload: offloadChat, offloads })}
+            {...(quick ? {} : { onOffload: offloadChat, offloads, offloadReasons })}
             // The list opened: the machines' status and the chat's moves are read again.
             onRefreshMachines={() => {
               void directClient.current?.refreshPeers();

@@ -1306,6 +1306,9 @@ export type AcpmuxSnapshot = {
   /// Codex and opencode chats send there (remoteEditing.ts). Never set for a team machine,
   /// another person's computer or a remote browser.
   ownerCloud?: boolean;
+  /// Composer only: this new chat's first send starts it on a Cloud machine (Cloud picked as where
+  /// it runs, `cloud.startChat`), not on this Mac. That machine decides the chat's start mode.
+  startsOnCloud?: true;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
