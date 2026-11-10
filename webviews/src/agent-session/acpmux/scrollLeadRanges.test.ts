@@ -68,8 +68,8 @@ describe("scrollLeadRanges fast fling", () => {
   test("a jump past the cap mounts the view and the next frame's view, nothing between or beyond", () => {
     const delta = 8 * VIEW;
     const ranges = scrollLeadRanges(long, far, delta, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
-    // The view and the next view with its margin (half a view each side).
-    expect(at(8)).toBeLessThanOrEqual(VIEW * 3 + 2 * edges);
+    // The view and the next view with its margin (a view each side).
+    expect(at(8)).toBeLessThanOrEqual(VIEW * 4 + 2 * edges);
     expect(at(-8)).toBe(at(8));
     const mounted = (y: number) => ranges.some((range) => range.first <= rowAt(y) && rowAt(y) < range.last);
     expect(mounted(far + 2 * VIEW)).toBe(false);
@@ -79,11 +79,11 @@ describe("scrollLeadRanges fast fling", () => {
   });
 
   test("a jump too far for its margin to hold mounts the view alone, however far", () => {
-    // Half a view of margin is under PREDICTED_JITTER of a jump past 10 views.
-    expect(VIEW / 2).toBeLessThan(20 * VIEW * PREDICTED_JITTER);
-    expect(at(20)).toBeLessThanOrEqual(VIEW + edges);
-    expect(at(200)).toBe(at(20));
-    expect(at(-200)).toBe(at(20));
+    // A view of margin is under PREDICTED_JITTER of a jump past 20 views.
+    expect(VIEW).toBeLessThan(30 * VIEW * PREDICTED_JITTER);
+    expect(at(30)).toBeLessThanOrEqual(VIEW + edges);
+    expect(at(300)).toBe(at(30));
+    expect(at(-300)).toBe(at(30));
   });
 
   test("a scrollbar drag within the cap keeps its contiguous lead", () => {

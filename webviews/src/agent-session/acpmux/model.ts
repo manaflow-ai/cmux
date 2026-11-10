@@ -3522,7 +3522,9 @@ export function scrollLeadRanges(
       overscan,
     ),
   ];
-  const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
+  // A jump builds one window ahead, so it takes a viewport of margin either side: a paced fling's
+  // frames vary by a fifth of a 5-viewport jump, past the half viewport a two-window lead used.
+  const margin = Math.min(Math.abs(delta) / 4, jumping ? viewportHeight : viewportHeight / 2);
   // The next views are built only while their margin holds a frame's unevenness (a few percent of
   // its jump): past that, the next frame lands outside the window it built as often as in it, and
   // the view it lands on is built in its own commit anyway.

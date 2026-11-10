@@ -178,10 +178,10 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     // warm window around a view the next frame has left (perf cron: 54 ms of React a fling frame):
     // the rows mounted a frame stay a few viewports however far a frame jumps (a god session's fling
     // moves tens of viewports a frame).
-    const jumping = await fling(repeat([20, 21, 19.5, 20.5]));
+    const jumping = await fling(repeat([30, 31.5, 29, 30.5]));
     console.log(`transcript-fling jumping: ${JSON.stringify({ ...jumping, blanks: jumping.blanks.length })}`);
-    expect(results.up.mountedViewports).toBeLessThanOrEqual(4.5);
-    // Twenty viewports a frame is past what a frame's margin can predict: the view alone.
+    expect(results.up.mountedViewports).toBeLessThanOrEqual(5);
+    // Thirty viewports a frame is past what a frame's margin can predict: the view alone.
     expect(jumping.mountedViewports).toBeLessThanOrEqual(2.5);
 
     // A stopped fling should release its directional lead after the idle timeout. Without the
