@@ -186,7 +186,7 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         const before = await caretIn(page, { ...chip!, left: Math.max(0, front.left - 24), right: front.left + 4 });
         if (engine === "chromium") {
           if (!before) failures.push(`${engine}: no caret before the chip at the line's start`);
-          else if (before.right > front.left + 1.5)
+          else if (before.left > front.left + 1.5)
             failures.push(`${engine}: the caret before the chip is at ${before.left}, inside the chip`);
         } else
           console.log(`${engine}: the caret before a chip at the line's start ${before ? "shows" : "does not show"}`);
@@ -224,7 +224,10 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         if (!ahead) failures.push(`${engine}: no caret before the chip`);
         else if (ahead.bottom - ahead.top < 10)
           failures.push(`${engine}: the caret before the chip is ${ahead.bottom - ahead.top}px tall`);
-        else if (ahead.right > start + 1.5) failures.push(`${engine}: the caret before the chip is inside it`);
+        // Each engine paints its 1px caret on whole pixels, Chromium's just before the insertion point and
+        // WebKit's just after it: the caret starts no further in than that.
+        else if (ahead.left > start + 1.5)
+          failures.push(`${engine}: the caret before the chip is at ${ahead.left}, inside it (${start})`);
 
         // A Cloud start is out: a real click focuses the prompt, and real keys type into it.
         await page.goto(
