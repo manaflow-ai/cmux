@@ -17,13 +17,16 @@ extension ChatController {
         }
         if slashMenuDismissed == field.string { return }
         slashMenuDismissed = nil
-        // A fresh `/` reads the folders again in the background; the menu shows the last list now.
-        if field.string == "/" || source.skills.isEmpty { source.refresh() }
+        // A fresh `/` reads the list again in the background (folders, or a paired server's host);
+        // the menu shows the last list now. Typing more never asks again: a host that is down would
+        // get one request per key.
+        if field.string == "/" || !source.hasLoaded { source.refresh() }
         guard var menu = SlashSkillMenu(text: field.string, caret: field.selectedRange().location, skills: source.skills) else {
             if slashMenu != nil { slashMenu = nil }
             return
         }
         menu.isLoading = menu.matches.isEmpty && !source.hasLoaded
+        menu.loadFailed = menu.matches.isEmpty && source.failed
         // The same command keeps its row (a list refresh); a new one starts at the best match.
         if let old = slashMenu, old.query == menu.query, let choice = old.choice, let i = menu.matches.firstIndex(of: choice) {
             menu.select(i)

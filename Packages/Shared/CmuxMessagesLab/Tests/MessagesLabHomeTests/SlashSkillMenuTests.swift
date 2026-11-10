@@ -221,6 +221,34 @@ import Testing
         #expect(p.field.string == "/triage ")
     }
 
+    /// A paired server's host that does not answer: the menu says the list could not load, and
+    /// typing more asks it no more (one request per fresh `/`, not one per key).
+    @Test func aRemoteChiefThatDoesNotAnswerSaysSoAndIsNotAskedPerKey() async throws {
+        let p = await pane(skills: nil)
+        let asks = Counter()
+        let source = SlashSkillSource(remote: RemoteSlashSkills(id: "server/down") {
+            await asks.bump()
+            return nil
+        })
+        p.controller.slashSkills = source
+        type("/", in: p)
+        await source.settled()
+        let failed = try #require(p.menuView?.state)
+        #expect(failed.loadFailed && !failed.isLoading)
+        type("tri", in: p)
+        await source.settled()
+        #expect(await asks.value == 1, "typing after / asks the host no more")
+        p.field.replaceAllText(with: "")
+        type("/", in: p)
+        await source.settled()
+        #expect(await asks.value == 2, "a fresh / asks again")
+    }
+
+    actor Counter {
+        private(set) var value = 0
+        func bump() { value += 1 }
+    }
+
     @Test func theMenuIsSolidInLightAndDark() async throws {
         let folders = try Folders()
         let p = await pane(skills: folders.catalog)

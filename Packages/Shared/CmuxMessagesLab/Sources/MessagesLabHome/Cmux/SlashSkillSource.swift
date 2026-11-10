@@ -14,7 +14,8 @@ final class SlashSkillSource {
     /// The remote Chief this list asks (``RemoteSlashSkills/id``); nil for folders.
     let remoteID: String?
     /// Reads the list off this Mac: folders, or the remote Chief's answer.
-    private let read: @Sendable () async -> [SlashSkill]
+    /// nil: the read failed (a remote host that did not answer).
+    private let read: @Sendable () async -> [SlashSkill]?
     /// The last list read; empty until the first load ends.
     private(set) var skills: [SlashSkill] = []
     /// The list changed (a load ended with another list).
@@ -23,6 +24,8 @@ final class SlashSkillSource {
     private var loading: Task<Void, Never>?
     /// A load has ended (until then an empty ``skills`` means "not here yet").
     private(set) var hasLoaded = false
+    /// The newest read failed (the remote host did not answer); ``skills`` keeps the last list.
+    private(set) var failed = false
 
     /// - Parameter catalog: The folders the skills come from.
     init(catalog: SlashSkillCatalog) {
@@ -49,7 +52,14 @@ final class SlashSkillSource {
             loading = nil
             let first = !hasLoaded
             hasLoaded = true
-            guard first || fresh != skills else { return }
+            let failedNow = fresh == nil
+            let failedChanged = failedNow != failed
+            failed = failedNow
+            guard let fresh else {
+                if first || failedChanged { onChange() }
+                return
+            }
+            guard first || failedChanged || fresh != skills else { return }
             skills = fresh
             onChange()
         }
@@ -64,13 +74,13 @@ final class SlashSkillSource {
 public struct RemoteSlashSkills: Sendable {
     /// Which Chief; a new id makes a new list.
     public let id: String
-    /// Asks the Chief's host for its list (empty when it does not answer).
-    public let load: @Sendable () async -> [SlashSkill]
+    /// Asks the Chief's host for its list (nil when it does not answer).
+    public let load: @Sendable () async -> [SlashSkill]?
 
     /// - Parameters:
     ///   - id: Which Chief.
-    ///   - load: Asks its host for the list.
-    public init(id: String, load: @escaping @Sendable () async -> [SlashSkill]) {
+    ///   - load: Asks its host for the list; nil when it did not answer.
+    public init(id: String, load: @escaping @Sendable () async -> [SlashSkill]?) {
         self.id = id
         self.load = load
     }

@@ -58,8 +58,8 @@ public final class HomeChiefTurnActions {
         if let control = self.control, control.brainHome == nil, let connection = control.connection {
             let named = control.named
             transcript?.setRemoteSlashSkills(id: "\(ObjectIdentifier(connection))/\(named ?? "")") {
-                let report = try? await ChiefControlClient(connection).chiefEngine(chief: named)
-                return (report?.offered.skills ?? []).map { (name: $0.name, description: $0.description, source: $0.source) }
+                guard let report = try? await ChiefControlClient(connection).chiefEngine(chief: named) else { return nil }
+                return report.offered.skills.map { (name: $0.name, description: $0.description, source: $0.source) }
             }
         } else {
             transcript?.setRemoteSlashSkills(id: nil, load: nil)

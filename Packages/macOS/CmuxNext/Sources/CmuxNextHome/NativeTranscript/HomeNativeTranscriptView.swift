@@ -377,16 +377,16 @@ public final class HomeNativeTranscriptView: NSView {
     /// The `/` list of a Chief whose host runs on another machine (a paired server), which this Mac
     /// cannot read from folders: `load` asks that host (`chief.engine.get` `offered.skills`) and
     /// answers each skill's name, description and source (`chief`, `claude`, `plugin:<plugin>`).
-    /// `id` names the Chief; nil clears the remote list.
+    /// `id` names the Chief; nil clears the remote list. `load` answers nil when the host did not answer.
     public func setRemoteSlashSkills(
-        id: String?, load: (@Sendable () async -> [(name: String, description: String, source: String)])?
+        id: String?, load: (@Sendable () async -> [(name: String, description: String, source: String)]?)?
     ) {
         guard let id, let load else {
             transcript.setRemoteSlashSkills(nil)
             return
         }
         transcript.setRemoteSlashSkills(RemoteSlashSkills(id: id) {
-            await load().map { SlashSkill(name: $0.name, summary: $0.description, source: SlashSkill.source(wire: $0.source)) }
+            await load()?.map { SlashSkill(name: $0.name, summary: $0.description, source: SlashSkill.source(wire: $0.source)) }
         })
     }
 

@@ -96,6 +96,10 @@ enum CmuxStrings {
     static var slashSkillsLoading: String {
         String(localized: "home.slashSkills.loading", defaultValue: "Loading skills…", table: "CmuxHome", bundle: .module)
     }
+    /// The menu's only row when a paired server's Chief host did not answer with its list.
+    static var slashSkillsFailed: String {
+        String(localized: "home.slashSkills.failed", defaultValue: "Couldn't load skills", table: "CmuxHome", bundle: .module)
+    }
     /// The source tag of a Chief skill.
     static var slashSkillsSourceChief: String {
         String(localized: "home.slashSkills.source.chief", defaultValue: "Chief", table: "CmuxHome", bundle: .module)
