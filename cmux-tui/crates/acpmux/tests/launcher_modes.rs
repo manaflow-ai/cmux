@@ -4,7 +4,8 @@
 //! a mode that asks (`default`, `plan`) as it may on `claude`; a mode that does not ask
 //! (`acceptEdits`, `auto`, `bypassPermissions`) still needs the person (`hub/start_gate.rs`,
 //! `hub/person.rs`). Bench round 5, row 9: `acpmux new -m claude-sr2 --mode default` was refused
-//! with "mode default does not ask before it acts".
+//! with "mode default does not ask before it acts". From a remote (Web) connection the launcher
+//! profile gets exactly Claude's remote set, and a family with no reviewed row fails closed.
 
 #![cfg(unix)]
 
@@ -24,6 +25,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 mod launcher_modes {
     use super::*;
@@ -176,5 +178,97 @@ mod launcher_modes {
                 hub.shutdown_all().await;
             }
         }
+    }
+
+    /// A home for Web tests: a Web root, the two Claude Code profiles, and `lane`, an ACP agent of a
+    /// family with no reviewed asking row.
+    fn web_hub(tag: &str) -> (Arc<Hub>, std::path::PathBuf) {
+        let _ = &HERMETIC;
+        let d = std::env::temp_dir().join(format!("alm-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("work")).unwrap();
+        let d = std::fs::canonicalize(&d).unwrap();
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {
+                "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+                "claude-sr2": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "family": "claude-sr2"},
+                "lane": {"argv": ["python3", FAKE_AGENT], "family": "lane"},
+            },
+            "defaultHarness": "claude",
+            "permissionPolicy": "ask",
+            "defaultPermissionMode": "standard",
+            "webRoots": [d.join("work")],
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        (Hub::new(cfg, store), d)
+    }
+
+    fn web_client(hub: &Arc<Hub>) -> Client {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Web));
+        Client(in_tx, out_rx, 0)
+    }
+
+    /// From a remote (Web) connection, a launcher profile of Claude Code gets exactly Claude's set:
+    /// it starts in Claude's asking default, moves between `default` and `plan`, and is refused
+    /// `acceptEdits`, `auto` and `bypassPermissions`, as `claude` is.
+    #[tokio::test]
+    async fn from_the_web_a_launcher_profile_gets_claudes_asking_modes_and_no_others() {
+        let (hub, d) = web_hub("web");
+        let mut web = web_client(&hub);
+        for harness in ["claude", "claude-sr2"] {
+            let r = web
+                .call(
+                    "session/new",
+                    json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
+                )
+                .await;
+            let id = r["result"]["sessionId"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{harness}: {r}"))
+                .to_owned();
+            assert_eq!(
+                web.mode(&id).await,
+                "default",
+                "{harness} starts in Claude's asking default"
+            );
+            for mode in ["plan", "default"] {
+                let set =
+                    web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
+                assert!(set.get("error").is_none(), "{harness} set_mode {mode}: {set}");
+                assert_eq!(web.mode(&id).await, mode);
+            }
+            for mode in ["acceptEdits", "auto", "bypassPermissions"] {
+                let set =
+                    web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
+                let message = set["error"]["message"].as_str().unwrap_or_default();
+                assert!(
+                    message.contains("never from a remote WebSocket"),
+                    "{harness} {mode}: {set}"
+                );
+            }
+        }
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A profile whose family has no reviewed asking row fails closed from the Web: it does not start.
+    #[tokio::test]
+    async fn from_the_web_a_family_with_no_asking_row_does_not_start() {
+        let (hub, d) = web_hub("norow");
+        let mut web = web_client(&hub);
+        let r = web
+            .call(
+                "session/new",
+                json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "lane"}}}),
+            )
+            .await;
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("no reviewed asking mode"), "{r}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
