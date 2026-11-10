@@ -2133,7 +2133,12 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
     });
     let mut stream = connect(&socket).unwrap();
     let started = Instant::now();
-    let answer = request_with_retry(&mut stream, "action.run", &json!({ "action": "cloud.list" }), READ_TIMEOUT);
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
     let took = started.elapsed();
     drop(stream);
     let asked = app.join().unwrap();

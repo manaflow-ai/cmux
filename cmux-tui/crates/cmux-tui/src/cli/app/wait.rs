@@ -11,9 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{
-    GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, safe_to_resend,
-};
+use super::{GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, safe_to_resend};
 
 /// Only the long waits (a screenshot's 35 s, a waiting run's 45 s) show
 /// notes; a 5 s control-plane read answers or fails before a note helps.
@@ -44,7 +42,8 @@ pub(super) fn request(
     let progress = Progress::start(&what, template, timeout.filter(|_| long), global.output);
     // One deadline for the not-run retries and the reconnects together: a socket back late gets what is left.
     let deadline = Instant::now() + super::run::not_run_deadline(timeout);
-    let mut response = super::run::request_with_retry_until(stream, method, params, timeout, deadline);
+    let mut response =
+        super::run::request_with_retry_until(stream, method, params, timeout, deadline);
     // A dropped connection (the app restarted its control server, or closed
     // it under load) is healed: a new connection, the same request, with
     // backoff until the deadline. A keyed run carries its idempotency key, so

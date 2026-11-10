@@ -1707,7 +1707,9 @@ fn read_again_before(deadline: Deadline, runner: &mut dyn Runner, unanswered: u3
     }
     let again = unanswered + 1 < UNBOUNDED_READ_TRIES;
     if !again {
-        eprintln!("cmux: cloud start-chat: {UNBOUNDED_READ_TRIES} reads in a row went unanswered with no deadline; stopping");
+        eprintln!(
+            "cmux: cloud start-chat: {UNBOUNDED_READ_TRIES} reads in a row went unanswered with no deadline; stopping"
+        );
     }
     again
 }

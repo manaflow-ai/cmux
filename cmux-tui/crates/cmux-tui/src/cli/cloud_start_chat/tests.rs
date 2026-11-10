@@ -951,7 +951,11 @@ fn unanswered_reads_are_asked_again_until_the_deadline() {
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
     // Far more than three reads, and the failure comes only once the deadline has passed.
     assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
-    assert!(fake.clock.duration_since(began) >= Duration::from_secs(120), "{:?}", fake.clock.duration_since(began));
+    assert!(
+        fake.clock.duration_since(began) >= Duration::from_secs(120),
+        "{:?}",
+        fake.clock.duration_since(began)
+    );
 }
 
 /// The machine's daemon comes back 30 s into the wait (a receiver or acpmux that starts late): every read until then
