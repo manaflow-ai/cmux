@@ -560,6 +560,7 @@ mod resource_attach;
 mod resource_waits;
 mod send_expect_agent_replay;
 mod session_streams;
+mod shutdown_refusal;
 mod sizing;
 mod slow_request_log;
 mod socket_and_render;
