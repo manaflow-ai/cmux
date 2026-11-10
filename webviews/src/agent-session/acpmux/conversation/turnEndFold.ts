@@ -265,7 +265,7 @@ export function playTurnEnd(
         if (before) longest = Math.max(longest, Math.abs(startTop(node, before.top) - tops[index]!));
       });
       if (look === "tuck" && line !== undefined)
-        copies.forEach((copy, order) => {
+        copies.forEach((copy) => {
           const row = gone.find((entry) => entry.copy === copy)!;
           longest = Math.max(longest, Math.abs(line - startTop(copy, row.top)));
         });

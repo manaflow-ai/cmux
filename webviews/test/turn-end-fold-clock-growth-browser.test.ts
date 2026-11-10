@@ -91,7 +91,7 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
     });
   });
   afterAll(async () => {
-    server?.stop(true);
+    await server?.stop(true);
     if (scratch) await rm(scratch, { recursive: true, force: true });
   });
 
@@ -107,7 +107,12 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
           const fold = (window as any).__fold;
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const thread = document.querySelector<HTMLElement>(".acpmux-thread")!;
-          const afterRows = after.map(([id]: [string, number, number]) => ({ id, version: 1, at: 1, kind: "assistant" }));
+          const afterRows = after.map(([id]: [string, number, number]) => ({
+            id,
+            version: 1,
+            at: 1,
+            kind: "assistant",
+          }));
           const capture = fold.captureTurnEnd(thread, scroller, afterRows, "s");
           if (!capture) return { error: "nothing captured" };
           // The swap: the work and the running line go, "Worked for" comes, the rows below close up.
