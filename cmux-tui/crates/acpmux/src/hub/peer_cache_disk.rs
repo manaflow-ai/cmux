@@ -154,7 +154,6 @@ pub(crate) struct Wrote {
 }
 
 impl Wrote {
-    #[cfg(test)]
     pub(crate) fn total(self) -> u64 {
         self.snapshot + self.journal
     }

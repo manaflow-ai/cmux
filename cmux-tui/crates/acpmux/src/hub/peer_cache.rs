@@ -157,9 +157,11 @@ impl Hub {
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                 }
             }
-            let _wrote = on_disk.save(&dir, peer, rows, link)?;
+            let wrote = on_disk.save(&dir, peer, rows, link)?;
+            let (bytes, snapshot) = (wrote.total(), wrote.snapshot);
+            tracing::trace!(peer = %peer, bytes, snapshot, "peer cache saved");
             #[cfg(test)]
-            self.cache_test_bytes.fetch_add(_wrote.total(), std::sync::atomic::Ordering::SeqCst);
+            self.cache_test_bytes.fetch_add(wrote.total(), std::sync::atomic::Ordering::SeqCst);
             Ok(())
         };
         if let Err(e) = write() {
