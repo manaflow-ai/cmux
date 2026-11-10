@@ -113,6 +113,21 @@ fn an_open_offer_is_not_made_twice() {
 }
 
 #[test]
+fn a_chat_no_person_asked_gets_no_entry() {
+    let mut record = Record::default();
+    record.update(Shape {
+        session: "agent".into(),
+        steps: vec!["cargo test".into()],
+        ..Shape::default()
+    });
+    assert!(record.chats.is_empty());
+    // A person's chat keeps the steps of a later turn that came without a prompt.
+    replay(&mut record, "r1", RELEASE_1);
+    record.update(Shape { session: "r1".into(), steps: vec!["gh pr".into()], ..Shape::default() });
+    assert_eq!(record.chats[0].steps.last().map(String::as_str), Some("gh pr"));
+}
+
+#[test]
 fn records_stay_bounded() {
     let mut record = Record::default();
     for n in 0..(MAX_CHATS * 2) {

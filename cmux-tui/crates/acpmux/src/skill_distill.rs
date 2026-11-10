@@ -370,8 +370,13 @@ pub struct Found {
 
 impl Record {
     /// `shape` as the chat's newest entry: its first prompt kept from before, its steps and
-    /// commands added to the ones its earlier turns ran.
+    /// commands added to the ones its earlier turns ran. A chat no person has asked anything
+    /// (an agent's, a lane's) gets no entry.
     pub fn update(&mut self, mut shape: Shape) {
+        let known = self.chats.iter().any(|c| c.session == shape.session);
+        if !known && shape.prompt.is_empty() {
+            return;
+        }
         if let Some(at) = self.chats.iter().position(|c| c.session == shape.session) {
             let old = self.chats.remove(at);
             if !old.prompt.is_empty() {
