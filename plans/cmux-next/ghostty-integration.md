@@ -8,7 +8,7 @@ Order (Lawrence, cmux-ad m86): "from first principles we need to integrate with 
 "scrolling is slow in ghostty as well".
 
 Code read at cmux `origin/feat-cmux-next` 678886bd10d, ghostty-next pin `b3a5ebfdfe70` (still the pin at
-`b7dfd714d4e`, 2026-11-10). Paths: `app:` is
+`7d3e8472628`, 2026-11-10; `CmuxNextTerminal/` has no change between the two commits). Paths: `app:` is
 `Packages/macOS/CmuxNext/Sources/`, `gn:` is the ghostty-next tree at the pin, `up:` is upstream
 ghostty-org/ghostty at the pin's upstream base. The audit of 2026-10-23
 ([ghostty-integration-DESIGN.md](ghostty-integration-DESIGN.md), faults G1-G8) stays the record of the
@@ -53,7 +53,7 @@ Reviewers check the table, not a CI status.
   One shared Ghostty config file is given to both apps (cmux reads Ghostty config through
   `GhosttyRuntime+ConfigFiles.swift`); a key both apps read differently is a bench bug, not a result.
 - cmux arm: Release build with bench hooks (`cmux-ci build cmux --ref SHA --tag TAG --release --backend-mode
-  local`), `CMUX_DEV_BACKEND_MODE=local`, the terminal in the first pane, sidebar at its default width.
+  local`, with a TAG that `release_bench_tags` in `scripts/cmux-next/cmux-next.dogfood.conf` matches), `CMUX_DEV_BACKEND_MODE=local`, the terminal in the first pane, sidebar at its default width.
   Its daemon and terminal host run as they ship (the bench measures the product, not the app alone).
 - Upstream arm: Ghostty.app built on the fleet from the upstream base commit (`zig build
   -Doptimize=ReleaseFast` and the macOS app, Xcode Release), launched with the same config file, no other
@@ -61,8 +61,9 @@ Reviewers check the table, not a CI status.
 - Input: real HID events from `scripts/journeys/hid_inject.swift` (CGEventPost at the HID tap at
   `mach_absolute_time` deadlines, events stamped on `CLOCK_UPTIME_RAW`). Neither app gets a socket call,
   a debug method or an injected `NSEvent` during a timed phase: the same input path for both.
-- Frames: ScreenCaptureKit on the virtual display (`scripts/cmux-next/media/record-window.swift`'s stream,
-  each frame's `displayTime` on the same clock as the HID log). A frame "shows X" when the pixel judge
+- Frames: ScreenCaptureKit on the virtual display, a new stream of step 0: an `SCStreamOutput` at 120 Hz that reads
+  each sample's `displayTime`, on the same clock as the HID log. (`scripts/cmux-next/media/record-window.swift` at
+  the tip records one window to a movie at 60 frames per second at most and gives no time per frame.) A frame "shows X" when the pixel judge
   finds X in the terminal rectangle (a marker glyph row, see each journey).
 - CPU: per process, `proc_pid_rusage` user+system time deltas read before and after the phase (no
   `sample`, no Instruments on a measured run). cmux arm: app, the `cmux-tui` daemon and the pane's
@@ -77,8 +78,8 @@ Reviewers check the table, not a CI status.
 |---|---|---|---|---|---|
 | S1 | Scroll, wheel, primary screen | `scroll-zsh` wheel bursts (sec. 1.3): zsh, 50k lines printed, 20 bursts of 120 wheel events at about 120 Hz, alternating up and down | per-frame interval p50/p95/p99/max while frames change; missed refreshes (an interval > 1.5 x 8.333 ms counts its extra refreshes); scroll input -> frame (probe 1) p50/p95/p99; renderer, main and io thread ms per frame (probe 2) | 20 runs x 20 bursts | 0.05 ms; 1 missed refresh per 1,000 |
 | S2 | Scroll, trackpad, primary screen | `scroll-zsh` trackpad bursts: began, 118 changed, ended at about 120 Hz; the parity driver adds momentum events after `ended`, like a real fling | as S1, plus frames per burst and last event -> last changed frame | 20 runs x 20 bursts | as S1 |
-| S3 | Scroll in `less` | `scroll-tui` less part: 50k-line file, wheel and trackpad bursts. Ghostty's alternate-scroll turns each event into an arrow key for the program: in cmux that key goes app -> daemon -> terminal host -> PTY -> less and the redraw comes back the same way, so S3 is a typing-path metric | as S1 | 20 x 20 bursts | as S1 |
-| S4 | Scroll in `nvim` | `scroll-tui` nvim part (`nvim -u NONE`, `mouse=a`: mouse reports go to the program, the same path as S3) | as S1 | 20 x 20 bursts | as S1 |
+| S3 | Scroll in `less` | `scroll-tui` less part: 50k-line file, wheel and trackpad bursts. Ghostty's alternate-scroll turns each event into an arrow key for the program: in cmux that key goes app -> daemon -> terminal host -> PTY -> less and the redraw comes back the same way, so S3 is a typing-path metric | as S1 | 20 runs x 24 bursts (12 wheel, 12 trackpad, the kit's `scroll-tui` counts) | as S1 |
+| S4 | Scroll in `nvim` | `scroll-tui` nvim part (`nvim -u NONE`, `mouse=a`: mouse reports go to the program, the same path as S3) | as S1 | 20 runs x 24 bursts (12 wheel, 12 trackpad, the kit's `scroll-tui` counts) | as S1 |
 | S5 | Output while scrolled | `scroll-zsh` streaming phases: output at the bottom, and output while scrolled up (the viewport must not move) | per-frame interval and missed refreshes, viewport drift (rows) | 20 | 0.05 ms; drift 0 |
 | T1 | Typing, key -> frame | zsh prompt, 100 printable keys at random 80-200 ms gaps; idle, and with S5's output in a second split hidden behind (load) | HID stamp -> `displayTime` of the first frame that shows the glyph, p50/p95/p99/max | 20 x 100 | 0.05 ms |
 | O1 | Output throughput | `cat` of a 100 MB file (`row NNNNNN` + 80 printable columns) then a marker line | Return key -> first frame that shows the marker; frames presented and missed refreshes meanwhile; CPU s per process | 20 | 1 % of upstream time |
@@ -102,7 +103,8 @@ No second kit. The scroll journeys of NIGHTLY REGRESSION (m85) are the S journey
 (50k lines, 20 wheel and 20 trackpad bursts of 120 events at about 120 Hz, output streaming at the bottom
 and while scrolled up), `scroll-tui.json` (less, nvim/vim on a 50k-line file) and their `-big` variants
 (60 workspaces), written by `scripts/journeys/gen-nightly-regression-journeys.py`. One round:
-`/work/tmp/nightly-regression/tools/round.sh ARM BUILD_JOB JOURNEY HOST` (capture-host exclusive lease, no
+`/work/tmp/nightly-regression/tools/round.sh ARM BUILD_JOB JOURNEY HOST` (host-local on the perf lead's VM, not in the
+repo, like `scroll_summary.py`; capture-host exclusive lease, no
 mini scheduler). Summary: `/work/tmp/nightly-regression/tools/scroll_summary.py RUNS_DIR` (frame interval
 p50/p95/max, missed 120 Hz refreshes, main ms per frame, Ghostty frames per second from
 `render_counters`). The parity bench uses the same journey content, event counts and rates.
@@ -158,7 +160,7 @@ renderer to avoid typing lag."
 - Pacing: the renderer's own CVDisplayLink in Zig (`up:src/renderer/DisplayLink.zig`). The app has no display link,
   no `ghostty_surface_draw` or `ghostty_surface_refresh` call, no frame hold, and touches `CATransaction` only for
   `contentsScale` (`SurfaceView_AppKit.swift:900-906`). On a reveal the renderer draws at once (`up:src/renderer/Thread.zig:316-321`).
-- Input: `scrollWheel` -> `ghostty_surface_mouse_scroll` on main, the same in cmux
+- Input: `scrollWheel` -> `Ghostty.Surface.sendMouseScroll` -> `ghostty_surface_mouse_scroll` on main, the same in cmux
   (`app:CmuxNextTerminal/TerminalSurfaceView+Mouse.swift:98-116`). Scroll input is main-bound in BOTH apps: a busy
   main thread delays every scroll event before Ghostty sees it.
 
@@ -173,27 +175,27 @@ hide a present that does not follow a grid or size change (a scroll, output). Pa
 |---|---|---|---|---|---|---|---|
 | P1 | T/TerminalFramePresenter.swift:43-382 | One presenter per window: a terminal's bounds change only in the commit that presents a frame drawn at them | e5ccc759105 #33956 (FRAME OWNER S4); switch deleted 76865dd55e5 #36478 | no (no host-frame API; display pass + wrong-size drop) | yes | via P2, P3, P5 | **move into Ghostty** (sec. 4) |
 | P2 | T/TerminalFramePresenter.swift:258-334 (`armPass`, order 1,999,999 at :50; `pass`) | Run-loop observer before CA's commit: asks `ghostty_surface_host_frame`, presents under `CATransaction.lock()` (:306-312), groups the requests of one refresh | #33956 | no | yes | yes, small: a reveal or scale request (no size change) waits up to `groupTicks` = 2 refreshes if another request of its refresh is not ready (:45, :278-300) | move into Ghostty |
-| P3 | T/TerminalFramePresenter.swift:220-256 (`tick`) | Each display tick: `ghostty_surface_host_frame_committed` for the last pass's commits (:222-225); presents READY / READY_PROGRAM of watched views under the lock (:242-248) | #33956; READY_PROGRAM case 67479c6b6cb #38206 | no | yes | **yes**: in EMBEDDER mode every frame, echo and scroll included, goes through main from the mode's start and after each main-thread size change until `committed` (`gn:include/ghostty.h` `GHOSTTY_HOST_PRESENT_EMBEDDER`). A watch that sees no SHOWN in `watchLimit` = 240 ticks is dropped (:52, :249-252), and then `committed` may not come until the next size change: that surface's frames can stay main-routed. Read only, not run: step 1 tests it | move into Ghostty; until then fix forward (step 1) |
+| P3 | T/TerminalFramePresenter.swift:220-256 (`tick`) | Each display tick: `ghostty_surface_host_frame_committed` for the last pass's commits (:222-225); presents READY / READY_PROGRAM of watched views under the lock (:242-248) | #33956; READY_PROGRAM case 67479c6b6cb #38206 | no | yes | **yes**: in EMBEDDER mode every frame, echo and scroll included, goes through main from the mode's start and after each main-thread size change until `committed` (`gn:include/ghostty.h` `GHOSTTY_HOST_PRESENT_EMBEDDER`). A watch that sees no SHOWN for more than `watchLimit` = 240 ticks is dropped (:52, :249-252), and then `committed` may not come until the next size change: that surface's frames can stay main-routed. Read only, not run: step 1 tests it | move into Ghostty; until then fix forward (step 1) |
 | P4 | T/TerminalFramePresenter.swift:60, :103-108, :293-296 | #38206 READY_PROGRAM hold: old bounds and frame kept while the frame is READY (size only), at most `resizeHoldTicks` = 3 refreshes from the grid's send | 67479c6b6cb #38206 (RESIZE P0 12) | no | yes | **no**: needs `holdTicks > 0` (:104), set only by `place` / `requestWantedFrame` through `programHoldTicks` (T/TerminalSurfaceView+FrameOwner.swift:132-136: key resize or drag, alternate screen only); `requestPresentIfNeeded` passes 0 (FrameOwner:299). Output during a hold shows at the new size only when the hold ends | move into Ghostty's renderer (sec. 4) |
 | P5 | T/TerminalSurfaceView+FrameOwner.swift:293-303 | `requestPresentIfNeeded`: on a show (TerminalSurfaceView.swift:323) or a backing change (:386), a presenter request when READY, READY_PROGRAM, PENDING or HELD | #33956 | no | yes | yes: a reveal with no size change waits for the next pass, up to 2 refreshes with a group wait (P2); HELD (mode 2026) keeps it pending | move into Ghostty |
 | P6 | T/TerminalSurfaceView+FrameOwner.swift:325-330, called at TerminalSurfaceView.swift:232 | `ghostty_surface_set_host_present(EMBEDDER)` for the surface's whole life | #33956; no switch since #36478 | no (API absent) | set-up | yes: the mode is the cause of P3's main routing | replace by the synced renderer mode (sec. 4) |
 | P7 | FrameOwner:248-254 | wrappers `ghostty_surface_host_frame`, `..._host_frame_committed` | #33956 | no | yes | see P3 | delete with P1 |
 | P8 | FrameOwner:50-114, :233-244 (`layer.frame` under the lock :242), :341-345 | Old bounds kept on the anchor edge while a size is in flight; frame and layer frame set in the present commit | #33956 | no (bounds follow the view, gravity top-left) | yes | no | move into Ghostty (it owns its layer's bounds; cmux keeps the anchor) |
 | P9 | FrameOwner:176-201; TerminalFramePresenter.swift:179-183, :343-358; T/TerminalHostView+PaneMotion.swift:60-75; CmuxNextDesign/PaneContentAreaView.swift:111-128 | Draw-ahead: the spring's next size (and grid) goes to Ghostty after this turn's pass | 76865dd55e5 #36478 (m26); `drawAheadOfFollow` f801ff735f5 #37108 | no (no springs) | yes | no | **keep** as a size input (a size is embedding); its presenter part goes with P1 |
-| P10 | FrameOwner:153-164; T/TerminalHostView+PaneMotion.swift:90-101; CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift:52-79; CmuxNextLayout/Views/LayoutFrameInput.swift:53 | Reduce Motion key snap waits up to 4 refreshes for the program, chrome and divider included | 67479c6b6cb #38206; SnapFrame 7216215175a1 #37330 | no | yes | no (key snaps only), but it delays chrome too, against the presenter's own rule (:40) | delete when P4 is in Ghostty |
-| P11 | T/TerminalScreenSwitchWatch.swift:43-102 | Scans output for DECSET 1049/1047/47 and RIS to know the alternate screen | #38206 | no | no (lane) | no | delete: Ghostty knows its screen |
+| P10 | FrameOwner:153-164; T/TerminalHostView+PaneMotion.swift:90-101; CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift:52-76; CmuxNextLayout/Views/LayoutFrameInput.swift:53 | Reduce Motion key snap waits up to 4 refreshes for the program, chrome and divider included | 67479c6b6cb #38206; SnapFrame 7216215175a1 #37330 | no | yes | no (key snaps only), but it delays chrome too, against the presenter's own rule (:40) | delete when P4 is in Ghostty |
+| P11 | T/TerminalScreenSwitchWatch.swift:8-67; T/TerminalOutputLane.swift:37-44, :218-229 | Scans each output chunk for a DEC private mode introducer (ESC [ ?) or RIS (ESC c); only then the lane reads Ghostty's `alternate_screen` (`grid_metrics`) into an atomic flag that main reads without a lock | #38206 | no | no (lane) | no | delete: Ghostty knows its screen |
 | P12 | FrameOwner:276-288, :334-338 | Display-scale hold: old `contentsScale` until the frame at the new scale | #33956 | partly (sets the scale at once) | yes | no | move into Ghostty |
 | P13 | T/TerminalSurfaceView.swift:418-426 | `CATransaction` with disabled actions for `contentsScale` | cd5947da1572 #15511 | **yes** (`SurfaceView_AppKit.swift:900-906`) | yes | no | keep |
 | P14 | T/TerminalSurfaceView.swift:230 | `ghostty_surface_set_host_sized(true)`: the drawable follows `set_size`, not the bounds | 177442c3066b (cx-8w027.8) | no | set-up | no | keep (embedding: cmux sets the size) |
 | P15 | T/TerminalSurfaceView.swift:395-401, :579-584 | `setFrameSize` -> `ghostty_surface_set_size` (same-size calls skipped) | #15511 | yes | yes | no | keep |
 | P16 | T/TerminalSurfaceView.swift:469-477 | `ghostty_surface_set_reflow_preview`: a reflowed picture until the PTY owner announces the grid | aec6712869f7 (cx-8w027.13) | no (Ghostty.app owns the PTY) | yes | no | keep (embedding: the daemon owns the PTY); the logic is in Ghostty already |
 | P17 | T/TerminalSurfaceView.swift:650-680 (`ghostty_surface_refresh` :673) | A forced frame at each reveal (an OSC 11 parsed before the view was in a window) | b05fa01378c9 #24816 | no: the renderer draws on visible (`up:Thread.zig:316-321`) | yes (call) | no | delete after a fleet check of the #22282 repro; if needed, fix in Ghostty's visible path |
-| P18 | T/TerminalFrameHold.swift:67-146 (`ghostty_surface_refresh` :119), HeldFrameView :150-185 | Replay and last-frame overlay: the old IOSurface or a CGImage in a view over a fresh surface until a frame drawn after the parse shows (2 ticks; at most 500 ms, :22; no limit before content is queued, :82-94) | 1dea4b48800b #20132 (cx-6so.23) | no (never swaps a surface) | yes | **yes**: it hides a fresh surface's output frames for up to 500 ms after its content is queued, and without a limit before that | move into Ghostty: an in-place reset/restore keeps the renderer's last frame; then delete (step 4) |
-| P19 | T/TerminalLaunchFrames.swift:271-308, :576-585; T/TerminalLaunchFrame.swift:17-21 | Last-quit JPEG over a pane before its surface exists, handed to P18 | 4e1c2efff996 #22842 | no | yes | through P18 | keep (app-level picture, not Ghostty's layer) |
-| P20 | T/TerminalLaunchFrameKeeper.swift (`save` :177) | GPU copy of the presented frame to disk | 6cda7aede5da #31967 | no | no | no | keep |
+| P18 | T/TerminalFrameHold.swift:67-146 (`ghostty_surface_refresh` :119), HeldFrameView :150-185 | Replay and last-frame overlay: the old IOSurface or a CGImage in a view over a fresh surface until a frame drawn after the parse shows (2 ticks; at most 500 ms, :22; no limit before content is queued, :82-94) | 1dea4b48800b #20132 (cx-6so.23) | no (never swaps a surface) | yes | **yes**: it hides a fresh surface's output frames for up to 500 ms after its content is queued, and without a limit before that | move into Ghostty: an in-place reset/restore keeps the renderer's last frame; then delete (step 5) |
+| P19 | T/TerminalLaunchFrames.swift:271-308, :576-585; T/TerminalLaunchFrame.swift:17-21 | Last-quit picture (JPEG, or PNG with clear pixels) over a pane before its surface exists, handed to P18 | 4e1c2efff996 #22842 | no | yes | through P18 | keep (app-level picture, not Ghostty's layer) |
+| P20 | T/TerminalLaunchFrameKeeper.swift (`save` :177) | GPU copy of the presented frame to disk | 6cda7aede5da #31967 | no | start on main; render, encode and write off main | no | keep |
 | P21 | T/TerminalLastFrame.swift, T/TerminalLastFrames.swift, T/TerminalFramePurgeability.swift:7-25; T/TerminalSurfaceView.swift:686-713 (`layer.contents = nil` :697, :710) | Keeps a hidden terminal's IOSurface (volatile), clears `layer.contents` when purged | 870490f20858 (cx-8w027.19.1) | no | yes | no (clears only) | move the purgeable marking into Ghostty's occluded path; keep the eviction policy |
 | P22 | T/TerminalSnapshot.swift:11-24 | Reads `layer.contents` for hover previews | #15511 | no | yes | no | keep (reads) |
-| P23 | T/TypingFrameProbe.swift:22-55 | Swizzles `setContents:` on Ghostty's layer class to mark presents (typing probe, echo prediction retire) | 66363aa2b065 #17494 | no | both (each present's thread) | no (one call per frame) | replace with Ghostty's present callback (sec. 4) |
+| P23 | T/TypingFrameProbe.swift:22-55 | Adds a `setContents:` override (`class_addMethod`) to Ghostty's layer class to mark presents (typing probe, echo prediction retire) | 66363aa2b065 #17494 | no | both (each present's thread) | no (one call per frame) | replace with Ghostty's present callback (sec. 4) |
 | P24 | CmuxNextWakeups/FrameScheduler.swift:298-308 | The app's CADisplayLink per window; ticks P3, P18, P26 | not traced | no (Ghostty paces itself) | yes | through P3 | keep for app motion; its terminal clients go with P1 and P18 |
 | P25 | T/TerminalHostView.swift:130, :430-454; T/TerminalHostView+PaneMotion.swift:35-40, :111-113 | Picks the size a surface gets in split, close and zoom springs; follows the pane in key resizes | d9b3e832d5be; a08c406ba0f9 #34170 | no (no springs) | yes | no | keep (embedding: size only) |
 | P26 | T/TerminalPaneFollow.swift:135-225 | `debug.terminal_display` probe after each commit | 891a06d07f54 #36109 | no | yes | no | keep (debug) or delete with P1 |
@@ -219,7 +221,9 @@ apps for input; in cmux it is also on the present path whenever P3 routes frames
 
 Target set: cmux keeps P9 (as a size input), P13-P16, P19, P20, P22, P25 and the diagnostics P26-P27. P1-P8, P10-P12,
 P17, P18, P21's purgeable marking and P23 go into Ghostty or are deleted. P24 stays only for app motion (no terminal
-client after P3 and P18 go), so cmux keeps no app-level display link and no draw loop for a terminal.
+client on a shipped frame path after P3 and P18 go; the debug probes P26 and `TerminalFinalGridTrace` stay, and the
+grid-report coalescer's refresh tick, `TerminalFramePresenter.swift:384-391`, moves to another owner), so cmux keeps no
+display link that paces terminal frames and no draw loop for a terminal.
 
 ## 3. The fork
 
@@ -237,7 +241,7 @@ at the sync that brings it; **DROP** delete at the next sync; **BUILD** move to 
 |---|---|---|---|---|---|
 | F1 | Apple build, CI, smoke (no PR, 18) | 82b67aca7 .. de340638c | iOS slices, xcframework target, GhosttyNextKit module name, flavors, render smoke; upstream workflows deleted | C | BUILD |
 | F2 | Manual / mirror IO (no PR, 12) | 117c73bbb .. 31627e4b9 | MANUAL and MANUAL_MIRROR backends without a PTY; `ghostty_surface_process_output`, `io_write_cb`, `text_input`; manual surfaces do not redraw the prompt, keep raw OSC 7 | E (+D defaults) | API: the core of embedding a remote PTY. Upstream has libghostty-vt; propose "external IO" as the embedding surface. Defaults become explicit options |
-| F3 | libghostty-vt replay APIs (no PR, 13; #45) | 0fb08ba18 .. 839e702fe | VT replay formatter fixes, cursor data, bounded Kitty state (cmux-tui) | E (formatter U; f9e99c83f, cfa4b3d22 D) | UP the formatter fixes; API the rest. Conflict risk: upstream's lib-vt ABI freeze after the base (657e82d1a, 796f09a6f, 12206bfb8, fdedebade) |
+| F3 | libghostty-vt replay APIs (no PR, 13; #45) | 0fb08ba18 .. 839e702fe | VT replay formatter fixes, cursor data, bounded Kitty state (cmux-tui) | E (formatter U; f9e99c83f, cfa4b3d22 D) | UP the formatter fixes; API the rest. Conflict risk: upstream's lib-vt ABI freeze after the base (657e82d1a, 796f09a6f, 12206bfb8, 0b7f9c156; fdedebade then makes upstream CI fail on an ABI change that is not an addition) |
 | F4 | iOS renderer and mailbox (no PR, 6) | 9b466c7a5 .. 122010769 | iOS layer sizing, 72 DPI, layer detach; renderer mailbox never blocks; GPU completion never waits on the app mailbox; bounded wait in `setVisible(false)` | E+R (all surfaces) | UP mailbox, completion and bounded-wait fixes; API the iOS part |
 | F5 | set_grid, snapshots (no PR, 9) | 559d886cf .. a9efcd613 | `set_grid`, `restore_snapshot`, `encode_snapshot`, `snapshot_version` (on upstream's snapshot module) | E | API |
 | F6 | Prompt narrowing (no PR, 4) | 06675f816 43ffe4171 493a8871b 5555f4220 | Narrowed multi-line prompt redraws; `SHELL_REDRAWS_PROMPT`; zsh/fish `redraw=1` | U (5555f4220 D) | UP 43ffe4171; the zsh/fish default is a divergence: decide with upstream |
@@ -262,7 +266,7 @@ at the sync that brings it; **DROP** delete at the next sync; **BUILD** move to 
 | F25 | #23 restore local history | aace61339 .. 8c90ceb7c | `restore_snapshot_local_history`, `history_digest` | E | API |
 | F26 | #24 kitty image replay | a738d5d54 .. 141487ab0 | `kitty_replay_encode`, `apply_kitty_replay` | E | API |
 | F27 | #25 mirror deps | 7416ba07d | Deps from a release mirror; unused since the v1.4.0 merge | C | DROP |
-| F28 | #26 kitty local carry | 40c4f4c59 .. cce148643 | Texture reuse (89e62c7ef); `hold_frames` across the two restore swaps (cce148643) | E+R | UP 89e62c7ef; `hold_frames` goes with the in-place restore (P18, step 4) |
+| F28 | #26 kitty local carry | 40c4f4c59 .. cce148643 | Texture reuse (89e62c7ef); `hold_frames` across the two restore swaps (cce148643) | E+R | UP 89e62c7ef; `hold_frames` goes with the in-place restore (P18, step 5) |
 | F29 | #27 apple no i18n | 8999acace .. c29b13bd0 | No libintl on Apple slices | C | BUILD (maybe UP) |
 | F30 | #28 draw idle frame now | 1fb7d17a7 | First frame after idle draws without waiting for vsync | R (all surfaces) | UP if T1 parity shows the gain, else DROP |
 | F31 | #29 OSC 7501 | 45a5bff70 c98717f42 953e1414e | Dropped at the v1.4.0 merge; upstream bae2c3cdb in the base | D | DROP (already gone in content) |
@@ -271,12 +275,12 @@ at the sync that brings it; **DROP** delete at the next sync; **BUILD** move to 
 | F34 | #33 link filter | 25e0d94b2 c2a6690fb | `set_link_filter` | E (+R in updateFrame) | API |
 | F35 | #34 terminal color c_get | af67bf802 e9f7d5a31 | c_get of a plain TerminalColor | U | UP |
 | F36 | #35 min contrast glass | bcb2ac02d | Minimum contrast against the glass background | R (all surfaces) | UP (same bug in Ghostty.app) |
-| F37 | #36 min contrast transparent | 56a8d83b6 6ce967166 | At opacity 0, contrast vs the configured background | R+D | keep as a documented divergence, or an option UP |
+| F37 | #36 min contrast transparent | 56a8d83b6 6ce967166 | At opacity 0, contrast vs the configured background | R+D (all surfaces) | keep as a documented divergence, or an option UP |
 | F38 | #38 host-sized drawable | 1a683dfbd 506d3e645 | `set_host_sized` | E+R | API (P14) |
 | F39 | #39, #84 reflow preview | c65d8511a .. f9048ee65 | `set_reflow_preview`, `drawn_grid`; re-wrap off the terminal lock | E+R | API (P16) |
 | F40 | #40, #41 palette blend, no rebuild | 67edc86eb .. b289682d1 | Cells hold color refs, theme colors blend on the GPU; a color-only change rebuilds no cells; `set_color_transition` | E+R (all surfaces: new per-cell work in `rebuildRow`, extra animation frames) | keep; the S1-S5 parity rows decide whether its per-row cost is visible in scroll (a scroll rebuilds rows) |
 | F41 | #42 keep presented frame | bfaa4b227 | IOSurface deinit keeps the pixels | R | API (embedder keeps the last frame) |
-| F42 | #43, #44 font rebuild, cell size | 459b2daaf .. 7d1c7600f | Row-key reuse; one rebuild per font change; cell size follows the font grid | R | UP |
+| F42 | #43, #44 font rebuild, cell size | 459b2daaf .. 7d1c7600f | Row-key reuse; one rebuild per font change; cell size follows the font grid | R (all surfaces) | UP |
 | F43 | #37 CSI 996 runtime scheme | 70f592bbf | CSI 996 and mode 2031 report the runtime scheme | D/U | UP as an option |
 | F44 | #64 upstream v1.4.0 merge | 19cf86448 .. 64a7a1b1f | Zig 0.17 Apple fixes; snapshot restore across slicing | C+E | BUILD / API |
 | F45 | #74 wrap fixes | 19ab1cbcb .. 34e73ba8b | Soft-wrap at scroll-region and cleared-row edges; formatter wrap carry | U (5 commits C) | UP |
@@ -302,7 +306,7 @@ Upstream fixes after the base that the pin lacks and that touch scroll or resize
 style-run performance), 321a32a42 (scrollback not pulled down when rows grow and columns shrink), 5ce2325ec (cursor pin
 garbage flag after resize), 1b8b3f55b (pin remap when column backfill stops early). The next sync takes them (step 2).
 
-Target after the plan: the fork is F2/F5/F10/F12/F17-F18/F21-F22/F25-F26/F34/F38-F39/F41 reshaped as one embedding API
+Target after the plan: the fork is F2/F3 (replay)/F4 (iOS)/F5/F8 (`render_counters`)/F10/F12/F14/F15 (the detector)/F17-F18/F21-F22/F25-F26/F34/F38-F41/F44 reshaped as one embedding API
 (external IO, snapshots, host size, reflow preview, copy-mode selection, link filter, color transition, present
 callback, synced present mode), each a candidate upstream PR; every U patch is sent upstream; every D patch is dropped;
 C moves to build scripts.
@@ -310,7 +314,8 @@ C moves to build scripts.
 **Sync strategy (perf lead decision f3 item 6, 2026-11-10).** A full merge of upstream main is the standing way the
 fork follows upstream. A pin made of cherry-picks (#40153: the five fixes above, picked onto the current pin) is a
 stopgap. It stays only until the `ghostty-vt` rename compiles: upstream's libghostty-vt ABI freeze after the base
-(657e82d1a, 796f09a6f, 12206bfb8, 0b7f9c156, fdedebade) moves the formatter options to `ghostty_formatter_set/get`
+(657e82d1a, 796f09a6f, 12206bfb8, 0b7f9c156; fdedebade then makes upstream CI fail on an ABI change that is not an
+addition) moves the formatter options to `ghostty_formatter_set/get`
 and renames 28 symbols that `cmux-tui/crates/ghostty-vt` calls. The draft of the full merge is fork commit
 `17b8ed38b` (branch `release/cmux-gi-pin-sync-1`, its 11 conflicts resolved, not compiled). When the rename
 compiles, the pin moves to the full merge, F13, F31, F48 and F50 fold away there, and later syncs are merges, not
@@ -333,7 +338,10 @@ When the surface size changes, the renderer thread:
    until one of: the program redrew a whole picture at the new grid (`Terminal.ProgramRedraw`, today READY_PROGRAM,
    F15); or `bound` refreshes passed (default 3 = today's `resizeHoldTicks`). The count starts when the grid is
    known: `ghostty_surface_set_grid` for a mirror surface (the PTY owner announced it), the reflow for a local PTY.
-4. Synchronized output (mode 2026) is unchanged: `Termio.resize` already ends it (`up:src/termio/Termio.zig:600`).
+4. Synchronized output (mode 2026) is unchanged: a resize must still end it (the as-built header of #40174 says "a
+   resize ends it"). Where upstream ends the mode on a resize is not verified: at the base `Termio.resize`
+   (`up:src/termio/Termio.zig:524-564`) does not clear the mode itself, and :600 is `resetSynchronizedOutput`, the
+   timer reset.
 5. The layer's `contents` and `bounds` change in ONE `CATransaction` on the thread that presents, so a frame is never
    shown at the wrong size. This is what P1 and P8 do in cmux today, one level up.
 
@@ -350,8 +358,8 @@ One flag and one callback:
   `ghostty_surface_host_frame`, `ghostty_surface_host_frame_committed` and the host frame states.
 - Callback: `present_cb(userdata, ghostty_present_s)` with `{width_px, height_px, cols, rows, reason, seq,
   host_time}`, reason = `reflow | program | bound | content`. It is called on the presenting thread after the commit,
-  never blocks, and is opt-in. It replaces the `setContents:` swizzle (P23) and gives the bench its probe
-  (sec. 1.3 gap 2) and the probes P26/P27 their data.
+  never blocks, and is opt-in. It replaces the `setContents:` override (P23) and gives the cmux-only
+  probes P26/P27 their data. It is not a parity probe: sec. 1.3 parts 1-3 read the screen for both apps.
 
 The app keeps: the layer position and the clip (P25, P9), `set_size` (P15), `set_host_sized` (P14),
 `set_reflow_preview` (P16) and the scale transaction (P13).
@@ -370,7 +378,7 @@ The app keeps: the layer position and the clip (P25, P9), `set_size` (P15), `set
 ### 4.4 Why not keep the cmux hold
 
 The cmux hold needs a main-thread pass per frame, a committed handshake, a watch list per window and a screen-switch
-scanner (P11) that duplicates the terminal's own state. Ghostty.app has none of it and does not show the faults it
+scanner (P11) that caches the terminal's own state. Ghostty.app has none of it and does not show the faults it
 fixes only because it presents on main and drops wrong-size frames; the synced mode keeps that rule and moves it off
 main. Risks: `ProgramRedraw` false positives (a TUI that draws in 2 frames), and a long GPU frame at a new size. Both
 are bounded by `bound`, and the existing TerminalResizeProgramHoldTests are the tests that must cover them after the
@@ -385,7 +393,7 @@ CI gate, job, step or perf-gate row. A step that makes any row worse than before
 
 | step | change | rows that must not get worse / must pass | red-first test |
 |---|---|---|---|
-| 0 | Bench tools: `scripts/measure/ghostty-parity.sh`, the hid_inject scroll step, the SCK marker-row probe, the per-thread time sampler, the Ghostty.app driver, the upstream app fleet build (Zig 0.17) | none (tools only); baseline table at the feat tip (sec. 6) | the probe's own test: a known scroll delay injected in a fixture app is read back within 1 frame |
+| 0 | Bench tools: `scripts/measure/ghostty-parity.sh`, `ghostty-parity-*` in `release_bench_tags`, the hid_inject scroll step, a 120 Hz ScreenCaptureKit stream with a time per frame, the SCK marker-row probe, the per-thread time sampler, the Ghostty.app driver, the upstream app fleet build (Zig 0.17) | none (tools only); baseline table at the feat tip (sec. 6) | the probe's own test: a known scroll delay injected in a fixture app is read back within 1 frame |
 | 1 | P3 risk: main routing stays on after a watch is dropped (read only, not run) | S1-S5, O1 | a presenter unit test: drop a watched surface mid-pass, then a same-size frame must present off main |
 | 2 | Pin sync to upstream main (takes 15a443234, 96d379822, 321a32a42, 5ce2325ec, 1b8b3f55b; drops F13, F31, F48, F50) | all rows | a scroll fixture: style-run `endUpdate` cost per row stays under the upstream value (Zig test in the fork) |
 | 3 | `present_cb` in the fork; P23 swizzle deleted; P26/P27 read the callback | T1 | a test that a present at size S reports S and the reason `content` |
@@ -394,10 +402,10 @@ CI gate, job, step or perf-gate row. A step that makes any row worse than before
 | 6 | Fork diet: send every U patch upstream (sec. 3), drop each at the sync that brings it; keep only the embedding API | all rows at each sync | each upstreamed patch keeps its red test upstream |
 | 7 | Transport (old doc G3/G4/G5, PL-daemon): app -> daemon -> host input and output hops | S3, S4, T1 must pass | the key -> frame probe at n = 20 against Ghostty.app |
 
-Order: 0 first (no number, no step). 1 and 2 are independent. 4 needs 3 (the probe that proves R1). 5 and 6 after 4.
+Order: 0 first (no number, no step). 1 and 2 are independent. 4 needs 3 (it builds on the present callback; R1 is proved by the step-0 screen probe). 5 and 6 after 4.
 7 runs beside 4-6, owned by the PL-daemon owner.
 
-### 5.1 State of the steps (2026-11-10, feat `b7dfd714d4e`, pin `b3a5ebfdfe70`)
+### 5.1 State of the steps (2026-11-10, feat `7d3e8472628`, pin `b3a5ebfdfe70`)
 
 No step is merged. No PR below has a parity table with numbers: each says `not measured` (no quiet 120 Hz host, and
 the step-0 tools do not exist). The order rule above ("0 first") is thus not met by the open PRs; each one must get its
@@ -407,9 +415,9 @@ rows measured before it lands, or the lead must write why not in the PR.
 |---|---|---|---|
 | 0 | none | not started | - |
 | 1 | #40055 (S-P3) | open | App side only: a watch that runs out keeps the commit owed. Step 4 deletes the presenter it changes. |
-| 2 | #40153 (GI PIN SYNC) | open | NOT the full sync: fork branch `release/cmux-gi-pin-sync-2`, pin `a0975fd8c` = the current pin + `cherry-pick -x` of 5ce2325ec, 1b8b3f55b, 321a32a42, 96d379822, 15a443234. F13, F31, F48 and F50 stay until the full merge (sec. 3, sync strategy). The `endUpdate` cost test of the table is not written. |
-| 3 | #40169 (GI PRESENT CB) | open | Fork branch `release/cmux-gi-present-cb-1`, pin `a0e665d4f`. The API is `ghostty_surface_set_present_callback(surface, cb, userdata)` with `ghostty_surface_present_s { width_px, height_px, reason, seq, host_time }`: no `cols` / `rows`, and two reasons (`GHOSTTY_PRESENT_CONTENT`: same pixel size as the frame before; `GHOSTTY_PRESENT_RESIZE`: another size, or the first frame), not the four of 4.2. |
-| 4 | #40174 (GI RENDERER SYNC) | draft, stacked on #40169; held by the perf lead until its ported tests run green | Fork branch `release/cmux-gi-renderer-sync-1`, pin `c31377f1a` (on `a0e665d4f`). `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2`; the bound is fixed in the fork (3 refreshes of 120 Hz): no `ghostty_surface_set_resize_hold` and no `resize-sync` config key. A frame of a NEW size still shows through the main thread, in main's Core Animation transaction with the view's bounds (4.1 rule 5 says "the thread that presents"); a frame at the shown size goes off main, except for one run loop pass after main changed the shown size. The presenter's draw-ahead (P9's presenter part) is deleted: the final size goes to Ghostty at the motion's start (4.3). It ports or maps the old presenter tests (`TerminalResizeProgramHoldTests`, `TerminalKeyResizeFrameTests`, `TerminalWindowFrameSyncTests`, `TerminalFrameOwnerMainThreadTests`) and deletes `TerminalScreenSwitchWatch` (P11). |
+| 2 | #40153 (GI PIN SYNC) | open | NOT the full sync: fork branch `release/cmux-gi-pin-sync-2`, pin `a0975fd8c` = the current pin + red-test commit `9ae6954e2` + `cherry-pick -x` of 5ce2325ec, 1b8b3f55b, 321a32a42, 96d379822, 15a443234. F13, F31, F48 and F50 stay until the full merge (sec. 3, sync strategy). The `endUpdate` cost test of the table is not written. |
+| 3 | #40169 (GI PRESENT CB) | open | Fork branch `release/cmux-gi-present-cb-1`, pin `a0e665d4f`. The API is `ghostty_surface_set_present_callback(surface, cb, userdata)` with `ghostty_surface_present_s { width_px, height_px, reason, seq, host_time }`: no `cols` / `rows`, and two reasons (`GHOSTTY_PRESENT_CONTENT`: same pixel size as the frame before; `GHOSTTY_PRESENT_RESIZE`: another size, or the first frame), not the four of 4.2. On the main thread the callback runs inside main's open transaction, before its commit; off main it runs after the commit (4.2 says "after the commit"). It deletes `TypingFrameProbe.swift` (P23). |
+| 4 | #40174 (GI RENDERER SYNC) | draft, stacked on #40169; held by the perf lead until its ported tests run green | Fork branch `release/cmux-gi-renderer-sync-1`, pin `c31377f1a` (on `a0e665d4f`). `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2`; the bound is fixed in the fork (3 refreshes of 120 Hz): no `ghostty_surface_set_resize_hold` and no `resize-sync` config key. The bound counts from the size change and a `ghostty_surface_set_grid` restarts it (4.1 rule 3 starts it at the grid). The grid-report refresh tick moves from the presenter to a new per-window `TerminalGridReportRefreshes`. A frame of a NEW size still shows through the main thread, in main's Core Animation transaction with the view's bounds (4.1 rule 5 says "the thread that presents"); a frame at the shown size goes off main, except for one run loop pass after main changed the shown size. The presenter's draw-ahead (P9's presenter part) is deleted: the final size goes to Ghostty at the motion's start (4.3). It ports or maps the old presenter tests (`TerminalResizeProgramHoldTests`, `TerminalKeyResizeFrameTests`, `TerminalWindowFrameSyncTests`, `TerminalFrameOwnerMainThreadTests`) and deletes `TerminalScreenSwitchWatch` (P11). |
 | 5 | none | not started | - |
 | 6 | none | not started | The sync strategy of sec. 3 comes first. |
 | 7 | none | not started | - |
@@ -420,14 +428,16 @@ a fork branch that has both, and a new pin: a pin PR must not drop what an earli
 
 ## 6. Baseline
 
-**Not measured** (still true on 2026-11-10 when this doc merged). The fleet was offline: the controller (`http://100.89.225.106:18765/status`) did not answer at 01:38Z and
-01:43Z (curl status 000). No job was submitted. The step-0 tools (sec. 1.3) do not exist yet, so even an online fleet gives
+**Not measured** (still true at 2026-11-10 07:55Z). At 01:38Z and 01:43Z the controller
+(`http://100.89.225.106:18765/status`) did not answer (curl status 000). No job was submitted. The step-0 tools (sec. 1.3) do not exist yet, so even an online fleet gives
 only the cmux side of S1-S2 and O1 today (the kit's `render_counters` fps), not a parity table.
 
 Exact commands, run from a worktree at the feat tip (`SHA`):
 
 ```sh
-# cmux arm: Release with bench hooks (cmux-next.dogfood.conf)
+# cmux arm: Release with bench hooks. `ghostty-parity-*` is not in `release_bench_tags`
+# (scripts/cmux-next/cmux-next.dogfood.conf) at the tip, so this tag gives a plain Release with no debug.* socket:
+# step 0 adds the glob. Until then use a tag that matches `chrome-parity-*`.
 cmux-ci build cmux --ref SHA --tag ghostty-parity-base-v1 --release --backend-mode local \
   --receipt artifacts/fleet/SHA-submit.json
 cmux-ci wait JOB            # a timeout leaves the job running: wait again, never resubmit
@@ -446,6 +456,8 @@ cmux-ci run --class exclusive --measurement --key ghostty-parity \
 ```
 
 `--script` must be on the controller allowlist: step 0 adds `scripts/measure/ghostty-parity.sh` there (an hq change).
+The script makes the 120 Hz 2x virtual display itself (`--vdisplay 120x2` is a flag of `scripts/journeys/run.py`) and
+gives `not run` when the measured rate is not within 0.35 ms of 8.333 ms.
 Risk for step 0: the fleet Macs' PATH Zig is not 0.17.0 (the perf lead's probe of 2026-11-10 07:22Z found 0.16.0 on
 the five AWS minis it read), and upstream needs 0.17.0: the script must install a job-local 0.17.0, as
 `GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh`
