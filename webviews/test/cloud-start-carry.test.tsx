@@ -46,8 +46,9 @@ function stallThenType(
   store: CloudStartCarryStore,
   key: string,
   typed: { text: string; attachments: ComposerAttachment[] },
+  source = cloudStartCarrySource(cloudStartCarry(store)),
 ) {
-  const source = cloudStartCarrySource(cloudStartCarry(store));
+  source.begin(key);
   // At the stall the composer still holds the sent prompt: it is taken out and held for a failure.
   expect(source.stalled(key, sent, sent)).toEqual(sent);
   source.edited(() => ({ text: "", attachments: [] }));
@@ -61,7 +62,7 @@ test("text typed after a stall goes to the chat the start opens, once", () => {
   // A late success: the host opened the chat and closes this tab.
   source.ended("k-1", true);
   const destination = cloudStartCarry(store);
-  expect(destination.take("k-1")).toEqual({ text: "also check the dock", attachments: [] });
+  expect(destination.take("k-1")).toEqual({ text: "also check the dock", attachments: [], left: 0 });
   expect(destination.take("k-1")).toBeUndefined();
 });
 
@@ -69,14 +70,14 @@ test("attachments typed after a stall go with their text", () => {
   const store = memoryStore();
   const typed = { text: "see ￼", attachments: [{ ...image, inline: true }] };
   stallThenType(store, "k-1", typed).ended("k-1", true);
-  expect(cloudStartCarry(store).take("k-1")).toEqual(typed);
+  expect(cloudStartCarry(store).take("k-1")).toEqual({ ...typed, left: 0 });
 });
 
 test("an attachment-only draft carries", () => {
   const store = memoryStore();
   const typed = { text: "", attachments: [image] };
   stallThenType(store, "k-1", typed).ended("k-1", true);
-  expect(cloudStartCarry(store).take("k-1")).toEqual(typed);
+  expect(cloudStartCarry(store).take("k-1")).toEqual({ ...typed, left: 0 });
 });
 
 test("two starts with the same prompt keep their own drafts", () => {
@@ -86,6 +87,49 @@ test("two starts with the same prompt keep their own drafts", () => {
   const destination = cloudStartCarry(store);
   expect(destination.take("k-2")?.text).toBe("second tab's words");
   expect(destination.take("k-1")?.text).toBe("first tab's words");
+});
+
+test("two panes whose same prompt gets the same key both carry: the host opens one chat for that key", async () => {
+  // The real allocator: the same prompt and options are the same start (#33493), across panes.
+  const { cloudStartKeys } = await import("../src/agent-session/acpmux/cloudRun");
+  const keys = memoryStore();
+  const request = { task: "fix the build", cwd: "/Users/me/src/paint" };
+  const first = cloudStartKeys(keys).keyFor(request);
+  const second = cloudStartKeys(keys).keyFor(request);
+  expect(second).toBe(first);
+  const store = memoryStore();
+  stallThenType(store, first, { text: "first pane's words", attachments: [] }).ended(first, true);
+  stallThenType(store, second, { text: "second pane's words", attachments: [] }).ended(second, true);
+  expect(cloudStartCarry(store).take(first)?.text).toBe("first pane's words\n\nsecond pane's words");
+});
+
+test("a retry of a failed start under the same key carries what is typed after its own stall", () => {
+  const store = memoryStore();
+  const source = cloudStartCarrySource(cloudStartCarry(store));
+  stallThenType(store, "k-1", { text: "before the failure", attachments: [] }, source).ended("k-1", false);
+  // Retry: the same prompt, the same key, a new attempt that stalls again.
+  stallThenType(store, "k-1", { text: "after the retry stalled", attachments: [] }, source).ended("k-1", true);
+  expect(cloudStartCarry(store).take("k-1")?.text).toBe("after the retry stalled");
+});
+
+test("a chip that only names a file on this Mac stays, its place goes, and the opened chat is told", () => {
+  const store = memoryStore();
+  const local: ComposerAttachment = {
+    id: "file-1",
+    kind: "link",
+    inline: true,
+    name: "notes.md",
+    mimeType: "text/markdown",
+    size: 10,
+    path: "/Users/me/notes.md",
+  };
+  const shot = { ...image, inline: true, originalPath: "/Users/me/Desktop/shot.png" };
+  stallThenType(store, "k-1", { text: "see \uFFFC and \uFFFC", attachments: [local, shot] }).ended("k-1", true);
+  const carried = cloudStartCarry(store).take("k-1");
+  expect(carried?.text).toBe("see  and \uFFFC");
+  expect(carried?.attachments.map((chip) => chip.id)).toEqual(["img-1"]);
+  expect(carried?.attachments[0]?.originalPath).toBeUndefined();
+  expect(carried?.left).toBe(1);
 });
 
 test("a failed start keeps its draft here and carries none", () => {
@@ -102,6 +146,7 @@ test("a failed start keeps its draft here and carries none", () => {
 test("a page's start, whose chat composer is not its prompt, carries what is there from the stall", () => {
   const store = memoryStore();
   const source = cloudStartCarrySource(cloudStartCarry(store));
+  source.begin("k-1");
   expect(source.stalled("k-1", { text: "", attachments: [] }, { text: "", attachments: [] })).toBeUndefined();
   source.edited(() => ({ text: "next", attachments: [] }));
   source.ended("k-1", true);
@@ -112,7 +157,7 @@ test("a store too full for the files' bytes still carries the text", () => {
   const store = memoryStore();
   store.full = true;
   stallThenType(store, "k-1", { text: "words", attachments: [image] }).ended("k-1", true);
-  expect(cloudStartCarry(store).take("k-1")).toEqual({ text: "words", attachments: [] });
+  expect(cloudStartCarry(store).take("k-1")).toEqual({ text: "words", attachments: [], left: 1 });
 });
 
 // The opened chat's page: its handshake names the start's key, and its composer gets the carry.
