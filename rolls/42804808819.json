@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42804808819",
+  "recorded_at": "2026-11-10T11:15:05Z",
+  "reason": "cmux-tui 5568de8dfec2 changes the image's cmux-tui (pinned abd12ce1a7d0)",
+  "dry_run": false,
+  "cmux_tui": "5568de8dfec286fdb76587ee73d7b670d8d2c31f",
+  "fixes": [
+    {
+      "sha": "5568de8dfec286fdb76587ee73d7b670d8d2c31f",
+      "mergedAt": "2026-11-10T10:49:40Z",
+      "subject": "chore(next): base autofix at 0dda1a319f94"
+    },
+    {
+      "sha": "0dda1a319f94f9dab59d3d6a9d058e27ae941808",
+      "mergedAt": "2026-11-10T10:48:31Z",
+      "subject": "perf(terminal): Ghostty's present callback replaces the setContents: swizzle (ghostty-integration step 3, P23) (#40169)"
+    },
+    {
+      "sha": "446b8ec95910b0c13705fe146fcd6b543cafb990",
+      "mergedAt": "2026-11-10T02:45:11-08:00",
+      "subject": "acpmux: a peer cache save writes the rows that changed, not the whole file (#40315)"
+    },
+    {
+      "sha": "f5ae561db9ec74db184c272d0446225331bd8929",
+      "mergedAt": "2026-11-10T10:44:23Z",
+      "subject": "Daemon splits terminal titles; a spinner frame announces nothing (MTS-3, D2) (#40141)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T11:15:05Z",
+    "snapshot_id": "sh-09de2df627c64d0c98caf1883edc1fde",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42804808819): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "66d6bce3f34c31368ca150990b316219e9a298b0",
+    "image": "cloud-native-auto-5568de8d-42804808819-1",
+    "revision": "ci-42804808819-1",
+    "at": "2026-11-10T11:15:05Z"
+  },
+  "rolled_back": false
+}
