@@ -62,6 +62,8 @@ jobs:
             scripts/ci/cloud_overflow_switch.py
             scripts/ci/runner_label_policy.py
             scripts/ci/signing_runner_variables.py
+            scripts/ci/owned_warm_state.py
+            scripts/ci/warm_distance.py
             scripts/ci/python-with-yaml.sh
           persist-credentials: false
 

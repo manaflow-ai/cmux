@@ -162,6 +162,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # A sparse scripts/ci checkout must carry every sibling module its listed scripts import.
+      - name: Validate sparse scripts/ci checkouts carry every helper they import
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_sparse_checkout_imports.py
+
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py

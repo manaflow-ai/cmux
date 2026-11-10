@@ -227,6 +227,7 @@ jobs:
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/nightly_next_launch_smoke.py
             scripts/ci/nightly_next_artifact_check.py
+            scripts/ci/nightly_next_fix_forward.py
             scripts/ci/release-signer/verify_appcast_item.py
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
