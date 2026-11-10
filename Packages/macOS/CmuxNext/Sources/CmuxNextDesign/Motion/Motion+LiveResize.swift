@@ -28,9 +28,10 @@ extension Motion {
     }
 
     /// Starts the app's live-resize tracker: from now on it sees every window's live resize and
-    /// full screen transition. The app calls this once at launch, before it makes a window
-    /// (`AppDelegate`), so a transition that starts before the first motion decision of a window
-    /// is not missed for its whole length. A second call does nothing.
+    /// full screen transition. The app calls this when it makes a main window, before the window
+    /// is ordered in (``MotionGate/windowOpenBehavior(restoring:)``, `WindowManager`), so a
+    /// transition that starts before the first per-window motion read is not missed for its
+    /// whole length. A second call does nothing.
     public static func startLiveResizeTracking() { _ = LiveResizeWindows.shared }
 
     /// Some window is between `willEnterFullScreen` and `didEnterFullScreen`
@@ -55,8 +56,8 @@ extension Motion {
 /// windows in a full screen transition (`willEnterFullScreen` to
 /// `didEnterFullScreen`, and the exit pair; a failed one ends through
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
-/// Observes every window from the app's launch (``Motion/startLiveResizeTracking()``), before
-/// any window exists.
+/// Observes every window from the creation of the app's first main window
+/// (``Motion/startLiveResizeTracking()``), before that window is ordered in.
 final class LiveResizeWindows {
     /// The app's tracker. Tests put one on a private center here, instead of posting AppKit's
     /// notifications to the process-wide center (check-test-notification-centers.sh), and put the app's back.
