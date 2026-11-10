@@ -5,6 +5,7 @@
 // output streams in under the row in order, and the reads stop when it ends.
 import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
@@ -136,6 +137,21 @@ async function render(item: AcpmuxActivity, runs: RunElsewhere, Row: typeof Comm
 }
 
 const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
+
+test("a row renders to a string, with or without the store, as the transcript's server renders do", () => {
+  // useSyncExternalStore throws under renderToString without a server snapshot.
+  const { runs } = harness();
+  for (const Row of [CommandRow, ToolRow]) {
+    expect(renderToStaticMarkup(<Row item={call("in_progress", Date.now())} />)).toContain("cargo test");
+    expect(
+      renderToStaticMarkup(
+        <RunElsewhereContext.Provider value={runs}>
+          <Row item={call("in_progress", Date.now())} />
+        </RunElsewhereContext.Provider>,
+      ),
+    ).toContain("cargo test");
+  }
+});
 
 test("the chip is due 20 s into a running shell command and never otherwise", () => {
   const base = { kind: "execute", command: "make", startedAt: 1000, running: true };
