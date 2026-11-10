@@ -6,7 +6,7 @@
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [Package.swift]
     python3 scripts/ci/app_ffi_pin.py inputs ROOT CRATE_DIR...          # the files of those crates the FFI build reads
     python3 scripts/ci/app_ffi_pin.py workspace-view WORKSPACE.toml CRATE.toml...   # what the crates inherit of it
-    python3 scripts/ci/app_ffi_pin.py workspace-paths WORKSPACE.toml CRATE.toml     # its inherited path dependencies
+    python3 scripts/ci/app_ffi_pin.py crate-paths WORKSPACE.toml CRATE.toml   # its paths, inherited ones included
     python3 scripts/ci/app_ffi_pin.py own-root CRATE.toml               # "yes" when it has its own [workspace]
 
 No Swift is parsed (2026-11-07: five lexer holes in a row, so the reader stopped lexing). The whole file is read as raw
@@ -252,17 +252,18 @@ def check_loader(text: str, checksum: str) -> None:
 CRATE_INPUTS = ("Cargo.toml", "Cargo.lock", "build.rs", "build-support", "src", "include", ".cargo",
                 "rust-toolchain", "rust-toolchain.toml")
 SCANNED = ("build.rs", "build-support", "src")  # where a .rs input may live: inputs() reads these files
-# A build script that reads a file by a computed path: the one file it reads, relative to the build script's crate.
-# cmux-motion/build.rs reads its token table through CARGO_MANIFEST_DIR joined with TOKENS, and the token values it
-# compiles in are what cmux_motion_spring_base / cmux_motion_tween_base return to the app.
-BUILD_READS = {"cmux-tui/crates/cmux-motion": ("../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json",)}
+# A build script that reads a file by a computed path: how many computed reads its build script and modules make
+# (exactly; one more refuses), and the files they read, relative to the crate. cmux-motion/build.rs reads its token
+# table through CARGO_MANIFEST_DIR joined with TOKENS (`rerun-if-changed={}` and `read_to_string(&path)`), and the
+# token values it compiles in are what cmux_motion_spring_base / cmux_motion_tween_base return to the app.
+BUILD_READS = {"cmux-tui/crates/cmux-motion": (2, ("../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json",))}
 MACRO = re.compile(r"\binclude(?:_str|_bytes)?!")
 PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"\\]+)"\s*\]')
 PATH_ATTR_ANY = re.compile(r"#\[path\b")
 BUILD_CALL = re.compile(r"(?:\brerun-if-changed=|\bread_to_string\(|\bfs::read\(|\bFile::open\(|\bread_dir\()")
 BUILD_LITERAL = re.compile(r'(?:\brerun-if-changed=([^"{}\\]+)"|(?:\bread_to_string|\bfs::read|\bFile::open|\bread_dir)'
                            r'\(\s*"([^"\\]+)"\s*\))')
-MANIFEST_PATH = re.compile(r'^\s*(?:path|build)\s*=\s*"([^"\\]+)"', re.M)
+INLINE_PATH = re.compile(r"""(?:^|[{,\s])path\s*=\s*("[^"\\]*"|'[^']*')""")
 MOD_DECL = re.compile(r'^(\s*)(?:pub(?:\([^)]*\))?\s+)?mod\s+(?:r#)?(\w+)\s*;', re.M)
 CFG_TEST = re.compile(r'#\[cfg\(\s*(?:all\(\s*)?test\b')
 CLOSE = {"(": ")", "[": "]", "{": "}"}
@@ -359,6 +360,64 @@ def _test_only(files: list[Path], crate: Path) -> set[Path]:
     return test
 
 
+def _string(value: str) -> str | None:
+    """The text of a one-line TOML string VALUE (basic with no escapes, or literal); None for anything else."""
+    match = re.fullmatch(r'"([^"\\]*)"|\'([^\']*)\'', value)
+    return None if match is None else (match.group(1) if match.group(1) is not None else match.group(2))
+
+
+def _manifest_paths(text: str) -> list[str]:
+    """Every `path` and `build` string of a Cargo.toml, in any TOML form: a key of its own (dotted or in a table, in
+    double or single quotes) or a key of an inline table. A `path` that is not one string refuses."""
+    found = []
+    for full, value in _toml_entries(text):
+        literal = _string(value)
+        if full[-1:] in (["path"], ["build"]) and literal is not None:
+            found.append(literal)
+        elif full[-1:] == ["path"]:
+            raise Unresolved(f"a Cargo.toml path that is not one string: {value}")
+        elif value.startswith("{"):
+            found += [match[1:-1] for match in INLINE_PATH.findall(value)]
+    return found
+
+
+def _build_script(folder: Path, manifest: str, root: Path) -> Path | None:
+    """The build script cargo runs for the crate in FOLDER: Cargo.toml's `build` (true or absent: build.rs when it
+    exists; false: none). One outside build.rs and build-support/ refuses: the scan reads only those."""
+    value = None
+    for full, entry in _toml_entries(manifest):
+        if full == ["package", "build"]:
+            value = entry
+    if value in (None, "true"):
+        return folder / "build.rs" if (folder / "build.rs").is_file() else None
+    if value == "false":
+        return None
+    literal = _string(value)
+    path = Path(os.path.normpath(folder / literal)) if literal is not None else None
+    if path is None or not (path == folder / "build.rs" or folder / "build-support" in path.parents):
+        raise Unresolved(f"{(folder / 'Cargo.toml').relative_to(root)}: build = {value}: the scan reads a build script "
+                         "only as build.rs or under build-support/")
+    return path if path.is_file() else None
+
+
+def _module_files(start: Path) -> list[Path]:
+    """START and every file it reaches through `mod NAME;` and #[path] (a build script's own modules)."""
+    seen: list[Path] = []
+    queue = [start]
+    while queue:
+        file = Path(os.path.normpath(queue.pop()))
+        if file in seen or not file.is_file():
+            continue
+        seen.append(file)
+        text = "\n".join(_code(file.read_text(encoding="utf-8", errors="replace")))
+        queue += [file.parent / literal for literal in PATH_ATTR.findall(text)]
+        # A crate root or mod.rs declares its modules beside itself; another file in a folder named after it.
+        base = file.parent if file == start or file.name == "mod.rs" else file.parent / file.stem
+        for _, name in MOD_DECL.findall(text):
+            queue += [base / f"{name}.rs", base / name / "mod.rs"]
+    return seen
+
+
 def inputs(root: Path, crates: list[str]) -> list[str]:
     """The repository paths (files, or directories as prefixes) the FFI build reads in CRATES, relative to ROOT: each
     crate's CRATE_INPUTS, plus every file outside them that a non-test source, a build script or the manifest names.
@@ -399,24 +458,35 @@ def inputs(root: Path, crates: list[str]) -> list[str]:
                 raise Unresolved(f"{source.relative_to(root)} has a #[path] that is not one plain string literal")
             for literal in literals:
                 add(source, source.parent / literal)
-        build = folder / "build.rs"
-        if build.is_file():
-            text = "\n".join(_code(build.read_text(encoding="utf-8", errors="replace")))
-            literals = BUILD_LITERAL.findall(text)
-            allowed = BUILD_READS.get(crate, ())
-            if len(BUILD_CALL.findall(text)) > len(literals) and not allowed:
-                raise Unresolved(f"{build.relative_to(root)} reads a file by a computed path: name it with a literal "
-                                 "or list it in app_ffi_pin.py BUILD_READS")
-            for changed, read in literals:
-                add(build, folder / (changed or read).strip())
+        manifest = folder / "Cargo.toml"
+        text = manifest.read_text(encoding="utf-8", errors="replace") if manifest.is_file() else ""
+        build = _build_script(folder, text, root)
+        if build is not None:
+            # The build script and every module it reaches: a read there decides what the build compiles in. Their
+            # relative paths are the crate's (cargo runs the build script there).
+            computed = 0
+            for file in _module_files(build):
+                code = "\n".join(_code(file.read_text(encoding="utf-8", errors="replace")))
+                literals = BUILD_LITERAL.findall(code)
+                computed += len(BUILD_CALL.findall(code)) - len(literals)
+                for changed, read in literals:
+                    add(file, folder / (changed or read).strip())
+            expected, allowed = BUILD_READS.get(crate, (0, ()))
+            if computed != expected:
+                raise Unresolved(f"{build.relative_to(root)} and its modules read {computed} file(s) by a computed path "
+                                 f"where app_ffi_pin.py BUILD_READS allows {expected}: name each with a literal or "
+                                 "list it there")
             for path in allowed:
                 add(build, folder / path)
-        if (folder / "Cargo.toml").is_file():
-            for literal in MANIFEST_PATH.findall((folder / "Cargo.toml").read_text(encoding="utf-8", errors="replace")):
-                target = folder / literal
-                if (target / "Cargo.toml").is_file():
-                    continue  # a path dependency: a crate of its own, which ffi_crates follows
-                add(folder / "Cargo.toml", target)
+        for full, value in _toml_entries(text):
+            if full == ["lib", "path"] and _string(value) != "src/lib.rs":
+                raise Unresolved(f"{manifest.relative_to(root)}: lib.path {value}: the scan reads the library from "
+                                 "src/lib.rs only")
+        for literal in _manifest_paths(text):
+            target = folder / literal
+            if (target / "Cargo.toml").is_file():
+                continue  # a path dependency: a crate of its own, which ffi_crates follows
+            add(manifest, target)
     prefixes = [f"{crate}/{name}/" for crate in crates for name in ("src", "build-support", "include", ".cargo")]
     return sorted(path for path in found if not any(path.startswith(prefix) for prefix in prefixes))
 
@@ -694,8 +764,11 @@ def main(argv: list[str]) -> int:
         if argv[:1] == ["workspace-view"] and len(argv) >= 2:
             print(workspace_view(_text(argv[1]), [_text(path) for path in argv[2:]]))
             return 0
-        if argv[:1] == ["workspace-paths"] and len(argv) == 3:
-            for path in _workspace_paths(Path(argv[1]), Path(argv[2])):
+        if argv[:1] == ["crate-paths"] and len(argv) == 3:
+            crate = Path(argv[2])
+            for path in _manifest_paths(_text(str(crate))):
+                print(crate.parent / path)
+            for path in _workspace_paths(Path(argv[1]), crate):
                 print(path)
             return 0
         if argv[:1] == ["own-root"] and len(argv) == 2:

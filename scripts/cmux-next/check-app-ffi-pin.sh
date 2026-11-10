@@ -63,18 +63,16 @@ ffi_crates() {
     queue=" ${queue#*" $dir "} "
     [[ "$seen" == *" $dir "* || ! -f "$root/$dir/Cargo.toml" ]] && continue
     seen+="$dir "
-    # app_ffi_pin.py workspace-paths prints absolute paths, and refuses an entry it cannot resolve.
-    inherited_paths="$(python3 -I "$pin_reader" workspace-paths "$root/$workspace_manifest" "$root/$dir/Cargo.toml")" \
-      || return 1
+    # app_ffi_pin.py crate-paths reads every `path` of the manifest in any TOML form, and the path entries it
+    # inherits from the workspace, as absolute paths; it refuses what it cannot read.
+    dep_paths="$(python3 -I "$pin_reader" crate-paths "$root/$workspace_manifest" "$root/$dir/Cargo.toml")" || return 1
     while IFS= read -r dep; do
       [[ -n "$dep" ]] || continue
-      [[ "$dep" == /* ]] || dep="$root/$dir/$dep"
       # [lib] and [[bin]] paths name files; only a directory with a Cargo.toml is a crate.
       resolved="$(cd "$dep" 2>/dev/null && pwd -P)" || continue
       [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
       queue+="${resolved#"$root"/} "
-    done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/'
-      printf '%s\n' "$inherited_paths")
+    done <<<"$dep_paths"
   done
   tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
 }
