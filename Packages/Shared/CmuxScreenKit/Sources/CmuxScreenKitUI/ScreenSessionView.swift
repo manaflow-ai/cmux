@@ -457,6 +457,11 @@ public struct ScreenSessionView: View {
         }
     }
 
+    private var pasteBannerInset: CGFloat {
+        guard hasTrackpadOverlay, case .connected = session.phase else { return 24 }
+        return (trackpadShown ? trackpadDrawerHeight : Self.trackpadPeek) + 12
+    }
+
     /// Where the last Paste Image is: sending, pasted, or why it failed (tap to dismiss).
     @ViewBuilder private var pasteBanner: some View {
         let state: ScreenSession.ImagePaste = preparingPhoto ? .sending : session.imagePaste
@@ -489,7 +494,8 @@ public struct ScreenSessionView: View {
                 .buttonStyle(.plain)
                 .disabled(state == .sending)
                 .accessibilityIdentifier("screen.pasteImage.status")
-                .padding(.bottom, 24)
+                // Above the trackpad drawer (its handle, or all of it when open).
+                .padding(.bottom, pasteBannerInset)
             }
         }
     }
