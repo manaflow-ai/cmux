@@ -193,15 +193,48 @@ struct AgentPaneCloudStartTests {
         }
         model.transport.gestures.record()
         let key = UUID().uuidString
-        let reply = Task { await model.respond(to: Self.signIn(key)) }
+        let reply = Task { Self.code(await model.respond(to: Self.signIn(key))) }
         let deadline = ContinuousClock.now + .seconds(10)
         while model.cloudSignInBrowser == nil, ContinuousClock.now < deadline { await Task.yield() }
         #expect(model.cloudSignInBrowser != nil)
         let expired = AgentPaneRequest(body: ["method": "cloud.signInCancel", "params": ["expired": true]])
         #expect(await model.respond(to: expired)["ok"] as? Bool == true)
         #expect(model.cloudSignInBrowser == nil)
-        #expect(Self.code(await reply.value) == "not_signed_in")
+        #expect(await reply.value == "not_signed_in")
         #expect(starts.seen.isEmpty)
+    }
+
+    /// Left Cloud and came back while the browser is still open: the new click waits on that same
+    /// browser sign-in, and opens no second one.
+    @Test func aClickAfterACancelWaitsOnTheSameBrowserSignIn() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        let opened = AsyncStream<Void>.makeStream()
+        let browser = AsyncStream<Bool>.makeStream()
+        model.onCloudSignIn = {
+            signIns += 1
+            opened.continuation.yield()
+            for await signedIn in browser.stream { return signedIn }
+            return false
+        }
+        let first = UUID().uuidString, second = UUID().uuidString
+        model.transport.gestures.record()
+        let left = Task { Self.code(await model.respond(to: Self.signIn(first))) }
+        for await _ in opened.stream { break }
+        #expect(await model.respond(to: Self.cancel)["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        let back = Task { Self.code(await model.respond(to: Self.signIn(second))) }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(signIns == 1)
+        browser.continuation.yield(true)
+        browser.continuation.finish()
+        #expect(await left.value == "cloud_sign_in_cancelled")
+        #expect(await back.value == nil)
+        #expect(signIns == 1)
+        #expect(model.cloudSignInBrowser == nil)
+        #expect(await model.respond(to: Self.signedIn(second))["ok"] as? Bool == true)
+        #expect(starts.seen.count == 1)
     }
 
     /// A chat opened in this pane: its Cloud start card's sign-in is gone with it.

@@ -365,7 +365,9 @@ extension AgentPaneModel {
         let generation = cloudSignInGeneration
         var signedIn = onCloudSignedIn?() == true
         if !signedIn, let signIn = onCloudSignIn {
-            let browser = Task { @MainActor in await signIn() }
+            // One browser sign-in per pane: a click after a cancel, while that browser is still open,
+            // waits on it again; a second `auth.signIn()` would end it and lose its progress.
+            let browser = cloudSignInBrowser ?? Task { @MainActor in await signIn() }
             cloudSignInBrowser = browser
             signedIn = await browser.value
             if cloudSignInBrowser == browser { cloudSignInBrowser = nil }
