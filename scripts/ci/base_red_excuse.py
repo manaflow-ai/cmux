@@ -130,7 +130,7 @@ _spec.loader.exec_module(_evidence)
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
-GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+GitHub, Refused, job_for = _evidence.GitHub, _evidence.Refused, _evidence.job_for
 RateLimited = _evidence.RateLimited
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
@@ -598,7 +598,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
                         raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
                     jobs[job["id"]] = job
     if checks:
-        latest = latest_checks(repo, sha, github)
+        latest = head_checks(repo, sha, github)
         aggregate_runs = []
         for name in checks:
             if name not in latest:
@@ -616,20 +616,39 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
     return list(jobs.values())
 
 
+def head_checks(repo: str, sha: str, github) -> dict:
+    """Per check name on the head, the newest GitHub Actions run of it that was not skipped, else
+    the newest. A skipped run has no verdict and must not hide an older one: a same-tree cmux-next
+    run on the head branch skips jobs under their names (2026-11-09: #39027's newer skipped check
+    hid its push run's red, so the head had "no verdict to compare"). Unlike the base side, a newer
+    run still going or cancelled still wins: the head waits for it or is re-run."""
+    ranked: dict[str, tuple[tuple[bool, int], dict]] = {}
+    for name, check in all_checks(repo, sha, github):
+        rank = (not (check.get("status") == "completed" and check.get("conclusion") == "skipped"), check["id"])
+        if name not in ranked or rank > ranked[name][0]:
+            ranked[name] = (rank, check)
+    return {name: check for name, (_, check) in ranked.items()}
+
+
+def all_checks(repo: str, sha: str, github):
+    """(name, check) for every GitHub Actions check run on a commit."""
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+        for check in page.get("check_runs") or []:
+            # A third-party app cannot provide compile or test evidence.
+            if check.get("app", {}).get("slug") == "github-actions":
+                yield check["name"], check
+
+
 def verdict_checks(repo: str, sha: str, github) -> dict:
     """Per check name on a base commit, the newest GitHub Actions run of it with a verdict, else
     the newest. A commit often runs a job twice, and the newer can have none: a workflow_dispatch
     DEV run skips the cmux-next checks job its push run failed (2026-10-24: e8697614's skipped
     check 121029429698 hid push run 40146316318's red, so the base had "no verdict")."""
     ranked: dict[str, tuple[tuple[bool, int], dict]] = {}
-    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
-        for check in page.get("check_runs") or []:
-            # A third-party app cannot provide compile or test evidence.
-            if check.get("app", {}).get("slug") != "github-actions":
-                continue
-            rank = (check.get("status") == "completed" and check.get("conclusion") in VERDICTS, check["id"])
-            if check["name"] not in ranked or rank > ranked[check["name"]][0]:
-                ranked[check["name"]] = (rank, check)
+    for name, check in all_checks(repo, sha, github):
+        rank = (check.get("status") == "completed" and check.get("conclusion") in VERDICTS, check["id"])
+        if name not in ranked or rank > ranked[name][0]:
+            ranked[name] = (rank, check)
     return {name: check for name, (_, check) in ranked.items()}
 
 

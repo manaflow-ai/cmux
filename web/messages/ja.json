@@ -5023,11 +5023,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "次期cmuxアプリのプレビュービルド",
-    "metaTitle": "cmux NEXT NIGHTLY — プレビュービルド",
-    "metaDescription": "cmux NEXT NIGHTLYをダウンロード。次期cmuxアプリの最新コミットから自動ビルドされるプレビュー版。cmuxと並行して動作し、独自の自動アップデート機能付き。",
+    "metaTitle": "cmux NEXT — Chiefとコーディングエージェントを1つのMacアプリで",
+    "metaDescription": "cmux NEXTはMac向けの次期cmuxです。やりたいことをChiefに伝えると、コーディングエージェントを専用のワークスペースで起動し、結果を報告します。",
     "description": "cmux NEXT NIGHTLYは次期バージョンのcmuxのプレビュー版で、最新コミットから自動ビルドされます。cmux NIGHTLY（バンドルID com.cmuxterm.app.nightly）としてインストールされるため、cmux NIGHTLYを置き換え、cmuxと並行して動作します。Appleシリコン搭載のMacが必要です。",
     "download": "Mac版 NEXT NIGHTLYをダウンロード",
-    "warning": "NEXT NIGHTLYビルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
+    "warning": "NEXT NIGHTLYビルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。",
+    "landing": {
+      "tagline": "やりたいことをChiefに伝えてください。エージェントはChiefが動かします。",
+      "subtitle": "cmux NEXTはcmuxの次期バージョンで、Ghosttyをベースにしたネイティブ Macアプリです。内蔵アシスタントのChiefが、コーディングエージェントを専用のワークスペースで起動し、状況を見守り、あなたの対応が必要になったら知らせます。ターミナル、本物のブラウザ、差分が、すべてのエージェントのそばにあります。",
+      "requirements": "Appleシリコン · macOS 14以降 · cmuxと並行して動作",
+      "featuresTitle": "機能",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "やりたいことを伝えるだけ。エージェントを起動し、大きな作業はサブエージェントに任せ、結果を報告します。"
+        },
+        "home": {
+          "title": "Home",
+          "body": "Chiefとすべてのエージェントのチャットをひとつのリストにまとめ、対応が必要なときは未読のドットで知らせます。"
+        },
+        "agents": {
+          "title": "好きなコーディングエージェント",
+          "body": "Claude Code、Codex、Gemini CLI、OpenCode、Pi などが本物のチャットとして動き、編集内容と差分が見えます。"
+        },
+        "floating": {
+          "title": "フローティングChief",
+          "body": "⌘Iで、今のワークスペースの上にChiefを表示します。⌥⇧Spaceなら、どのアプリからでも呼び出せます。"
+        },
+        "search": {
+          "title": "すべてを検索",
+          "body": "⌘⇧Aで、ワークスペース、タブ、エージェントのチャット、ブラウザ履歴、過去のコマンドを検索できます。"
+        },
+        "spaces": {
+          "title": "スペース",
+          "body": "作業ごとにウィンドウのセットを分けられます。切り替えは⌃⌥⌘←と→です。"
+        },
+        "browser": {
+          "title": "本物のブラウザ",
+          "body": "タブでChromiumが動き、拡張機能、DevTools、プロファイルに対応します。エージェントのすぐ隣で使えます。"
+        },
+        "machines": {
+          "title": "あなたのマシン",
+          "body": "ワークスペースをSSHで実行するか、アイドル時に一時停止するcmux Cloudマシンで実行できます（cmux Pro）。"
+        },
+        "history": {
+          "title": "履歴を持ち込む",
+          "body": "Claude CodeとCodexの履歴を検索可能なチャットとして取り込み、続きから再開できます。"
+        },
+        "terminal": {
+          "title": "Ghosttyターミナル",
+          "body": "GPUでレンダリングし、Ghosttyの設定を読み込みます。"
+        },
+        "sidebar": {
+          "title": "自分だけのサイドバー",
+          "body": "サイドバーのセクションをリストやグリッドで追加できます。小さなJavaScriptアプリとして作れます。"
+        },
+        "phone": {
+          "title": "iPhone（ベータ）",
+          "body": "エージェントの権限確認に、スマートフォンから応答できます。"
+        }
+      },
+      "heroAlt": "cmux NEXT：左にChiefのいるHome、右に編集ファイルを表示したClaude Codeエージェント",
+      "demosTitle": "使用例",
+      "demos": {
+        "docked": {
+          "caption": "ワークスペースの横にドックされたChief。",
+          "alt": "ターミナルのワークスペースの右側にドックされたChief"
+        },
+        "floating": {
+          "caption": "⌘Iで、作業中の画面の上にChiefが浮かびます。",
+          "alt": "ターミナルのワークスペースの上に浮かぶChief"
+        },
+        "agents": {
+          "caption": "Chiefのチャットの隣にあるエージェントのチャット。",
+          "alt": "Chiefとのチャットの隣にあるエージェントの会話"
+        },
+        "palette": {
+          "caption": "⌘⇧Pで、名前を指定してあらゆる操作を実行できます。",
+          "alt": "会話の上に開いたコマンドパレット"
+        },
+        "history": {
+          "caption": "Claude CodeとCodexの履歴を取り込めます。",
+          "alt": "Claude Code、Codexなどの取り込み元を一覧にしたインポート画面"
+        },
+        "machines": {
+          "caption": "ワークスペースグループを実行するマシンを選べます。",
+          "alt": "ワークスペースグループを実行するマシンの選択"
+        }
+      },
+      "nightlyTitle": "NEXT NIGHTLYについて",
+      "nightlyBody": "最新のコミットから毎晩新しいビルドが公開され、アプリは自動で更新されます。",
+      "iconAlt": "cmux NEXT NIGHTLYのアイコン"
+    }
   },
   "languageSwitcher": {
     "label": "言語"

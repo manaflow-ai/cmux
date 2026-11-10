@@ -8,13 +8,13 @@ name: cmux NEXT Cua Driver SDK publish
 #
 # resolve  the upstream tag's commit (git ls-remote) and the cmux branch whose
 #          build-cua-driver-sdk.sh runs (a branch of this repository, so no fork
-#          code reaches a build Mac). Fails before any build when the release
-#          environment has no cmux-cef-write token.
+#          code reaches a build Mac).
 # build    that branch's build-cua-driver-sdk.sh on an owned Mac first, with a
 #          job-local Rust toolchain (the one upstream's rust-toolchain file
 #          names) and Xcode 26.6. It holds no secret.
-# publish  the release environment (its secrets reach main only). Only main
-#          code runs: the tarball is data. It reads build-info.json and the
+# publish  the cef-publish environment, the one that holds the cmux-cef-write
+#          token (release has none: run 42278271161 stopped there), and
+#          waits for one of its reviewers. Only main code runs: the tarball is data. It reads build-info.json and the
 #          member digests out of the tarball, writes the pin, and uploads the
 #          tarball write-once to cua-driver-sdk/<sha256>/ with
 #          upload-r2-object.py, which reads it back and checks its sha256.
@@ -43,7 +43,6 @@ jobs:
   resolve:
     name: Resolve the release and the branch
     if: github.ref == 'refs/heads/main'
-    environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -53,16 +52,6 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       commit: ${{ steps.resolve.outputs.commit }}
     steps:
-      # Only whether the token is set reaches this job, never its value.
-      - name: Require the cmux-cef-write token
-        env:
-          HAS_WRITE_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID != '' && secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY != '' }}
-        run: |
-          if [[ "$HAS_WRITE_KEY" != true ]]; then
-            echo "::error::the release environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); nothing was built" >&2
-            exit 1
-          fi
-
       - name: Resolve the upstream tag and the cmux branch
         id: resolve
         env:
@@ -160,12 +149,22 @@ jobs:
   publish:
     name: Publish the SDK and write its pin
     needs: [resolve, build]
-    environment: release
+    environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
+      # Only whether the token is set reaches this step, never its value.
+      - name: Require the cmux-cef-write token
+        env:
+          HAS_WRITE_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID != '' && secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY != '' && secrets.CMUX_CEF_R2_ACCOUNT_ID != '' }}
+        run: |
+          if [[ "$HAS_WRITE_KEY" != true ]]; then
+            echo "::error::the cef-publish environment has no CMUX_CEF_R2_ACCOUNT_ID / CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); the tarball is in this run's cua-driver-sdk artifact" >&2
+            exit 1
+          fi
+
       - name: Checkout main's R2 upload
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
