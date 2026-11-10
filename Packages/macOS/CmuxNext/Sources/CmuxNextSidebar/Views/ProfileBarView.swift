@@ -149,7 +149,7 @@ final class ProfileBarView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)
-        if frame.size != old { relayout() }
+        _ = old // MUTANT, never merge: the size change makes nothing again
     }
 
     /// The slots the tooltips and the accessibility elements were last made for.
