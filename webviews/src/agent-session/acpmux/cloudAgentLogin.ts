@@ -6,30 +6,46 @@ import type { AcpmuxDirectClient } from "./direct";
 // agent's own login ON the machine (acpmux `_acpmux/agent_login/*`), never a copy of this Mac's
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
 
-/// The harnesses whose login acpmux runs on the machine (Cursor's and OpenCode's too, Leo 2026-11-10:
-/// "if somebody has a ChatGPT subscription or a Cursor subscription ... or an OpenCode subscription
-/// and they're using one of OpenCode's models").
-export type LoginAgent = "claude" | "codex" | "cursor" | "opencode";
+/// The harnesses whose login acpmux runs on the machine. Gemini CLI signs in there with an API key
+/// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
+/// --device-auth`: a page and a code, like Codex), its key coming from the person's vault; Cursor
+/// with its sign-in page only (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
+/// subscription"); OpenCode (Zen and Go) with the key from opencode.ai/auth only (Leo: "or an
+/// OpenCode subscription and they're using one of OpenCode's models").
+export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor" | "opencode";
 
-/// Whether `agent` is one acpmux signs in on the machine.
-function loginAgent(agent: string | undefined): agent is LoginAgent {
-  return agent === "claude" || agent === "codex" || agent === "cursor" || agent === "opencode";
+/// The agents ``cloudAgentLogin`` offers a sign-in for.
+export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor", "opencode"];
+
+/// `value` as a ``LoginAgent``; else undefined.
+export function loginAgent(value: string | undefined): LoginAgent | undefined {
+  return LOGIN_AGENTS.find((agent) => agent === value);
 }
 
-/// Whether `agent` has a sign-in page: OpenCode Zen and Go take only the key from opencode.ai/auth
-/// (acpmux `agent_login` answers `unsupported` to its `start`), so its card offers only the key.
-export function signsInWithPage(agent: LoginAgent): agent is Exclude<LoginAgent, "opencode"> {
-  return agent !== "opencode";
+/// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
+/// agent but Gemini and OpenCode, which take a key only.
+export function signsInByPage(agent: LoginAgent): boolean {
+  return agent !== "gemini" && agent !== "opencode";
 }
 
-/// The page that makes `agent`'s API key, shown beside its key field (OpenCode's, whose card has no
-/// sign-in page to point there).
+/// The page that makes `agent`'s API key, linked beside its key field (OpenCode's, whose card has
+/// no sign-in page to point there). A fixed page this app names, so not one of ``SIGN_IN_HOSTS``,
+/// which check the pages a machine's sign-in names.
 export const KEY_PAGE: Partial<Record<LoginAgent, string>> = { opencode: "https://opencode.ai/auth" };
 
-/// Whether `agent`'s card offers Use an API key: Cursor's key goes in as the Cloud secret
-/// `CURSOR_API_KEY` (acpmux `agent_login` refuses one here), so its card offers only Sign in.
+/// Whether an OpenCode chat on `model` signs in with the key the card saves: Zen's and Go's models
+/// (`opencode/...`, `opencode-go/...`). Another provider's model (`anthropic/...`) needs that
+/// provider's own login, which the saved key would not repair. An unknown model keeps the card.
+function opencodeKeyServes(model: string | undefined): boolean {
+  const provider = model?.includes("/") ? model.split("/")[0] : undefined;
+  return provider === undefined || provider === "opencode" || provider === "opencode-go";
+}
+
+/// Whether the agent takes an API key saved on the machine (`_acpmux/agent_login/api_key`): every
+/// agent but Grok, which reads `XAI_API_KEY` from the person's vault, and Cursor, whose key goes in
+/// as the Cloud secret `CURSOR_API_KEY` (acpmux `agent_login` refuses one here).
 export function takesApiKey(agent: LoginAgent): boolean {
-  return agent !== "cursor";
+  return agent !== "grok" && agent !== "cursor";
 }
 
 /// `_acpmux/agent_login/start`'s answer: the page to open, Codex's device code, whether the page
@@ -68,8 +84,9 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "console.anthropic.com",
   "auth.anthropic.com",
   "auth.openai.com",
+  "accounts.x.ai",
+  "auth.x.ai",
   "cursor.com",
-  "opencode.ai",
 ]);
 
 /// `raw` as a URL the card may open: https, no user info, on ``SIGN_IN_HOSTS``; else undefined.
@@ -208,6 +225,8 @@ type LoginOptions = {
   machineID: string | undefined;
   sessionId: string | undefined;
   harness: string | undefined;
+  /// The chat's model (`provider/model` for OpenCode), when known.
+  model?: string;
   supported: boolean;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
@@ -218,8 +237,8 @@ type LoginOptions = {
 };
 
 /// The sign-in a Cloud chat's sign-in failure offers, or undefined where there is none: a chat
-/// not connected, not on a Cloud machine, not Claude or Codex, or on an acpmux that does not
-/// advertise `agent_login`.
+/// not connected, not on a Cloud machine, not Claude, Codex, Gemini or Grok, or on an acpmux that
+/// does not advertise `agent_login`.
 export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined {
   return options.machineID ? agentLogin(options) : undefined;
 }
@@ -237,13 +256,17 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
   return agentLogin(options);
 }
 
-/// The agent's own login on the chat's machine, or undefined for a chat not connected, not Claude or
-/// Codex, or on an acpmux that does not advertise `agent_login`.
+/// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
+/// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
-  const agent = agentKey(harness?.split("/").pop());
-  if (!connected || !sessionId || !supported || !loginAgent(agent)) return undefined;
+  const leaf = harness?.split("/").pop();
+  const agent = loginAgent(agentKey(leaf));
+  if (!connected || !sessionId || !supported || !agent) return undefined;
+  // OpenCode: only the `opencode` harness (acpmux signs in that family; `opencode-v2` is its own) on
+  // a Zen or Go model.
+  if (agent === "opencode" && (leaf !== "opencode" || !opencodeKeyServes(options.model))) return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");
@@ -276,7 +299,8 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
         return started;
       }),
     open: (url) => {
-      const safe = signInURL(url);
+      // A machine's sign-in page on an allowed host, or this agent's own key page exactly.
+      const safe = signInURL(url) ?? (url === KEY_PAGE[agent] ? url : undefined);
       if (safe) openURL(safe);
     },
     openOnMachine: async (url) => {

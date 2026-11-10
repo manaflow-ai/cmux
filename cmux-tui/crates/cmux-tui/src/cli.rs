@@ -87,6 +87,8 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+mod completion;
+pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -114,6 +116,8 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod repo_hold;
+#[cfg(unix)]
+mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -649,6 +653,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Ok((_, command)) = parse_globals(args) {
         vm_words::activate_for(&command);
     }
+    // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
+    if let Some(code) = completion::run_if_requested(args) {
+        return code;
+    }
     #[cfg(unix)]
     if let Some(code) = dev::run_if_requested(args, surface) {
         return code;
@@ -808,6 +816,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| safe_mode::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
@@ -1490,6 +1499,7 @@ fn scope_help_with_keys(
         "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
+        "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),

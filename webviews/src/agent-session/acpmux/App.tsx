@@ -4021,6 +4021,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         machineID: cloudMachineID,
         sessionId: snapshot.sessionId,
         harness: snapshot.summary?.harness,
+        model: snapshot.summary?.model,
         supported: directClient.current?.supportsAgentLogin === true,
         gesture: (intent) =>
           postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
@@ -10783,6 +10784,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                         : undefined
                                                                     }
                                                                     sinceKey={childRows ? undefined : sinceKey}
+                                                                    promptAuthor={directClient.current?.presence.selfId}
                                                                     onJumpToSince={jumpToSince}
                                                                     coldOpen={
                                                                       !childRows && opened.cold

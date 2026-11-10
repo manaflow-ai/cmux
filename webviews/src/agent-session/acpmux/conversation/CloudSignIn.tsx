@@ -9,8 +9,9 @@
 // token). Where the host cannot open that tab (WebKit, a machine without remote localhost), and on
 // "Paste a code instead", Claude's other page gives a code to paste back. Codex's page asks for the
 // code the card shows, copied on the start. Use an API key, a link
-// beside it, saves one on the machine instead. Once signed in, the failed prompt goes again on the
-// person's click.
+// beside it, saves one on the machine instead. Grok signs in like Codex (a page and a code) and takes
+// no saved key, so it has no Use an API key; Gemini takes a key only, so Use an API key is its one
+// button. Once signed in, the failed prompt goes again on the person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
@@ -19,7 +20,7 @@ import { copyText, copyTextResult } from "./clipboard";
 import {
   KEY_PAGE,
   LoginStepError,
-  signsInWithPage,
+  signsInByPage,
   takesApiKey,
   type CloudSignIn as SignIn,
   type LoginFailure,
@@ -40,12 +41,14 @@ type Stage =
   | { at: "sent" }
   | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
 
-/// What the card's lead says: the agent's own name, as the person knows it.
+/// What the card's lead says: the agent's own name, as the person knows it. Gemini has no sign-in
+/// page here (a key only).
 const SIGN_IN_LABEL = {
   claude: "turn.signIn.claude",
   codex: "turn.signIn.codex",
+  grok: "turn.signIn.grok",
   cursor: "turn.signIn.cursor",
-} as const;
+} as const satisfies Partial<Record<SignIn["agent"], StringKey>>;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   bad_code: "turn.signIn.error.badCode",
@@ -304,35 +307,47 @@ export function CloudSignIn({
       {t("turn.signIn.openPage")}
     </button>
   );
-  // Where the agent's key is made (OpenCode's opencode.ai/auth), opened on this Mac.
-  const keyPage = KEY_PAGE[signIn.agent];
   const cancelButton = (
     <button type="button" className="cv-turn-auth-action" onClick={cancel}>
       {t("turn.signIn.cancel")}
     </button>
   );
 
+  // Each agent's ways in: its own sign-in page (all but Gemini) and a saved key (all but Grok and
+  // Cursor).
+  const agent = signIn.agent;
+  const pageLabel = agent === "gemini" || agent === "opencode" ? undefined : SIGN_IN_LABEL[agent];
+  // Where the agent's key is made (OpenCode's opencode.ai/auth), opened on this Mac.
+  const keyPage = KEY_PAGE[agent];
+  const offersPage = !keyOnly && signsInByPage(agent) && pageLabel !== undefined;
+  const offersKey = takesApiKey(agent);
   switch (stage.at) {
     case "idle":
     case "starting":
+      if (!offersPage && !offersKey) return null;
       return (
         <>
-          {!keyOnly && signsInWithPage(signIn.agent) && (
+          {offersPage && pageLabel && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
               disabled={stage.at === "starting"}
               onClick={start}
             >
-              {t(SIGN_IN_LABEL[signIn.agent])}
+              {t(pageLabel)}
             </button>
           )}
-          {takesApiKey(signIn.agent) && (
+          {offersKey && (
             <button
               type="button"
-              // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
+              // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button,
+              // filled when it leads the card (Gemini), outlined on a team machine (Switch model leads).
               className={
-                keyOnly || !signsInWithPage(signIn.agent) ? "cv-turn-auth-action" : "cv-turn-error__offer-link"
+                offersPage
+                  ? "cv-turn-error__offer-link"
+                  : keyOnly
+                    ? "cv-turn-auth-action"
+                    : "cv-turn-auth-action cv-turn-error__primary"
               }
               disabled={stage.at === "starting"}
               onClick={() => setStage({ at: "key" })}

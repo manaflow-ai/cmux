@@ -215953,6 +215953,60 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式、終端機中的 `cmux cloud` 和指令碼會建立雲端機器、將聊天移到雲端並在那裡啟動工作階段，不會先顯示卡片詢問你。你的方案限制仍然適用。只有你可以變更此項。"}}
       }
     },
+    "settings.cloud.turnCheckpoints": {
+      "comment": "Settings > Machines: toggle that saves a whole-machine checkpoint between the turns of a Cloud chat, so a turn can be undone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Save a Checkpoint Before Each Cloud Chat Turn"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حفظ نقطة استعادة قبل كل دور في دردشة السحابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sačuvaj kontrolnu tačku prije svakog poteza Cloud chata"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gem et checkpoint før hver tur i en Cloud-chat"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Vor jedem Zug eines Cloud-Chats einen Checkpoint speichern"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Guardar un punto de control antes de cada turno del chat en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Enregistrer un point de contrôle avant chaque tour d’un chat Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Salva un checkpoint prima di ogni turno della chat Cloud"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットの各ターンの前にチェックポイントを保存"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រក្សាទុកចំណុចត្រួតពិនិត្យមុនវេននីមួយៗនៃការជជែក Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅의 각 턴 전에 체크포인트 저장"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagre et sjekkpunkt før hver tur i en Cloud-chat"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisuj punkt kontrolny przed każdą turą czatu w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Salvar um checkpoint antes de cada turno do chat na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохранять контрольную точку перед каждым ходом облачного чата"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บันทึกจุดตรวจสอบก่อนแต่ละรอบของแชต Cloud"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her Cloud sohbet turundan önce bir kontrol noktası kaydet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зберігати контрольну точку перед кожним ходом хмарного чату"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu điểm khôi phục trước mỗi lượt trò chuyện Cloud"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在每轮云端聊天之前保存检查点"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在每輪雲端聊天之前儲存檢查點"}}
+      }
+    },
+    "settings.cloud.turnCheckpoints.help": {
+      "comment": "Settings > Machines: help for the Save a Checkpoint Before Each Cloud Chat Turn toggle. Back to Before This Turn is the chat's undo action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يحفظ آلة السحابة بالكامل بين أدوار دردشة السحابة، لتستعيدها «العودة إلى ما قبل هذا الدور» في ثوانٍ. يحتفظ بأحدث بضع نقاط استعادة لكل دردشة. عند الإيقاف: لا تُحفظ أي نقاط استعادة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Čuva cijelu Cloud mašinu između poteza Cloud chata, tako da je Nazad prije ovog poteza vraća za nekoliko sekundi. Zadržava nekoliko najnovijih kontrolnih tačaka svakog chata. Isključeno: kontrolne tačke se ne čuvaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gemmer hele Cloud-maskinen mellem turene i en Cloud-chat, så Tilbage til før denne tur gendanner den på få sekunder. Beholder de nyeste få checkpoints for hver chat. Fra: ingen checkpoints gemmes."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Speichert die ganze Cloud-Maschine zwischen den Zügen eines Cloud-Chats, sodass „Zurück vor diesen Zug“ sie in Sekunden wiederherstellt. Behält die neuesten paar Checkpoints jedes Chats. Aus: Es werden keine Checkpoints gespeichert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Guarda toda la máquina en la nube entre los turnos de un chat en la nube, para que Volver a antes de este turno la restaure en segundos. Conserva los puntos de control más recientes de cada chat. Desactivado: no se guarda ningún punto de control."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Enregistre toute la machine Cloud entre les tours d’un chat Cloud, pour que Revenir avant ce tour la restaure en quelques secondes. Garde les quelques points de contrôle les plus récents de chaque chat. Désactivé : aucun point de contrôle n’est enregistré."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Salva l’intera macchina Cloud tra i turni di una chat Cloud, così Torna a prima di questo turno la ripristina in pochi secondi. Conserva gli ultimi checkpoint di ogni chat. Disattivato: nessun checkpoint viene salvato."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットのターンの間に Cloud マシン全体を保存し、「このターンの前に戻る」で数秒で復元できるようにします。各チャットの最新のいくつかのチェックポイントを保持します。オフ: チェックポイントは保存されません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រក្សាទុកម៉ាស៊ីន Cloud ទាំងមូលរវាងវេននៃការជជែក Cloud ដើម្បីឱ្យ ត្រឡប់ទៅមុនវេននេះ ស្ដារវាក្នុងរយៈពេលប៉ុន្មានវិនាទី។ រក្សាចំណុចត្រួតពិនិត្យថ្មីៗបំផុតមួយចំនួននៃការជជែកនីមួយៗ។ បិទ៖ មិនរក្សាទុកចំណុចត្រួតពិនិត្យទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅의 턴 사이에 Cloud 머신 전체를 저장해, 이 턴 이전으로 되돌리기가 몇 초 만에 복원합니다. 채팅마다 최신 체크포인트 몇 개를 보관합니다. 끔: 체크포인트를 저장하지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagrer hele Cloud-maskinen mellom turene i en Cloud-chat, så Tilbake til før denne turen gjenoppretter den på sekunder. Beholder de nyeste sjekkpunktene for hver chat. Av: ingen sjekkpunkter lagres."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisuje całą maszynę w chmurze między turami czatu w chmurze, aby Wróć do stanu sprzed tej tury przywracało ją w kilka sekund. Zachowuje kilka najnowszych punktów kontrolnych każdego czatu. Wyłączone: punkty kontrolne nie są zapisywane."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Salva a máquina na nuvem inteira entre os turnos de um chat na nuvem, para que Voltar para antes deste turno a restaure em segundos. Mantém os checkpoints mais recentes de cada chat. Desativado: nenhum checkpoint é salvo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохраняет всю облачную машину между ходами облачного чата, чтобы «Вернуться к моменту до этого хода» восстанавливало её за секунды. Хранит несколько последних контрольных точек каждого чата. Выключено: контрольные точки не сохраняются."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บันทึกเครื่อง Cloud ทั้งเครื่องระหว่างรอบของแชต Cloud เพื่อให้ ย้อนกลับไปก่อนรอบนี้ กู้คืนได้ในไม่กี่วินาที เก็บจุดตรวจสอบล่าสุดไม่กี่จุดของแต่ละแชต ปิด: ไม่บันทึกจุดตรวจสอบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir Cloud sohbetinin turları arasında Cloud makinesinin tamamını kaydeder; böylece Bu Turdan Öncesine Dön onu saniyeler içinde geri yükler. Her sohbetin en yeni birkaç kontrol noktasını saklar. Kapalı: kontrol noktası kaydedilmez."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зберігає всю хмарну машину між ходами хмарного чату, щоб «Повернутися до моменту перед цим ходом» відновлювало її за секунди. Зберігає кілька найновіших контрольних точок кожного чату. Вимкнено: контрольні точки не зберігаються."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu toàn bộ máy Cloud giữa các lượt của cuộc trò chuyện Cloud, để Quay lại trước lượt này khôi phục nó trong vài giây. Giữ vài điểm khôi phục mới nhất của mỗi cuộc trò chuyện. Tắt: không lưu điểm khôi phục nào."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在云端聊天的各轮之间保存整台云端机器，让“回到这一轮之前”在几秒内恢复它。每个聊天保留最新的几个检查点。关闭：不保存检查点。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在雲端聊天的各輪之間儲存整台雲端機器，讓「回到這一輪之前」在幾秒內還原它。每個聊天保留最新的幾個檢查點。關閉：不儲存檢查點。"}}
+      }
+    },
     "settings.agentPane.composerRing": {
       "comment": "Settings > Agent Chat: the row that picks what the composer's ring shows (context usage or plan usage limits)",
       "extractionState": "manual",

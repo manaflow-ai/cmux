@@ -257,6 +257,21 @@ export const PAGES = {
       },
     ],
   },
+  // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
+  "sidebar-chats": {
+    out: "webviews/src/pages/sidebar-chats/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSidebar/Resources/Localizable.xcstrings`,
+        keys: () => [
+          "sidebar.section.pinned",
+          "sidebar.chatHistory.earlier",
+          "sidebar.chatHistory.showMore",
+          "sidebar.chatHistory.loading",
+        ],
+      },
+    ],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
@@ -339,6 +354,19 @@ export const PAGES = {
   github: {
     out: "webviews/src/pages/github/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
+  },
+  // The Task Manager page (cmux-page://cmux.task-manager/): its own words next to it (the columns,
+  // the empty list, the total, moved from the SwiftUI table it replaced), and the tab title and Kill
+  // Process, which the Swift kill question says too, from CmuxNextResources' catalog.
+  "task-manager": {
+    out: "webviews/src/pages/task-manager/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/task-manager/Localizable.xcstrings" },
+      {
+        file: `${sources}/CmuxNextResources/Resources/Localizable.xcstrings`,
+        keys: () => ["taskManager.title", "taskManager.kill.button"],
+      },
+    ],
   },
   // The Tasks page (cmux-page://cmux.tasks/); its table lives next to it (the Swift pane is gone).
   tasks: {

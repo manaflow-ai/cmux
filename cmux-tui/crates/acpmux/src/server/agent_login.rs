@@ -22,6 +22,7 @@ use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::hub::{Control, Hub};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
+use std::path::Path;
 use std::sync::Arc;
 
 /// The methods `handle` answers.
@@ -38,6 +39,7 @@ pub const REMOTE_REFUSED: &str = "remote_refused";
 fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
         reason::UNSUPPORTED_AGENT
+        | reason::UNSUPPORTED
         | reason::BAD_CODE
         | reason::UNKNOWN_LOGIN
         | reason::UNKNOWN_SESSION => -32602,
@@ -49,11 +51,10 @@ fn error(e: LoginError) -> RpcError {
 fn agent_of(params: &Value) -> Result<Agent, RpcError> {
     let name = params.get("agent").and_then(Value::as_str).unwrap_or_default();
     Agent::parse(name).ok_or_else(|| {
+        let names: Vec<_> = Agent::ALL.iter().map(|a| a.name()).collect();
         error(LoginError::new(
             reason::UNSUPPORTED_AGENT,
-            format!(
-                "agent must be \"claude\", \"codex\", \"cursor\" or \"opencode\", not {name:?}"
-            ),
+            format!("agent must be one of {}, not {name:?}", names.join(", ")),
         ))
     })
 }
@@ -72,8 +73,9 @@ fn allowed(conn: &Conn, params: &Value) -> bool {
     }
 }
 
-/// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`
-/// or `codex` harness profile when it runs that CLI itself, else the CLI on
+/// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`,
+/// `codex`, `gemini` or `grok` harness profile when it runs that CLI itself
+/// (Gemini's and Grok's: the profile's program is `gemini` or `grok`), else the CLI on
 /// the login PATH. The profile's env and Codex's global options come along;
 /// values that refer to a secret store are left out (nothing here asks one).
 fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Option<Cli> {
@@ -89,6 +91,9 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let native = |p: &&HarnessProfile| match agent {
         Agent::Claude => p.kind == HarnessKind::ClaudeStdio && p.argv.len() == 1,
         Agent::Codex => crate::codex_app_server::is_profile_launch(&p.argv),
+        Agent::Gemini | Agent::Grok => p.argv.first().is_some_and(|program| {
+            Path::new(program).file_name().and_then(|f| f.to_str()) == Some(agent.name())
+        }),
         // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
         Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
         // `opencode acp`: its env (XDG_DATA_HOME) says where its `auth.json` is.
@@ -112,12 +117,12 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Cursor | Agent::OpenCode => None,
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Cursor | Agent::OpenCode => Vec::new(),
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }
@@ -129,11 +134,10 @@ fn cursor_launch(argv: &[String]) -> bool {
         && argv.get(1).is_some_and(|a| a == "acp")
 }
 
-/// Whether `argv` runs OpenCode's CLI: `opencode` (or `opencode2`), then `acp`.
+/// Whether `argv` runs OpenCode's CLI: `opencode`, then `acp`.
 fn opencode_launch(argv: &[String]) -> bool {
     let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
-    matches!(program.and_then(|p| p.to_str()), Some("opencode" | "opencode2"))
-        && argv.get(1).is_some_and(|a| a == "acp")
+    program.and_then(|p| p.to_str()) == Some("opencode") && argv.get(1).is_some_and(|a| a == "acp")
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
@@ -164,7 +168,7 @@ async fn signed_in(
     hub: &Arc<Hub>,
     agent: Agent,
     params: &Value,
-    store: &std::path::Path,
+    store: &Path,
 ) -> Result<bool, RpcError> {
     // Finishing a login may name a different chat, or its config may have changed while
     // the browser was open. Never apply one account's success to another account.
@@ -177,12 +181,7 @@ async fn signed_in(
     // Alternate account homes are scoped to this chat; do not flip the machine-wide
     // launcher mode away from team routing for the canonical account.
     let machine = machine(hub);
-    let canonical = machine.home.join(match agent {
-        Agent::Claude => ".claude",
-        Agent::Codex => ".codex",
-        Agent::Cursor => ".config/cursor",
-        Agent::OpenCode => ".local/share/opencode",
-    });
+    let canonical = machine.home.join(agent.home_dir_name());
     if current.store(agent) == canonical
         && let Err(e) = machine.choose_own(agent)
     {

@@ -1,6 +1,7 @@
 import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// Saved passwords are not filled into a page an agent drives
@@ -39,24 +40,12 @@ extension TabContentCache {
     /// the tab arrives, the agent's first operation rebuilds it instead.
     func markAgentDriven(surface: SurfaceID) { agentDrivenSurfaces.insert(surface) }
 
-    func claimAgentDriven(surface: SurfaceID, key: String) {
-        guard agentDrivenSurfaces.remove(surface) != nil, browsers[key] == nil else { return }
-        agentDrivenTabs.insert(key)
-    }
-}
+    /// A browser split an agent asked for, by its new pane (``TabAgentMarks/mark(pane:machine:)``).
+    func markAgentDriven(pane: String, machine: String) { agentMarks.mark(pane: pane, machine: machine) }
+    func settleAgentDriven(pane: String, machine: String, surface: SurfaceID?) { agentMarks.settle(pane: pane, machine: machine, surface: surface) }
 
-/// Per-tab agent state the cache owns: tabs an agent drove, surfaces an
-/// agent opened (claimed when their tab arrives), and tabs where the person
-/// allowed agents despite extension access (plans/cmux-next/passwords.md,
-/// section 3.4). Everything for a tab ends when the tab closes.
-struct TabAgentMarks {
-    var tabs: Set<String> = []
-    var surfaces: Set<SurfaceID> = []
-    var extensionOverrides: Set<String> = []
-
-    mutating func forget(_ key: String) {
-        tabs.remove(key)
-        extensionOverrides.remove(key)
+    func claimAgentDriven(surface: SurfaceID, key: String, pane: String? = nil, machine: String = "") {
+        agentMarks.claim(surface: surface, key: key, pane: pane, machine: machine, hasPage: browsers[key] != nil)
     }
 }
 
