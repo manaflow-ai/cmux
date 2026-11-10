@@ -1,0 +1,27 @@
+cmux for iOS is the phone app for cmux on the Mac. You message a Chief, an agent that runs coding agents on the user's own Mac and reports back in a conversation. You do not need a Mac, a VPN or any network setup to review it: we keep a review Mac online that is signed in to the demo account, and the app reaches it through the cmux cloud with no further setup.
+
+Prior review resolutions:
+- Guideline 2.5.2 (submission 99c2f5b0-5940-41d4-a02b-fd222d2eeeca): the app does not download or execute code on iPhone or iPad. It shows conversations and sends messages; agents run on the user's own Mac.
+- System VPN API (submission 40f744df-e0fc-4782-9dac-aa0c79281b9f): the App Store binary contains no packet tunnel extension and no Network Extension or VPN entitlement.
+- Guideline 1.5: the Support URL is https://cmux.com/support.
+
+Sign in:
+1. Launch cmux. Type the demo account email, {{DEMO_ACCOUNT_EMAIL}} (also in the demo account field), into "Email address" and tap "Email me a code".
+2. There is no password. The app emails a one-time code. Open this public inbox in Safari: {{MAILINATOR_PUBLIC_INBOX_URL}} (no account or password needed). The newest email's subject contains the code.
+3. Enter the code on "Check your email" and tap "Verify code". If no code arrives within two minutes, request a new one in the app.
+
+Review path:
+1. After sign-in, Home lists the account's conversations. Open the conversation with the Chief named "{{REVIEW_CHIEF_NAME}}", which runs on the review Mac.
+2. Type a message, for example: Reply with app-review-ok
+   Tap Send. The Chief's reply appears in the conversation.
+3. The compose button (top left) starts a New Message, a New Group or a New Chief. Invite (top right) invites someone by email or text message.
+4. The gear button (top right) opens Chat Server. Keep cmux Cloud; Self-Hosted is for people who run their own server on their own network.
+
+Permissions, each optional:
+- Notifications: asked after sign-in, so a Chief can tell you when it needs you. The app works the same if you decline.
+- Face ID: only when you approve an agent's permission request.
+- Microphone and Speech Recognition: only for a voice call or voice note to your Chief, started from Siri, Shortcuts or the Action Button.
+
+Payments: the iOS app sells no digital goods and has no purchase, checkout or billing links.
+
+Contact during review: {{REVIEW_CONTACT_EMAIL}}, {{REVIEW_CONTACT_PHONE}}

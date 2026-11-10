@@ -62,6 +62,10 @@ PATH_OWNERS = {
     ".github/runners.json": frozenset(("ci",)),
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    # test_asc_review_package.py imports the sync script and reads the notes
+    # template, the listing it syncs, and the app source whose labels the notes quote.
+    "ios/scripts/asc_review_package.py": frozenset(("ci",)),
+    "ios/AppStoreReview/review-notes-asc.txt": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
     # test_runner_routing_table.py imports the routing check and reads every
     # workflow's runs-on against .github/runners.json.

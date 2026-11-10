@@ -1,22 +1,19 @@
 # cmux iOS Review Notes
 
-This file is reference-only background for the team. The single canonical App
-Store Connect notes template is the pasteable notes block in
-`reviewer-setup.md`; do not paste this file into App Store Connect.
+This file is reference-only background for the team. The App Store Connect
+notes come from `review-notes-asc.txt`, which every `ios-app-store.yml` run
+writes to App Store Connect (`ios/scripts/asc_review_package.py sync-notes`); do
+not paste this file into App Store Connect.
 
-cmux for iOS is a companion app for the cmux macOS terminal. It lets a signed-in
-user pair with their Mac, view workspaces, receive terminal notifications, and
-send input to an active terminal session from iPhone or iPad.
+cmux for iOS is the phone app for cmux on the Mac. A signed-in user messages
+their Chiefs (agents that run coding agents on their own Mac) and other people
+on cmux, gets notified when a Chief needs them, and approves agent permission
+requests.
 
 Official App Store Connect app: Apple ID `6783338052`.
 
-Demonstration mode: the review demo account is server-flagged
-(`cmuxReviewDemoContent: true` in Stack `clientReadOnlyMetadata`, set with
-`web/scripts/set-review-demo-content.ts`). After sign-in the app shows a local
-"Demo Mac" with sample developer workspaces, notifications, and interactive
-canned terminals through the same UI as a live Mac, so the reviewer can
-exercise the full app even if the prepared review Mac or its network route is
-temporarily unreachable. Real computers still appear alongside it.
+Demonstration mode: none is wired in this app. The review account reaches a
+Chief on a prepared review Mac (`reviewer-setup.md`).
 
 Reviewer access:
 
@@ -27,27 +24,15 @@ Reviewer access:
   sends a one-time email code and that no Mailinator account is required.
 - The reviewer does not need to own or install cmux on a Mac. Before submission,
   keep the prepared review Mac online, signed in to the same demo account, and
-  visible to the iOS app through the production device registry or relay path.
-  If automatic discovery is verified, the ASC notes should say that the review
-  Mac appears automatically after sign-in and that no VPN or network
-  configuration is required.
-- Keep a manual fallback ready in ASC notes if automatic discovery fails:
-  - Name: `App Review Mac`
-  - Host: `<TAILSCALE_MAGICDNS_OR_100_X_ADDRESS>`
-  - Port: `<CMUX_MOBILE_HOST_PORT>`
-  - Tailscale access: `<TAILSCALE_REVIEW_ACCESS>`
-  - Review contact: `<REVIEW_CONTACT_EMAIL>` / `<REVIEW_CONTACT_PHONE>`
+  running the Chief the notes name; Home reaches it through the cmux cloud, the
+  default Chat Server, so no VPN or network configuration is required.
 - The prepared Mac must use a dedicated review-only macOS user, no personal or
-  developer credentials, a safe `App Review` workspace, and a route restricted
-  to review access. Revoke the credentials and reset the review user after App
+  developer credentials, and fictional names. Reset the review user after App
   Review finishes.
-- The app may request Local Network permission during pairing so it can discover
-  and connect to the user's Mac.
-- Camera permission is used only to scan cmux pairing QR codes.
-- Microphone and speech recognition permissions are used only when the reviewer
-  chooses voice transcription in the message box.
-- Photo library permission is used only when the reviewer attaches a photo to a
-  terminal-agent message.
+- Notifications are requested after sign-in and are optional.
+- Face ID is used only to approve an agent's permission request.
+- Microphone and speech recognition permissions are used only for voice calls
+  and voice notes to a Chief, started from Siri, Shortcuts or the Action Button.
 
 Payments:
 
@@ -64,20 +49,16 @@ Payments:
 Privacy and account handling:
 
 - Sign in supports Apple, Google, GitHub, and email code through Stack Auth.
-- Push notifications are opt-in. The device token is uploaded only after the user
-  enables phone notifications.
+- Push notifications are opt-in. The app asks after sign-in, and the device token
+  is uploaded only after the user allows notifications.
 - `ITSAppUsesNonExemptEncryption` is `false`; the app uses standard platform
   networking and TLS.
 
-Primary review path:
+Primary review path (the App Store Connect notes are rendered from
+`review-notes-asc.txt` on every `ios-app-store.yml` run):
 
-1. Sign in with the demo account supplied in App Store Connect.
-2. For email-code sign-in, open the Mailinator public inbox URL supplied in ASC
-   Review Information and enter the newest one-time code from the email subject.
-3. Wait for the prepared review Mac to appear. If the ASC notes include a manual
-   fallback, select Tailscale Only under Settings > Connection Method, then use
-   Add Computer with the exact fallback values supplied there.
-4. Open the workspace list, then open the `App Review` workspace detail.
-5. Send `echo app-review-ok` from the message box.
-6. Enable phone notifications and verify the opt-in prompt, then disable them
-   again from the same surface.
+1. Sign in with the demo account supplied in App Store Connect: "Email me a
+   code", then the newest one-time code from the Mailinator public inbox the
+   notes name, then "Verify code".
+2. Home lists the account's conversations. Open the Chief the notes name.
+3. Send "Reply with app-review-ok" and read the Chief's reply.

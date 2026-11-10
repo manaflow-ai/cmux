@@ -393,6 +393,22 @@ jobs:
         if: always()
         run: security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
 
+      # The review package lives in ios/AppStoreReview: the App Review notes
+      # (review-notes-asc.txt, filled with the demo account and contact App
+      # Store Connect already holds, and the review Mac's Chief from a
+      # repository variable) and every locale's Support URL (one locale left on
+      # the home page is the 1.5 rejection again). Every run writes them, so
+      # App Store Connect never drifts from the repo; an empty value fails the
+      # run before the notes are written.
+      - name: Sync App Review notes and store listing
+        env:
+          CMUX_IOS_REVIEW_CHIEF_NAME: ${{ vars.IOS_APPSTORE_REVIEW_CHIEF_NAME }}
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          python3 ios/scripts/asc_review_package.py --app "$ASC_APP_ID" sync-notes --version "$VERSION"
+          python3 ios/scripts/asc_review_package.py --app "$ASC_APP_ID" sync-listing --version "$VERSION"
+
       - name: Validate App Store readiness
         env:
           FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}

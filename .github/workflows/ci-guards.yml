@@ -141,6 +141,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      # ios-app-store.yml is a ci input; release-ios never runs for feat-cmux-next.
+      - name: Validate App Store review package sync
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_asc_review_package.py
+
       - name: Validate scripts keep full clones full
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py

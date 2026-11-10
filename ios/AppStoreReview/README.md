@@ -83,10 +83,14 @@ ios/scripts/validate-app-store-release.sh \
 
 ## Files
 
-- `reviewer-setup.md` contains the prepared Mac, automatic review-Mac route, and
-  manual fallback setup needed so App Review can test without owning a Mac. Its
-  pasteable notes block is the single canonical App Store Connect notes
-  template.
+- `review-notes-asc.txt` is the App Review notes template. `ios-app-store.yml`
+  writes it to App Store Connect on every run, filled with the demo account and
+  contact App Store Connect holds and the review Chief's name from the
+  `IOS_APPSTORE_REVIEW_CHIEF_NAME` repository variable
+  (`ios/scripts/asc_review_package.py sync-notes`). The same step sets every
+  locale's Support URL (`sync-listing`).
+- `reviewer-setup.md` explains the review path, the review Mac, and where each
+  live value lives.
 - `review-notes.md` is reference-only background on the review flow and
   permissions. Do not paste it into App Store Connect.
 - `metadata-screenshots-checklist.md` lists the metadata, screenshots, privacy, and payment gates that must be complete before submission.
