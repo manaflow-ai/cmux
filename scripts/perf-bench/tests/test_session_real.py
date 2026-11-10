@@ -493,7 +493,7 @@ class RestoredAgents(unittest.TestCase):
         self.assertRegex(typed[0][1], r"session_real_agent\.zsh'? working real-0001\n$")
         self.assertNotIn(102, typed[0][2])                              # typed after the CLI ended, not into it
 
-    def run_agents(self, states, settle=60, stays=(), deaf=(), force=False):
+    def run_agents(self, states, settle=60, stays=(), deaf=(), force=False, new_shell=("shell", None)):
         """A terminal world for `start_agents`: `end` makes a resumed terminal a shell (not one in `stays`), `send`
         makes a shell the program (not one in `deaf`), `restart` gives a dead tab a shell."""
         log, now = {"end": [], "send": [], "restart": []}, [1000.0]
@@ -518,7 +518,7 @@ class RestoredAgents(unittest.TestCase):
         def restart(tab):
             name = f"real-{tab['surface'] // 10:04d}"
             log["restart"].append(name)
-            states[name] = ("shell", None)
+            states[name] = new_shell
             return None
 
         def sleep(seconds):
@@ -568,6 +568,17 @@ class RestoredAgents(unittest.TestCase):
         self.assertEqual(result["not_typed"], ["real-0002"])
         faults = m.agents_faults(2, 1, 2, len(result["not_typed"]), [])
         self.assertTrue(faults)                                                          # and that is never exit 0
+
+    def test_a_restarted_tab_is_read_again_before_a_start_line(self):
+        states = {"real-0007": ("none", None)}
+        result, log = self.run_agents(states, settle=5, new_shell=("shell", 1.0))      # its shell is new: the product may type
+        self.assertEqual((log["restart"], log["send"]), (["real-0007"], []))
+        self.assertEqual(result["not_typed"], ["real-0007"])
+        states = {"real-0007": ("none", None)}
+        result, log = self.run_agents(states, settle=5, new_shell=("resumed", {300: START}))   # the product resumed its CLI
+        self.assertEqual(log["end"], [("real-0007", [300], signal.SIGTERM)])
+        self.assertEqual(log["send"], [("real-0007", "shell", "working")])
+        self.assertEqual(result["restarted_shells"], 1)
 
     def test_with_no_time_nothing_is_typed_and_nothing_is_ended(self):
         states = {"real-0001": ("resumed", {102: START}), "real-0002": ("shell", None)}

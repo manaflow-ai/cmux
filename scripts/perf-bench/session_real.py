@@ -807,9 +807,10 @@ def end_resumed(resumed, sig=signal.SIGTERM, rows=None, kill=None):
 
 RETYPE_SECONDS = 8   # a start line that did not start the program (typed at the moment the product typed its own) is typed again
 # The product types its resume command into a new shell at the shell's first prompt, at most 10 s after the shell's
-# start (terminal_respawn/prefill.rs PROMPT_WAIT). A shell younger than this gets no start line yet, so the line does
-# not go into a CLI that starts in that moment. (If it still does: that CLI is ended in the next round, with the line.)
-SHELL_SETTLE_SECONDS = 15
+# start (terminal_respawn/prefill.rs PROMPT_WAIT; measured 5 to 10 s at load 12 to 27). A shell younger than this gets
+# no start line yet, so the line does not go into a CLI that starts in that moment. (If it still does: that CLI is
+# ended in the next round, with the line.)
+SHELL_SETTLE_SECONDS = 20
 KILL_SECONDS = 5     # a resumed CLI that does not end on SIGTERM gets SIGKILL after this
 OTHER_SECONDS = 10   # another program for this long is not a start-up step (the product's shim, the wrapper): it stays
 
@@ -820,7 +821,7 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
     - "program": the bench program runs: nothing (with `force`, the start line one time);
     - "resumed": the real CLI that the product's "Resume Agents After Restart" started: `end(pids, SIGTERM)` one time,
       SIGKILL after KILL_SECONDS; nothing is typed into it, the start line is typed when only the shell is left;
-    - "none": the daemon has no terminal (a dead tab): `restart(tab)` one time, then the start line;
+    - "none": the daemon has no terminal (a dead tab): `restart(tab)` one time; the next rounds see its new shell;
     - "shell": `send(number, tab, state)` when its newest shell is SHELL_SETTLE_SECONDS old (the product's own
       resume command comes before that); again after RETYPE_SECONDS when the program did not start;
     - "other": another program: never typed into, never signalled; after OTHER_SECONDS it is not waited for;
@@ -867,6 +868,8 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
                     continue
                 restarted.add(name)
                 result["restarted_shells"] += 1
+                if kind == "none":
+                    continue  # the next round reads what the new terminal runs; the product may type its resume first
             if name in typed and clock() - typed[name] < RETYPE_SECONDS:
                 continue
             if kind == "shell" and detail is not None and detail < SHELL_SETTLE_SECONDS and name not in typed:
