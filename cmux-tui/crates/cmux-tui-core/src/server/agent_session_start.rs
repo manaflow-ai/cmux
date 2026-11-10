@@ -63,7 +63,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_link::AcpmuxLink;
+use super::agent_session_link::{AcpmuxLink, LinkError, Patience};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
@@ -119,62 +119,36 @@ pub enum AgentStartHost {
 /// Starts that may run at once on one daemon.
 const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
-/// A harness spawns and answers `session/new` (a cold agent can take long).
-const NEW_TIMEOUT: Duration = Duration::from_secs(60);
-/// How long after a `session/new` timed out its answer is still waited for, to end the session
-/// acpmux made for a start that already gave up (review of cmux#40640 at 00411eb5: a 7 s catalog
-/// read and a 56 s spawn left an agent no tab bound).
-const LATE_SESSION_GRACE: Duration = Duration::from_secs(300);
+/// How each acpmux call of a start waits ([`AcpmuxLink::call_while_alive_until`]): a harness spawning
+/// and answering `session/new` in a big folder, or reading its catalog there, on a machine under
+/// load, takes as long as it takes while acpmux still answers beside it. Was a fixed 60 s for
+/// `session/new` and 5 s for each check, which failed the starts of a 1.9 GB and a 20,000-file
+/// folder with `agent_session.timeout` while acpmux was still working (cmux#40385's matrix). A
+/// silent acpmux fails the start within `quiet + probe` (the status answer reads the host's
+/// load, so a busy machine gets 30 s for it); the ceiling, one for the whole start, is the login
+/// finish's. This covers the catalog read (`_acpmux/harnesses`) too: a starting acpmux holds that
+/// answer until its login shell read and catalog reload end (`Hub::harnesses_reply`), and the app
+/// restarts acpmux with a person key just before a Cloud chat's start, so a fixed 5 s refused it
+/// `agent_session.timeout` while acpmux was about to answer (cmuxterm-hq run 42837396397).
+pub(super) const START_PATIENCE: Patience = Patience {
+    quiet: Duration::from_secs(10),
+    probe: Duration::from_secs(30),
+    ceiling: Duration::from_secs(15 * 60),
+};
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long the start waits for acpmux to be ready, from its connect: its catalog answered
-/// (`_acpmux/harnesses`, which acpmux itself holds until `catalog_ready` in `hub/startup.rs`:
-/// after its login shell read, up to 2 x 3 s, and the catalog reload that follows), across an
-/// acpmux that restarts meanwhile. The app restarts acpmux with a person key just before a Cloud
-/// chat's start (remote approvals), so the start can reach an acpmux that is not ready yet, or
-/// one about to exit; with a fixed 5 s per call it was refused `agent_session.timeout` ("did not
-/// start the agent in time") while acpmux was about to answer (cmuxterm-hq run 42837396397,
-/// cloud-chat-replies-production, 2026-11-10).
-const READY_BUDGET: Duration = Duration::from_secs(20);
-/// Between connects to an acpmux that restarts (its socket gone or closed under the read).
-const READY_RETRY: Duration = Duration::from_millis(200);
-/// The whole start's time on this machine, from the worker's start to its answer: every acpmux
-/// call takes its timeout from what is left of it ([`Deadline::cap`]), so no phase, nor one added
-/// later, can push the answer past it. The app waits [`APP_START_WAIT`] for the answer; the
-/// difference is the failed start's cleanup (one `_acpmux/kill`, [`CALL_TIMEOUT`]) and the
-/// carrier both ways ([`CARRIER_MARGIN`]). Before, the phases' own timeouts summed past the app's
-/// wait (5 + 5 + 5 + 5 + 60 s and the mode settle, against 75 s), and a slow start ended in the app's
-/// "no reply within 75.0 seconds" with the machine still starting the agent (cmuxterm-hq
-/// cloud-chat-replies-production-team, 2026-11-10 15:57Z).
-pub(crate) const START_BUDGET: Duration = Duration::from_secs(62);
-/// The app's wait for an `agent-session-start` answer: `AgentTabRemoteStart.timeout`
-/// (`Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+RemoteStart.swift`). A test reads that
-/// file and fails when the two disagree.
-pub(crate) const APP_START_WAIT: Duration = Duration::from_secs(75);
-/// The carrier's share of the app's wait, both ways.
-pub(crate) const CARRIER_MARGIN: Duration = Duration::from_secs(8);
-// A build whose start, cleanup and carrier do not fit the app's wait does not compile.
-const _: () = assert!(
-    START_BUDGET.as_secs() + CALL_TIMEOUT.as_secs() + CARRIER_MARGIN.as_secs()
-        <= APP_START_WAIT.as_secs()
-);
+/// How long a start waits for an acpmux that went away under its catalog read (restarting) to
+/// listen again ([`ready_catalog`]), and the pause between connects.
+const RECONNECT_WAIT: Duration = Duration::from_secs(20);
+const RECONNECT_PAUSE: Duration = Duration::from_millis(200);
+/// How long after a `session/new` failed as a timeout its answer is still waited for, to end the
+/// session acpmux made for a start that already gave up (Codex review of cmux#40640 at
+/// 00411eb5: an agent spawned after the start stopped waiting stayed bound to no tab).
+const LATE_SESSION_GRACE: Duration = Duration::from_secs(300);
 
-/// One start's deadline: each acpmux call takes the smaller of its own cap and the time left.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Deadline(Instant);
-
-impl Deadline {
-    pub(crate) fn after(budget: Duration) -> Self {
-        Self(Instant::now() + budget)
-    }
-
-    pub(crate) fn at(self) -> Instant {
-        self.0
-    }
-
-    /// `cap`, or less when less is left (never zero: a call with nothing left times out at once).
-    pub(crate) fn cap(self, cap: Duration) -> Duration {
-        cap.min(self.0.saturating_duration_since(Instant::now())).max(Duration::from_millis(1))
-    }
+/// One acpmux call of a start, waiting on acpmux's liveness ([`START_PATIENCE`]) until the
+/// start's one ceiling, `until`.
+fn ask(link: &AcpmuxLink, until: Instant, method: &str, params: Value) -> Result<Value, LinkError> {
+    link.call_while_alive_until(method, params, START_PATIENCE, until)
 }
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
@@ -442,12 +416,11 @@ pub(super) fn start(
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let began = Instant::now();
-            let by = Deadline::after(START_BUDGET);
             let mut timings = StartTimings::default();
-            let gated = keyed_gate(&socket, &params, by);
+            let gated = keyed_gate(&socket, &params);
             timings.keyed_gate = Some(ms_since(began));
             let result = match gated {
-                Ok(()) => run(&worker_mux, client, socket, params, phone, by, &mut timings),
+                Ok(()) => run(&worker_mux, client, socket, params, phone, &mut timings),
                 Err(refused) => Err(refused),
             };
             drop(slot);
@@ -481,7 +454,6 @@ pub(super) fn start(
 fn keyed_gate(
     socket: &std::path::Path,
     params: &StartParams,
-    by: Deadline,
 ) -> Result<(), (Refusal, Option<Value>)> {
     if !params.require_person_key {
         return Ok(());
@@ -501,7 +473,7 @@ fn keyed_gate(
         }
         Err(_) => return Err(unknown()),
         Ok(link) => {
-            let status = link.call("_acpmux/status", json!({}), by.cap(CALL_TIMEOUT));
+            let status = link.call("_acpmux/status", json!({}), CALL_TIMEOUT);
             link.close();
             Some(status.map_err(|_| unknown())?)
         }
@@ -512,16 +484,12 @@ fn keyed_gate(
 /// [`keyed_gate`] again on `link`, the acpmux the start runs on: the gate read the acpmux that
 /// listened before the start, and a restart since ([`ready_catalog`]) brings a run the caller may
 /// hold no key for, whose permission prompts it then could not approve.
-fn still_keyed(
-    link: &AcpmuxLink,
-    params: &StartParams,
-    by: Deadline,
-) -> Result<(), (Refusal, Option<Value>)> {
+fn still_keyed(link: &AcpmuxLink, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
     if !params.require_person_key {
         return Ok(());
     }
     let status = link
-        .call("_acpmux/status", json!({}), by.cap(CALL_TIMEOUT))
+        .call("_acpmux/status", json!({}), CALL_TIMEOUT)
         .map_err(|_| (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({}))))))?;
     keyed_by(Some(&status), params)
 }
@@ -588,53 +556,52 @@ fn run(
     socket: PathBuf,
     params: StartParams,
     phone: bool,
-    by: Deadline,
     timings: &mut StartTimings,
 ) -> Result<Value, (Refusal, Option<Value>)> {
     let began = Instant::now();
     let (link, started) = connect_noting(mux, &socket).map_err(|r| (r, None))?;
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
     let checks = Instant::now();
+    let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
-    let ready = (checks + READY_BUDGET).min(by.at());
-    let (link, catalog) = ready_catalog(&socket, link, cwd, ready).map_err(|r| (r, None))?;
-    let result = still_keyed(&link, &params, by).and_then(|()| {
-        start_and_bind(mux, client, &link, &catalog, &params, phone, checks, by, timings)
+    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let result = still_keyed(&link, &params).and_then(|()| {
+        start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
             .map_err(|r| (r, None))
     });
     link.close();
     result
 }
 
-/// acpmux's catalog for a start in `cwd`, read once acpmux is ready (its own `catalog_ready`:
-/// the read waits for it), by `deadline`. An acpmux that goes away under the read, or is not
-/// listening yet, is one restarting (the app's keyed restart for remote approvals): the read
-/// connects again and asks again until `deadline`. It never runs the starter again: the restart
-/// brings its own acpmux, and a second start here would race it. The read changes nothing, so
-/// asking twice is safe; what the start changes comes after it, on the link this returns.
+/// acpmux's catalog for a start in `cwd`, read as long as acpmux is alive ([`START_PATIENCE`]:
+/// a starting acpmux holds it until its `catalog_ready`), by `until`. An acpmux that goes away
+/// under the read, or is not listening yet, is one restarting (the app's keyed restart for remote
+/// approvals, 0.3 s before the start in cmuxterm-hq run 42837396397): the read connects again and
+/// asks again until `until`. It never runs the starter again: the restart brings its own acpmux,
+/// and a second start here would race it. The read changes nothing, so asking twice is safe; what
+/// the start changes comes after it, on the link this returns.
 fn ready_catalog(
     socket: &std::path::Path,
     mut link: Arc<AcpmuxLink>,
     cwd: &str,
-    deadline: Instant,
+    until: Instant,
 ) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
     loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        match link.call("_acpmux/harnesses", json!({"cwd": cwd}), left.max(READY_RETRY)) {
+        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
             Ok(catalog) => return Ok((link, catalog)),
-            Err(super::agent_session_link::LinkError::Closed) if Instant::now() < deadline => {
-                link.close();
-            }
+            Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {
                 link.close();
                 return Err(Refusal::of(error));
             }
         }
+        // A restart brings its acpmux up in seconds; one that stays down is gone.
+        let back_by = until.min(Instant::now() + RECONNECT_WAIT);
         link = loop {
-            std::thread::sleep(READY_RETRY);
+            std::thread::sleep(RECONNECT_PAUSE);
             match AcpmuxLink::connect(socket, |_| {}) {
                 Ok(link) => break link,
-                Err(_) if Instant::now() < deadline => {}
+                Err(_) if Instant::now() < back_by => {}
                 Err(_) => return Err(Refusal::Unavailable),
             }
         };
@@ -688,7 +655,7 @@ pub(in crate::server) fn restart_with(
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 /// `timings`: each phase reached, on this machine's clock.
 /// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
-/// checks before the agent began (the readiness wait included).
+/// checks before the agent began (the readiness wait included); `until`: the start's one ceiling.
 #[allow(clippy::too_many_arguments)]
 fn start_and_bind(
     mux: &Arc<Mux>,
@@ -698,7 +665,7 @@ fn start_and_bind(
     params: &StartParams,
     phone: bool,
     checks: Instant,
-    by: Deadline,
+    until: Instant,
     timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
@@ -710,8 +677,7 @@ fn start_and_bind(
     // A phone's start gets the phone's floor, also on the caller's own Cloud VM: an acpmux that
     // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
     // the start answers.
-    let table =
-        link.call("_acpmux/web_modes", json!({}), by.cap(CALL_TIMEOUT)).map_err(Refusal::of)?;
+    let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking);
     }
@@ -732,9 +698,7 @@ fn start_and_bind(
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
-    let trust = link
-        .call("acp.trust.get", json!({"cwd": cwd}), by.cap(CALL_TIMEOUT))
-        .map_err(Refusal::of)?;
+    let trust = ask(link, until, "acp.trust.get", json!({"cwd": cwd})).map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
@@ -761,15 +725,22 @@ fn start_and_bind(
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
-    // acpmux goes on spawning the agent after a timeout here: a session it makes later is
+    // acpmux goes on spawning the agent after a start stops waiting: a session it makes later is
     // bound to no tab, so it ends as soon as its answer comes.
     let created = link
-        .call_or_late("session/new", new, by.cap(NEW_TIMEOUT), LATE_SESSION_GRACE, |link, late| {
-            if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
-                let kill = json!({"sessionId": session, "purge": true});
-                let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
-            }
-        })
+        .call_while_alive_or_late(
+            "session/new",
+            new,
+            START_PATIENCE,
+            until,
+            LATE_SESSION_GRACE,
+            |link, late| {
+                if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
+                    let kill = json!({"sessionId": session, "purge": true});
+                    let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+                }
+            },
+        )
         .map_err(Refusal::of);
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
@@ -786,11 +757,11 @@ fn start_and_bind(
         refusal
     };
     let family = if phone {
-        settle_phone_mode(link, &session, by).map_err(end)?
+        settle_phone_mode(link, until, &session).map_err(end)?
     } else if owner_cloud {
-        session_family(link, &session, by).map_err(end)?
+        session_family(link, until, &session).map_err(end)?
     } else {
-        settle_asking_mode(link, &session, by).map_err(end)?
+        settle_asking_mode(link, until, &session).map_err(end)?
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
@@ -865,9 +836,8 @@ fn refused_family(table: &Value, family: &str) -> bool {
 
 /// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
 /// mode rule: a start on the caller's own Cloud VM. None is refused.
-fn session_family(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<String, Refusal> {
-    let table = link
-        .call("_acpmux/web_modes", json!({"sessionId": session}), by.cap(CALL_TIMEOUT))
+fn session_family(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
+    let table = ask(link, until, "_acpmux/web_modes", json!({"sessionId": session}))
         .map_err(Refusal::of)?;
     table
         .pointer("/session/family")
@@ -880,10 +850,9 @@ fn session_family(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<Stri
 /// acpmux's remote rule for a new session: its family is not refused and
 /// its mode asks (no mode counts as asking), else it moves to the family's
 /// asking default; anything else is refused. Returns the session's family.
-fn settle_asking_mode(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<String, Refusal> {
+fn settle_asking_mode(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
     let read = || {
-        link.call("_acpmux/web_modes", json!({"sessionId": session}), by.cap(CALL_TIMEOUT))
-            .map_err(Refusal::of)
+        ask(link, until, "_acpmux/web_modes", json!({"sessionId": session})).map_err(Refusal::of)
     };
     let asks = |table: &Value| -> (bool, Option<String>) {
         let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
@@ -909,12 +878,8 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<
         (true, _) => Ok(family),
         (false, None) => Err(Refusal::NotAsking),
         (false, Some(default)) => {
-            link.call(
-                "session/set_mode",
-                json!({"sessionId": session, "modeId": default}),
-                by.cap(CALL_TIMEOUT),
-            )
-            .map_err(|_| Refusal::NotAsking)?;
+            ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": default}))
+                .map_err(|_| Refusal::NotAsking)?;
             if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
         }
     }
@@ -934,10 +899,9 @@ fn phone_modes(family: &str) -> &'static [&'static str] {
 /// (`cloudMobileAsks`, which reads the harness profile the session actually runs), else it moves
 /// to the family's phone modes in turn until acpmux says so; anything else is refused (the caller
 /// ends the session). Returns the session's family.
-fn settle_phone_mode(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<String, Refusal> {
+fn settle_phone_mode(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
     let read = || -> Result<(String, bool), Refusal> {
-        let table = link
-            .call("_acpmux/web_modes", json!({"sessionId": session}), by.cap(CALL_TIMEOUT))
+        let table = ask(link, until, "_acpmux/web_modes", json!({"sessionId": session}))
             .map_err(Refusal::of)?;
         let family =
             table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -952,11 +916,8 @@ fn settle_phone_mode(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<S
         return Ok(family);
     }
     for mode in phone_modes(&family) {
-        let set = link.call(
-            "session/set_mode",
-            json!({"sessionId": session, "modeId": mode}),
-            by.cap(CALL_TIMEOUT),
-        );
+        let set =
+            ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
         if set.is_ok() && read()? == (family.clone(), true) {
             return Ok(family);
         }
@@ -1073,44 +1034,5 @@ mod tests {
             assert_eq!(starts.owner_cloud(true), any_agent, "{host:?}");
             assert!(!starts.owner_cloud(false), "{host:?}");
         }
-    }
-
-    /// The app's wait for a start's answer holds the whole start here, its failed-start cleanup
-    /// and the carrier: the start's deadline fits inside it, read from the app's own source.
-    #[test]
-    fn the_start_fits_inside_the_apps_wait_for_it() {
-        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+RemoteStart.swift",
-        );
-        let source = std::fs::read_to_string(&swift).expect("the app's remote start source");
-        let line = source
-            .lines()
-            .find(|line| line.contains("static let timeout: Duration = .seconds("))
-            .expect("AgentTabRemoteStart.timeout");
-        let seconds: u64 = line
-            .split(".seconds(")
-            .nth(1)
-            .and_then(|rest| rest.split(')').next())
-            .and_then(|n| n.trim().parse().ok())
-            .expect("a whole number of seconds");
-        assert_eq!(Duration::from_secs(seconds), APP_START_WAIT, "{line}");
-        assert!(
-            START_BUDGET + CALL_TIMEOUT + CARRIER_MARGIN <= APP_START_WAIT,
-            "start {START_BUDGET:?} + cleanup {CALL_TIMEOUT:?} + carrier {CARRIER_MARGIN:?} > {APP_START_WAIT:?}"
-        );
-        // Each phase's own cap is under the start's budget: the deadline, not a sum, bounds it.
-        for cap in [CALL_TIMEOUT, NEW_TIMEOUT, READY_BUDGET] {
-            assert!(cap <= START_BUDGET, "{cap:?}");
-        }
-    }
-
-    /// Late in a start, a call gets what is left, not its own cap.
-    #[test]
-    fn a_call_late_in_the_start_gets_only_what_is_left() {
-        let by = Deadline::after(Duration::from_secs(2));
-        assert!(by.cap(NEW_TIMEOUT) <= Duration::from_secs(2));
-        assert_eq!(Deadline::after(START_BUDGET).cap(CALL_TIMEOUT), CALL_TIMEOUT);
-        let spent = Deadline::after(Duration::ZERO);
-        assert_eq!(spent.cap(NEW_TIMEOUT), Duration::from_millis(1));
     }
 }

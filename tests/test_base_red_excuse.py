@@ -58,6 +58,17 @@ def log(job, step, *lines):
     return "\n".join(f"{job}\t{step}\t2026-10-07T02:10:37.8032610Z {line}" for line in lines)
 
 
+def status_answer(route, statuses):
+    """A commit's statuses as GitHub answers ROUTE: the statuses list (newest first, each naming who posted it; the
+    one compile status poster unless a status names another) or the combined status (no creator)."""
+    statuses = copy.deepcopy(statuses)
+    if "/statuses" in route:
+        if not route.endswith("&page=1"):  # one page here: every later page is empty
+            return []
+        return [{"creator": dict(excuse.COMPILE_STATUS_POSTER), **status} for status in statuses]
+    return {"statuses": [{key: value for key, value in status.items() if key != "creator"} for status in statuses]}
+
+
 def failed_job(job_id, run_id, sha, name=SWIFT, step=TEST_STEP):
     return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name, "status": "completed",
             "conclusion": "failure", "steps": [
@@ -332,7 +343,7 @@ class LastRealAttemptGitHub(FakeGitHub):
             return [{"check_runs": [self.check(job) for job in shown]}]
         if f"/commits/{HEAD}/status" in route:
             self.routes.append(route)
-            return {"statuses": []}
+            return status_answer(route, [])
         if f"actions/runs?head_sha={HEAD}" in route:
             self.routes.append(route)
             return {"workflow_runs": []}
@@ -3616,8 +3627,8 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         def json(self, route, *, paginate=False):
             if f"/commits/{HEAD}/check-runs" in route:
                 return [{"check_runs": copy.deepcopy(self.check_runs)}]
-            if route.endswith(f"/commits/{HEAD}/status"):
-                return {"statuses": copy.deepcopy(self.statuses)}
+            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100&page=1")):
+                return status_answer(route, self.statuses)
             if "/actions/jobs/" in route:
                 return copy.deepcopy(self.actions_jobs[int(route.rsplit("/", 1)[1])])
             return super().json(route, paginate=paginate)
@@ -3717,6 +3728,45 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     def test_no_verdict_is_ignored_when_cmux_next_compile_succeeded_at_the_head(self):
         self.gh.statuses = [{"context": "cmux-next/compile", "state": "success"}]
         self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
+
+    FALLBACK = {"context": "cmux-next/compile", "state": "success",
+                "description": "The app compiled and linked in SwiftPM Release (-Onone); fallback compile, controller down"}
+    LANE = {"login": "some-lane", "id": 1234, "type": "User"}
+
+    def test_a_look_alike_compile_status_from_anyone_but_its_poster_is_not_a_pass(self):
+        """Anyone who can write statuses here can post a cmux-next/compile success. Only its one poster's counts
+        (COMPILE_STATUS_POSTER): a lane's or a person's look-alike, or another App's, leaves the head uncompiled."""
+        for creator in (self.LANE, {**excuse.COMPILE_STATUS_POSTER, "id": 1}, {**excuse.COMPILE_STATUS_POSTER,
+                        "login": "cmux-bot"}, {**excuse.COMPILE_STATUS_POSTER, "type": "User"}, None):
+            with self.subTest(creator=creator):
+                self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
+                    self.judge()
+
+    def test_a_look_alike_newer_than_the_posters_red_does_not_hide_it(self):
+        """GitHub's combined status shows the newest per context, so a forged success posted after the poster's own
+        no-verdict reads as success there. The gate takes the newest of its poster's, which did not pass."""
+        self.gh.statuses = [{**self.FALLBACK, "creator": self.LANE},
+                            {"context": "cmux-next/compile", "state": "failure",
+                             "description": "No compile result for this head in 40 minutes"}]
+        with self.assertRaisesRegex(excuse.Refused, "nothing else compiled"):
+            self.judge()
+
+    def test_the_fallback_compile_status_passes_with_the_receipts_host_down(self):
+        """2026-11-10: with the controller off the receipts host answered HTTP 530 for every commit, and the fallback
+        compile's verdict reached the gate only as its poster's cmux-next/compile success. That is a pass at the head
+        whatever the receipts host says; it is read before the receipt."""
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        with unittest.mock.patch.object(excuse, "compile_receipt", down):
+            self.gh.statuses = [self.FALLBACK]
+            self.assertIn("ignored 'cmux-next fleet Release compile': it gave no compile verdict, but the "
+                          "cmux-next/compile status compiled", "\n".join(self.judge()))
+            # The look-alike is skipped, so the gate reads the receipt, which is down: no pass.
+            self.gh.statuses = [{**self.FALLBACK, "creator": self.LANE}]
+            with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
+                self.judge()
 
     def test_another_job_printing_the_marker_is_never_set_aside(self):
         """Only the compile jobs that can end without a verdict are set aside by a compile pass; any other
@@ -3920,9 +3970,10 @@ class InheritedCompileRed(unittest.TestCase):
             if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
                 self.gh.routes.append(route)
                 return [{"check_runs": []}]
-            if route.endswith(f"commits/{self.PR_HEAD}/status?per_page=100"):
+            if route.endswith((f"commits/{self.PR_HEAD}/status?per_page=100",
+                               f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 self.gh.routes.append(route)
-                return {"statuses": [copy.deepcopy(self.status)]}
+                return status_answer(route, [self.status])
             return original(route, paginate=paginate)
 
         self.gh.json = json
@@ -4005,12 +4056,13 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
                 self.gh.routes.append(route)
                 return [{"sha": self.TIP}, {"sha": self.MERGE_BASE}, {"sha": self.OLDER}]
             for sha in (self.PR_HEAD, self.MERGE_BASE, self.TIP, self.OLDER):
-                if route.endswith((f"commits/{sha}/status?per_page=100", f"commits/{sha}/status")):
+                if route.endswith((f"commits/{sha}/status?per_page=100", f"commits/{sha}/status",
+                                   f"commits/{sha}/statuses?per_page=100&page=1")):
                     self.gh.routes.append(route)
                     found = self.statuses.get(sha)
-                    return {"statuses": [] if found is None else [
+                    return status_answer(route, [] if found is None else [
                         {"context": "cmux-next/compile", "state": found[0], "description": found[1],
-                         "target_url": InheritedCompileRed.SOURCE_RUN}]}
+                         "target_url": InheritedCompileRed.SOURCE_RUN, **dict(found[2:])}])
             if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": []}]
             return original(route, paginate=paginate)
@@ -4032,6 +4084,43 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
                                                checks=["cmux-next/compile"])), stderr.getvalue()
             finally:
                 self.log = stderr.getvalue()
+
+    def test_receipt_down_and_a_look_alike_red_on_base_excuses_nothing(self):
+        """A red on the merge-base excuses the head's same red. A look-alike there, by anyone but the poster, is no
+        base verdict: the gate reads the poster's newest, and with none it can't compare."""
+        lane = ("creator", {"login": "some-lane", "id": 1234, "type": "User"})
+        self.statuses[self.MERGE_BASE] = ("failure", self.FAIL, lane)
+        with self.assertRaisesRegex(excuse.Refused, "neither path can decide"):
+            self.judge()
+
+    def test_receipt_down_and_a_flood_of_statuses_never_hides_the_merge_base_verdict(self):
+        """cmux#40609 review F1: 100 statuses under another context fill the statuses list's first page. The poster's
+        green at the merge-base is on page 2, so it is read there and the head's red stays its own; and when the
+        flood fills every page read, the read refuses instead of reading "none" and looking for a red on another
+        base commit (OLDER, which fails the same way)."""
+        self.statuses[self.MERGE_BASE] = ("success", "The app compiled and linked in SwiftPM Release (-Onone)")
+        self.statuses[self.OLDER] = ("failure", self.FAIL)
+        flood = [{"context": "noise", "state": "success", "creator": {"login": "some-lane", "id": 1234,
+                                                                       "type": "User"}}] * 100
+        original = self.gh.json
+        full_pages = {"n": 1}
+
+        def json(route, *, paginate=False):
+            if f"commits/{self.MERGE_BASE}/statuses?per_page=100&page=" in route:
+                page = int(route.rsplit("=", 1)[1])
+                if page <= full_pages["n"]:
+                    return copy.deepcopy(flood)
+                found = self.statuses[self.MERGE_BASE]
+                return [{"context": "cmux-next/compile", "state": found[0], "description": found[1],
+                         "creator": dict(excuse.COMPILE_STATUS_POSTER)}] if page == full_pages["n"] + 1 else []
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge()
+        full_pages["n"] = excuse.COMPILE_STATUS_PAGES
+        with self.assertRaisesRegex(excuse.Refused, "too many statuses"):
+            self.judge()
 
     def test_receipt_down_and_the_red_also_on_base_is_excused(self):
         audit, said = self.judge()
@@ -4101,8 +4190,8 @@ class NoVerdictCompileStatus(InheritedCompileRed):
         def json(route, *, paginate=False):
             if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": self.mac_runs}]
-            if route.endswith(f"commits/{self.PR_HEAD}/status"):
-                return {"statuses": [copy.deepcopy(self.status)]}
+            if route.endswith((f"commits/{self.PR_HEAD}/status", f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
+                return status_answer(route, [self.status])
             if route.endswith("actions/jobs/77"):
                 return {"head_sha": self.PR_HEAD, "name": self.MAC, "run_id": 70, "conclusion": "success",
                         "steps": [{"name": "Release compile", "conclusion": "success"}]}
@@ -5582,8 +5671,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
                 return {"status": self.case.compare}
-            if route.endswith(f"/commits/{HEAD}/status"):
-                return {"statuses": copy.deepcopy(self.case.statuses)}
+            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100&page=1")):
+                return status_answer(route, self.case.statuses)
             return super().json(route, paginate=paginate)
 
     STEP_B_PIN = "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48"
