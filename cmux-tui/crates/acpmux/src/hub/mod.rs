@@ -235,6 +235,7 @@ mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
+pub(crate) mod register;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 mod caller_registry;
 mod history_timing;
@@ -271,6 +272,9 @@ pub mod mac_approvers;
 pub mod no_session;
 mod own_host;
 mod peer_cache;
+pub(crate) mod peer_cache_disk;
+#[cfg(test)]
+mod peer_cache_disk_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 mod peer_grace;
@@ -693,6 +697,9 @@ pub struct Hub {
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
     /// close clients normally so they do not immediately reconnect to a dead daemon.
     pub(crate) restart_requested: std::sync::atomic::AtomicBool,
+    /// Raised when a supervised task cannot go on: the daemon stops for a restart
+    /// (`crate::supervise`).
+    pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -706,13 +713,18 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
-    /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
-    /// an older snapshot landing on disk. Entries are removed with the peer.
-    pub(super) peer_cache_writers: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
+    /// Per-peer cache writers; held through the write so removal cannot be followed by an older
+    /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
+    /// a save writes only what changed. Entries are removed with the peer.
+    pub(super) peer_cache_writers:
+        StdMutex<HashMap<String, Arc<StdMutex<peer_cache_disk::OnDisk>>>>,
     /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
+    #[cfg(test)]
+    pub(super) cache_test_bytes: AtomicU64,
     #[cfg(test)]
     pub(super) cache_test_write_delay_ms: AtomicU64,
     #[cfg(test)]
@@ -1128,6 +1140,7 @@ impl Hub {
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1139,6 +1152,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_write_delay_ms: AtomicU64::new(0),
             #[cfg(test)]
@@ -1309,8 +1324,8 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
-            let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            // It takes the notices' receiver: it cannot run twice.
+            crate::supervise::once("peer notice", &hub.fatal, hub.clone().peer_notice_loop());
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();

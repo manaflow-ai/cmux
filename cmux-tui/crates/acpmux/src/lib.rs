@@ -189,6 +189,7 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
+pub(crate) mod supervise;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;

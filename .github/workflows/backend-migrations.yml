@@ -264,6 +264,7 @@ jobs:
             local what=$1 failed="" unjudged="" pair name result; shift
             for pair in "$@"; do
               name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
               case "${result%%[ :]*}" in
                 success) ;;
                 failure|invalid) failed+=" $name: $result;" ;;

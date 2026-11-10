@@ -138,7 +138,7 @@ body {
   --ds-color-muted: var(--cmux-text-secondary, var(--cmux-app-text-secondary, color-mix(in srgb, CanvasText 62%, transparent))); /* secondary text */
   --ds-color-faint: var(--cmux-text-tertiary, var(--cmux-app-icon, color-mix(in srgb, CanvasText 45%, transparent))); /* tertiary text, placeholders and quiet glyphs */
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
-  --ds-color-pressed: var(--cmux-app-pressed, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent)); /* a control while pressed */
+  --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
   --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a highlighted row inside content (a list's cursor, a drop target): not a selected tab, segment or nav item, which are --ds-color-selected */
   /* The foreground and background layers (design/selected-is-foreground.md). The content is the
      foreground; the chrome around it (a nav column, a segmented track) is the background, black at
