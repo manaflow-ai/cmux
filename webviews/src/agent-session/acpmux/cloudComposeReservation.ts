@@ -77,7 +77,9 @@ export class CloudComposeReservation {
       return undefined;
     }
     const attempt = this.attempt;
-    if (!attempt || attempt.abandoned) return undefined;
+    // A reservation goes with one Send only: the platform bound it to that Send's key, and another
+    // Send naming it is refused (409 reservation.bound). That Send's retries carry it themselves.
+    if (!attempt || attempt.abandoned || attempt.transferred) return undefined;
     attempt.transferred = true;
     return attempt.key;
   }

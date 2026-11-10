@@ -288,12 +288,17 @@ function pageKeyStore(): CloudStartKeyStore | undefined {
 /// that start made or is making instead of creating a second one. The key is forgotten once the
 /// start opened its chat, or the cap card sent the prompt here instead; a changed prompt, folder,
 /// agent, model or environment is a new start with a new key.
+///
+/// A key also keeps the composer reservation it was first sent with (`reservationKey`, or none): the
+/// platform binds one send key to one reservation, so a retry that named another one (the same prompt
+/// from a new composer, whose reservation is new) was refused with 409 `reservation.bound`.
 export function cloudStartKeys(
   store: CloudStartKeyStore | undefined = pageKeyStore(),
   now: () => number = Date.now,
   newKey: () => string = () => crypto.randomUUID(),
 ) {
-  type Kept = Record<string, { key: string; at: number }>;
+  type Entry = { key: string; at: number; reservation?: string };
+  type Kept = Record<string, Entry>;
   const read = (): Kept => {
     if (!store) return {};
     try {
@@ -313,7 +318,7 @@ export function cloudStartKeys(
   };
   // This page's own keys, so a store that refuses writes still dedupes the retries made here.
   const local: Kept = {};
-  const fresh = (entry: { key: string; at: number } | undefined, at: number) =>
+  const fresh = (entry: Entry | undefined, at: number) =>
     entry && typeof entry.key === "string" && typeof entry.at === "number" && at - entry.at < CLOUD_START_KEY_TTL_MS
       ? entry
       : undefined;
@@ -326,10 +331,23 @@ export function cloudStartKeys(
       const found = fresh(kept[name], at) ?? fresh(local[name], at);
       const key = found?.key ?? newKey();
       for (const [other, entry] of Object.entries(kept)) if (!fresh(entry, at)) delete kept[other];
-      kept[name] = { key, at: found?.at ?? at };
+      // The first reservation sent with this key stays its one; a send without one names it now.
+      const reservation =
+        typeof found?.reservation === "string" ? found.reservation : (found ? undefined : start.reservationKey);
+      kept[name] = { key, at: found?.at ?? at, ...(reservation ? { reservation } : {}) };
       local[name] = kept[name];
       write(kept);
       return key;
+    },
+    /// `start` again while its key is kept (a retry): the reservation its key went with first, if any,
+    /// which the retry names instead of the composer's own. Undefined: a new start, which takes the
+    /// composer's reservation.
+    retryOf(start: CloudStart): { reservationKey?: string } | undefined {
+      const at = now();
+      const name = cloudStartFingerprint(start);
+      const found = fresh(read()[name], at) ?? fresh(local[name], at);
+      if (!found) return undefined;
+      return typeof found.reservation === "string" ? { reservationKey: found.reservation } : {};
     },
     /// The start sent with `start` ended in `answer`: one that opened its chat, or whose prompt goes
     /// to a chat on this Mac, is done, and the next send of the same prompt is a new start. A failure

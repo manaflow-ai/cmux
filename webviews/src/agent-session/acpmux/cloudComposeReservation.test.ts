@@ -236,3 +236,16 @@ test("a later environment pick releases the default-image reservation", async ()
   await settle();
   expect(h.calls.map(([method]) => method)).toEqual(["cloud.reserve", "cloud.releaseReservation"]);
 });
+
+test("a composer's reservation goes with one Send: the next Send from it names none (no 409 reservation.bound)", async () => {
+  const h = harness();
+  h.reservation.selected();
+  expect(h.reservation.handoff()).toBe("compose-1");
+  // The platform bound compose-1 to the first Send's key; a second Send naming it was refused.
+  h.reservation.typed("a second prompt");
+  expect(h.reservation.handoff()).toBeUndefined();
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.reserve")).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1" }],
+  ]);
+});
