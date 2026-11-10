@@ -11,6 +11,7 @@
 //! - a direct report, which commits its row and then appends its journal
 //!   echo: tracked here from the commit (under that lock) until its echo is
 //!   journaled, then by the echo's journal sequence.
+//!
 //! A write the check refuses is owed: the roster's owner makes it after a
 //! pass whose fold reached every such record (`settle_report_echoes`), and
 //! then the row is the reducer's own verdict on them, its source precedence
