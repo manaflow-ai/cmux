@@ -11,12 +11,13 @@ import os
 /// - Signed in (a sign-in, or the session restored at launch): `_acpmux/machine_enroll`, in the
 ///   background, with one retry after a failure. Sign-in never waits on it; a failure leaves this
 ///   Mac as it was.
-/// - Signed out: `_acpmux/machine_leave_if_auto` with the account signing out (`userId`), which
-///   leaves only a join signing in made for that account. A Mac joined with a pair code or a join
-///   line, or for another account, stays joined. acpmux marks the leave, with its account, before
-///   it acts and finishes one cut short at its next start, before its relay. Signed out at launch
-///   asks again with no account (none is known then): acpmux finishes a leave it marked, and
-///   leaves nothing else.
+/// - Signed out: first the account signing out is recorded with acpmux, durably and with no daemon
+///   (``RecordLeave``, `acpmux machine leave-intent`), then `_acpmux/machine_leave_if_auto` with it
+///   (`userId`), which leaves only a join signing in made for that account. A Mac joined with a
+///   pair code or a join line, or for another account, stays joined. acpmux finishes a recorded
+///   leave at its next start, before its relay, or at the next leave. Signed out at launch asks
+///   again with no account (none is known then): acpmux leaves as the accounts it recorded, and
+///   nothing else.
 /// - A leave or an enroll acpmux did not answer (it was restarting) is sent again, for whoever is
 ///   signed in then, when the app's acpmux connection comes back (``acpmuxReturned()``): signed out,
 ///   the leave; signed in, the enroll.
@@ -31,6 +32,9 @@ public final class CloudSignInEnroll {
     /// One request on a fresh line to the app's acpmux, which must serve `machine-enroll-v1`; nil when
     /// no acpmux answered, it lacks the capability, or the request failed.
     public typealias Call = @MainActor (_ method: String, _ params: [String: Any]) async -> [String: Any]?
+    /// Records with acpmux, durably and with no daemon, that `userId` signs out; false when it was not
+    /// recorded. acpmux keeps it, so a leave it never gets is still finished as that account's.
+    public typealias RecordLeave = @MainActor (_ userId: String) async -> Bool
 
     /// Who is signed in, or that the session is still being read (nothing is decided then).
     enum Person: Equatable, Sendable {
@@ -45,6 +49,7 @@ public final class CloudSignInEnroll {
     private let person: @MainActor @Sendable () -> Person
     private let accessToken: @MainActor () async -> String?
     private let call: Call
+    private let recordLeave: RecordLeave
     private let extraParams: [String: String]
     /// The person the last change was for; nil signed out.
     private var current: String?
@@ -63,20 +68,23 @@ public final class CloudSignInEnroll {
 
     /// `hub`: the platform origin the app's `cmux machine add` mints on, when set. `buildTag`: a DEV
     /// build's tag, so its machine is named apart.
-    public convenience init(auth: CloudAuth, hub: String?, buildTag: String?, call: @escaping Call) {
+    public convenience init(auth: CloudAuth, hub: String?, buildTag: String?,
+                            recordLeave: @escaping RecordLeave, call: @escaping Call) {
         self.init(person: { [weak auth] in
             guard let auth, !auth.isRestoring else { return .restoring }
             guard auth.isSignedIn else { return .signedOut }
             // Signed in with no user read yet is no person yet. The platform id: a machine record
             // names its person by it, never by the Stack id.
             return auth.platformUserID.map { .signedIn($0) } ?? .restoring
-        }, accessToken: { [weak auth] in try? await auth?.tokens().access }, hub: hub, buildTag: buildTag, call: call)
+        }, accessToken: { [weak auth] in try? await auth?.tokens().access }, hub: hub, buildTag: buildTag,
+                  recordLeave: recordLeave, call: call)
     }
 
     init(person: @escaping @MainActor @Sendable () -> Person, accessToken: @escaping @MainActor () async -> String?,
-         hub: String?, buildTag: String?, call: @escaping Call) {
+         hub: String?, buildTag: String?, recordLeave: @escaping RecordLeave = { _ in false }, call: @escaping Call) {
         self.person = person
         self.accessToken = accessToken
+        self.recordLeave = recordLeave
         self.call = call
         var extra: [String: String] = [:]
         if let hub, !hub.isEmpty { extra["hub"] = hub }
@@ -162,7 +170,12 @@ public final class CloudSignInEnroll {
         // A leave acpmux took and did not finish (`kept: busy`) it finishes at its next start.
         // Only the account signing out's own join is left: acpmux keeps one of another account's.
         var params: [String: Any] = [:]
-        if let userId { params["userId"] = userId }
+        if let userId {
+            params["userId"] = userId
+            // Recorded first, with no daemon: a leave acpmux never gets (it is down, or the app quits
+            // first) it still finishes as this account's.
+            if !(await recordLeave(userId)) { Self.log.info("sign-out leave: the account was not recorded first") }
+        }
         let reply = await send("_acpmux/machine_leave_if_auto", params)
         let kept = (reply?["kept"] as? String) ?? (reply == nil ? "no answer" : "")
         Self.log.info("sign-out leave: left=\((reply?["left"] as? Bool) ?? false, privacy: .public) kept=\(kept, privacy: .public)")

@@ -111,6 +111,14 @@ pub enum PeerCmd {
         #[arg(long)]
         local_only: bool,
     },
+    /// Record that the signed-in person signs out of the cmux app, before the app asks the daemon
+    /// to leave (no daemon needed): the daemon's next leave or start leaves the join signing in
+    /// made for `--user-id`, and nothing of another account's. The cmux app runs it.
+    LeaveIntent {
+        /// The platform user id of the account signing out.
+        #[arg(long)]
+        user_id: String,
+    },
     /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
     /// app does: mints a single-use join token with the person's cmux access token, read from
     /// stdin (never argv), and redeems it here, recorded under `--user-id`. A joined, revoked or
