@@ -92,8 +92,10 @@ fn appends_across_chats_alone() {
         }
     }
     assert_no_growth("store fds per 250 new chats", &fds, 0.5);
-    // Each chat's metadata is held in memory for the list the sidebar reads: up to 2 KB a chat.
-    assert_no_growth("store RSS per 250 new chats", &rss, 512.0 * 1024.0);
+    // Each chat's metadata is held in memory for the list the sidebar reads: about 1.9 KB a
+    // chat measured; the band is 3 KB a chat, so allocator noise on a loaded runner passes and a
+    // per-chat buffer (a log's 64 KB, a cache entry per record) does not.
+    assert_no_growth("store RSS per 250 new chats", &rss, 250.0 * 3.0 * 1024.0);
     // The same chats again, no new one: appends spread over all of them hold nothing more.
     let ids: Vec<String> =
         (0..rounds).flat_map(|r| (0..per_round).map(move |i| format!("c-{r:02}-{i:04}"))).collect();
