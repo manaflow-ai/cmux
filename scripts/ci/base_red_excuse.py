@@ -1031,14 +1031,31 @@ COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
+# A gate that depends on one service (2026-11-10): from about 01:00Z the fleet controller was off, the receipts host
+# answered HTTP 530 for every commit, and every compile red inherited_compile_red judged was refused on the unread
+# receipt (cmux#40025, #40030, #40059 held with a SHIP at their heads). A busy or missing service makes a merge slower,
+# never impossible: when the receipts host is unreachable (a connection error, a timeout, any 5xx), the same question is
+# asked of GitHub instead (github_compile_red). GitHub's cmux-next/compile status is what compile-status posts from the
+# same receipt, so a head that reads "The app did not compile" is compared with that status at its merge-base, or, when
+# the merge-base has none completed, at the newest of the BASE_STATUS_COMMITS newest base commits that has one. Only
+# the same failure there excuses; a pass there is the head's red, and no completed status anywhere refuses, saying so.
+COMPILE_STATUS_FAIL = "The app did not compile"
+COMPILE_RECEIPT_DOWN = 500  # an HTTP answer at or above this (5xx, Cloudflare's 52x and 530) is the service down
+
+
 # The cmux-next/compile descriptions of compile-status that are no verdict (unavailable, no result in 40 minutes, a
-# result for another head); only "The app did not compile" is a fail. From 01:00Z 2026-11-10 the controller was off
-# (its receipts answered HTTP 530), every PR's status read "No compile result for this head in 40 minutes", and
-# inherited_compile_red refused each on the unread receipt, even where the Mac Release compile could pass at the head.
-# A no-verdict status is judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head
-# (compile_pass_at) ignores it, so a down controller makes landing slower, never impossible.
+# result for another head); only "The app did not compile" (COMPILE_STATUS_FAIL) is a fail. With the controller off
+# every PR's status read "No compile result for this head in 40 minutes": no receipt and no base status can judge
+# that (github_compile_red refuses it), but a compile that passed at the head elsewhere can. A no-verdict status is
+# judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head (compile_pass_at, the Mac
+# Release compile first) ignores it, so a down controller makes landing slower, never impossible.
 COMPILE_STATUS_NO_VERDICT = re.compile(r"No compile result for this head|The compile check gave no verdict|"
                                        r"The compile result does not match this head")
+
+
+class ReceiptUnreachable(Refused):
+    """The receipts host did not answer (a connection error, a timeout, a 5xx): no verdict, and no answer about the
+    receipt either, so a caller may ask GitHub instead (github_compile_red)."""
 
 
 def compile_receipt(repo: str, sha: str) -> dict | None:
@@ -1054,8 +1071,12 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
+        if error.code >= COMPILE_RECEIPT_DOWN:
+            raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
         raise Refused(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
-    except (OSError, ValueError) as error:
+    except OSError as error:  # URLError, a refused connection, a timeout: the service did not answer
+        raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
+    except ValueError as error:
         raise Refused(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
     if not isinstance(receipt, dict) or receipt.get("sha") != sha or receipt.get("repo") != repo:
         raise Refused(f"the compile receipt of {sha[:12]} names another commit")
@@ -1068,8 +1089,11 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
 
 def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> str:
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
-    "fail", else Refused."""
-    head = compile_receipt(repo, sha)
+    "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red)."""
+    try:
+        head = compile_receipt(repo, sha)
+    except ReceiptUnreachable as down:
+        return github_compile_red(repo, base, sha, name, github, down)
     if (head or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is {(head or {}).get('state') or 'missing'}, not "
                       "a fail: no verdict to compare with the base")
@@ -1077,7 +1101,10 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
-    at_base = compile_receipt(repo, merge_base)
+    try:
+        at_base = compile_receipt(repo, merge_base)
+    except ReceiptUnreachable as down:
+        return github_compile_red(repo, base, sha, name, github, down)
     if (at_base or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
                       f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
@@ -1088,8 +1115,61 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
             now = f"; {base} {tip[:12]} reads {(compile_receipt(repo, tip) or {}).get('state') or 'no receipt'}"
         except Refused:
             now = ""
+    log_decider(f"'{name}' at {sha[:12]} was decided by the fleet's compile receipts")
     return (f"excused '{name}': the compile receipt of {sha[:12]} is a fail, and so is its merge-base "
             f"{merge_base[:12]}'s on {base} (an inherited base red{now}; merge the base for a new verdict)")
+
+
+def log_decider(message: str) -> None:
+    """Which path decided a compile red (the receipts or GitHub), on stderr beside the audit."""
+    print(f"base_red_excuse: {message}", file=sys.stderr)
+
+
+def compile_status_at(repo: str, sha: str, github) -> dict | None:
+    """SHA's newest cmux-next/compile commit status, or None when it has none."""
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    return next((found for found in statuses if found.get("context") == COMPILE_PASS_STATUS), None)
+
+
+def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused) -> str:
+    """inherited_compile_red's question asked of GitHub while the receipts host is unreachable (DOWN): the audit line
+    excusing NAME's compile red at SHA when GitHub's cmux-next/compile at SHA reads a real compile fail and the same
+    status at the merge-base (else the newest of the BASE_STATUS_COMMITS newest BASE commits with one completed) reads
+    the same fail, else Refused naming why. Reads: one status, one compare, at most BASE_STATUS_COMMITS + 2 more; no
+    wait and no retry, so a GitHub that cannot answer refuses too."""
+    why = f"the receipts host is unreachable ({down})"
+    log_decider(f"'{name}' at {sha[:12]}: {why}; GitHub decides")
+    head = compile_status_at(repo, sha, github) or {}
+    said = head.get("description") or ""
+    if head.get("state") not in ("failure", "error") or not said.startswith(COMPILE_STATUS_FAIL):
+        raise Refused(f"'{name}': {why}, and GitHub's {COMPILE_PASS_STATUS} at {sha[:12]} reads "
+                      f"{head.get('state') or 'no status'}: {said or 'no description'}; only a real compile fail can "
+                      "be the base's (a no-verdict compile never is), so neither path can decide")
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+    merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
+        raise Refused(f"'{name}': {why}, and GitHub names no merge-base of {sha[:12]} with {base}")
+    candidates = [merge_base] + [commit.get("sha") or "" for commit in
+                                 github.json(f"repos/{repo}/commits?sha={base}&per_page={BASE_STATUS_COMMITS}") or []
+                                 if (commit.get("sha") or "") != merge_base]
+    for commit in candidates:
+        found = compile_status_at(repo, commit, github)
+        if found is None or found.get("state") == "pending":
+            continue
+        where = "its merge-base" if commit == merge_base else f"{base}"
+        if found.get("state") == head.get("state") and (found.get("description") or "") == said:
+            log_decider(f"'{name}' at {sha[:12]} was decided by GitHub: {where} {commit[:12]} fails the same way")
+            return (f"excused '{name}': {why}; GitHub's {COMPILE_PASS_STATUS} at {sha[:12]} reads \"{said}\", and so "
+                    f"does {where} {commit[:12]} (an inherited base red, decided over GitHub; merge the base for a "
+                    "new verdict)")
+        log_decider(f"'{name}' at {sha[:12]} was decided by GitHub: {where} {commit[:12]} reads {found.get('state')}")
+        raise Refused(f"'{name}': {why}; GitHub's {COMPILE_PASS_STATUS} at {sha[:12]} reads \"{said}\", but {where} "
+                      f"{commit[:12]} reads {found.get('state')}: {found.get('description') or 'no description'}: "
+                      "the red is this head's")
+    log_decider(f"'{name}' at {sha[:12]}: neither the receipts nor GitHub can decide")
+    raise Refused(f"'{name}': {why}, and GitHub has no completed {COMPILE_PASS_STATUS} at its merge-base "
+                  f"{merge_base[:12]} or the {BASE_STATUS_COMMITS} newest {base} commits to compare with: neither path "
+                  "can decide; re-run it once the fleet answers")
 
 
 # The Rust panic ratchet (scripts/cmux-next/rust_panic_ratchet.py, run by .github/scripts/cmux-tui-clippy-changed.py).
