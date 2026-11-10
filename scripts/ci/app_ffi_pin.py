@@ -4,6 +4,7 @@
     python3 scripts/ci/app_ffi_pin.py read [Package.swift]               # prints "SOURCE_SHA CHECKSUM"
     python3 scripts/ci/app_ffi_pin.py read-pin-file app-ffi-pin.json Package.swift   # the JSON pin, same output
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [Package.swift]
+    python3 scripts/ci/app_ffi_pin.py inputs ROOT CRATE_DIR...          # the files of those crates the FFI build reads
 
 No Swift is parsed (2026-11-07: five lexer holes in a row, so the reader stopped lexing). The whole file is read as raw
 text, and nothing in it is skipped, comments and strings included:
@@ -26,6 +27,7 @@ all read and rewrite the pin through this file alone.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -237,6 +239,113 @@ def check_loader(text: str, checksum: str) -> None:
                                f"fixed reference shapes: {line[:160]!r}")
 
 
+# What `cargo build --release` of cmux-app-ffi reads in each crate it reaches, and what build-app-ffi.sh copies: the
+# manifest, the lock file, the build script and its support modules, the library sources, the C headers, and every file
+# a non-test source or build script names (inputs() below). Tests, benches, examples, scripts, READMEs and a file only
+# they read are not built into the archive, so a change to them leaves the pin current (2026-11-09: #39027 changed
+# cmux-tui/bindings/rust/.cmux-resource-api.json, which only tests/catalog_manifest.rs reads, and staled the pin).
+CRATE_INPUTS = ("Cargo.toml", "Cargo.lock", "build.rs", "build-support", "src", "include")
+INCLUDE = re.compile(r'\binclude(?:_str|_bytes)?!\s*\(\s*"([^"\\]+)"\s*\)')
+INCLUDE_ANY = re.compile(r'\binclude(?:_str|_bytes)?!\s*\(\s*(?!")([^)]*)')
+PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"\\]+)"\]')
+BUILD_READ = re.compile(r'(?:rerun-if-changed=([^"{}]+)"|(?:read_to_string|fs::read|File::open)\(\s*"([^"\\]+)"\s*\))')
+MANIFEST_PATH = re.compile(r'^\s*(?:path|build)\s*=\s*"([^"\\]+\.rs)"', re.M)
+MOD_DECL = re.compile(r'^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(r#)?(\w+)\s*;', re.M)
+CFG_TEST = re.compile(r'#\[cfg\(\s*(?:all\(\s*)?test\b')
+
+
+class Unresolved(ValueError):
+    """A non-test source names a file that is not a string literal: the inputs cannot be known, so the check refuses."""
+
+
+def _declarations(files: list[Path]) -> dict[Path, list[tuple[Path, bool]]]:
+    """For each module file, the files that declare it (`mod NAME;`) and whether that declaration is #[cfg(test)]."""
+    found: dict[Path, list[tuple[Path, bool]]] = {}
+    for file in files:
+        lines = file.read_text(encoding="utf-8", errors="replace").split("\n")
+        for index, line in enumerate(lines):
+            match = MOD_DECL.match(line)
+            if not match:
+                continue
+            attrs, back = [], index - 1
+            while back >= 0 and lines[back].strip().startswith("#["):
+                attrs.append(lines[back].strip())
+                back -= 1
+            name = match.group(2)
+            paths = [PATH_ATTR.search(attr) for attr in attrs]
+            given = next((m.group(1) for m in paths if m), None)
+            if given is not None:
+                targets = [file.parent / given]
+            elif file.name in ("lib.rs", "main.rs", "mod.rs", "build.rs"):
+                targets = [file.parent / f"{name}.rs", file.parent / name / "mod.rs"]
+            else:
+                targets = [file.parent / file.stem / f"{name}.rs", file.parent / file.stem / name / "mod.rs"]
+            test = any(CFG_TEST.match(attr) for attr in attrs)
+            for target in targets:
+                found.setdefault(Path(os.path.normpath(target)), []).append((file, test))
+    return found
+
+
+def _test_only(files: list[Path]) -> set[Path]:
+    """The files compiled only under cfg(test): every declaration of them is #[cfg(test)] or sits in such a file. A file
+    no source declares (a crate root, or one compiled nowhere) is not test-only, so a missed declaration only adds."""
+    declared = _declarations(files)
+    test: set[Path] = set()
+    changed = True
+    while changed:
+        changed = False
+        for file in files:
+            uses = declared.get(Path(os.path.normpath(file)))
+            if file in test or not uses:
+                continue
+            if all(is_test or by in test for by, is_test in uses):
+                test.add(file)
+                changed = True
+    return test
+
+
+def inputs(root: Path, crates: list[str]) -> list[str]:
+    """The repository paths (files, or directories as prefixes) the FFI build reads in CRATES, relative to ROOT: each
+    crate's CRATE_INPUTS, plus every file outside them that a non-test source, a build script or the manifest names.
+    Raises Unresolved when a non-test source includes a file by a computed path (OUT_DIR, the build's own output, aside).
+    """
+    root = Path(os.path.normpath(root))
+    found: set[str] = set()
+
+    def add(path: Path) -> None:
+        path = Path(os.path.normpath(path))
+        if path == root or root not in path.parents:
+            return
+        found.add(path.relative_to(root).as_posix())
+
+    for crate in crates:
+        folder = root / crate
+        for name in CRATE_INPUTS:
+            found.add(f"{crate}/{name}")
+        sources = sorted((folder / "src").rglob("*.rs")) + sorted((folder / "build-support").rglob("*.rs"))
+        if (folder / "build.rs").is_file():
+            sources.append(folder / "build.rs")
+        test = _test_only(sources)
+        for source in sources:
+            if source in test:
+                continue
+            text = source.read_text(encoding="utf-8", errors="replace")
+            for literal in INCLUDE.findall(text) + PATH_ATTR.findall(text):
+                add(source.parent / literal)
+            for computed in INCLUDE_ANY.findall(text):
+                if "OUT_DIR" not in computed:
+                    raise Unresolved(f"{source.relative_to(root)} includes a file by a computed path ({computed[:80]!r}): "
+                                     "name it with a string literal so the app FFI pin knows its inputs")
+        if (folder / "build.rs").is_file():
+            for changed, read in BUILD_READ.findall((folder / "build.rs").read_text(encoding="utf-8", errors="replace")):
+                add(folder / (changed or read).strip())
+        if (folder / "Cargo.toml").is_file():
+            for literal in MANIFEST_PATH.findall((folder / "Cargo.toml").read_text(encoding="utf-8", errors="replace")):
+                add(folder / literal)
+    prefixes = [f"{crate}/{name}/" for crate in crates for name in ("src", "build-support", "include")]
+    return sorted(path for path in found if not any(path.startswith(prefix) for prefix in prefixes))
+
+
 def main(argv: list[str]) -> int:
     try:
         if argv[:1] == ["read"] and len(argv) <= 2:
@@ -250,11 +359,14 @@ def main(argv: list[str]) -> int:
             check_loader(Path(argv[2]).read_text(encoding="utf-8"), checksum)
             print(sha, checksum)
             return 0
+        if argv[:1] == ["inputs"] and len(argv) >= 2:
+            print("\n".join(inputs(Path(argv[1]), argv[2:])))
+            return 0
         if argv[:1] == ["rewrite"] and len(argv) in (3, 4):
             path = Path(argv[3]) if len(argv) == 4 else MANIFEST
             path.write_text(rewrite(path.read_text(encoding="utf-8"), argv[1], argv[2]), encoding="utf-8")
             return 0
-    except NotCanonical as why:
+    except (NotCanonical, Unresolved) as why:
         print(f"error: {why}", file=sys.stderr)
         return 1
     print(__doc__.split("\n\n")[0], file=sys.stderr)

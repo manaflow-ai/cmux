@@ -65,8 +65,22 @@ ffi_crates() {
   done
   tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
 }
+crates=()
+while IFS= read -r crate; do crates+=("$crate"); done < <(ffi_crates)
+# The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
+# picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
+# naming its first line that does not match.
+pin_reader="$code/scripts/ci/app_ffi_pin.py"
+# Of each crate, only what the FFI build reads (app_ffi_pin.py inputs: the manifest, lock file, build script, library
+# sources, headers, and the files a non-test source or build script names). A test, script or README, or a file only
+# they read, is not built into the archive: #39027 changed bindings/rust/.cmux-resource-api.json, which only a test
+# reads, and staled the pin on 2026-11-09.
+if ! listed="$(python3 -I "$pin_reader" inputs "$root" "${crates[@]}" 2>&1)"; then
+  echo "error: the app FFI inputs cannot be listed: ${listed#error: }" >&2
+  exit 1
+fi
 paths=()
-while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
+while IFS= read -r input; do [[ -n "$input" ]] && paths+=("$input"); done <<<"$listed"
 # Not an input: plans/cmux-next/spec-proposals/visuals/design-tokens.json,
 # which cmux-motion's build.rs reads for its token table. A theme edit there
 # must not mark the pin stale; the app passes its own token values to the
@@ -80,10 +94,6 @@ if [[ "$list_inputs" -eq 1 ]]; then
   exit 0
 fi
 
-# The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
-# picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
-# naming its first line that does not match.
-pin_reader="$code/scripts/ci/app_ffi_pin.py"
 # Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import
 # path, and PYTHONPATH and the user site are ignored. Otherwise a module a change adds (scripts/ci/json.py beside the
 # reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
