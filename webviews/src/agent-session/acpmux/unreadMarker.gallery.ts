@@ -128,7 +128,15 @@ export default agentPaneEntry({
     "banner-off": {
       note: "Off (right-click > Hide unread banner): only the line and Jump up; the line's right-click brings it back.",
       snapshot,
-      play: atLatest({ "agentPane.display.unreadBanner": "off" }),
+      // Off draws no banner (SinceDivider.tsx returns none), so this waits for Jump up instead and
+      // holds the banner to being gone.
+      play: async (ctx) => {
+        await display({ "agentPane.display.unreadBanner": "off" });
+        await settle(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
+        if (ctx.document.querySelector(".acpmux-since-jump"))
+          throw new Error("with the banner off, the unread banner must not draw");
+      },
     },
     "jump-pair": {
       note: "Mid-chat: Jump up (to the New line) stacked on Jump to latest, one column on the composer's center line.",

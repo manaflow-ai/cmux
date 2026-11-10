@@ -32,6 +32,7 @@ mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+mod journal_lane_full;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;

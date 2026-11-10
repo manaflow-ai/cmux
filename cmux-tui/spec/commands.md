@@ -10141,8 +10141,10 @@ the acpmux socket the daemon starts acpmux once (one start at a time), as
 `cmux acp` does, and answers `agent_session.acpmux_unavailable` if it still
 cannot connect (always, while acpmux is down, under `ACPMUX_SOCKET`). At
 most 8 starts run at once per daemon and one per tab
-(`agent_session.limit`); acpmux has 60 s to create the session
-(`agent_session.timeout`). Trust is the attach verbs': trusted local (Unix)
+(`agent_session.limit`); each acpmux call of the start, `session/new` too,
+waits as long as acpmux still answers `_acpmux/status` beside it (asked after
+each 10 s with no answer, 30 s to answer), up to 15 minutes for the whole start; a silent
+acpmux or that ceiling is `agent_session.timeout`. Trust is the attach verbs': trusted local (Unix)
 connections only. The session is a local-control acpmux session (the
 daemon is acpmux's unix client): only the refused-family, start-mode and
 folder-trust checks repeat acpmux's remote rules; its remote approval floor,
