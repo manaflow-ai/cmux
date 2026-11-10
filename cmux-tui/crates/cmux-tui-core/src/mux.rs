@@ -25881,6 +25881,42 @@ mod tests {
     }
 
     #[test]
+    fn hook_order_events_journaled_out_of_send_order_keep_the_last_sent_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        // What the hook saw, and when: the hook stamps `observed_at_ms` at
+        // its start, and one agent's hooks run one after another.
+        let ingress = |event: &str, observed_at_ms: u64| {
+            let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id": "order-1"}),
+            )
+            .unwrap();
+            ingress.payload["normalized"]["observed_at_ms"] =
+                serde_json::json!(observed_at_ms.to_string());
+            ingress
+        };
+        // The hooks sent SessionStart, UserPromptSubmit, then Stop, each on
+        // its own connection. Each connection has its own daemon thread, so
+        // the journal took the prompt after the Stop.
+        mux.apply_agent_hook_record(&ingress("SessionStart", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("Stop", 3_000), 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", 2_000), 3).unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
+        // The next prompt the hooks send still applies.
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", 4_000), 4).unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
+    }
+
+    #[test]
     fn hook_projection_does_not_relock_its_held_sequence_guard() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
