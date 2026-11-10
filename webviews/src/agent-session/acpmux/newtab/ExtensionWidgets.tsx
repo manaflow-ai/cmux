@@ -6,11 +6,13 @@
 // every New Tab page.
 //
 // Cost (extensibility-DESIGN.md R1): nothing mounts while the page is hidden or no widget is placed.
-// The listing reads the daemon's catalog only; an app's VM starts at its widget's first mount, and every
-// mount ends when the page hides (visibilitychange), closes (pagehide) or unmounts, which also stops the
-// app's timers (they belong to the mount). A widget that fails or draws past the interface's limits
+// The listing reads the daemon's catalog only; an app's VM starts at its widget's first mount. A switch
+// away and back reads nothing (shared-projections.md): the mounts stay through a short hide, and end
+// only once the page has been hidden for WIDGETS_HIDDEN_GRACE_MS (the same 60 s as a hidden sidebar
+// panel, extensibility-DESIGN.md section 4), when it closes (pagehide) or unmounts, which also stops
+// the app's timers (they belong to the mount). A widget that fails or draws past the interface's limits
 // (`nodes`, `maxNodes`) shows its name and why in its cell; the page around it is untouched.
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   appPanelsDevClient,
   AppPanelsClient,
@@ -68,13 +70,41 @@ const NO_WIDGETS: NewTabExtensionWidgets = {
   setLayout: () => undefined,
 };
 
-function subscribeVisible(notify: () => void): () => void {
-  if (typeof document === "undefined") return () => undefined;
-  // ui-allow: the page's visibility decides whether app widgets are mounted at all.
-  document.addEventListener("visibilitychange", notify);
-  return () => document.removeEventListener("visibilitychange", notify);
+/** How long the page stays hidden before its widgets' mounts end. A switch to another tab and back
+ * inside it keeps every mount and reads nothing; a page left hidden longer costs nothing. */
+export const WIDGETS_HIDDEN_GRACE_MS = 60_000;
+
+const pageHidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+
+/** Whether the page's widgets are mounted: from the first time the page shows until it has been hidden
+ * for `graceMs`. Showing the page again inside the grace changes nothing, so a switch reads nothing. */
+export function useWidgetsLive(graceMs = WIDGETS_HIDDEN_GRACE_MS): boolean {
+  const [live, setLive] = useState(() => !pageHidden());
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const follow = () => {
+      if (!pageHidden()) {
+        if (timer !== undefined) clearTimeout(timer);
+        timer = undefined;
+        setLive(true);
+      } else if (timer === undefined) {
+        timer = setTimeout(() => {
+          timer = undefined;
+          setLive(false);
+        }, graceMs);
+      }
+    };
+    follow();
+    // ui-allow: a page hidden past the grace ends its app widgets' mounts (R1); a switch reads nothing.
+    document.addEventListener("visibilitychange", follow);
+    return () => {
+      if (timer !== undefined) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", follow);
+    };
+  }, [graceMs]);
+  return live;
 }
-const pageVisible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
 /** The page's app widgets. `injected` is the gallery's or a test's client; the page host's otherwise
  * (none in a browser without the dev mock: no widgets, no calls). */
@@ -96,14 +126,14 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
         : undefined,
     [client],
   );
-  const visible = useSyncExternalStore(subscribeVisible, pageVisible, pageVisible);
+  const live = useWidgetsLive();
   const view = useSyncExternalStore(
     owner?.subscribe ?? NOOP_SUBSCRIBE,
     owner?.getView ?? EMPTY_VIEW_READ,
     owner?.getView ?? EMPTY_VIEW_READ,
   );
   useEffect(() => {
-    if (!owner || !visible) return;
+    if (!owner || !live) return;
     owner.start();
     const stop = () => owner.stop();
     // Native pane retirement can discard the document without unmounting React first.
@@ -112,10 +142,10 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
       globalThis.removeEventListener?.("pagehide", stop);
       owner.stop();
     };
-  }, [owner, visible]);
+  }, [owner, live]);
   return useMemo(
     () =>
-      owner && visible
+      owner && live
         ? {
             available: view.panels,
             layout: view.layout,
@@ -124,7 +154,7 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
             setLayout: (layout: readonly string[]) => owner.setLayout(layout),
           }
         : NO_WIDGETS,
-    [owner, visible, view],
+    [owner, live, view],
   );
 }
 const NOOP_SUBSCRIBE = () => () => undefined;

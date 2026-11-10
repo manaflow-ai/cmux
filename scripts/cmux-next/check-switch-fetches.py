@@ -62,6 +62,9 @@ ALLOWED_LISTENERS = {
     "rail's one-shot leave grace when the page hides; reads no data",
     (f"{ACPMUX}/newtab/chatStore.ts", "visibilitychange"): "writes the chat list this page "
     "holds back from its throttled store write when the page hides; a write, reads no data",
+    (f"{ACPMUX}/newtab/ExtensionWidgets.tsx", "visibilitychange"): "ends the app widgets' mounts "
+    "(their VMs and timers) once the page has been hidden for 60 s (extensibility R1); a switch "
+    "back inside that keeps every mount and reads nothing",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
     (f"{ACPMUX}/subagents/traySeen.ts", "visibilitychange"): "pauses the composer hat's linger "
