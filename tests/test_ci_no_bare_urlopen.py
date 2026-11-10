@@ -288,6 +288,76 @@ class Transport(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "over 4 bytes"):
             deadline_http.request(server.url, self.BOUND, max_bytes=4)
 
+    def test_a_stream_gives_status_and_headers_before_the_body(self):
+        # The headers and the body's first bytes at once; the rest never comes.
+        server = self.serve(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-39/90\r\n"
+                            b"Content-Length: 40\r\n\r\n" + b"c" * 8, hold=2)
+        with deadline_http.stream(server.url, self.BOUND) as answer:
+            self.assertEqual((answer.status, answer.headers.get("content-range")), (206, "bytes 0-39/90"))
+            self.assertEqual(answer.read(8), b"c" * 8)
+            started = time.monotonic()
+            with self.assertRaises(deadline_http.RequestTimeout):
+                answer.read(1)
+        self.assertLess(time.monotonic() - started, self.BOUND + 0.3)
+
+    def test_a_trickled_stream_body_ends_at_the_deadline_mid_stream(self):
+        # A byte every 10 ms, under the stall: only the whole-call deadline ends it, partway through the body.
+        bound = 1.0
+        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 300\r\n\r\n" + b"d" * 300, gap=0.01)
+        started = time.monotonic()
+        received = 0
+        with self.assertRaises(deadline_http.RequestTimeout) as raised:
+            with deadline_http.stream(server.url, bound, stall=0.5) as answer:
+                self.assertEqual(answer.status, 200)
+                while answer.read(1):
+                    received += 1
+        elapsed = time.monotonic() - started
+        self.assertNotIsInstance(raised.exception, deadline_http.Stalled)
+        self.assertGreater(received, 0)
+        self.assertLess(received, 300)
+        self.assertGreaterEqual(elapsed, bound * 0.9)
+        self.assertLess(elapsed, bound + 0.3)
+
+    def test_a_stream_that_goes_silent_ends_at_its_stall(self):
+        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n" + b"e" * 4, hold=3)
+        with deadline_http.stream(server.url, 2.0, stall=self.BOUND) as answer:
+            self.assertEqual(answer.read(4), b"e" * 4)
+            started = time.monotonic()
+            with self.assertRaises(deadline_http.Stalled):
+                answer.read(1)
+        self.assertLess(time.monotonic() - started, self.BOUND + 0.3)
+
+    def test_a_headers_only_stream_closes_without_reading_the_body(self):
+        # A probe of a big download: status and headers, then out, never waiting for the body.
+        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n" + b"f" * 4, hold=2)
+        started = time.monotonic()
+        with deadline_http.stream(server.url, 2.0) as answer:
+            self.assertEqual((answer.status, answer.headers.get("Content-Length")), (200, "999999"))
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_a_stream_returns_a_redirect_not_followed_then_streams_its_location(self):
+        # The release-asset shape: the token request answers with a redirect, the signed URL is streamed.
+        target = self.serve(self.OK)
+        origin = self.serve(f"HTTP/1.1 302 Found\r\nLocation: {target.url}/blob\r\nContent-Length: 0\r\n\r\n".encode())
+        request = urllib.request.Request(origin.url + "/asset")
+        request.add_unredirected_header("Authorization", "Bearer secret")
+        with deadline_http.stream(request, self.BOUND, follow_redirects=False) as answer:
+            self.assertEqual(answer.status, 302)
+            location = answer.headers["location"]
+        with deadline_http.stream(location, self.BOUND) as answer:
+            self.assertEqual((answer.status, answer.read()), (200, b'{"ok": true}'))
+        self.assertEqual(target.requests[0][1].count(b"secret"), 0)
+
+    def test_a_stream_error_status_is_an_answer_or_with_raise_errors_an_http_error(self):
+        server = self.serve(b"HTTP/1.1 503 Busy\r\nRetry-After: 3\r\nContent-Length: 4\r\n\r\nbusy")
+        with deadline_http.stream(server.url, self.BOUND) as answer:
+            self.assertEqual((answer.status, answer.headers.get("Retry-After"), answer.read()), (503, "3", b"busy"))
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            with deadline_http.stream(server.url, self.BOUND, raise_errors=True):
+                self.fail("an error status entered the block")
+        self.assertEqual((raised.exception.code, raised.exception.headers.get("Retry-After")), (503, "3"))
+        self.assertEqual(raised.exception.read(), b"busy")
+
 
 if __name__ == "__main__":
     unittest.main()
