@@ -963,9 +963,9 @@ pub(crate) fn public_tabs(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
         let panes_by_id =
             topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
         let mut tabs = public_tab_values(&topology, &panes_by_id)?;
-        for tab in &mut tabs {
-            crate::state::values::decorate_value(connection, "tab", tab)?;
-        }
+        // One statement set for the list: each state table is read one time,
+        // not one time for each tab.
+        crate::state::values::decorate_session_tabs(connection, &mut tabs)?;
         Ok(tabs)
     })
     .map_err(operation_failed)
