@@ -222,6 +222,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
+        // Safari's bottom bar: a tap on the page while the field is being edited ends the
+        // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
+        // tap still reaches the row under it (a disclosure, a link).
+        transcriptTap.addTarget(self, action: #selector(transcriptTapped(_:)))
+        transcriptTap.cancelsTouchesInView = false
+        transcriptTap.delegate = DockPanDelegate.shared
+        scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
@@ -711,6 +718,23 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
     }
 
+    /// The tap on the transcript that ends editing (`transcriptTapped`).
+    let transcriptTap = UITapGestureRecognizer()
+
+    @objc private func transcriptTapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended else { return }
+        endEditingFromTranscriptTap()
+    }
+
+    /// A tap on the transcript while the composer is focused: the keyboard goes down and the
+    /// field lets go of focus, as Safari's address bar does on a tap on the page. Nothing
+    /// happens when the composer is not focused, so a tap while reading moves nothing.
+    func endEditingFromTranscriptTap() {
+        guard surface.composerFocused else { return }
+        surface.composerFocused = false
+        view.endEditing(true)
+    }
+
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .changed else { return }
         let t = pan.translation(in: view)
@@ -958,7 +982,8 @@ private final class DragLinkTarget: NSObject {
     @objc func tick() { owner?.draggedKeyboardFrame() }
 }
 
-/// Lets the composer's swipe-down recognizer run beside the text view's own.
+/// Lets the composer's swipe-down recognizer, and the transcript's tap, run beside the
+/// recognizers already there (the text view's own, the rows' disclosure taps).
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
