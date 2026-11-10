@@ -4614,8 +4614,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
-      // Not opened on the machine: what was typed meanwhile stays in this composer.
-      if (!answer.ok) dropCloudCarry();
+      // Not opened on the machine (refused, or run on this Mac): what was typed stays in this composer.
+      if (!answer.ok || cloudRunsHere(answer)) dropCloudCarry(text);
       cloudStartPending.current = false;
       if (signingIn) cloudSignInPending.current = false;
       setCloudStartsEnded((count) => count + 1);

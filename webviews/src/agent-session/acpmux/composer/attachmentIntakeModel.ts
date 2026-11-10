@@ -69,6 +69,10 @@ export type AttachmentIntakeOptions = {
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
+  /// True while a Cloud start is out (App.tsx `cloudStarting`): the prompt still takes typing, but no
+  /// file (a paste, a drop, a pick), since on success the tab closes and the chat the start opens gets
+  /// only the typed text (cloudStartCarry.ts).
+  locked?(): boolean;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its
   /// chips to `elsewhere` instead of this chat's strip.
@@ -676,7 +680,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [attach] = useState(
     () =>
       (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false) =>
-        intake(given, uploads, kind, undefined, needs),
+        // A Cloud start is out (`locked`): no file is taken (a pick from the + menu, a capture).
+        live.current.options.locked?.() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -860,7 +865,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   );
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (pastesPlaced.has(event)) return;
+      if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);
@@ -875,12 +880,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
       (files) => {
+        if (live.current.options.locked?.()) return showDrop(HIDDEN_DROP);
         showDrop(landDropOverlay(dropRef.current, files));
         void attach(files, true, "drop");
       },
       (active, event) => {
-        const { allowImages, dropZone } = live.current.options;
-        setDropping(active);
+        const { allowImages, dropZone, locked } = live.current.options;
+        const refused = locked?.() === true;
+        setDropping(active && !refused);
+        if (refused) return showDrop(HIDDEN_DROP);
         showDrop(stepDropOverlay(dropRef.current, active, event, allowImages, dropZone?.()));
       },
     );

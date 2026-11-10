@@ -551,6 +551,7 @@ export function NewTabScreen(props: Props) {
     place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
+    locked: () => props.cloudStarting === true,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && fieldElement()?.contains(target) ? { uploads: false } : undefined),
     ...(props.upload ? { upload: props.upload } : {}),
@@ -558,11 +559,14 @@ export function NewTabScreen(props: Props) {
   });
   const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
   attachmentsRef.current = attachments;
+  const textOnly = useRef(false);
+  textOnly.current = props.cloudStarting === true;
   const pastedChips = usePastedChips(
     attachmentsRef,
     setAttachments,
     field,
     (file) => void attach([file], true, "paste"),
+    textOnly,
   );
   useEffect(() => {
     if (carried?.attachments.length) setAttachments(carried.attachments);

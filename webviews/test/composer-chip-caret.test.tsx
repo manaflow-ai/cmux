@@ -252,3 +252,13 @@ test("while a Cloud start is out the chat composer takes typing, and Send keeps 
   expect(sent).toEqual([]);
   expect(md.plainText()).toBe("and also the tests");
 });
+
+test("while a Cloud start is out a huge paste goes in as text, never a chip the Cloud chat could not get", async () => {
+  const { md } = await composer("", true);
+  await act(async () => md.focus());
+  const huge = Array.from({ length: 400 }, (_, line) => `line ${line} of the log`).join("\n");
+  await act(async () => md.pasteText(huge));
+  expect(md.plainText()).toContain("line 399 of the log");
+  expect(host.querySelector(".acpmux-md [data-inline-attachment]")).toBeNull();
+});
+

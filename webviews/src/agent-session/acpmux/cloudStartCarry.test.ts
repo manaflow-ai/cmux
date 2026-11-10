@@ -37,9 +37,17 @@ test("a draft back to the prompt alone, a failed start or an old carry leaves no
   holdCloudCarry(TASK, TASK, 1_100, store);
   expect(store.items.size).toBe(0);
   holdCloudCarry(TASK, `${TASK} more`, 1_000, store);
-  dropCloudCarry(store);
+  dropCloudCarry(TASK, store);
   expect(takeCloudCarry(TASK, 1_200, store)).toBeUndefined();
   holdCloudCarry(TASK, `${TASK} more`, 1_000, store);
   expect(takeCloudCarry(TASK, 1_000 + CARRY_TTL_MS + 1, store)).toBeUndefined();
   expect(store.items.size).toBe(0);
+});
+
+test("two starts out at once keep their own carry", () => {
+  const store = memory();
+  holdCloudCarry(TASK, `${TASK} one`, 1_000, store);
+  holdCloudCarry("Other prompt", "Other prompt two", 1_000, store);
+  dropCloudCarry("Other prompt", store);
+  expect(takeCloudCarry(TASK, 1_100, store)).toBe("one");
 });

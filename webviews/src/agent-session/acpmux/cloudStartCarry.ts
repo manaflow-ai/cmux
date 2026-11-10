@@ -31,12 +31,16 @@ const store = (): CarryStore | undefined => {
 
 /// An attachment's token in the draft (attachments.ts inlineToken): its chip stays on this page.
 const TOKEN = /￼[^￼]*￼/g;
+/// The prompt as both pages read it: no attachment tokens, no outer space.
+const plain = (text: string) => text.replace(TOKEN, "").trim();
+/// One start's carry: by its prompt, so starts out in two tabs keep their own.
+const keyOf = (task: string) => `${KEY}:${plain(task)}`;
 
 /// What `draft` holds past the sent `task`: the text after it when the draft still starts with it,
 /// else the whole draft (the prompt itself was edited); "" when nothing was added.
 export function carriedText(task: string, draft: string): string {
-  const text = draft.replace(TOKEN, "").trim();
-  const sent = task.replace(TOKEN, "").trim();
+  const text = plain(draft);
+  const sent = plain(task);
   if (!text || text === sent) return "";
   return sent && text.startsWith(sent) ? text.slice(sent.length).trim() : text;
 }
@@ -46,17 +50,17 @@ export function holdCloudCarry(task: string, draft: string, now = Date.now(), at
   if (!at) return;
   const text = carriedText(task, draft);
   try {
-    if (text) at.setItem(KEY, JSON.stringify({ task, text, at: now } satisfies CloudStartCarry));
-    else at.removeItem(KEY);
+    if (text) at.setItem(keyOf(task), JSON.stringify({ task, text, at: now } satisfies CloudStartCarry));
+    else at.removeItem(keyOf(task));
   } catch {
     // A full or refused store keeps nothing: the draft stays in this page until it closes.
   }
 }
 
-/// The start ended here (failed, cancelled, run on this Mac): the draft stays in this composer.
-export function dropCloudCarry(at: CarryStore | undefined = store()) {
+/// The start of `task` ended here (failed, cancelled, run on this Mac): the draft stays in this composer.
+export function dropCloudCarry(task: string, at: CarryStore | undefined = store()) {
   try {
-    at?.removeItem(KEY);
+    at?.removeItem(keyOf(task));
   } catch {
     // Nothing kept to drop.
   }
@@ -71,7 +75,7 @@ export function takeCloudCarry(
   if (!at) return undefined;
   let carry: Partial<CloudStartCarry> | undefined;
   try {
-    const raw = at.getItem(KEY);
+    const raw = at.getItem(keyOf(prompt));
     carry = raw ? (JSON.parse(raw) as Partial<CloudStartCarry>) : undefined;
   } catch {
     carry = undefined;
@@ -79,10 +83,10 @@ export function takeCloudCarry(
   if (!carry || typeof carry.text !== "string" || typeof carry.task !== "string" || typeof carry.at !== "number")
     return undefined;
   if (now - carry.at > CARRY_TTL_MS) {
-    dropCloudCarry(at);
+    dropCloudCarry(prompt, at);
     return undefined;
   }
-  if (carry.task.replace(TOKEN, "").trim() !== prompt.replace(TOKEN, "").trim()) return undefined;
-  dropCloudCarry(at);
+  if (plain(carry.task) !== plain(prompt)) return undefined;
+  dropCloudCarry(prompt, at);
   return carry.text || undefined;
 }

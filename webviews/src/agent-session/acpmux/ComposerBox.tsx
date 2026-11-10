@@ -104,6 +104,9 @@ export type ComposerBoxProps = {
   /// Nothing in the box takes input (inert): a Cloud start is out, and this tab closes once its
   /// chat opens on the machine, so an edit made meanwhile would go with it (App.tsx `cloudStarting`).
   inert?: boolean;
+  /// A paste goes in as text, never as a chip or a file (a Cloud start is out: the chat it opens gets
+  /// only the typed text, cloudStartCarry.ts).
+  textOnly?: boolean;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -145,6 +148,7 @@ export function ComposerBox({
   chromeItems,
   bottom,
   inert = false,
+  textOnly = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
   // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
@@ -174,6 +178,8 @@ export function ComposerBox({
   /// (attachmentIntake.tsx), so `place` reads this in the same call.
   const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
+  const textOnlyNow = useRef(textOnly);
+  textOnlyNow.current = textOnly;
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
     setAttachments,
@@ -187,6 +193,7 @@ export function ComposerBox({
           toStrip.current = false;
         }
       }),
+    textOnlyNow,
   );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;

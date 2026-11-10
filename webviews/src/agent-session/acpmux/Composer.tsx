@@ -439,7 +439,9 @@ type Props = {
   /// A Cloud start is out: its first prompt is the send, so Send keeps the draft until it ends. The
   /// box still takes clicks, focus, typing, pastes and drops all the while (Leo, 2026-11-09: "I
   /// can't click into the composer at all to, like potentially type other stuff while it's doing
-  /// that initial load situation"); a failed start's prompt comes back before what was typed.
+  /// that initial load situation"); a failed start's prompt comes back before what was typed. Files
+  /// and huge pastes stay out of it then (ComposerBox `textOnly`): the chat the start opens gets only
+  /// the typed text (cloudStartCarry.ts).
   locked?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
@@ -744,6 +746,7 @@ function ComposerFrame({
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
+    locked: () => locked,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
       shellField.current?.contains(target)
@@ -1205,7 +1208,10 @@ function ComposerFrame({
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
     unsentDraft.current?.push(unsentText(text));
-  }, [text, sessionId, onUnsentDraft]);
+    // A Cloud start is out: the host may close this tab any moment, so each edit goes at once (the
+    // text the chat it opens gets, App.tsx `holdCloudCarry`).
+    if (locked) unsentDraft.current?.flush();
+  }, [text, sessionId, onUnsentDraft, locked]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -2565,6 +2571,7 @@ function ComposerFrame({
           typedAt.current = performance.now();
         }}
         boxRef={setComposerBox}
+        textOnly={locked}
         fieldRef={fieldRef}
         field={{
           className: shell
