@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
 import { followTrace } from "../../src/agent-session/acpmux/followTrace";
-import { acpmuxPerf } from "../../src/agent-session/acpmux/perf";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import type { TurnFile } from "../../src/agent-session/acpmux/diff";
 import { toggleTurnFold, turnView } from "../../src/agent-session/acpmux/conversation/turns";
@@ -129,9 +128,6 @@ const draw = () =>
       />
     </BackgroundTaskOutputContext.Provider>,
   );
-// The pane's render counters (perf.ts), for a test that counts the rows a toggle draws again
-// (chat-fold-frame-budget-browser.test.ts).
-(window as unknown as { __acpmuxPerf: typeof acpmuxPerf }).__acpmuxPerf = acpmuxPerf;
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
   rawRows = false;
   live = false;

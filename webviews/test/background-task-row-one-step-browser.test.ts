@@ -15,15 +15,13 @@
 // From the click to rest, every painted frame must show either nothing under the note or the whole
 // card (the command, what it printed, "[exited with code 0]", the "stream ended" line and Open in
 // terminal), never the stub; the note's height and the reply under it move in one motion; and the
-// card's height never changes once that motion ends. Opened mid-chat, the rows under it ride the
-// fold (conversation/foldRide.ts): one render of each mounted row at most, the same cost at 500 rows
-// as at 50, and on Chromium at four times slower script a frame's budget (support/foldFrameReport.ts).
+// card's height never changes once that motion ends. (What the open costs mid-chat, the rows under
+// it riding the fold, lands with the fold-lag fix, #39917, whose foldRide.ts it measures.)
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { costLine, installFoldProbe, measureToggle, SMOOTH_MS, type FoldCost } from "./support/foldFrameReport";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -154,7 +152,6 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
   const open = async (browser: Browser) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
-    await installFoldProbe(page);
     await installPaintedFrames(page);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
@@ -177,24 +174,6 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
       (rows) => (window as unknown as { __showRawRows(rows: unknown): void }).__showRawRows(rows),
       rows(turns),
     );
-  /// Scrolls the row `id` to `offset` px under the view's top.
-  const bring = async (page: Page, id: string, offset = 120) => {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      await page.evaluate(
-        async ({ id, offset }) => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          for (let step = 0; step < 200 && !document.querySelector(`[data-row-id="${id}"]`); step += 1) {
-            scroller.scrollTop -= scroller.clientHeight / 2;
-            await window.cmuxPaintFrame();
-          }
-          const node = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
-          scroller.scrollTop += node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset;
-        },
-        { id, offset },
-      );
-      await settle(page);
-    }
-  };
   const header = `[data-row-id="${NOTE}"] button.cv-bgtask`;
   /// The note as the reader finds it after it sat on screen: every read the page started has
   /// answered. A build that reads only on open starts none, so this gives up after a few seconds.
@@ -357,50 +336,6 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
       await page.close();
       console.log(line(name, "clicked as it arrives", fresh));
       out.push(...failures(`${name} clicked as it arrives`, fresh, REPLY_MS * 2 + 250));
-      expect(out).toEqual([]);
-    });
-  }
-
-  // Mid-chat, as the fold-lag fix measures a fold (chat-fold-frame-budget-browser.test.ts): the rows
-  // under the note ride its fold, and the open costs the same at 500 rows as at 50.
-  for (const name of Object.keys(engines) as (keyof typeof engines)[]) {
-    test(`${name}: opening the note mid-chat costs the same at 500 rows as at 50, inside a frame's budget`, async () => {
-      if (!browsers[name]) return;
-      const costs: FoldCost[] = [];
-      for (const turns of [50, 500]) {
-        const page = await open(browsers[name]!);
-        await show(page, turns);
-        await settle(page);
-        await bring(page, NOTE);
-        await readsAnswered(page);
-        const cdp = name === "chromium" ? await page.context().newCDPSession(page) : undefined;
-        if (cdp) await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-        costs.push(
-          await measureToggle(
-            page,
-            `open a background command at ${turns} rows`,
-            () => click(page),
-            () => whole(page),
-            cdp,
-          ),
-        );
-        await page.close();
-      }
-      for (const cost of costs) console.log(costLine(name, cost));
-      const [short, long] = costs as [FoldCost, FoldCost];
-      const out: string[] = [];
-      for (const cost of costs) {
-        const commits = Math.max(4, Math.ceil(cost.frames / 2));
-        if (cost.commits > commits)
-          out.push(`${cost.step}: ${cost.commits} React commits in ${cost.frames} frames (at most ${commits})`);
-        if (cost.rowRenders > cost.mounted)
-          out.push(`${cost.step}: ${cost.rowRenders} row renders for ${cost.mounted} mounted rows`);
-        if (name === "chromium" && cost.smooth < 0.6)
-          out.push(`${cost.step}: ${Math.round(cost.smooth * 100)}% of frames within ${SMOOTH_MS} ms (at least 60%)`);
-      }
-      if (long.mounted > short.mounted + 8)
-        out.push(`${long.mounted} rows mounted at 500 rows, ${short.mounted} at 50`);
-      if (long.commits > short.commits + 3) out.push(`${long.commits} commits at 500 rows, ${short.commits} at 50`);
       expect(out).toEqual([]);
     });
   }
