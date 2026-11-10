@@ -335,6 +335,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/register",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/offer_session",
       "params": true,
       "result": true

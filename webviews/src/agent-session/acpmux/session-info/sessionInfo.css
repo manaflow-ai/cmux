@@ -639,7 +639,7 @@
 }
 /* Every row that takes a click (a section's head, a file or link, a pull request, a task, the
    Subagents' fold rows, a subagent or a started chat) hovers one way: a faint tint of the text over
-   whatever the card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light
+   whatever the card shows, never a solid fill (an opaque wash, as --acpmux-menu-hover once was, drew a light
    slab over the card), and inside the card's padding with the card's radius less that padding, so a
    hover never reaches past the card's edge. A Sources row lights only when it takes a click (its
    file or link, as a pull request's row): an MCP tool's row or a file outside the folder is no

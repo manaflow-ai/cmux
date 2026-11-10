@@ -72,6 +72,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PROMPT_WITHDRAW,
     // So is a chat's inbox drained (`hub/inbox_digest.rs`).
     method::MUX_INBOX_DIGEST,
+    // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
+    // NAME is the name to take, never a peer session to forward to, and its token stays here.
+    method::MUX_REGISTER,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -1137,6 +1140,13 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
+    /// name, so the caller's messaging token never leaves this daemon.
+    #[test]
+    fn a_registration_is_never_forwarded_to_a_peer() {
+        assert!(!names_a_session(method::MUX_REGISTER));
+    }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
     /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).

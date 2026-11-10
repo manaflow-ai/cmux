@@ -44,6 +44,7 @@ export interface AcpmuxRequests {
   "_acpmux/markUnread": { params: SessionRef; result: Done };
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
+  "_acpmux/register": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: OfferRespondParams; result: unknown };
   "_acpmux/subsession/answer": { params: unknown; result: unknown };
@@ -391,6 +392,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/markUnread", kind: "request", acp: false, typed: true },
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/register", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subsession/answer", kind: "request", acp: false, typed: false },
