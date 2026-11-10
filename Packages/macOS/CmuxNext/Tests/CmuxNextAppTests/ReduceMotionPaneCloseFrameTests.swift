@@ -40,7 +40,7 @@ struct ReduceMotionPaneCloseFrameTests {
         let kept = [0, 2]
         let start = kept.map { screen.sessions[$0].view.surfaceSize(forHostSize: screen.sessions[$0].view.bounds.size) }
 
-        let reports = TerminalSurfaceView.gridReports
+        let gridsBefore = kept.map { screen.ios[$0].resizes.count }
         try #require(screen.model.showPaneClose("p2") != nil, "the close of p2 was not shown")
         screen.root.syncWithModel()
         var off: [String] = []
@@ -65,9 +65,6 @@ struct ReduceMotionPaneCloseFrameTests {
         read("the first frame")
         #expect((moved["the close's commit"] ?? 0) > 0, "no kept terminal's area changed in the close's own commit: the snap waited")
         #expect(off.isEmpty, "\(off.count) committed frames showed a terminal layer not at its pane's size after a Reduce Motion close: \(off)")
-        // At most one grid per kept terminal for the close (its landing is its first frame).
-        let sent = TerminalSurfaceView.gridReports - reports
-        #expect(sent <= UInt64(kept.count), "a Reduce Motion close sent \(sent) grids for \(kept.count) resized terminals")
         let rested = await Self.commits(screen, seconds: 2) { screen in
             kept.allSatisfy { TerminalKeyResizeFrameTests.showsItsOwnFrame(screen.sessions[$0]) }
         }
@@ -80,6 +77,13 @@ struct ReduceMotionPaneCloseFrameTests {
             }
         }
         #expect(settled, "a kept terminal's PTY does not end at its view's grid after the close")
+        // At most one grid per kept terminal for the close (its landing is its first frame), counted at the kept
+        // terminals' own PTYs. `TerminalSurfaceView.gridReports` counts every terminal of the process, and the terminals
+        // of the suites that run beside this one report in the awaits above (red at 35f0e356de2d beside 10 other suites:
+        // 8 reports counted; green alone). A grid reaches its IO through the ordered input stream, so the count is read
+        // here, after each PTY has its view's grid: it is every grid of the close, the first frame's included.
+        let sent = zip(kept, gridsBefore).map { screen.ios[$0].resizes.count - $1 }
+        #expect(sent.allSatisfy { $0 <= 1 }, "a Reduce Motion close sent \(sent) grids to the \(kept.count) resized terminals: at most one each")
     }
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }

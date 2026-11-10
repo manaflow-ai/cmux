@@ -36,7 +36,7 @@ struct ReduceMotionKeyResizeGridTests {
         let frames = hosts.map(\.frame)
         let grids = screen.sessions.map(\.surfaceView.fittedGrid)
 
-        let reports = TerminalSurfaceView.gridReports
+        let gridsBefore = screen.ios.map { $0.resizes.count }
         try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
         await TerminalKeyResizeFrameTests.commit() // the key's turn and its commit
         let resized = panes.indices.filter { hosts[$0].frame.size != frames[$0].size }
@@ -50,7 +50,6 @@ struct ReduceMotionKeyResizeGridTests {
         _ = screen.root.advanceFrame(1.0 / 120)
         screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
         await TerminalKeyResizeFrameTests.commit()
-        let firstFrameGrids = TerminalSurfaceView.gridReports - reports
         // Where the terminals rest (each shows its own frame and its PTY has a grid its view fits, at most 2 s): the press
         // must give some terminal a new grid.
         _ = await ReduceMotionPaneCloseFrameTests.commits(screen, seconds: 2) { screen in
@@ -65,8 +64,14 @@ struct ReduceMotionKeyResizeGridTests {
             #expect(abs(frame.layer.width - frame.area.width) * frame.scale <= 1 && abs(frame.layer.height - frame.area.height) * frame.scale <= 1,
                     "the key's commit showed \(panes[index].rawValue)'s terminal layer at \(frame.layer) in a \(frame.area) area")
         }
-        #expect(firstFrameGrids <= UInt64(changedGrid.count),
-                "the press sent \(firstFrameGrids) grids by its first frame for \(changedGrid.count) terminals with a new grid: one each")
+        // One grid per terminal with a new grid, counted at this screen's own PTYs. `TerminalSurfaceView.gridReports`
+        // counts every terminal of the process, and the terminals of the suites that run beside this one report in the
+        // awaits above (red at 35f0e356de2d beside 10 other suites: 6 reports counted; green alone). A grid reaches its
+        // IO through the ordered input stream, so the count is read here, after the terminals rest: it is every grid of
+        // the press, the first frame's included.
+        let sent = zip(screen.ios, gridsBefore).map { $0.resizes.count - $1 }
+        #expect(sent.reduce(0, +) <= changedGrid.count,
+                "the press sent \(sent) grids to p1, p2, p3 for \(changedGrid.count) terminals with a new grid: one each")
         for index in resized {
             let view = screen.sessions[index].surfaceView
             let last = screen.ios[index].resizes.last.map { TerminalGridSize(columns: $0.columns, rows: $0.rows) }
