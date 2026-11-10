@@ -99,8 +99,10 @@ class TrackerTests(unittest.TestCase):
         "running" and, under --no-fail-fast, the next binary was ended about 180 s later at a false deadline.
         cargo's `Running` line for the next binary means the old one has exited."""
         tracker = deadline.Tracker(default_seconds=180)
-        tracker.feed("test crashes ... ", now=0.0)
-        tracker.feed("error: test failed, to rerun pass `-p a --lib`\n"
+        # A parallel run: the test has its 60 s notice, then its binary crashes (no result line for it).
+        tracker.feed("test crashes has been running for over 60 seconds\n", now=0.0)
+        tracker.feed("error: test failed, to rerun pass `-p a --lib`\n\nCaused by:\n"
+                     "  process didn't exit successfully: `a-0123abcd` (signal: 11, SIGSEGV)\n"
                      "     Running unittests src/lib.rs (target/debug/deps/b-0123abcd)\n", now=1.0)
         self.assertIsNone(tracker.overdue(now=500.0))
         tracker.feed("     Running tests/terminal.rs (target/debug/deps/terminal-0123abcd)\n"
@@ -137,9 +139,11 @@ FAKE = textwrap.dedent(
         out("\\x1b]12;#ffffff\\x07\\x1b[1 qtest slow ... ok\\n\\ntest result: ok. 1 passed; 0 failed\\n")
         sys.exit(0)
     if mode == "crash-then-next":
-        # Binary 1 crashes mid-test (no result line); cargo goes on to binary 2 (--no-fail-fast), which passes.
-        out("test crashes ... ")
-        out("error: test failed, to rerun pass `-p a --lib`\\n")
+        # Binary 1 crashes in a parallel run (its test has a 60 s notice, then no result line); cargo goes on
+        # to binary 2 (--no-fail-fast), which passes.
+        out("test crashes has been running for over 60 seconds\\n")
+        out("error: test failed, to rerun pass `-p a --lib`\\n\\nCaused by:\\n  process didn't exit successfully: "
+            "`a-0123abcd` (signal: 11, SIGSEGV)\\n")
         out("     Running unittests src/main.rs (target/debug/deps/b-0123abcd)\\n\\nrunning 1 tests\\n")
         time.sleep(4)
         out("test fine ... ok\\n\\ntest result: ok. 1 passed; 0 failed\\n")
@@ -211,7 +215,8 @@ class ProcessTests(unittest.TestCase):
         self.assertNotIn("deadline", out)
 
     def test_a_crashed_binary_does_not_end_the_next_binary_at_a_false_deadline(self):
-        code, out, _ = self.run_script("crash-then-next", "--deadline-seconds", "2")
+        # The notice dates the crashed test 60 s back: a 61 s deadline would end binary 2 about 1 s later.
+        code, out, _ = self.run_script("crash-then-next", "--deadline-seconds", "61")
         self.assertEqual(code, 101, out)
         self.assertNotIn("ran past", out)
         self.assertIn("test fine ... ok", out)
