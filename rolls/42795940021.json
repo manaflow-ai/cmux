@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42795940021",
+  "recorded_at": "2026-11-10T10:15:33Z",
+  "reason": "cmux-tui 42bbbd576348 changes the image's cmux-tui (pinned 02c23fc98e11)",
+  "dry_run": false,
+  "cmux_tui": "42bbbd576348d4c5df8b4a7245a1bdc8d3526e95",
+  "fixes": [
+    {
+      "sha": "42bbbd576348d4c5df8b4a7245a1bdc8d3526e95",
+      "mergedAt": "2026-11-10T09:48:33Z",
+      "subject": "chore(next): base autofix at f92c138d3746"
+    },
+    {
+      "sha": "4c23ad655e3e908f48150d14bd8700dafe0f2467",
+      "mergedAt": "2026-11-10T01:44:51-08:00",
+      "subject": "acpmux register: a stable name for a Claude Code session or Codex desktop thread acpmux did not start (#40053)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T10:15:33Z",
+    "snapshot_id": "sh-75f56f0579024d11a126af404e129bfb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42795940021): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9f747e88e8f8f99c728e0f774fa177e916caa57b",
+    "image": "cloud-native-auto-42bbbd57-42795940021-1",
+    "revision": "ci-42795940021-1",
+    "at": "2026-11-10T10:15:33Z"
+  },
+  "rolled_back": false
+}
