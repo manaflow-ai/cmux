@@ -205,3 +205,97 @@ fn w5n3_claim_is_written_when_no_daemon_listens() {
         "{output:?}"
     );
 }
+
+/// A session daemon stand-in for one Claude `UserPromptSubmit` hook: it
+/// takes the journal event, lists one queued message after `list_delay`,
+/// never answers the roster read (`agent.list`), and reports each
+/// `agent.message.mark` on the returned channel.
+fn prompt_daemon(
+    socket: &PathBuf,
+    list_delay: Duration,
+) -> std::sync::mpsc::Receiver<serde_json::Value> {
+    let listener = UnixListener::bind(socket).unwrap();
+    let (marks, marked) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let request = read_request(&stream);
+            let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+            let answer = |result: serde_json::Value| {
+                let response = serde_json::json!({
+                    "protocol":"cmux.protocol/2","type":"response","id":value["id"],
+                    "ok":true,"result":result
+                });
+                (&stream).write_all(format!("{response}\n").as_bytes()).unwrap();
+            };
+            match value["operation"].as_str().unwrap_or_default() {
+                "agent.message.list" => {
+                    thread::sleep(list_delay);
+                    answer(serde_json::json!([{"id":"msg_w5n3","sender":"cli","body":"hello"}]));
+                }
+                // Held open, never answered: the read times out.
+                "agent.list" => held.push(stream),
+                "agent.message.mark" => {
+                    let _ = marks.send(value["params"].clone());
+                    answer(serde_json::json!({"value":{}}));
+                }
+                _ => reply(&stream, &request),
+            }
+        }
+    });
+    marked
+}
+
+/// Starts a Claude `UserPromptSubmit` hook for `socket`, its payload
+/// written after `payload_delay`; its output, and its time from spawn.
+fn prompt_hook(socket: &PathBuf, payload_delay: Duration) -> (std::process::Output, Duration) {
+    let started = Instant::now();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui-hook"))
+        .args(["claude", "UserPromptSubmit"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("CMUX_TUI_SOCKET", socket)
+        .env("CMUX_TUI_TERMINAL_ID", "term_0000000000000000000000000000b1b2")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    thread::spawn(move || {
+        thread::sleep(payload_delay);
+        let _ = stdin.write_all(
+            br#"{"session_id":"prompt-1","prompt":"hi","hook_event_name":"UserPromptSubmit"}"#,
+        );
+    });
+    let output = wait_with_output(child, Duration::from_secs(10)).expect("hook must exit");
+    (output, started.elapsed())
+}
+
+/// B1: a roster read that does not answer must not use up the time of the
+/// "delivered" mark. Without the mark the next prompt shows the same
+/// messages again.
+#[test]
+fn w5n3_prompt_marks_messages_delivered_when_the_roster_read_times_out() {
+    let socket = socket_path("prompt-mark");
+    let marked = prompt_daemon(&socket, Duration::ZERO);
+    let (output, _) = prompt_hook(&socket, Duration::ZERO);
+    let _ = std::fs::remove_file(&socket);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("msg_w5n3"), "the message is handed over: {output:?}");
+    let mark = marked.recv_timeout(Duration::from_secs(1));
+    assert!(mark.is_ok(), "the handed-over message was never marked delivered: {output:?}");
+}
+
+/// B2: Claude Code kills the hook at 5 s, and a kill after the mark and
+/// before the output loses the messages. The whole hook ends inside its
+/// 4.5 s budget from its start, also after a slow start and a slow list.
+#[test]
+fn w5n3_prompt_hook_ends_inside_the_claude_hook_budget() {
+    let socket = socket_path("prompt-budget");
+    let _marked = prompt_daemon(&socket, Duration::from_millis(1000));
+    let (output, elapsed) = prompt_hook(&socket, Duration::from_millis(2500));
+    let _ = std::fs::remove_file(&socket);
+    assert!(elapsed < Duration::from_millis(4800), "the hook took {elapsed:?}: {output:?}");
+}
