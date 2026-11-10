@@ -637,6 +637,9 @@ pub enum Command {
     Status {
         #[arg(long)]
         show_token: bool,
+        /// `daemon status --wait-adopted --timeout SECS`: the longest wait for adoption.
+        #[arg(skip)]
+        wait_adopted: Option<std::time::Duration>,
     },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
@@ -1324,10 +1327,18 @@ pub enum DaemonCmd {
         take_over: bool,
     },
     /// Daemon status, hosts, and the web URL (without its token).
+    #[command(after_help = crate::cli::daemon_status_help::text())]
     Status {
         /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
         #[arg(long)]
         show_token: bool,
+        /// After a restart, wait until the daemon has adopted the agents the earlier one left
+        /// (`adopting` is 0), then print the status. Exits 3 at `--timeout` with the count left.
+        #[arg(long)]
+        wait_adopted: bool,
+        /// With --wait-adopted: the longest wait, in seconds.
+        #[arg(long, value_name = "SECS", default_value_t = 30, requires = "wait_adopted")]
+        timeout: u64,
     },
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start {
@@ -1542,7 +1553,10 @@ pub fn flatten(c: Command) -> Command {
                 dev,
                 take_over,
             },
-            DaemonCmd::Status { show_token } => Command::Status { show_token },
+            DaemonCmd::Status { show_token, wait_adopted, timeout } => Command::Status {
+                show_token,
+                wait_adopted: wait_adopted.then(|| std::time::Duration::from_secs(timeout)),
+            },
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }

@@ -16,6 +16,7 @@ pub mod command;
 pub mod command_host;
 pub mod command_new;
 pub mod daemon_service;
+pub mod daemon_status_help;
 pub mod desktop;
 pub mod detach;
 pub mod entry;

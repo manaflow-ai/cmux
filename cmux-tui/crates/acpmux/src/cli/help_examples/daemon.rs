@@ -27,6 +27,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Show the daemon's status, hosts and web URL", "acpmux daemon status"),
             ("Print the web URL with its bearer token", "acpmux daemon status --show-token"),
+            (
+                "After a restart, wait until it has adopted every agent (at most 60 s)",
+                "acpmux daemon status --wait-adopted --timeout 60",
+            ),
         ],
     ),
     (
