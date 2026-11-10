@@ -63,6 +63,9 @@
 //! A WAL a previous run left (a kill in a storm, an older build) is
 //! checkpointed by the syncer when the database opens, with no caller that
 //! asks; commits do not wait for that one. The WAL file is never deleted.
+//! The open itself copies nothing of it: the registry's open path runs with
+//! `wal_autocheckpoint=0`, and the open of a registry at the current schema
+//! commits nothing, so the start does not follow the size of the WAL.
 //! A clean stop ends with one more PASSIVE checkpoint
 //! ([`WalDurability::checkpoint_at_stop`]): PASSIVE, because request threads
 //! and readers can still run then, and it waits for none of them. The next
