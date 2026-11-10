@@ -107,3 +107,60 @@ fn a_waiter_shown_while_it_waits_takes_the_next_slot_before_the_line() {
     // The stepped-over place does not hold the line: a new ticket runs.
     assert!(gate.turn_first_if(gate.ticket(), || false, || false).is_some());
 }
+
+/// A waiter of the person (its terminal is shown, or the person asked for
+/// its restart) does not wait for a slot that a turn of the line holds: the
+/// terminal the person waits for started only when the launch of a hidden
+/// restore had ended. One slot, held by a turn of the line: the person's
+/// waiter gets its turn at once.
+#[test]
+fn a_waiter_of_the_person_does_not_wait_for_a_slot_of_the_line() {
+    let gate = Arc::new(StartupAdoptionGate::with_slots(1));
+    let held = gate.turn_first_if(gate.ticket(), || false, || false);
+    assert!(held.is_some(), "the first ticket did not get the free slot");
+    let ticket = gate.ticket();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let waiter = {
+        let gate = gate.clone();
+        std::thread::spawn(move || {
+            let turn = gate.turn_first_if(ticket, || false, || true);
+            sender.send(turn.is_some()).unwrap();
+            drop(turn);
+        })
+    };
+    let turn = receiver.recv_timeout(Duration::from_secs(2));
+    drop(held);
+    waiter.join().unwrap();
+    assert_eq!(turn, Ok(true), "the person's waiter waited for the turn of the line to end");
+}
+
+/// The line is never starved: 5 waiters of the person in a row and one
+/// ticket of the line behind them, 1 slot. Every one gets its turn, the
+/// line's too.
+#[test]
+fn the_line_gets_its_turn_after_waiters_of_the_person_in_a_row() {
+    let gate = Arc::new(StartupAdoptionGate::with_slots(1));
+    let held = gate.turn_first_if(gate.ticket(), || false, || true);
+    assert!(held.is_some());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let run = |name: &'static str, first: bool| {
+        let (gate, sender, ticket) = (gate.clone(), sender.clone(), gate.ticket());
+        std::thread::spawn(move || {
+            let turn = gate.turn_first_if(ticket, || false, || first);
+            std::thread::sleep(Duration::from_millis(20));
+            sender.send(name).unwrap();
+            drop(turn);
+        })
+    };
+    let mut threads = vec![run("line", false)];
+    threads.extend((0..5).map(|_| run("person", true)));
+    std::thread::sleep(Duration::from_millis(100));
+    drop(held);
+    let done = (0..6)
+        .map(|_| receiver.recv_timeout(Duration::from_secs(5)).expect("a waiter got no turn"))
+        .collect::<Vec<_>>();
+    assert!(done.contains(&"line"), "the line got no turn: {done:?}");
+    for thread in threads {
+        thread.join().unwrap();
+    }
+}
