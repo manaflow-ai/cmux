@@ -77,8 +77,7 @@ impl Inputs<'_> {
     }
 
     /// The CodeRouter origin when it is `https://`: the launch's env, else the model-plane env file a
-    /// login shell sources (`agent-config.sh`: `~/.config/cmux/model-plane.env`, then the image's
-    /// `/etc/cmux/model-plane.env`). The daemon's login-env import keeps no `CMUX_` name, so on a
+    /// login shell sources ([`Self::model_plane_file`]). The daemon's login-env import keeps no `CMUX_` name, so on a
     /// Cloud machine the env alone never has it, and every Codex with no sign-in was put in own mode
     /// with no login ("no-team-plane"), then failed on its missing `OPENAI_API_KEY`.
     pub(crate) fn team_origin(&self) -> Option<String> {
@@ -87,11 +86,17 @@ impl Inputs<'_> {
             .filter(|u| u.starts_with("https://"))
     }
 
-    /// `key` from the model-plane env files a login shell sources, the per-home one first.
+    /// `key` from the model-plane env file a login shell sources ([`Self::model_plane_file`]).
     pub(crate) fn model_plane_var(&self, key: &str) -> Option<String> {
-        [self.home.join(".config/cmux/model-plane.env"), self.root.join(MODEL_PLANE_ENV)]
-            .iter()
-            .find_map(|f| file_var(f, key))
+        file_var(&self.model_plane_file(), key)
+    }
+
+    /// The model-plane env file a login shell sources (`agent-config.sh`): the per-home copy when it
+    /// exists, else the image's. Only one is read, so a per-home file with no (or an empty) origin
+    /// never falls through to the image's origin.
+    fn model_plane_file(&self) -> PathBuf {
+        let home = self.home.join(".config/cmux/model-plane.env");
+        if home.is_file() { home } else { self.root.join(MODEL_PLANE_ENV) }
     }
 
     /// Whether `config.toml` is the one cmux generated (`model_provider = "cmux"`).
@@ -311,13 +316,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
-        // The per-home file (a boot env agent-config.sh persisted) comes first.
+        // The per-home file (a boot env agent-config.sh persisted) replaces the image's.
         let dir = m.home.join(".config/cmux");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='http://plain'\n")
             .unwrap();
         assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
+        // A per-home file with an empty or no origin is the one the shell reads: no image fallback.
         std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL=''\n").unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
+        std::fs::write(dir.join("model-plane.env"), "export OPENAI_BASE_URL='https://x/v1'\n")
+            .unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
+        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='https://plane'\n")
+            .unwrap();
         assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
     }
 

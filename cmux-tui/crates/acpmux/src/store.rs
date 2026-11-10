@@ -2024,7 +2024,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 /// Open one event segment for append, owner-only from creation and after an
 /// older build left it with wider permissions.
 #[cfg(unix)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     crate::config::refuse_lost_home(path)?;
 
@@ -2041,7 +2041,8 @@ fn open_private_append(path: &Path) -> Result<File> {
 }
 
 #[cfg(windows)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
+    crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_append(path)?)
 }
 
