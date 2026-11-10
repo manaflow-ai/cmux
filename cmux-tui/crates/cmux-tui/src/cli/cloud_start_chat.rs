@@ -908,12 +908,18 @@ impl Runner for Timed<'_> {
         let to = self.inner.now();
         if self.stages.len() < STAGES_KEPT {
             let step = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
-            self.stages.push(json!({
+            let mut entry = json!({
                 "step": step,
                 "at": from.saturating_duration_since(self.began).as_millis(),
                 "ms": to.saturating_duration_since(from).as_millis(),
                 "code": ran.code,
-            }));
+            });
+            // The app's own split of a step it times (`cloud start-session`'s `stages_ms`: the machine, its
+            // connect, the login, the tab, the agent's start), so a long step names where its time went.
+            if let Some(parts) = app_stages(&ran) {
+                entry.set("parts", parts);
+            }
+            self.stages.push(entry);
         } else {
             self.more += 1;
         }
@@ -931,6 +937,16 @@ impl Runner for Timed<'_> {
     fn fresh_name(&mut self) -> String {
         self.inner.fresh_name()
     }
+}
+
+/// The `stages_ms` an app step answered with (on a success or in a failure's `details`): a list of
+/// `{step, ms}`, as `cloud start-session` reports the app's own steps. Anything else is no split.
+fn app_stages(ran: &Ran) -> Option<Value> {
+    let answer = match step_result(ran) {
+        Ok(result) => result,
+        Err(error) => error.get("details").cloned().unwrap_or(Value::Null),
+    };
+    answer.get("stages_ms").filter(|stages| stages.is_array()).cloned()
 }
 
 /// [`run`]'s steps; `progress` is what they got to. `--timeout` is one deadline from the start: the list, a new
@@ -1280,14 +1296,10 @@ fn wait_turn(
         );
         let polled = match exec(runner, machine_id, &poll) {
             Ok(stdout) => stdout,
-            Err(error)
-                if read_again(&error)
-                    && unanswered + 1 < READ_TRIES
-                    && !deadline.passed(runner) =>
-            {
+            Err(error) if read_again(&error) && read_again_before(deadline, runner, unanswered) => {
                 unanswered += 1;
                 answer.set("unanswered_reads", json!(unanswered));
-                let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
+                let pause = deadline.bound(runner, unanswered_pause(unanswered));
                 runner.pause(pause);
                 continue;
             }
@@ -1676,11 +1688,39 @@ fn prompt_file(name: &str) -> String {
     format!("f=\"$HOME/.cmux/prompts/\"{}; ", shell_quote(&format!("{name}.prompt")))
 }
 
-/// The reads of a running turn ([`wait_turn`]'s `cloud exec`) in a row that may go unanswered before the chat is
-/// `chat.unreachable`. A read only reads (`acp wait`, `acp history`, `acp last`), so it is asked again: one slow
-/// answer of the Cloud API is not a lost chat (production probe 2026-11-08 19:06Z, run 42511607383: "cmux Cloud
-/// didn't answer in time" on the first read, the machine `connected` and `ready`, the prompt queued).
-const READ_TRIES: u32 = 3;
+/// A read of a running turn ([`wait_turn`]'s `cloud exec`) that nothing answered is asked again, with backoff,
+/// until `--timeout`'s deadline: a read only reads (`acp wait`, `acp history`, `acp last`), and a slow Cloud API or
+/// a machine whose daemon is restarting is not a lost chat (production probe 2026-11-08 19:06Z, run 42511607383:
+/// "cmux Cloud didn't answer in time" on the first read, the machine `connected` and `ready`, the prompt queued).
+/// A fixed count of tries made a slow-but-working machine `chat.unreachable` with most of `--timeout` left.
+/// Only a wait with no deadline (none today: [`wait_turn`] runs only under `--wait` with a prompt) stops after
+/// [`UNBOUNDED_READ_TRIES`], the hang breaker.
+pub(super) const UNBOUNDED_READ_TRIES: u32 = 30;
+/// The longest pause between two unanswered reads.
+const MAX_UNANSWERED_PAUSE: Duration = Duration::from_secs(15);
+
+/// Whether a read that went unanswered after `unanswered` unanswered reads in a row is asked again: while the
+/// deadline has time left, or, with no deadline, up to [`UNBOUNDED_READ_TRIES`] (logged when it stops).
+fn read_again_before(deadline: Deadline, runner: &mut dyn Runner, unanswered: u32) -> bool {
+    if deadline.is_bounded() {
+        return !deadline.passed(runner);
+    }
+    let again = unanswered + 1 < UNBOUNDED_READ_TRIES;
+    if !again {
+        eprintln!(
+            "cmux: cloud start-chat: {UNBOUNDED_READ_TRIES} reads in a row went unanswered with no deadline; stopping"
+        );
+    }
+    again
+}
+
+/// The pause after the `unanswered`-th unanswered read in a row (from 1): [`NOT_STARTED_PAUSE`], doubled each
+/// time, at most [`MAX_UNANSWERED_PAUSE`].
+pub(super) fn unanswered_pause(unanswered: u32) -> Duration {
+    NOT_STARTED_PAUSE
+        .saturating_mul(2u32.saturating_pow(unanswered.saturating_sub(1).min(16)))
+        .min(MAX_UNANSWERED_PAUSE)
+}
 
 /// Whether a read of a running turn that failed with `error` may be asked again: only when nothing answered it
 /// (the Cloud API timed out or could not be reached). Every other failure fails at once, because another read would

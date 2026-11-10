@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-10 (lane/ux-restore-monotonic-host, ask-20143293a7, for a590): a restored section keeps its saved rows
+  until its machine's first tree comes. Leo, verbatim: "It shows me a glimpse of the past thing, and then it
+  regresses into the skeletons and placeholders, and then it gets back to the true thing." `SidebarSeed` spent the
+  saved rows when a Cloud machine's header turned connected, or when the launch ended (at once when the daemon's
+  startup says unavailable, as while it restores after Restart to Update), both possibly before the first tree: the
+  section drew empty between the saved rows and the live ones. A machine with `DaemonStore.isLoaded` false (never
+  goes back) now keeps them, past the launch too; a failed machine does not. Look change: no empty stage between the
+  saved (stale) rows and the live ones. Regression: `SidebarSeedTests.savedRowsStayUntilTheMachinesRowsAreLoaded`,
+  `localSavedRowsStayPastTheLaunchUntilTheDaemonAnswers`.
+
 - 2026-11-09: the Updated card draws whole, its title from its first frame. Leo, verbatim: "This thing, when it loads
   in for the first time, it should have the updated to Nightly already loaded in, instead of just having a blank class
   bit." (a blank glass card). `SidebarUpdatedCardHost` drew its glass at the remembered room as soon as the card showed,
