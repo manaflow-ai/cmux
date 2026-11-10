@@ -15,8 +15,9 @@
 //!
 //! So the ingress decides before the append, for any plugin producer. The
 //! plugin still gets a receipt: the one of its last row of the terminal,
-//! marked `replayed` because this report added nothing to it. In memory: no
-//! journal row, no registry commit, no registry lock.
+//! marked `replayed` because this report added nothing to it. No journal row
+//! and no registry commit; in memory, but for the journal hook list, which
+//! the first report after a start or a hook change reads from the registry.
 //!
 //! A report is still appended:
 //!
@@ -105,7 +106,9 @@ fn plugin_report_terminal(ingress: &crate::JournalIngress) -> Option<TerminalPub
 impl Mux {
     /// The answer to a plugin report that repeats what the roster holds from
     /// the same plugin child; `None` when the report must be appended (module
-    /// doc). In memory: no registry lock, no journal row, no commit.
+    /// doc). No journal row and no commit. In memory, with one exception: the
+    /// first call after a start or a journal hook change reads the hook list
+    /// from the registry (`journal_reader_keeps_plugin_rows`).
     pub(super) fn answer_agent_plugin_report_at_rest(
         &self,
         ingress: &crate::JournalIngress,
