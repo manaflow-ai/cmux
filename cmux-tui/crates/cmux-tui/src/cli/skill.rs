@@ -110,7 +110,8 @@ pub(super) const RECIPES: &[Recipe] = &[
                the launcher (--cmd; codex works too) in a tab named alpha and returns once the agent can take a message: `state` \
                `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
                (exit 4) with `dialog` (`folder_trust`, `login`, ...), `reason` and the \
-               dialog's numbered `options` when a startup dialog waits on the person. Ask the \
+               dialog's `options` (each with the `keys` that pick it) when a startup dialog \
+               waits on the person. Ask the \
                person; then answer with keys: for folder trust, with their consent, run \
                cmux terminal alpha keys plus the result's `accept_keys`, which pick \
                `accept_label` (tell the person when the reason warns that the option also \

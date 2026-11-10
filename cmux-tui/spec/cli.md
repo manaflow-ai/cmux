@@ -1408,8 +1408,12 @@ input box shows, is `blocked` with `dialog` (`folder_trust`,
 `agent_question`. Otherwise a fresh hook record that says idle (the
 `SessionStart` hook) or the agent's input box on screen is `ready`. Both count
 only once the screen stood still for 1 s. cmux never answers a dialog. A
-blocked result also has the dialog's numbered `options` (`{number, label,
-selected}`) read from the screen; for `folder_trust` it has `accept_keys`, the
+blocked result also has the dialog's `options` (`{number, label, selected,
+keys}`) read from the screen: numbered rows (`❯ 1. Yes`), or the rows around
+the cursor that a dialog draws without numbers (Claude Code 2.1.321's `❯ No,
+exit` above `Yes, I trust this folder`), where `number` is the position.
+`keys` picks that option from where the cursor is (`["down", "enter"]`). For
+`folder_trust` it has `accept_keys`, the
 keys that pick the trust option (for example `["down", "enter"]`), and
 `accept_label`, the label of the option those keys pick. The `reason` names
 the agent's terminal and says to ask the person and, when they agree to that

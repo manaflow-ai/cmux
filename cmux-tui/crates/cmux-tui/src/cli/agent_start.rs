@@ -413,7 +413,8 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
     exit
 }
 
-/// Adds a blocked start's dialog `options` and, for the folder-trust
+/// Adds a blocked start's dialog `options` (each with the `keys` that pick
+/// it) and, for the folder-trust
 /// dialog, the `accept_keys` that trust the folder and the `accept_label`
 /// they pick, with a localized reason that names the terminal, the keys
 /// and the label (and warns when that option turns approvals off). The
@@ -421,9 +422,7 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
 fn add_dialog_options(report: &mut Value, dialog: &str, screen: &str, who: &str) {
     let options = dialog_options::options(screen);
     if !options.is_empty() {
-        let listed: Vec<Value> =
-            options.iter().map(dialog_options::DialogOption::to_json).collect();
-        report.set("options", Value::Array(listed));
+        report.set("options", dialog_options::options_json(&options));
     }
     if dialog != "folder_trust" {
         return;

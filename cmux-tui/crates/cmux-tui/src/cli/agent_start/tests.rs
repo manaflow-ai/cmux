@@ -691,8 +691,9 @@ fn w5q_folder_trust_result_lists_the_options_and_the_keys_that_accept_it() {
     assert_eq!(
         report["options"],
         json!([
-            {"number": 1, "label": "Yes, I trust this folder", "selected": false},
-            {"number": 2, "label": "No, exit", "selected": true},
+            {"number": 1, "label": "Yes, I trust this folder", "selected": false,
+             "keys": ["up", "enter"]},
+            {"number": 2, "label": "No, exit", "selected": true, "keys": ["enter"]},
         ]),
         "{report}"
     );

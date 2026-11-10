@@ -450,7 +450,8 @@ only with the shell's next mark. `--until ready` waits until the terminal's
 agent can take a message, as `cmux agent start` does (spec/cli.md "Agent start
 and resume"): a startup dialog such as Claude's folder-trust question ends it
 as `blocked` with `dialog` and `reason` (exit 4). Both `agent start` and
-`--until ready` also give the dialog's numbered `options` and, for folder
+`--until ready` also give the dialog's `options` (numbered or not, each with
+the `keys` that pick it) and, for folder
 trust, `accept_keys` and `accept_label` (the option those keys pick); the
 `reason` names the terminal and warns when that option also turns approvals
 off.

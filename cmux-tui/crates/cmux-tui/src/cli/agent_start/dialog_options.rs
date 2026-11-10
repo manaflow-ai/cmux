@@ -1,12 +1,16 @@
-//! The numbered options of a startup dialog on an agent's screen, and the
-//! keys that pick the accepting one (W5-Q, bench round 4 orchestration
-//! friction 7).
+//! The options of a dialog on an agent's screen, and the keys that pick
+//! each one (W5-Q, bench round 4 orchestration friction 7; W6-B, bench
+//! round 5 orchestration row 3).
 //!
-//! Claude's folder-trust dialog draws its choices as numbered lines with the
-//! cursor (`❯`) on one of them; Enter picks the line under the cursor. The
-//! `agent start` result lists them, so the orchestrator can show the person
-//! the question and, with their consent, answer with `cmux terminal NAME
-//! keys ...` instead of guessing.
+//! An agent's dialog draws its choices as rows with the cursor (`❯`) on one
+//! of them; Enter picks the row under the cursor. Older Claude Code builds
+//! number the rows (`❯ 1. Yes, proceed`); Claude Code 2.1.321 draws its
+//! folder-trust choices without numbers (`❯ No, exit` above `Yes, I trust
+//! this folder`), the other rows indented to the cursor row's label. Both
+//! are read, and each option carries the keys (Up or Down, then Enter) that
+//! pick it from where the cursor is. The `agent start` result lists them,
+//! so the orchestrator can show the person the question and, with their
+//! consent, answer with `cmux terminal NAME keys ...` instead of guessing.
 
 use serde_json::{Value, json};
 
@@ -15,18 +19,39 @@ const OPTION_ROWS: usize = 16;
 /// Cursor marks a dialog draws before the selected option.
 const CURSORS: [char; 3] = ['❯', '>', '›'];
 
-/// One numbered option of a dialog.
+/// One option of a dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct DialogOption {
+    /// The number the dialog draws, or the option's position (from 1) when
+    /// it draws none.
     pub number: u32,
     pub label: String,
     pub selected: bool,
 }
 
-impl DialogOption {
-    pub(in crate::cli) fn to_json(&self) -> Value {
-        json!({"number": self.number, "label": self.label, "selected": self.selected})
-    }
+/// `options` as JSON: `{number, label, selected, keys}` each, `keys` being
+/// the keys that pick that option ([`keys_to`]).
+pub(in crate::cli) fn options_json(options: &[DialogOption]) -> Value {
+    let listed = options.iter().enumerate().map(|(index, option)| {
+        json!({
+            "number": option.number,
+            "label": option.label,
+            "selected": option.selected,
+            "keys": keys_to(options, index),
+        })
+    });
+    Value::Array(listed.collect())
+}
+
+/// The keys that move the cursor from the selected option (the first one
+/// when none is marked) to `options[target]` and press Enter.
+pub(in crate::cli) fn keys_to(options: &[DialogOption], target: usize) -> Vec<&'static str> {
+    let selected = options.iter().position(|option| option.selected).unwrap_or(0);
+    let (key, moves) =
+        if target < selected { ("up", selected - target) } else { ("down", target - selected) };
+    let mut keys = vec![key; moves];
+    keys.push("enter");
+    keys
 }
 
 /// `row` as a numbered option: an optional cursor, the number, `.`, the label.
@@ -48,8 +73,15 @@ fn option(row: &str) -> Option<DialogOption> {
     (!label.is_empty()).then(|| DialogOption { number, label: label.to_owned(), selected })
 }
 
-/// The last run of options numbered 1, 2, 3, ... at the bottom of `screen`.
+/// The options at the bottom of `screen`: the last run numbered 1, 2, 3,
+/// ..., else the unnumbered rows around the last cursor row ([`unnumbered`]).
 pub(in crate::cli) fn options(screen: &str) -> Vec<DialogOption> {
+    let numbered = numbered(screen);
+    if numbered.is_empty() { unnumbered(screen) } else { numbered }
+}
+
+/// The last run of options numbered 1, 2, 3, ... at the bottom of `screen`.
+fn numbered(screen: &str) -> Vec<DialogOption> {
     let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
     let bottom = rows.get(rows.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default();
     let mut found: Vec<DialogOption> = Vec::new();
@@ -72,17 +104,95 @@ pub(in crate::cli) fn options(screen: &str) -> Vec<DialogOption> {
     if run.len() >= 2 { run } else { found }
 }
 
+/// Box and padding characters around a dialog row's text.
+fn padding(character: char) -> bool {
+    character.is_whitespace() || character == '│'
+}
+
+/// A row's text without the box a dialog may draw around it (`│` and the
+/// padding at both ends), and the column (in characters) where that text
+/// starts.
+fn unboxed(row: &str) -> (usize, &str) {
+    let text = row.trim_start_matches(padding);
+    (row.chars().count() - text.chars().count(), text.trim_end_matches(padding))
+}
+
+/// A cursor row: `❯ label` (or `>`, `›`), and the column of its label.
+fn cursor_row(row: &str) -> Option<(usize, &str)> {
+    let (column, text) = unboxed(row);
+    let mark = text.chars().next().filter(|mark| CURSORS.contains(mark))?;
+    let rest = &text[mark.len_utf8()..];
+    let label = rest.trim_start();
+    let gap = rest.chars().count() - label.chars().count();
+    (gap > 0 && !label.is_empty()).then_some((column + 1 + gap, label))
+}
+
+/// A horizontal rule, as an agent's input box draws above and below its
+/// prompt.
+fn rule(row: &str) -> bool {
+    row.chars().filter(|character| matches!(character, '─' | '━' | '═')).count() >= 10
+}
+
+/// The options of a dialog that draws no numbers: the last cursor row among
+/// the bottom [`OPTION_ROWS`] non-blank rows and the rows right above and
+/// below it (no blank row between) whose text starts at that row's label
+/// column. A cursor row next to a rule, or rows with an input box's hint,
+/// are an input box, not a dialog, and fewer than two rows are no choice.
+fn unnumbered(screen: &str) -> Vec<DialogOption> {
+    let rows: Vec<&str> = screen.lines().collect();
+    let non_blank: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !row.trim().is_empty())
+        .map(|(at, _)| at)
+        .collect();
+    let bottom = non_blank.get(non_blank.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default();
+    let Some((at, (column, label))) =
+        bottom.iter().rev().find_map(|at| Some((*at, cursor_row(rows[*at])?)))
+    else {
+        return Vec::new();
+    };
+    let near_rule = [at.checked_sub(1), at.checked_add(1)]
+        .into_iter()
+        .flatten()
+        .filter_map(|other| rows.get(other))
+        .any(|row| rule(row));
+    if near_rule {
+        return Vec::new();
+    }
+    // A sibling row: its text starts at the label column, with no cursor,
+    // no number and no rule.
+    let sibling = |row: &str| {
+        let (start, text) = unboxed(row);
+        let plain = cursor_row(row).is_none() && option(row).is_none() && !rule(row);
+        (start == column && !text.is_empty() && plain).then(|| text.to_owned())
+    };
+    let above: Vec<String> = rows[..at].iter().rev().map_while(|row| sibling(row)).collect();
+    let below = rows[at + 1..].iter().map_while(|row| sibling(row));
+    let labels: Vec<(String, bool)> = above
+        .into_iter()
+        .rev()
+        .map(|label| (label, false))
+        .chain(std::iter::once((label.to_owned(), true)))
+        .chain(below.map(|label| (label, false)))
+        .collect();
+    // An input box's hint row (`⏎ send`, `? for shortcuts`) is no choice.
+    let joined = labels.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>().join("\n");
+    if labels.len() < 2 || super::readiness::composer_visible(&joined) {
+        return Vec::new();
+    }
+    labels
+        .into_iter()
+        .zip(1..)
+        .map(|((label, selected), number)| DialogOption { number, label, selected })
+        .collect()
+}
+
 /// The keys that move the cursor from the selected option to the first one
 /// whose label starts with "Yes" and press Enter; `None` without such an
 /// option.
 pub(in crate::cli) fn accept_keys(options: &[DialogOption]) -> Option<Vec<&'static str>> {
-    let accept = options.iter().position(accepts)?;
-    let selected = options.iter().position(|option| option.selected).unwrap_or(0);
-    let (key, moves) =
-        if accept < selected { ("up", selected - accept) } else { ("down", accept - selected) };
-    let mut keys = vec![key; moves];
-    keys.push("enter");
-    Some(keys)
+    Some(keys_to(options, options.iter().position(accepts)?))
 }
 
 /// Whether [`accept_keys`] picks `option`: the first label that starts
@@ -215,6 +325,7 @@ mod tests {
         let composer =
             "────────────────\n❯ fix the test\n  and the build\n────────────────\n  ? for help";
         assert!(options(composer).is_empty());
+        assert!(options("› Ask Codex to do anything\n  ⏎ send   ctrl+j newline").is_empty());
         assert!(options(" ❯ Only one choice\n\n Enter to confirm").is_empty());
         assert!(options(" ❯ No, exit\n     deeper indent is no sibling").is_empty());
     }
