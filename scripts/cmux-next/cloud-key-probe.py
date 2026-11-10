@@ -603,6 +603,26 @@ def login_file(path, walked, st, report):
             report["findings"].append({"place": "file", "where": walked, "what": what})
 
 
+def skipped_login_files(root, dirpath, report):
+    """The login files named across a folder the walk skips because it already read it under another name. A login
+    name wholly inside the folder was seen under the first name, since the names inside it are the same; one that
+    starts outside is not (`/workspace/p/.codex` linked to a cache folder: its auth.json). So for each login name
+    whose leading folders end the skipped folder's name, the rest of it under the folder is checked."""
+    walked_dir = shown(root, dirpath)
+    for suffix in LOGIN_FILES:
+        parts = suffix.split("/")
+        for k in range(1, len(parts)):
+            if not walked_dir.endswith("/" + "/".join(parts[:k])):
+                continue
+            path = os.path.join(dirpath, *parts[k:])
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if stat.S_ISREG(st.st_mode):
+                login_file(path, shown(root, path), st, report)
+
+
 def scan_login_files(root, report):
     """Every home's login files by their own names, whatever the walk skipped: a home's `.codex` linked to a folder
     the walk already read under another name is never walked again, but its auth.json is still a login file."""
@@ -641,6 +661,8 @@ def scan_files(root, deadline, report):
                 st = os.stat(dirpath)
                 key = (st.st_dev, st.st_ino, bool(SHIPPED.search(shown(real_root, os.path.realpath(dirpath)) + "/")))
                 if st.st_dev in pseudo or key in walked_dirs:
+                    if st.st_dev not in pseudo:
+                        skipped_login_files(root, dirpath, report)
                     dirnames[:] = []
                     continue
                 walked_dirs.add(key)

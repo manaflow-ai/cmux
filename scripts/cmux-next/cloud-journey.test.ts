@@ -1402,6 +1402,33 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a login file named across a linked folder the walk already read counts, at any depth", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/cache/auth.json": `{"access_token":"opaqueAccess7Kq2Zr9Lw4"}\n`,
+      "home/cmux/gc/gcloud/application_default_credentials.json": `{"refresh_token":"opaqueRefresh8Vb3Np6Ht1"}\n`,
+      "workspace/project/README.md": "\n",
+    });
+    // /home is walked before /workspace: both links lead into folders already read under other names.
+    symlinkSync(join(root, "home/cmux/cache"), join(root, "workspace/project/.codex"));
+    symlinkSync(join(root, "home/cmux/gc"), join(root, "workspace/project/.config"));
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain("opaqueAccess7Kq2Zr9Lw4");
+      expect(out).not.toContain("opaqueRefresh8Vb3Np6Ht1");
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/[a name]/gcloud/application_default_credentials.json:1: an OAuth refresh token",
+        "file /workspace/project/.codex/auth.json: a Codex login file",
+        "file /workspace/project/.config/gcloud/application_default_credentials.json: a Google Cloud login file",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a home's login file behind a link to a folder already read still counts, and a project's plugins folder is no cache", () => {
     const root = plant({
       "proc/5/comm": "bash\n",
