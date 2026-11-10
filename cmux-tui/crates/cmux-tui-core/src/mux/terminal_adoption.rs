@@ -1157,11 +1157,14 @@ impl Mux {
                 mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
                 mux.terminal_adoption_ended.notify_all();
+                // After the id left the set: no input joins the queue from now on.
+                mux.finish_adopting_input(&terminal_id);
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
             self.terminal_adoption_ended.notify_all();
             self.clear_pending_terminal(&cleanup_id);
+            self.finish_adopting_input(&cleanup_id);
         }
     }
 
