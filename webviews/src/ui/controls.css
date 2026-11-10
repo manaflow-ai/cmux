@@ -247,8 +247,9 @@
 .ui-input[data-variant="outline"] {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
 }
-.ui-input:is([data-variant="filled"], [data-variant="outline"])[data-focused],
-.ui-input:is([data-variant="filled"], [data-variant="outline"]):focus {
+/* Its edge steps up only for focus the keyboard moved here (FOCUS-RING, ui/focusModality.ts); Base
+   UI's `data-focused` is set by any focus, a click's too, so it is not the gate. */
+.ui-input:is([data-variant="filled"], [data-variant="outline"]):focus-visible {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-muted);
 }
 .ui-input[data-disabled] {

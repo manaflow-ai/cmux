@@ -20,6 +20,7 @@ import {
 } from "../play";
 import { createMotionController } from "../motionEvidence";
 import { isExpansionShift, startBoxTracker } from "../shift";
+import { earnFocusRing } from "../../ui/focusModality";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -562,9 +563,12 @@ export async function runPlay(
     focus: async (target) => {
       const element = find(target) as HTMLElement;
       await record(
-        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
-          element.focus(),
-        ),
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () => {
+          element.focus();
+          // FOCUS-RING: a staged focus stands in for the person's key, so its ring may show (a
+          // code focus alone earns none, and every "focused" stage would match its rest stage).
+          earnFocusRing(element.ownerDocument);
+        }),
       );
     },
     scroll: async (target, position) => {

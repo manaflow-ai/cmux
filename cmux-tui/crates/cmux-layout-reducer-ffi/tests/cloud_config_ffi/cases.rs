@@ -102,6 +102,29 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"requested": null, "activeStackTeam": null, "managedStackTeam": "t", "stackProjectId": "p"}),
     );
     assert_eq!(team["refusal"], "managed");
+    // The backend's ids (backend `domains/user.ts`, pinned in cmux-cloud-config's identity tests).
+    let (project, user) =
+        ("9790718f-14cd-4f7e-824d-eaf527a82b82", "0b6c2f1e-8d0a-4a51-9a4e-5f3c7d1e2a90");
+    let (_, ids) = call(
+        c"cloud_identity_team_ids",
+        &json!({"project": project, "stackUser": user, "team": "4c1d9e7a-2b3f-4e68-8a0c-6d5e9f1b3a27"}),
+    );
+    assert_eq!(ids["personalTeam"], "team_249f328cf8ed89fd792e");
+    assert_eq!(ids["teamHeader"], "team_18b8d7083ab4a1e6dd3e");
+    assert!(ids["workerUser"].as_str().unwrap().starts_with("user_"));
+    let (_, personal) = call(
+        c"cloud_identity_team_ids",
+        &json!({"project": project, "team": "team_249f328cf8ed89fd792e"}),
+    );
+    assert_eq!(
+        personal,
+        json!({"workerUser": null, "personalTeam": null, "teamHeader": "team_249f328cf8ed89fd792e"})
+    );
+    let (_, team) = call(
+        c"cloud_identity_mint_team",
+        &json!({"requested": null, "activeStackTeam": "team_249f328cf8ed89fd792e", "managedStackTeam": null, "stackProjectId": project}),
+    );
+    assert_eq!(team["team"], "team_249f328cf8ed89fd792e");
     let (_, check) =
         call(c"cloud_identity_check", &json!({"team": "personal", "refusalCode": "http_503"}));
     assert_eq!(check, json!({"isTeam": false, "transient": true}));
@@ -142,6 +165,17 @@ fn auth_rules_answer_from_what_the_app_read() {
         &json!({"requested": "b", "resolved": "a", "available": ["a", "b"], "managed": null}),
     );
     assert_eq!(team, json!({"active": "a", "refusal": "notActive", "allowed": ["a", "b"]}));
+    let (_, rows) = call(
+        c"cloud_auth_team_rows",
+        &json!({"teams": [{"id": "a", "name": "cmux", "plan": "Team"}, {"id": "p", "name": "Personal"}], "active": "a"}),
+    );
+    assert_eq!(
+        rows,
+        json!({"rows": [
+            {"id": "a", "title": "cmux", "kind": "team", "active": true, "plan": "team"},
+            {"id": "p", "title": "Personal", "kind": "personal", "active": false, "plan": null},
+        ]})
+    );
     let (_, keys) = call(
         c"cloud_auth_launch_keys",
         &json!({"environment": {"CMUX_DEV_AUTH_PROFILE": "agent", "HOME": "/h"}}),
