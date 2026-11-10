@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Chief thread's structure check: a thread snapshot against tests/ui-structure/chief-thread.json.
 
-Leo, 2026-11-10, on a nightly whose Chief panel drew a column of avatar tiles beside wide grey cards:
+Leo, 2026-11-10, on a nightly (824dfe5) whose Messages view drew a column of avatar tiles beside wide grey cards:
 "latest nightly chief UI got completely cooked we have massive regression what happened" ... "Where's
 the spec for that? Where's the iMessage". This is that spec as a check. It reads geometry, never pixels
 or class names, so it holds whichever renderer draws the thread: the native transcript (its AXList
@@ -105,6 +105,8 @@ def check(snapshot: dict[str, Any], spec: dict[str, Any] | None = None, surface:
     for a in avatars:
         f = a["frame"]
         inside = f[0] >= tx - 1 and _max_x(f) <= _max_x(thread) + 1
+        if not single and not inside and (_max_x(f) <= tx + 1 or f[0] >= _max_x(thread) - 1):
+            continue  # the docked Home's list column: its rows' avatars are the list's, not the thread's
         beside = any(
             abs(_max_y(m["frame"]) - _max_y(f)) <= a_spec["bottom_slack"]
             and 0 <= m["frame"][0] - _max_x(f) <= a_spec["max_gap"]

@@ -1,5 +1,5 @@
 {
-  "$comment": "The Chief thread's structure, machine-readable (cmuxterm-hq docs/design/chief-thread.md is the prose). tests/ui-structure/thread_structure.py checks a thread snapshot against it. Geometry is in points, from the accessibility tree, so it holds whichever renderer draws the thread (the native transcript, a web page). Numbers come from the native transcript at b266fb6^ (Packages/Shared/CmuxMessagesLab Vendor/catalyst/Fixture.swift and Layout.swift Metrics), which matches macOS Messages.",
+  "$comment": "The Chief thread's structure, machine-readable (cmuxterm-hq docs/design/chief-thread.md is the prose). tests/ui-structure/thread_structure.py checks a thread snapshot against it. Geometry is in points, from the accessibility tree, so it holds whichever renderer draws the thread (the native transcript, a web page). Numbers come from the native transcript at b7d534e^, before #37736 and #37777 (Packages/Shared/CmuxMessagesLab Vendor/catalyst/Fixture.swift and Layout.swift Metrics), which matches macOS Messages.",
   "version": 1,
   "surfaces": {
     "chief-panel": {"single_conversation": true, "$comment": "The Chief panel: one conversation, no list column."},

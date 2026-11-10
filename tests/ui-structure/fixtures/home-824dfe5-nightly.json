@@ -1,6 +1,6 @@
 {
- "surface": "chief-panel",
- "source": "the shipped cmux NIGHTLY's Chief panel with #37777 (b266fb6), Leo's screenshot 2026-11-10 02:26 PST, measured by hand at 1.036 px/pt",
+ "surface": "home",
+ "source": "the shipped cmux NIGHTLY at 824dfe5: the docked Home's Messages view, the React home-messages page since #37736 (b7d534e); Leo's screenshot 2026-11-10 02:26 PST, measured by hand at 1.036 px/pt. #37777 (b266fb6) hosts the same page in the Chief panel and conversation tabs",
  "surface_frame": [
   234.6,
   30.9,

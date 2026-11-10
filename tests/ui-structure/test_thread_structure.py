@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """tests/ui-structure/thread_structure.py on recorded threads (python3 tests/ui-structure/test_thread_structure.py).
 
-The proof the guard catches #37777 and passes the transcript before it:
-  - fixtures/chief-panel-37777-shipped.json, the shipped nightly's Chief panel with #37777 (b266fb6),
-    fails on exactly that regression's rules: a column beside the thread, avatars outside it, a
-    picture far past bubble size, my bubble off the right edge, one Needs you heading three cards;
-  - fixtures/native-*.json, the native transcript (b266fb6^; MessagesLab is unchanged since) read
-    through its accessibility tree by ChiefThreadStructureTests.swift at each gallery width, passes.
+The proof the guard catches the shipped regression and passes the transcript before it:
+  - fixtures/home-824dfe5-nightly.json, the shipped nightly 824dfe5's docked Home Messages view (the
+    React home-messages page since #37736, b7d534e), fails on its thread rules: a picture far past
+    bubble size, my bubble off the right edge, one Needs you heading three cards. Hosted in the Chief
+    panel or a conversation tab, where #37777 (b266fb6) puts the same page, it also fails on the column
+    beside the thread and the avatars outside it;
+  - fixtures/native-*.json, the native transcript (the good layout, b7d534e^; MessagesLab's metrics are
+    unchanged since) read through its accessibility tree by ChiefThreadStructureTests.swift at each
+    gallery width, passes.
 The normalizer cases build raw accessibility trees of both renderers by hand.
 """
 from __future__ import annotations
@@ -33,15 +36,19 @@ def rules(found: list[dict]) -> set[str]:
 
 
 class ShippedRegression(unittest.TestCase):
-    def test_the_shipped_37777_chief_panel_fails_on_exactly_its_regression(self):
-        found = ts.check(load("chief-panel-37777-shipped.json"))
-        self.assertEqual(rules(found), {"no-side-column", "avatar-inline", "attachment-bubble-size", "sender-aligned", "needs-you-once"})
+    THREAD_RULES = {"attachment-bubble-size", "sender-aligned", "needs-you-once"}
 
-    def test_the_same_thread_in_the_docked_home_still_fails_its_thread_rules(self):
-        # Home may have a list column; its thread may not have loose avatars or a giant picture.
-        found = rules(ts.check(load("chief-panel-37777-shipped.json"), surface="home"))
-        self.assertNotIn("no-side-column", found)
-        self.assertTrue({"avatar-inline", "attachment-bubble-size", "needs-you-once"} <= found)
+    def test_the_shipped_824dfe5_docked_home_fails_on_its_thread_rules(self):
+        # The docked Home may have a list column (its avatars are the list's); its thread may not have
+        # a giant picture, my bubble off the edge or a repeated Needs you heading.
+        self.assertEqual(rules(ts.check(load("home-824dfe5-nightly.json"))), self.THREAD_RULES)
+
+    def test_the_same_page_in_the_chief_panel_and_a_conversation_tab_fails_on_the_column_too(self):
+        # #37777 hosts this page in the Chief panel and conversation tabs: one conversation, edge to edge.
+        for surface in ("chief-panel", "conversation-tab"):
+            with self.subTest(surface):
+                found = rules(ts.check(load("home-824dfe5-nightly.json"), surface=surface))
+                self.assertEqual(found, self.THREAD_RULES | {"no-side-column", "avatar-inline"})
 
 
 class NativeTranscript(unittest.TestCase):
@@ -83,6 +90,18 @@ class Rules(unittest.TestCase):
         snap["avatars"] = [{"frame": [20, 112, 28, 28], "label": "CH"}]
         self.assertEqual(ts.check(snap), [])
         snap["avatars"].append({"frame": [20, 400, 28, 28], "label": "AW"})
+        self.assertEqual(rules(ts.check(snap)), {"avatar-inline"})
+
+    def test_the_docked_homes_list_avatars_are_the_lists_but_a_loose_one_in_its_thread_fails(self):
+        snap = self.base()
+        snap["surface"] = "home"
+        snap["surface_frame"] = [0, 0, 900, 800]
+        snap["thread_frame"] = [300, 0, 600, 800]
+        for m in snap["messages"]:
+            m["frame"][0] += 300
+        snap["avatars"] = [{"frame": [16, 20 + 60 * i, 40, 40], "label": l} for i, l in enumerate(["CC", "CF", "CH"])]
+        self.assertEqual(ts.check(snap), [])
+        snap["avatars"].append({"frame": [340, 400, 28, 28], "label": "AW"})
         self.assertEqual(rules(ts.check(snap)), {"avatar-inline"})
 
     def test_a_tail_missing_at_a_runs_end_fails(self):

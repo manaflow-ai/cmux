@@ -1,11 +1,12 @@
 name: chief thread structure
 
 # The Chief thread's structure guard (tests/ui-structure/chief-thread.json; the prose is cmuxterm-hq
-# docs/design/chief-thread.md). Leo, 2026-11-10, on a nightly whose Chief panel was an avatar column
-# beside grey cards (#37777): "latest nightly chief UI got completely cooked we have massive
+# docs/design/chief-thread.md). Leo, 2026-11-10, on nightly 824dfe5, whose docked Home Messages view
+# (the React page since #37736; #37777 puts it in the Chief panel too) was an avatar column beside
+# grey cards: "latest nightly chief UI got completely cooked we have massive
 # regression what happened" ... "Where's the spec for that? Where's the iMessage".
 #
-#   spec    (Linux)  the checker on recorded threads: the shipped #37777 Chief panel fails on exactly
+#   spec    (Linux)  the checker on recorded threads: the shipped 824dfe5 Messages page fails on exactly
 #                    its regression, the native transcript's gallery variants pass.
 #   native  (macOS)  the native transcript (MessagesLab) rendered at each gallery width, read through
 #                    its accessibility tree, checked; the snapshots and stills are the run's artifact.
