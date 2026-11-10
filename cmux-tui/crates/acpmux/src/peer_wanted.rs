@@ -12,9 +12,10 @@
 //! `tools/cloud-vm-up nc`) resumes it for this attempt only. Background reconnects carry no mark,
 //! so a paused machine that nobody sends to stays paused (HQ#5074: passive reads never wake one).
 
-use super::Peer;
+use super::{Peer, net_back};
 use crate::peer_link::{Backoff, SleepWatch};
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::Instant;
@@ -157,6 +158,12 @@ impl Peer {
         let started = Instant::now();
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
         let mut watch = SleepWatch::now();
+        // After an attempt the network failed, the host's ssh port is tried every
+        // `net_back::EVERY` (`peer_net_back.rs`); a parked peer's hourly wait does not.
+        let probing = delay <= Backoff::CAP
+            && self.net_down.load(Ordering::SeqCst)
+            && self.ssh_parts().is_some();
+        let mut next_try = started + net_back::EVERY;
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
             let asked = self.wanted.asked.notified();
@@ -185,8 +192,29 @@ impl Peer {
                         return BackoffWait::Done;
                     }
                 }
+                _ = tokio::time::sleep_until(next_try), if probing && next_try < deadline => {
+                    if self.network_back().await {
+                        tracing::info!(peer = %self.name, "the host answers again; reconnecting now");
+                        return BackoffWait::Done;
+                    }
+                    next_try = Instant::now() + net_back::EVERY;
+                }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
+        }
+    }
+
+    /// Whether the host's ssh port answers a TCP connect now (`peer_net_back.rs`); false for a
+    /// host reached through a proxy.
+    pub(super) async fn network_back(&self) -> bool {
+        let Some((destination, _)) = self.ssh_parts() else { return false };
+        let target = self
+            .net_target
+            .get_or_init(|| net_back::resolve(self.ssh_command(), &destination))
+            .await;
+        match target {
+            Some((host, port)) => net_back::answers(host, *port).await,
+            None => false,
         }
     }
 }
@@ -337,5 +365,52 @@ mod tests {
         assert!(ended(Some(1_000), true), "a restart (Close 1012), however short the link");
         assert!(!ended(Some(1_000), false), "a crash loop keeps its backoff");
         assert!(!ended(None, false), "a handshake that failed is no open chat");
+    }
+
+    fn ssh_peer() -> std::sync::Arc<Peer> {
+        let (tx, _notices) = mpsc::channel(64);
+        Peer::new("box", "ssh://box.invalid:7777", None, None, tx)
+    }
+
+    /// A port nothing listens on now, and the address it is on.
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    /// The network came back during a long wait after a network failure: the wait ends once the
+    /// host's ssh port answers, not a minute later (2026-11-10: 25.6 s after a 90 s outage).
+    #[tokio::test]
+    async fn a_wait_after_a_network_failure_ends_when_the_host_answers() {
+        let peer = ssh_peer();
+        let port = free_port();
+        peer.net_target.set(Some(("127.0.0.1".to_owned(), port))).unwrap();
+        peer.note_ssh_failure(Some("SSH connection timed out"));
+        let waiting = peer.clone();
+        let started = Instant::now();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(Duration::from_millis(2_500)).await;
+        assert!(!wait.is_finished(), "nothing answers yet");
+        let _host = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        let took = started.elapsed();
+        assert!(took < Duration::from_millis(2_500) + net_back::EVERY * 2, "{took:?}");
+    }
+
+    /// Any other failure (here: the login was refused, so the port answers while the link
+    /// cannot come up) waits its backoff out: the probe never turns it into a redial loop.
+    #[tokio::test]
+    async fn a_wait_after_another_failure_does_not_probe() {
+        let peer = ssh_peer();
+        let host = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = host.local_addr().unwrap().port();
+        peer.net_target.set(Some(("127.0.0.1".to_owned(), port))).unwrap();
+        peer.note_ssh_failure(Some("Permission denied (SSH authentication failed)"));
+        let waiting = peer.clone();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(net_back::EVERY * 2 + Duration::from_millis(500)).await;
+        assert!(!wait.is_finished(), "the wait runs its backoff");
+        peer.stop();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
     }
 }

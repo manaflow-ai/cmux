@@ -41,6 +41,8 @@ pub(crate) mod overlay;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
+#[path = "peer_net_back.rs"]
+mod net_back;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -334,6 +336,11 @@ pub struct Peer {
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
+    /// The last ssh attempt failed because the network was gone (`peer_net_back.rs`): its
+    /// backoff wait tries the host's ssh port and ends when it answers.
+    net_down: AtomicBool,
+    /// The host and port ssh dials for this peer, from `ssh -G` once (None: through a proxy).
+    net_target: tokio::sync::OnceCell<Option<(String, u16)>>,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -542,6 +549,8 @@ impl Peer {
             read_tokens: tokens::TokenCache::default(),
             linked_once: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
+            net_down: AtomicBool::new(false),
+            net_target: tokio::sync::OnceCell::new(),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -848,6 +857,7 @@ impl Peer {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
         }
+        self.net_down.store(net_back::network_failure(reason), Ordering::SeqCst);
     }
 
     /// The dashboard token (configured, else the remote daemon's own) and
@@ -2227,6 +2237,7 @@ impl Peer {
                     me.connected.store(true, Ordering::SeqCst);
                     me.linked_once.store(true, Ordering::SeqCst);
                     me.slow_banner.store(false, Ordering::SeqCst);
+                    me.net_down.store(false, Ordering::SeqCst);
                     l.ready(crate::store::now_ms());
                 }
                 live
