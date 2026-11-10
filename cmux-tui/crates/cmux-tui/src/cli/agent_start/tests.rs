@@ -395,9 +395,12 @@ fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended(
     if let Some(old) = snapshot.pointer_mut("/terminals/1") {
         old["extra"] = json!({"agent": "claude-code", "agent_session_id": SESSION});
     }
-    let daemon = Fake::new(|operation, _params, _count| match operation {
+    let daemon = Fake::new(|operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
-        "agent.list" => json!([]),
+        "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([]),
+        // The resumed Claude Code reports its session start (W5-R: a resume
+        // of a hooked harness is ready on that report, not on its input box).
+        "agent.list" => json!([{"terminal_id": NEW, "state": "idle", "updated_at_ms": "1500"}]),
         "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
         "pane.run" => created(
             "pane_22222222222222222222222222222222",
