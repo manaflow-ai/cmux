@@ -120,6 +120,41 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", json!("ended")));
 }
 
+/// W6-A (bench round 5 row 6): an agent that exited in a kept tab is the
+/// one `agent resume` can bring back, so `terminal list --agents` lists it
+/// as ended until it is resumed or its tab is closed. Its record may still
+/// say idle (a restart lost the hook's end): no process runs there.
+#[test]
+fn w6a_an_exited_terminal_lists_its_agent_as_ended() {
+    let mut exited = snapshot();
+    exited["terminals"][0]["lifecycle"] = json!("exited");
+    let rows = roster::agent_rows(&exited);
+    let row = rows
+        .iter()
+        .find(|row| row.terminal == "term_c1a0de00000000000000000000000001")
+        .unwrap_or_else(|| panic!("the exited claude terminal is listed: {rows:?}"));
+    assert_eq!(row.state, AgentState::Ended);
+    assert_eq!(row.status_word(), "ended");
+    assert_eq!(rows.last().map(|row| row.terminal.as_str()), Some(row.terminal.as_str()));
+
+    exited["agents"][0]["state"] = json!("done");
+    let rows = roster::agent_rows(&exited);
+    assert!(
+        rows.iter().any(|row| row.terminal == "term_c1a0de00000000000000000000000001"
+            && row.state == AgentState::Ended),
+        "{rows:?}"
+    );
+
+    // A plain shell that exited is no agent.
+    let mut shell = snapshot();
+    shell["terminals"][2]["lifecycle"] = json!("exited");
+    assert!(
+        roster::agent_rows(&shell)
+            .iter()
+            .all(|row| row.terminal != "term_5be11000000000000000000000000003")
+    );
+}
+
 #[test]
 fn agent_table_has_one_header_and_one_line_per_agent() {
     let rows = roster::agent_rows(&snapshot());
@@ -1226,7 +1261,8 @@ fn w5q_an_ended_row_of_terminal_list_agents_says_status_ended() {
 /// W5-Q follow-up (#39580 review): `terminal list --agents` lists the agents
 /// of live terminals, and live is an allow-list of lifecycle words
 /// (`running`, `launching`, `adopting`). A terminal with another word or
-/// with no `lifecycle` field gets no row.
+/// with no `lifecycle` field gets no row, but an exited one with an agent
+/// record gets an ended row (W6-A, `w6a_an_exited_terminal_lists_its_agent_as_ended`).
 #[test]
 fn w5q_terminal_list_agents_lists_only_terminals_whose_lifecycle_says_they_run() {
     let claude = "term_c1a0de00000000000000000000000001";
@@ -1245,7 +1281,7 @@ fn w5q_terminal_list_agents_lists_only_terminals_whose_lifecycle_says_they_run()
     for live in ["running", "launching", "adopting"] {
         assert!(listed(Some(live)), "lifecycle {live}");
     }
-    for not_live in [Some("exited"), Some("tombstoned"), Some("suspended"), Some(""), None] {
+    for not_live in [Some("tombstoned"), Some("suspended"), Some(""), None] {
         assert!(!listed(not_live), "lifecycle {not_live:?}");
     }
 }

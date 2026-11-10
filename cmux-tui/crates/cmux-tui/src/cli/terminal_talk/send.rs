@@ -257,6 +257,38 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
     backend.request(session, super::super::agents::snapshot_plan())
 }
 
+/// The most exited terminals [`roster_snapshot`] reads ended agents of.
+const MAX_ENDED_AGENT_READS: usize = 16;
+
+/// [`snapshot`] for the agent roster (`terminal list --agents` and its MCP
+/// tool), with the ended agent record of each exited terminal the live
+/// snapshot has no record of (a hook-ended agent published a delete): an
+/// agent that `agent resume` can bring back is listed as ended (W6-A, bench
+/// round 5 row 6). One `agent.list` read per such terminal, at most
+/// [`MAX_ENDED_AGENT_READS`]; a failed read keeps the snapshot as read.
+pub(in crate::cli) fn roster_snapshot<B: Daemon + ?Sized>(
+    backend: &B,
+    session: Option<&str>,
+) -> Result<Value, CallFailure> {
+    let mut snapshot = snapshot(backend, session)?;
+    let missing = roster::exited_terminals_without_agents(&snapshot);
+    for terminal in missing.iter().take(MAX_ENDED_AGENT_READS) {
+        let mut plan = super::super::agents::snapshot_plan();
+        plan.operation =
+            command::WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::AgentList);
+        plan.params = json!({
+            "machine": "current",
+            "session": "current",
+            "terminal_id": terminal,
+            "state": "done",
+        });
+        if let Ok(listed) = backend.request(session, plan) {
+            roster::add_agents(&mut snapshot, &listed);
+        }
+    }
+    Ok(snapshot)
+}
+
 /// The terminal record `target` names: a `term_` id or unique prefix, a
 /// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
 /// or (when no title matches) an agent name or unique tab name

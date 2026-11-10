@@ -41,8 +41,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// to the plugin child that saw it, so a restarted plugin cannot clear a block.
 /// Version 9 lets the screen end a hook `working` row whose turn ended with no
 /// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
-/// re-fold clears rows that stayed working after either.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
+/// re-fold clears rows that stayed working after either. Version 10 keeps a
+/// quiet hook row when the plugin reads the state it already holds (W6-A: a
+/// restarted daemon's plugin took idle hook rows); the re-fold gives those
+/// rows back their hook source and session.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 10;
 /// The oldest roster version whose snapshot [`AgentRoster::migrate`] takes.
 /// Version 6 added the hook session fences: a snapshot without them would
 /// let a late event from an ended session bring its row back while the
@@ -937,6 +940,15 @@ impl AgentRoster {
                         if updated_at_ms < existing.updated_at_ms {
                             return Vec::new();
                         }
+                        // A quiet hook row is not a dead one: an idle or
+                        // blocked agent sends no hooks, and a restarted
+                        // daemon's plugin reports the state the hook already
+                        // holds. That read is no new evidence, so the row
+                        // keeps its source and session (W6-A, bench round 5
+                        // row 4). A different state still takes it.
+                        if existing.state == state.as_str() {
+                            return Vec::new();
+                        }
                     }
                     if source_rank(existing_source) == source_rank(source)
                         && plugin_event_order(
@@ -995,28 +1007,36 @@ impl AgentRoster {
             // An ended agent leaves the roster entirely; the done state is
             // still committed to the durable projection by the host so
             // history and remote caches converge.
+            // An accepted hook end ends the terminal's row whatever source
+            // holds it ("Hook events always win" above): a plugin that took a
+            // quiet hook row would otherwise keep a ghost agent there after
+            // the session ended (W6-A, bench round 5 row 5).
+            let hook_end = source == AgentSource::Hook;
             let owned_by_event = self.entries.get(terminal_id).is_some_and(|entry| {
-                entry.agent_source() == source
-                    && (source != AgentSource::Plugin
-                        || (entry.producer.as_deref() == producer.as_deref()
-                            && match (
-                                entry.producer_generation.as_deref(),
-                                producer_generation.as_deref(),
-                            ) {
-                                (Some(existing), Some(incoming)) => {
-                                    if existing == incoming {
-                                        true
-                                    } else {
-                                        incoming
-                                            .parse::<u64>()
-                                            .ok()
-                                            .zip(existing.parse::<u64>().ok())
-                                            .is_some_and(|(incoming, existing)| incoming > existing)
+                hook_end
+                    || (entry.agent_source() == source
+                        && (source != AgentSource::Plugin
+                            || (entry.producer.as_deref() == producer.as_deref()
+                                && match (
+                                    entry.producer_generation.as_deref(),
+                                    producer_generation.as_deref(),
+                                ) {
+                                    (Some(existing), Some(incoming)) => {
+                                        if existing == incoming {
+                                            true
+                                        } else {
+                                            incoming
+                                                .parse::<u64>()
+                                                .ok()
+                                                .zip(existing.parse::<u64>().ok())
+                                                .is_some_and(|(incoming, existing)| {
+                                                    incoming > existing
+                                                })
+                                        }
                                     }
-                                }
-                                (None, None) => true,
-                                _ => false,
-                            }))
+                                    (None, None) => true,
+                                    _ => false,
+                                })))
             });
             // The screen proved the hook session's agent gone from the
             // foreground, which no `SessionEnd` will say (a killed harness,
@@ -1787,6 +1807,98 @@ mod tests {
         let plugin = RosterEvent { payload: &plugin_payload, committed_at_ms: 40_000, ..plugin };
         assert_eq!(roster.apply(&plugin).len(), 1);
         assert_eq!(roster.entries["term_a"].source, "plugin");
+    }
+
+    /// W6-A (bench round 5 row 4): an idle agent sends no hooks, and a
+    /// restarted daemon's screen plugin reports the same idle state long
+    /// after the hook's last event. That read is no new evidence: the row
+    /// stays the hook's (its session, its source). Only a different state
+    /// may take a quiet hook row.
+    #[test]
+    fn w6a_a_plugin_read_of_the_hook_rows_own_state_keeps_the_hook_row() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload =
+            json!({"adapter":{"id":"claude","version":1},"normalized":{"agent_session_id":"s-1"}});
+        let plugin_payload = |state: &str, observed_at_ms: u64| {
+            json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id":"screen_detector","version":1},
+                "adapter": {"id":"claude","version":1},
+                "event":"state.changed",
+                "normalized":{
+                    "state":state,
+                    "source_session":"pid:42",
+                    "observed_at_ms":observed_at_ms.to_string()
+                }
+            })
+        };
+        let mut roster = AgentRoster::default();
+        roster.apply(&stamped_event(10_000, "agent.session.started", &subjects, &hook_payload));
+        assert_eq!(roster.entries["term_a"].source, "hook");
+        let idle_payload = plugin_payload("idle", 10_000 + STALE_HOOK_MS + 30_000);
+        let plugin = RosterEvent {
+            producer_id: "screen_detector",
+            kind: "plugin.screen_detector.agent.state.changed",
+            subjects: &subjects,
+            payload: &idle_payload,
+            sequence: 70_000,
+            committed_at_ms: 70_000,
+        };
+        assert!(roster.apply(&plugin).is_empty(), "the same state is no new evidence");
+        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries["term_a"].state, "idle");
+
+        let blocked_payload = plugin_payload("blocked", 10_000 + STALE_HOOK_MS + 31_000);
+        let plugin = RosterEvent {
+            payload: &blocked_payload,
+            sequence: 71_000,
+            committed_at_ms: 71_000,
+            ..plugin
+        };
+        assert_eq!(roster.apply(&plugin).len(), 1, "a new state takes the quiet hook row");
+        assert_eq!(roster.entries["term_a"].source, "plugin");
+    }
+
+    /// W6-A (bench round 5 row 5): the plugin took a quiet hook row with a
+    /// new state, then the hook session ended (`/exit`). The hook's end ends
+    /// the row whatever source holds it; before, the plugin row stayed and
+    /// `agent list` kept a ghost agent of the closed terminal.
+    #[test]
+    fn w6a_a_hook_session_end_ends_the_row_a_plugin_took() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload =
+            json!({"adapter":{"id":"claude","version":1},"normalized":{"agent_session_id":"s-1"}});
+        let blocked_payload = json!({
+            "format": AGENT_PLUGIN_FORMAT,
+            "plugin": {"id":"screen_detector","version":1},
+            "adapter": {"id":"claude","version":1},
+            "event":"state.changed",
+            "normalized":{
+                "state":"blocked",
+                "source_session":"pid:42",
+                "observed_at_ms":(10_000 + STALE_HOOK_MS + 30_000).to_string()
+            }
+        });
+        let mut roster = AgentRoster::default();
+        roster.apply(&stamped_event(10_000, "agent.session.started", &subjects, &hook_payload));
+        let plugin = RosterEvent {
+            producer_id: "screen_detector",
+            kind: "plugin.screen_detector.agent.state.changed",
+            subjects: &subjects,
+            payload: &blocked_payload,
+            sequence: 70_000,
+            committed_at_ms: 70_000,
+        };
+        assert_eq!(roster.apply(&plugin).len(), 1);
+        assert_eq!(roster.entries["term_a"].source, "plugin");
+
+        let deltas =
+            roster.apply(&stamped_event(80_000, "agent.session.ended", &subjects, &hook_payload));
+        assert_eq!(
+            deltas,
+            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Hook }]
+        );
+        assert!(roster.entries.is_empty(), "{:?}", roster.entries);
     }
 
     #[test]

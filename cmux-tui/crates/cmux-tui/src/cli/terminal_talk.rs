@@ -226,7 +226,7 @@ fn fail(global: &GlobalArgs, failure: &super::mcp::CallFailure, exit: i32) -> i3
 
 fn list(global: &GlobalArgs) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
-    let snapshot = match send::snapshot(&backend, None) {
+    let snapshot = match send::roster_snapshot(&backend, None) {
         Ok(snapshot) => snapshot,
         Err(failure) => return fail(global, &failure, 1),
     };

@@ -247,18 +247,24 @@ impl WorkspaceRegistry {
 
     /// Current agent projections, optionally filtered by terminal and state, decoded from
     /// their stored results (adapter and hook session id included).
+    ///
+    /// A hook-ended agent is history: the live list leaves it out (its end published a
+    /// delete), and only a `done` filter lists it, so `cmux agent list --state ended` shows
+    /// the agent `agent resume` can bring back (W6-A, bench round 5 row 6).
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        let history = state == Some("done");
         let mut agents = self.durable_agents(terminal, state)?;
         agents.retain(|agent| {
-            (agent.source != "hook" || agent.state != "done")
-                && !agent
-                    .source_session
-                    .as_deref()
-                    .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+            history
+                || ((agent.source != "hook" || agent.state != "done")
+                    && !agent
+                        .source_session
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("cmux-hook-ended:")))
         });
         for agent in &mut agents {
             if agent.source_session.as_deref().is_some_and(|value| {

@@ -176,7 +176,7 @@ pub(super) fn call_list<B: Backend>(backend: &B, arguments: &Map<String, Value>)
         Ok(session) => session,
         Err(message) => return not_run(message),
     };
-    match send::snapshot(backend, session.as_deref()) {
+    match send::roster_snapshot(backend, session.as_deref()) {
         Ok(snapshot) => {
             let now = terminal_talk::now_ms();
             let rows = roster_names::rows(&snapshot);
