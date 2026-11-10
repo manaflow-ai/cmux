@@ -225,12 +225,25 @@ pub fn parse(args: &[String]) -> Result<Args> {
             }
         }
     }
+    if words.is_empty() && !out.help {
+        // An option with no verb (`cmux server --frobnicate`) is a usage
+        // error, not the help with exit 0.
+        if let Some(name) = out.flags.keys().next() {
+            return Err(Error::usage(format!(
+                "--{name} needs a verb; run `cmux server --help` for the verbs"
+            )));
+        }
+    }
     if words.is_empty() || words[0] == "help" {
         out.help = true;
         return Ok(out);
     }
-    let spec = find_spec(&words)
-        .ok_or_else(|| Error::usage(format!("unknown verb: {}", words.join(" "))))?;
+    let spec = find_spec(&words).ok_or_else(|| {
+        Error::usage(format!(
+            "unknown verb: {}; run `cmux server --help` for the verbs",
+            words.join(" ")
+        ))
+    })?;
     out.verb = spec.path.iter().map(|s| (*s).to_owned()).collect();
     out.positionals = words[spec.path.len()..].to_vec();
     check_spec(spec, &out)?;

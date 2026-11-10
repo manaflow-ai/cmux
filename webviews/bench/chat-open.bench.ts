@@ -887,7 +887,14 @@ try {
       ["dom_content_loaded", (r: Round) => r.dcl, undefined],
       ["long_ms", (r: Round) => r.longMs, undefined],
     ] as const)
-      perfRow({ name: `chat_open.${arm}.${stage}`, p50: median(pick), p95: median(pick), target });
+      // Version 2: the pane's build loads English plus the page's language, as the app does
+      // (scripts/agent-pane/paneLocales.mjs), no longer all 21 locales before the socket opens.
+      perfRow({ name: `chat_open.${arm}.${stage}`, p50: median(pick), p95: median(pick), target, version: 2 });
+    // The script the page downloaded and parsed by the time the chat settled (decoded KiB): the open's
+    // cost that grows with every eager import, so the perf cron names the week it grows (it grew 29%,
+    // 8302 to 10722 KiB, from 2026-11-02 to 11-09 with no row to say so).
+    const scriptKiB = Math.round(median((r) => r.scriptKiB));
+    perfRow({ name: `chat_open.${arm}.script_kib`, p50: scriptKiB, p95: scriptKiB, unit: "KiB", clock: "cpu" });
   }
 } finally {
   await release();

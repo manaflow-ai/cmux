@@ -20,7 +20,7 @@ import PackageDescription
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
-//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
 //   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
 //     the opt-in MetricKit mirror for hang reports)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
@@ -108,8 +108,6 @@ import PackageDescription
 //   CmuxNextWindowRules -> CCmuxAppFFI, Daemon (the window handlers' rules, asked of cmux-window-rules over the
 //     app FFI's JSON channel, ops window_*: facts in, decisions out; no AppKit)
 //   CmuxNextChecklist (no deps): the workspace checklist's strings (the Todo page and its refusals)
-//   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
-//     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
 //     the Machines section page
 //     over a projection of `server.status`; no daemon; the App supplies the source;
@@ -172,8 +170,9 @@ let daemonSwiftSettings: [SwiftSetting] = [
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
-/// reducer C ABI (module CCmuxLayoutReducerFFI) and the palette ranker C ABI
-/// (module CCmuxPaletteRankerFFI) over one Rust runtime. Every
+/// reducer C ABI (module CCmuxLayoutReducerFFI), the palette ranker C ABI
+/// (module CCmuxPaletteRankerFFI) and the action catalog C ABI (module
+/// CCmuxActionCatalogFFI) over one Rust runtime. Every
 /// build links it from one pinned release
 /// (.github/workflows/app-ffi-release.yml). Apple's compact unwind
 /// holds at most three personality routines per image (C++, iroh, this one),
@@ -184,8 +183,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-22619a36b2ecba25bea53f57bff1625187bad689/CCmuxAppFFI.xcframework.zip",
-    checksum: "be75d3608ac3dd63a6fee803e6f0ae8793ad764f19f80d08a2c824a6f0b19009"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-32f5ff1e833ada43c3825b5cc2d30bc609cccd6c/CCmuxAppFFI.xcframework.zip",
+    checksum: "44914f6fa214d991a784a5066335f17398694118f66b8359d1d32cdb6ae5fbb5"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -310,7 +309,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDiff",
                 "CmuxNextErrorJournal",
                 "CmuxNextFavicons",
-                "CmuxNextFeed",
+                "CmuxNextFeedClient",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextFloating",
@@ -401,7 +400,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
-                "CmuxNextFeed",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
             ],
@@ -484,12 +482,28 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The daemon feed client's native side (`feed-client-v1`, plans/cmux-next/feed-page.md): the
+        // `feed.*` ops and change events for the app's glue, the item JSON it reads, the update
+        // cards it posts and the pinned Needs you section's frame. The Feed page draws the feed.
+        .target(
+            name: "CmuxNextFeedClient",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextWakeups",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Stash (a native OneTab, cx-rws36): Save and Close, and the Stashed Tabs page's restore and delete, on this Mac's daemon.
         // The App only answers `StashHost`.
         // The daemon history module's client (`history-v1`): visits, entries, clearing.
         .target(
             name: "CmuxNextHistoryDaemon",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextBrowserCore",
                 "CmuxNextDaemon",
                 "CmuxNextHistory",
                 "CmuxNextWakeups",
@@ -881,6 +895,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDictation",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
@@ -1564,22 +1579,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Feed panel (plans/cmux-next/feed.md section 12): list, inbox and
-        // menu bar prototypes over a confirmed mirror + intent log of the
-        // feed owner; the App supplies the source.
-        .target(
-            name: "CmuxNextFeed",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextCompat",
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-                "CmuxNextWakeups",
-            ],
-            resources: [
-                .process("Resources"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
         // VideoToolbox decode, presenter variants, chrome A, input capture and
         // a VideoToolbox mock host. Transport neutral. The App shows it in
@@ -2042,8 +2041,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
-            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor). CCmuxAppFFI: the
+            // action catalog (cmux-action-catalog, module CCmuxActionCatalogFFI, RustActionCatalog).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextSignposts",
                 "CmuxNextWakeups",
             ],
@@ -2508,7 +2509,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
-                "CmuxNextFeed",
+                "CmuxNextFeedClient",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",

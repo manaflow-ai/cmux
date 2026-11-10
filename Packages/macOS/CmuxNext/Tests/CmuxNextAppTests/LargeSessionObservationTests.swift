@@ -1,10 +1,12 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+@testable import CmuxNextMobileHost
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -140,6 +142,134 @@ struct LargeSessionObservationTests {
         await LargeSessionFixture.until { feed.workspaces(showing: ["s-7-moved"]).count == 1 }
         let moved = feed.workspaces(showing: ["s-7-moved", "s-7"])
         #expect(moved == [SidebarWorkspaceID(fixture.store.workspaces[6].id): "s-7-moved"])
+    }
+    /// O3 `AttentionTabsWatch.swift:87`: Needs you's marked tabs walked every tab of every workspace (twice: the marks and
+    /// the launch baseline) in one observation, so an agent's mark on any tab ran the whole walk under tracking again.
+    /// Each workspace's marks are their own observation now; the watch observes only each machine's readiness and its
+    /// workspace list.
+    @Test(.timeLimit(.minutes(2)))
+    func o3AttentionTabsObservesEachWorkspacesMarksOnItsOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let store = fixture.store
+        store.session.apply(.snapshot(SessionStateMirror()), in: store)
+        let tabs = AgentPaneAttentionTabs()
+        var changes = 0
+        let watch = AttentionTabsWatch(tabs: tabs, machines: { [store] in [(machine: "local", store: store)] },
+                                       onChange: { _, _ in changes += 1 })
+        defer { withExtendedLifetime(watch) {} }
+        await LargeSessionFixture.until { changes > 0 }
+        try #require(changes > 0, "fixture: the watch never delivered")
+
+        // The probe: an agent marks the first terminal of each workspace in turn (tab-attention-v1).
+        func mark(_ workspace: Int) {
+            let attention = TabAttention(reason: "Sign in \(workspace)", atMs: UInt64(1_000 + workspace),
+                                         requestID: String(format: "%032llx", UInt64(workspace)))
+            store.session.apply(.delta([.tab(ResourceID(rawValue: "tab_\(workspace)_0"), .init(attention: attention))]), in: store)
+        }
+        let probes = (1...LargeSessionFixture.workspaces).map { workspace -> (workspace: Int, change: @MainActor () -> Void) in
+            (workspace, { mark(workspace) })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAgentPane/AttentionTabsWatch", changes: probes)
+        #expect(!woken.isEmpty, "fixture: no attention observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "attention observers woken by more than one workspace: \(wide)")
+
+        // The list still follows every mark, newest first.
+        await LargeSessionFixture.until { tabs.items.count == LargeSessionFixture.workspaces }
+        #expect(tabs.items.count == LargeSessionFixture.workspaces)
+        #expect(tabs.items.first?.reason == "Sign in 60")
+    }
+    /// O6 `SidebarChatHistoryFeed.swift:44`: the session tree's chat history read every live tab's agent session (and its
+    /// lane's chat) in one observation, so an agent chat's session change in any workspace ran the whole history pass
+    /// again. Each live tab's chat is its own observation now; the history reads their joined set.
+    @Test(.timeLimit(.minutes(2)))
+    func o6ChatHistoryObservesEachTabsChatOnItsOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let saved = DesignSettings.shared.sidebarSections
+        DesignSettings.shared.sidebarSections.sessionTree = true
+        defer { DesignSettings.shared.sidebarSections = saved }
+        let history = SidebarChatHistory(defaults: UserDefaults(suiteName: "large-session-o6-\(UUID().uuidString)")!)
+        let feed = SidebarChatHistoryFeed()
+        feed.start(liveTabs: { [store = fixture.store] in store.liveTabs }, localHost: LargeSessionFixture.host, open: { _ in },
+                   windows: AcpmuxChatWindows(), lanes: AgentLaneStore(), history: history)
+        await LargeSessionFixture.until { history.state != nil }
+        try #require(history.state != nil, "fixture: the chat history published no state")
+
+        let chats = fixture.tabs().filter { $0.tab.kind == .conversation }
+        try #require(chats.count == LargeSessionFixture.workspaces)
+        let changes = chats.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            let moved = AgentSessionRef(host: LargeSessionFixture.host, session: "\(LargeSessionFixture.session(item.workspace))-moved", harness: nil)
+            return (item.workspace, { item.tab.conversation = ConversationTabRef(agentSession: moved) })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAgentLanes/SidebarChatHistoryFeed", changes: changes)
+        #expect(!woken.isEmpty, "fixture: no chat history observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "chat history observers woken by more than one workspace: \(wide)")
+    }
+
+    /// O4 `SidebarDocMachines.swift:132`: the sidebar's link favicons read every tab of the local store (its open tab
+    /// favicon addresses, by origin) in one observation, so a navigation or a favicon change in any browser tab read
+    /// every tab again, and posted `itemFaviconsChanged` also when nothing moved. Each workspace's open tab favicons are
+    /// their own observation now; the follower reads their joined table.
+    @Test(.timeLimit(.minutes(2)))
+    func o4SidebarFaviconsObserveEachWorkspacesTabsOnTheirOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let doc = SidebarDocStore(remote: nil)
+        let openTabs = OpenTabFavicons()
+        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces }, favicon: { Self.favicon($0) })
+        let byOrigin: @MainActor () -> [String: String] = { openTabs.byOrigin }
+        SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: BookmarkURL.faviconKey(for:))
+        await LargeSessionFixture.drainMain()
+
+        // The probe: each workspace's Chromium page gets its favicon (what the follower reads of a tab).
+        let pages = fixture.tabs().filter { $0.tab.kind == .browser && $0.tab.url?.hasSuffix("/cef") == true }
+        try #require(pages.count == LargeSessionFixture.workspaces)
+        let changes = pages.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            (item.workspace, { item.tab.faviconURL = "http://127.0.0.1:9/\(item.workspace)/icon.png" })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextBridge/", changes: changes)
+        #expect(!woken.isEmpty, "fixture: no favicon observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "favicon observers woken by more than one workspace: \(wide)")
+        // The table still follows: the origin's first open tab (workspace 1) gives its favicon.
+        await LargeSessionFixture.until { byOrigin()["http://127.0.0.1:9"] != nil }
+        #expect(byOrigin()["http://127.0.0.1:9"] == "http://127.0.0.1:9/1/icon.png")
+    }
+
+    /// The fixture's open tab favicon: a browser tab's site origin and favicon address (the app also skips incognito tabs).
+    static func favicon(_ tab: TabModel) -> OpenTabFavicons.Favicon? {
+        guard tab.kind == .browser, let address = tab.faviconURL,
+              let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
+        return OpenTabFavicons.Favicon(origin: origin, address: address)
+    }
+
+    /// O5 `IPhoneHostService.swift:374`: the folders acpmux gets for a phone's agent chats read every tab's `cwd` in one
+    /// observation, so a `cd` in any terminal read every tab again (while iPhone access is on and signed in). Each
+    /// workspace's folders are their own observation now; acpmux gets the joined list when it changed.
+    @Test(.timeLimit(.minutes(2)))
+    func o5IPhoneFoldersObserveEachWorkspacesTabsOnTheirOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let folders = MobileHostWorkspaceFolders()
+        var sent: [[String]] = []
+        folders.follow({ [store = fixture.store] in store.workspaces }, send: { sent.append($0) })
+        defer { folders.stop() }
+        await LargeSessionFixture.until { sent.last?.count == LargeSessionFixture.workspaces }
+        try #require(sent.last == (1...LargeSessionFixture.workspaces).map { "/tmp/large/\($0)" }, "fixture: \(sent.last ?? [])")
+
+        // The probe: the first terminal of each workspace changes its folder (what the follower reads of a tab).
+        let terminals = fixture.tabs().filter { $0.tab.resourceID?.rawValue.hasSuffix("_0") == true }
+        try #require(terminals.count == LargeSessionFixture.workspaces)
+        let changes = terminals.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            (item.workspace, { item.tab.cwd = "/tmp/large/\(item.workspace)/src" })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextMobileHost/", changes: changes)
+        #expect(!woken.isEmpty, "fixture: no folder observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "folder observers woken by more than one workspace: \(wide)")
+        // acpmux still follows: each workspace lists its new folder and its old one.
+        await LargeSessionFixture.until { sent.last?.contains("/tmp/large/60/src") == true }
+        #expect(sent.last?.contains("/tmp/large/7/src") == true)
+        #expect(sent.last?.count == LargeSessionFixture.workspaces * 2)
     }
 
     /// O9, the waits until a match (`ChiefInspectorHandlers.swift:191`, `SessionTransferService.swift:258`,

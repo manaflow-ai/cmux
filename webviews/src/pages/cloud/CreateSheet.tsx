@@ -32,7 +32,7 @@ export function CreateSheet({
   const plan = state.plan;
   const choices = memoryChoices(plan);
   // A size is required; without a plan there is no size to offer.
-  const canSubmit = !draft.submitting && draft.memoryMb !== undefined;
+  const canSubmit = !draft.submitting && !draft.waitingFor && draft.memoryMb !== undefined;
   const reached = !!plan && plan.usage.active >= plan.limits.max_active;
   // Each field takes plain Escape (close) and, for inputs, plain Return (create).
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -131,6 +131,28 @@ export function CreateSheet({
         </p>
       )}
       {draft.refusal && <PlanNotice refusal={draft.refusal} strings={strings} />}
+      {draft.offer && !draft.waitingFor && (
+        // At a machines cap: free the machine the platform names (or the oldest paused one), then create.
+        <p className="cloud-create-offer">
+          <DialogButton
+            dialogKey={null}
+            className="cloud-button cloud-create-make-room"
+            disabled={draft.submitting}
+            onClick={() => void store.makeRoom()}
+          >
+            {format(t(draft.offer.kind === "delete" ? L.capDeleteAndCreate : L.capArchiveAndCreate), {
+              name: draft.offer.name,
+            })}
+          </DialogButton>
+        </p>
+      )}
+      {draft.waitingFor && (
+        <output className="cloud-muted cloud-create-waiting">
+          {format(t(L.capWaiting), {
+            name: state.machines.find((machine) => machine.id === draft.waitingFor)?.name ?? draft.waitingFor,
+          })}
+        </output>
+      )}
       {draft.blocked === "no_snapshot_configured" && (
         <p className="cloud-sheet-error cloud-create-blocked" role="alert">
           {t(L.noSnapshotConfigured)}

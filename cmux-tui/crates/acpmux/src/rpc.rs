@@ -377,6 +377,9 @@ pub mod method {
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
+    /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
+    /// (`hub/register.rs`). Local unix socket only.
+    pub const MUX_REGISTER: &str = "_acpmux/register";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
@@ -764,6 +767,9 @@ pub mod method {
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
+    /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
+    /// with `coldArchive` while archived. `archived: false` brings its log back.
+    pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
