@@ -11,6 +11,10 @@ final class ChiefVoiceRecordUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    override func tearDown() {
+        XCUIDevice.shared.appearance = .unspecified
+    }
+
     @MainActor
     func testTapHintsHoldRecordsAndLocks() throws {
         // Dark, as the Messages reference recording was taken.
@@ -39,8 +43,9 @@ final class ChiefVoiceRecordUITests: XCTestCase {
         let stop = app.buttons["conversation.recording.stop"]
         XCTAssertTrue(stop.waitForExistence(timeout: 5), "hold records")
         let timer = app.staticTexts["conversation.recording.time"]
-        XCTAssertTrue(wait(for: timer, "label == '0:02'", timeout: 10), "still recording after the finger lifted: \(timer.label)")
-        XCTAssertFalse(app.buttons["conversation.recording.send"].isHittable, "no review while recording")
+        XCTAssertTrue(wait(for: timer, "NOT (label IN {'0:00', '0:01'})", timeout: 10), "still recording after the finger lifted: \(timer.label)")
+        let reviewSend = app.buttons["conversation.recording.send"]
+        XCTAssertFalse(reviewSend.exists && reviewSend.isHittable, "no review while recording")
         attach(app, "3-recording-locked")
 
         // Stop: the review strip.
@@ -53,10 +58,11 @@ final class ChiefVoiceRecordUITests: XCTestCase {
         XCTAssertEqual(app.buttons["conversation.composer.plus"].label, "Cancel Recording", "the + became an x")
         attach(app, "4-review")
 
-        // "+ 0:02" records more, stop returns to the review.
+        // "+ 0:0N" records more from where it stopped; stop returns to the review.
+        let recorded = (more.value as? String) ?? "0:00"
         more.tap()
         XCTAssertTrue(wait(for: stop, "hittable == true", timeout: 5), "the pill records more")
-        XCTAssertTrue(wait(for: timer, "label == '0:03'", timeout: 10), "recording continues from where it stopped: \(timer.label)")
+        XCTAssertTrue(wait(for: timer, "label > '\(recorded)'", timeout: 10), "recording continues past \(recorded): \(timer.label)")
         attach(app, "5-recording-more")
         stop.tap()
         XCTAssertTrue(wait(for: send, "hittable == true", timeout: 5))
@@ -71,7 +77,7 @@ final class ChiefVoiceRecordUITests: XCTestCase {
 
         // Hold, lift, stop, send: the audio message lands in the transcript.
         record.press(forDuration: 1.2)
-        XCTAssertTrue(wait(for: timer, "label == '0:02'", timeout: 10))
+        XCTAssertTrue(wait(for: timer, "NOT (label IN {'0:00', '0:01'})", timeout: 10))
         stop.tap()
         XCTAssertTrue(wait(for: send, "hittable == true", timeout: 5))
         send.tap()

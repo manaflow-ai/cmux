@@ -150,6 +150,20 @@ import Testing
         #expect(flow.stage == nil)
     }
 
+    /// Recording more fails to start: back to the review, where stop is not
+    /// needed and the x still discards (the recording stage has no x).
+    @Test func failedResumeReturnsToReview() {
+        var flow = ComposerAudioFlow()
+        flow.handle(.holdBegan)
+        flow.handle(.recorderStarted)
+        flow.handle(.holdEnded)
+        flow.handle(.stop(longEnough: true))
+        flow.handle(.continueRecording)
+        #expect(flow.handle(.resumeFailed) == [])
+        #expect(flow.stage == .review)
+        #expect(flow.handle(.cancel) == [.discard])
+    }
+
     @Test func voiceOverActivationRecordsLocked() {
         var flow = ComposerAudioFlow()
         #expect(flow.handle(.tap(voiceOver: true)) == [.startRecording])
