@@ -88,10 +88,7 @@ impl std::fmt::Display for Refused {
     }
 }
 
-/// How to connect GitHub, in the words every surface uses: the app's action (Settings,
-/// Accounts, GitHub, or the command palette) and the CLI command that runs the same action.
-pub const CONNECT_GITHUB: &str = "in cmux choose Connect GitHub (Settings > Accounts > GitHub, or \
-the command palette), or run `cmux accounts github-connect` on your Mac";
+pub use crate::github_connect::CONNECT_GITHUB;
 
 /// The one next step for a refusal the person can fix, or `None` (an outage, a bad answer:
 /// retrying is all there is). Leo, 2026-11-10: when the user is not connected, the error says

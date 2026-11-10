@@ -212,7 +212,7 @@ pub fn not_connected() -> RpcError {
         -32044,
         format!(
             "GitHub is not connected on this Mac: {} (or sign in with `gh auth login`), then try again",
-            cmux_host::github_cli::CONNECT_GITHUB
+            cmux_host::github_connect::CONNECT_GITHUB
         ),
     )
     .with_data(json!({"reason": "github.not_connected", "retryable": true,
