@@ -524,6 +524,68 @@ fn completion_lists_every_scope() {
     assert_eq!(bare.status.code(), Some(2), "bare `cmux completion` is a usage error");
 }
 
+/// The VM verbs a person types every day (`cmux vm exec dev -- uname -a`).
+const EVERYDAY_VM_VERBS: &[&str] =
+    &["exec", "ssh", "move", "status", "pause", "resume", "rm", "resize", "fork", "rename"];
+
+/// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're
+/// nice to type and intuitive and ergonomic and go with best practices". The
+/// everyday VM verbs name the VM by position in every example the VM help
+/// prints, never `--target vm:ID`, and no VM help shows a retired spelling (a
+/// delete says yes with `--yes`, not `--confirm`).
+#[test]
+fn the_vm_help_names_a_vm_by_position_and_deletes_with_yes() {
+    let cli = Cli::new();
+    let mut problems = Vec::new();
+    for scope in ["vm", "cloud"] {
+        let help = text(&cli.run(&[scope, "--help"]).stdout);
+        problems.extend(
+            targeted_examples(&help).into_iter().map(|line| format!("cmux {scope} --help: {line}")),
+        );
+        let mut helps = vec![(format!("{scope} --help"), help.clone())];
+        for verb in verb_rows(&help) {
+            let output = cli.run(&[scope, &verb, "--help"]);
+            helps.push((format!("{scope} {verb} --help"), text(&output.stdout)));
+        }
+        for (command, help) in helps {
+            for option in options(&help) {
+                if let Some((_, now)) = RETIRED.iter().find(|(old, _)| *old == option) {
+                    problems.push(format!("cmux {command} shows the retired {option}; use {now}"));
+                }
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "VM help that is harder to type than it needs to be:\n{}",
+        problems.join("\n")
+    );
+}
+
+/// The `cmux vm|cloud VERB …` example lines of `help` whose everyday verb
+/// names its VM with `--target`.
+fn targeted_examples(help: &str) -> Vec<String> {
+    help.lines()
+        .map(str::trim)
+        .filter_map(|line| {
+            let rest =
+                line.strip_prefix("cmux vm ").or_else(|| line.strip_prefix("cmux cloud "))?;
+            let verb = rest.split_whitespace().next()?;
+            (EVERYDAY_VM_VERBS.contains(&verb) && rest.contains("--target"))
+                .then(|| line.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn the_targeted_example_check_reads_example_lines() {
+    assert_eq!(targeted_examples("  cmux vm exec --target vm:X --command 'uname -a'").len(), 1);
+    assert!(
+        targeted_examples("  cmux vm exec dev -- uname -a\n  cmux vm access new --target vm:X")
+            .is_empty()
+    );
+}
+
 /// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're
 /// nice to type and intuitive and ergonomic and go with best practices". The
 /// next command to a chat names no session id: `cmux chat send TEXT` and
