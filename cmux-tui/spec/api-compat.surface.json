@@ -8422,10 +8422,10 @@
         "ty": "string",
         "required": true
       },
-      "/login_scopes": {
+      "/login_teams": {
         "ty": "array"
       },
-      "/login_scopes/*": {
+      "/login_teams/*": {
         "ty": "string"
       },
       "/platform": {

@@ -41,7 +41,8 @@ fn leased(sub: &str) -> CloudConversations {
 fn a_consent_change_ends_the_copies_begun_before_it_and_is_read_at_the_write() {
     let control = Arc::new(SpareWarmControl::default());
     let service = leased("user_a");
-    let guard = LiveGuard::new(Some(service.clone()), control.clone(), &params_for("user_a", Some(true)));
+    let guard =
+        LiveGuard::new(Some(service.clone()), control.clone(), &params_for("user_a", Some(true)));
     assert!(guard.still("user_a"));
     assert!(!guard.still("user_b"), "another account's copy");
     assert_eq!(guard.consent(), Some(true), "no push yet: the warm's own consent");
