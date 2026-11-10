@@ -2359,16 +2359,37 @@ function TranscriptView({
   const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
   const pinned = pinnedPill !== undefined;
   const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
-  const [pinAt, setPinAt] = useState({ top: 0, pad: 0, view: 0 });
+  /// `floor`: the bottom of the pane's tab row in the stage (`.acpmux-header[data-tab-row]`), which
+  /// nothing over the top draws above, whatever inset the App reports for the row: Jump to new over
+  /// the tab strip covered its tabs and its + (https://github.com/manaflow-ai/cmux/issues/40065).
+  const [pinAt, setPinAt] = useState({ top: 0, pad: 0, view: 0, floor: 0 });
   useLayoutEffect(() => {
     const scroller = ref.current;
-    if (!overTop || !scroller || !thread.current) return;
-    const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
-    const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
-    const view = scroller.offsetTop;
-    const top = view + pad;
-    setPinAt((now) => (now.top === top && now.pad === pad && now.view === view ? now : { top, pad, view }));
-  }, [overTop, height]);
+    const threadNode = thread.current;
+    if (!overTop || !scroller || !threadNode) return;
+    const stage = scroller.parentElement;
+    const place = () => {
+      const style = threadNode.ownerDocument.defaultView?.getComputedStyle(threadNode);
+      const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
+      const view = scroller.offsetTop;
+      const top = view + pad;
+      const row = stage?.querySelector<HTMLElement>(":scope > .acpmux-header[data-tab-row]");
+      const floor = row && row.offsetParent === scroller.offsetParent ? row.offsetTop + row.offsetHeight : 0;
+      setPinAt((now) =>
+        now.top === top && now.pad === pad && now.view === view && now.floor === floor
+          ? now
+          : { top, pad, view, floor },
+      );
+    };
+    place();
+    // The row and the scroller move each other (a tab opens or closes, the row's height changes, a
+    // line under the header comes): each size change places again, never per scroll or token.
+    const observer = new ResizeObserver(place);
+    observer.observe(scroller);
+    const row = stage?.querySelector<HTMLElement>(":scope > .acpmux-header[data-tab-row]");
+    if (row) observer.observe(row);
+    return () => observer.disconnect();
+  }, [overTop, height, topInset]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -5050,7 +5071,9 @@ function TranscriptView({
         {sinceKey !== undefined && onJumpToSince && (
           <div
             className="acpmux-over-top"
-            style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : pinAt.view) }}
+            style={{
+              top: Math.max(pinAt.floor, topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : pinAt.view)),
+            }}
           >
             <SinceJump mark={sinceKey} onJump={onJumpToSince} />
           </div>
