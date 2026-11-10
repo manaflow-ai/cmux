@@ -34,7 +34,7 @@ jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
     # A job holding secrets runs where no variable can move it (tests/test_ci_fork_runner_routing.py).
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 75
     environment:
       name: cmux-next-cloud-journey
