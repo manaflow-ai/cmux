@@ -231,10 +231,12 @@ mod launcher_modes {
         let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
         let info = cli.call("_acpmux/info", json!({"sessionId": id})).await;
         assert_eq!(info["result"]["agentInfo"]["name"], json!("claude-stdio"), "{info}");
+        // Refused, by whichever Web gate answers first (its own family has no asking row, so the
+        // Web control check ends it as `remote.mode_not_asking`), and the mode stays.
         for mode in ["plan", "default"] {
             let set = web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
-            let message = set["error"]["message"].as_str().unwrap_or_default();
-            assert!(message.contains("never from a remote WebSocket"), "impostor {mode}: {set}");
+            assert!(set.get("error").is_some(), "impostor {mode} from the Web: {set}");
+            assert_eq!(cli.mode(&id).await, "default", "impostor {mode} from the Web: {set}");
         }
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
@@ -300,10 +302,11 @@ mod launcher_modes {
         }
         assert_eq!(starts[0], starts[1], "claude-sr2 starts from the Web as claude does");
         for harness in ["claude", "claude-sr2"] {
+            // In `default` (with no mode a CLI start runs in the person's start mode, `auto`).
             let r = cli
                 .call(
                     "session/new",
-                    json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
+                    json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness, "mode": "default"}}}),
                 )
                 .await;
             let id = r["result"]["sessionId"]
