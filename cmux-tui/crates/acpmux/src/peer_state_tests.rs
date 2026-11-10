@@ -324,7 +324,7 @@ async fn recovery_clears_an_outage_saved_before_the_handshake_completed() {
     post(PeerNotice::Connected).await.unwrap();
     tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
     let read = || -> Value {
-        serde_json::from_slice(&std::fs::read(dir.path().join("peers/box.json")).unwrap()).unwrap()
+        crate::hub::peer_cache_disk::saved_json(&dir.path().join("peers"), "box")
     };
     assert_eq!(read()["downSince"], old, "watch list preceded ready");
     peer.with_link(|l| l.ready(crate::store::now_ms()));

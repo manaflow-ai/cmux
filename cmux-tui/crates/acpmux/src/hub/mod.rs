@@ -271,6 +271,9 @@ pub mod mac_approvers;
 pub mod no_session;
 mod own_host;
 mod peer_cache;
+pub(crate) mod peer_cache_disk;
+#[cfg(test)]
+mod peer_cache_disk_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 mod peer_grace;
@@ -706,13 +709,18 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
-    /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
-    /// an older snapshot landing on disk. Entries are removed with the peer.
-    pub(super) peer_cache_writers: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
+    /// Per-peer cache writers; held through the write so removal cannot be followed by an older
+    /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
+    /// a save writes only what changed. Entries are removed with the peer.
+    pub(super) peer_cache_writers:
+        StdMutex<HashMap<String, Arc<StdMutex<peer_cache_disk::OnDisk>>>>,
     /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
+    #[cfg(test)]
+    pub(super) cache_test_bytes: AtomicU64,
     #[cfg(test)]
     pub(super) cache_test_write_delay_ms: AtomicU64,
     #[cfg(test)]
@@ -1139,6 +1147,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_write_delay_ms: AtomicU64::new(0),
             #[cfg(test)]
