@@ -115,6 +115,22 @@ pub(crate) struct ProgramStatusRecords {
     /// Whether the agent status last handed to the agent roster
     /// (`take_blocker_change`) was `blocked`.
     blocker_published: bool,
+    /// Each record's id, state and kind as last committed to the public
+    /// graph (`take_change`).
+    edges_published: Vec<(String, ProgramStatusState, Option<ProgramStatusKind>)>,
+}
+
+/// What a terminal publication takes from the records (`take_change`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProgramStatusChange {
+    /// A report changed something a client reads.
+    pub(crate) any: bool,
+    /// A record appeared, went away or changed its state or kind: a durable
+    /// edge, one commit (as a new shown value is, `take_shown_change`). A
+    /// report that keeps them (a repeated equal state, a new message or
+    /// time) is a live fact: the open streams get it and the registry does
+    /// not.
+    pub(crate) edge: bool,
 }
 
 impl ProgramStatusRecords {
@@ -338,11 +354,26 @@ impl ProgramStatusRecords {
         status
     }
 
-    /// True once per visible change, marking it published.
-    pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.revision != self.published;
+    /// The visible change since the last call, marking it published.
+    pub(crate) fn take_change(&mut self) -> ProgramStatusChange {
+        if self.revision == self.published {
+            return ProgramStatusChange { any: false, edge: false };
+        }
         self.published = self.revision;
-        changed
+        let edge = self.records.len() != self.edges_published.len()
+            || self.records.iter().zip(&self.edges_published).any(
+                |((id, record), (published, state, kind))| {
+                    id != published || record.state != *state || record.kind != *kind
+                },
+            );
+        if edge {
+            self.edges_published = self
+                .records
+                .iter()
+                .map(|(id, record)| (id.clone(), record.state, record.kind))
+                .collect();
+        }
+        ProgramStatusChange { any: true, edge }
     }
 
     /// Whether a terminal publication would take something now: a visible

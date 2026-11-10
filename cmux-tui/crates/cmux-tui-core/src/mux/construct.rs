@@ -363,6 +363,7 @@ impl Mux {
             terminal_last_command: AtomicBool::new(false),
             command_history_worker: Mutex::new(None),
             terminal_publisher: Default::default(),
+            terminal_live: Default::default(),
             terminal_tail_pins: Default::default(),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),

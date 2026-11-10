@@ -185,12 +185,17 @@ impl Surface {
 
     fn publish_progress_change(&self, with_alerts: bool) {
         let Some(pty) = self.as_pty() else { return };
-        let (progress_changed, records) = {
+        // A command or prompt edge is durable. A new OSC 9;4 progress and a
+        // moved last output are live facts: the open streams get them, the
+        // registry and the journal do not.
+        let (activity_edge, live_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             let progress = metadata.take_progress_change().is_some();
-            (metadata.take_busy_change() || progress, metadata.program_status())
+            let edge = metadata.take_busy_change();
+            let output = metadata.take_output_change();
+            (edge, progress || output, metadata.program_status())
         };
-        let (status_changed, shown_changed, alerts, blocker) = {
+        let (status, shown_changed, alerts, blocker) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let shown = records.take_shown_change(!self.is_dead());
             let alerts = if with_alerts { records.take_alerts() } else { Vec::new() };
@@ -199,15 +204,21 @@ impl Surface {
         };
         // A publish after the terminal died (reconnect) can hide its
         // running records with no new report: send that shown change too.
-        if !progress_changed && !status_changed && shown_changed.is_none() {
+        if !activity_edge && !live_changed && !status.any && shown_changed.is_none() {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };
-        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if (progress_changed || status_changed)
-            && let Err(error) = mux.publish_terminal_progress(self, mutation)
-        {
-            eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        // A report that changes a record's state or kind, or the shown
+        // value, is one commit. One that keeps them is live.
+        let status_edge = status.edge || (status.any && shown_changed.is_some());
+        if activity_edge || status_edge {
+            let mutation =
+                if status_edge { "terminal.program_status" } else { "terminal.progress" };
+            if let Err(error) = mux.publish_terminal_progress(self, mutation) {
+                eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+            }
+        } else if live_changed || status.any {
+            mux.publish_terminal_live(self);
         }
         // After the terminal's upsert, so the roster's row follows it.
         if let Some(state) = blocker {
