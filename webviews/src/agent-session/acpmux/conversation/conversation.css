@@ -5416,6 +5416,11 @@ a.cv-sha:focus-visible {
 .cv-turn-error--card .cv-turn-error__cause {
   gap: var(--grid-gap);
 }
+/* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
+   the prose's ink, never the failure red. */
+.cv-github-connect .cv-turn-error__icon {
+  color: var(--agent-text);
+}
 .cv-turn-error--card .cv-turn-error__icon {
   width: var(--grid-icon-box);
   height: var(--grid-icon-box);
