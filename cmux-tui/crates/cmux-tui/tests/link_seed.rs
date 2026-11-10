@@ -518,6 +518,21 @@ fn a_held_copy_answers_at_its_head_and_the_rest_follows_under_the_barrier() {
     assert!(again.get("filling").is_none(), "{again}");
     assert_eq!(again["copy"]["written"], json!(1), "{again}");
     assert_eq!(again["copy"]["unchanged"], json!(7), "{again}");
+    // The head left no snapshot of its own: an undo to it would delete what it left out.
+    let history = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", w.root.join("state"))
+        .args(["link", "sync", "history"])
+        .args([&plain, &remote])
+        .output()
+        .unwrap();
+    let history: Value = serde_json::from_slice(&history.stdout).unwrap();
+    let snapshots = history["snapshots"].as_array().unwrap();
+    let files: Vec<usize> = snapshots
+        .iter()
+        .map(|snapshot| snapshot["files"].as_u64().unwrap_or_default() as usize)
+        .collect();
+    assert_eq!(snapshots.len(), 2, "the copy and the --since-last: {history}");
+    assert!(files.iter().all(|&count| count >= 7), "every snapshot is whole: {history}");
 }
 
 #[test]

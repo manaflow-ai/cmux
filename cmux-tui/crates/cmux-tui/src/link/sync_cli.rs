@@ -1283,8 +1283,11 @@ fn push_inner(
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     // What this push left, for `cmux link sync undo`: every file's blob this
     // Mac does not keep yet, and a snapshot ([`history`]). Neither can fail
-    // the push.
-    snapshot_push(&local, remote_root, &next, &set.files, git_record);
+    // the push. A head ([`push_head`]) leaves none: it is part of the whole
+    // copy after it, and an undo to it would delete every file it left out.
+    if head_links.is_none() {
+        snapshot_push(&local, remote_root, &next, &set.files, git_record);
+    }
     Ok(summary)
 }
 
