@@ -17,7 +17,7 @@ final class ChiefMarkdownTableUITests: XCTestCase {
 
         let field = app.textViews["conversation.composer.text"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "Chief's composer\n\(app.debugDescription)")
-        if !field.hasKeyboardFocus { field.tap() }
+        field.tap()
         field.typeText("Show my agents table")
         app.buttons["conversation.composer.send"].tap()
 
