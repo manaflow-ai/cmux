@@ -330,12 +330,14 @@ Terminal capture never backpressures the hosted reader. A reader that waited
 for lane space would stop reading its host stream, and the host drops a daemon
 tap that falls 8 MiB behind, so input fails while the shell lives. When the
 terminal lane is full, the reader does not journal that output (or geometry
-change) and records a `terminal.output.gap` record with reason
-`journal_queue_full` ahead of the next record that fits (or at shutdown, if no
-later record comes). The gap marks the
-terminal for the coalesced checkpoint of `terminal-host.md` ("Durability
-boundary"); until that checkpoint exists, a restore preview reports the gap as
-unsupported. Lossless capture through a storage stall requires an acknowledged
+change) and marks the terminal for the coalesced checkpoint of
+`terminal-host.md` ("Durability boundary"). The terminal keeps dropping its
+output until the lane has drained to half its capacity, so one
+`terminal.output.gap` record with reason `journal_queue_full` covers the whole
+dropped range. That record goes ahead of the terminal's next record, or the
+retention worker records it ahead of its checkpoint when the terminal printed
+nothing more, or shutdown records it. Until that checkpoint exists, a restore
+preview reports the gap as unsupported. Lossless capture through a storage stall requires an acknowledged
 durable output spool.
 
 The checkpoint writer captures each terminal under its terminal lock as a

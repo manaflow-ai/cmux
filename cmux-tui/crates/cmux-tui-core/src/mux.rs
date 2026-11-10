@@ -6038,6 +6038,11 @@ impl Mux {
         });
     }
 
+    /// See [`crate::journal_ingress::JournalIngressSender::terminal_lane_can_resume`].
+    pub(crate) fn terminal_journal_lane_can_resume(&self) -> bool {
+        self.journal_ingress.terminal_lane_can_resume()
+    }
+
     pub(crate) fn try_journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,

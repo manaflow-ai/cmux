@@ -1684,7 +1684,9 @@ pub struct PtyTerminalRuntime {
     journal_capture_disabled: AtomicBool,
     /// Why this terminal's journal lost output that no `terminal.output.gap`
     /// record names yet. The record goes into the terminal lane before any
-    /// later output; lock it only under `journal_capture_gate`.
+    /// later output; after a full lane, only once the lane has drained to
+    /// half, so one record covers the whole dropped range. Lock it only under
+    /// `journal_capture_gate`.
     journal_gap_pending: Mutex<Option<&'static str>>,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
@@ -4555,6 +4557,14 @@ impl Surface {
         Ok(surface)
     }
 
+    /// Records this terminal's pending journal gap if the terminal lane takes
+    /// it: the retention worker calls this ahead of a coalesced checkpoint.
+    pub(crate) fn record_pending_journal_gap(&self) {
+        if let Some(pty) = self.as_pty() {
+            pty.record_pending_journal_gap();
+        }
+    }
+
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -6854,8 +6864,10 @@ impl PtySurface {
     /// journal is a replay record and must not hold this reader back: a
     /// reader that waits for lane space stops reading its host stream, and
     /// the host drops the daemon's tap once it is 8 MiB behind. When the lane
-    /// is full, the output is not journaled and a `journal_queue_full` gap
-    /// record goes ahead of the next output that fits.
+    /// is full, the output is not journaled, the terminal is noted for the
+    /// coalesced checkpoint, and the terminal keeps dropping until the lane
+    /// has drained to half; then one `journal_queue_full` gap record goes
+    /// ahead of the next output.
     fn journal_output_if_open(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
@@ -6873,7 +6885,7 @@ impl PtySurface {
                 }
                 let mut pending =
                     self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
-                if !self.record_journal_gap(&mux, &terminal_id, &mut pending) {
+                if !self.record_journal_gap(&mux, &terminal_id, &mut pending, true) {
                     return;
                 }
                 let sent = mux.try_journal_terminal_output(
@@ -6884,6 +6896,7 @@ impl PtySurface {
                 );
                 if matches!(sent, Ok(Some(_))) && pending.is_none() {
                     *pending = Some("journal_queue_full");
+                    mux.note_journal_gap_for_retention(&terminal_id);
                 }
                 sent
             };
@@ -6917,6 +6930,16 @@ impl PtySurface {
     /// the gap now if the terminal lane has room; otherwise the next output
     /// records it first.
     fn journal_gap(&self, reason: &'static str) {
+        self.journal_gap_now(Some(reason), true);
+    }
+
+    /// Records the pending gap, if any, without noting the terminal again:
+    /// the retention worker calls this for the terminals it checkpoints.
+    fn record_pending_journal_gap(&self) {
+        self.journal_gap_now(None, false);
+    }
+
+    fn journal_gap_now(&self, reason: Option<&'static str>, note_retention: bool) {
         let Some((mux, terminal_id)) = self.journal_target() else { return };
         let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
         if !self.journal_capture_open.load(Ordering::Acquire)
@@ -6926,25 +6949,33 @@ impl PtySurface {
         }
         let mut pending =
             self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
-        if pending.is_none() {
+        if let Some(reason) = reason.filter(|_| pending.is_none()) {
             *pending = Some(reason);
+            mux.note_journal_gap_for_retention(&terminal_id);
         }
-        self.record_journal_gap(&mux, &terminal_id, &mut pending);
+        self.record_journal_gap(&mux, &terminal_id, &mut pending, note_retention);
     }
 
-    /// Records the pending gap, if any. `false` while the terminal lane has
-    /// no room for it, so no later output may enter the lane yet.
+    /// Records the pending gap, if any. `false` while it cannot be recorded,
+    /// so no later output may enter the lane yet: the terminal lane has no
+    /// room, or (after a full lane) has not drained to half yet, so the
+    /// dropped range stays open under the one pending gap.
     fn record_journal_gap(
         &self,
         mux: &Arc<Mux>,
         terminal_id: &Arc<TerminalPublicId>,
         pending: &mut Option<&'static str>,
+        note_retention: bool,
     ) -> bool {
         let Some(reason) = *pending else { return true };
+        if reason == "journal_queue_full" && !mux.terminal_journal_lane_can_resume() {
+            return false;
+        }
         if !mux.journal_terminal_output_gap(
             terminal_id.clone(),
             self.journal_generation.clone(),
             reason,
+            note_retention,
         ) {
             return false;
         }
@@ -6964,7 +6995,7 @@ impl PtySurface {
         let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
         let mut pending =
             self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
-        if !self.record_journal_gap(&mux, &terminal_id, &mut pending) {
+        if !self.record_journal_gap(&mux, &terminal_id, &mut pending, true) {
             return;
         }
         if !mux.try_journal_terminal_resize(
@@ -6977,6 +7008,7 @@ impl PtySurface {
         ) && pending.is_none()
         {
             *pending = Some("journal_queue_full");
+            mux.note_journal_gap_for_retention(&terminal_id);
         }
     }
 

@@ -17,6 +17,9 @@ use crate::resource::{
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
 const JOURNAL_TERMINAL_BATCH_CHUNKS: usize = 64;
+/// A terminal that dropped output because the terminal lane was full resumes
+/// journaling once the lane has drained to this depth.
+const JOURNAL_TERMINAL_RESUME_DEPTH: usize = JOURNAL_TERMINAL_QUEUE_CAPACITY / 2;
 const JOURNAL_DURABLE_BATCH_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
@@ -775,6 +778,15 @@ impl JournalIngressSender {
                 anyhow::bail!(self.writer_error())
             }
         }
+    }
+
+    /// Whether a terminal that dropped output for a full terminal lane may
+    /// resume: the lane has drained to half its capacity. Resuming at the
+    /// first free slot would put one gap record and one chunk of output into
+    /// every writer batch for as long as a flood lasts.
+    pub(crate) fn terminal_lane_can_resume(&self) -> bool {
+        self.terminal_sender.is_none()
+            || self.state.stats.queued_depth(JournalLane::Terminal) <= JOURNAL_TERMINAL_RESUME_DEPTH
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {

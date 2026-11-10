@@ -18,7 +18,10 @@
 //! covers every gap of that wave; terminals that ended meanwhile are skipped.
 //! A hosted reader whose terminal lane is full records the same kind of gap
 //! (reason `journal_queue_full`) for the output it could not journal, and the
-//! same checkpoint covers it.
+//! same checkpoint covers it. Such a gap marks its terminal when it becomes
+//! pending, before its record can enter the lane, and the worker records a
+//! gap that is still pending ahead of its checkpoint: a terminal that prints
+//! nothing after the drop still gets its gap record and its checkpoint.
 //!
 //! Unlike feat, whose checkpoints hold no terminal screens, a checkpoint here
 //! replays every terminal under its parser lock, and it fails ("session
@@ -176,15 +179,17 @@ enum CaptureOutcome {
 impl Mux {
     /// O(1) gap bookkeeping for a terminal whose journal lost output: the
     /// host dropped the daemon's tap (`host_reconnect`), or the terminal lane
-    /// was full (`journal_queue_full`). Records the gap without waiting and
-    /// notes the terminal for the next coalesced checkpoint. `false` when the
-    /// terminal lane has no room: nothing was recorded, and the caller keeps
-    /// the gap pending ahead of its next output.
+    /// was full (`journal_queue_full`). Records the gap without waiting and,
+    /// with `note_retention`, notes the terminal for the next coalesced
+    /// checkpoint. `false` when the terminal lane has no room: nothing was
+    /// recorded, and the caller keeps the gap pending ahead of its next
+    /// output.
     pub(crate) fn journal_terminal_output_gap(
         self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         reason: &'static str,
+        note_retention: bool,
     ) -> bool {
         let recorded = self.journal_ingress.try_send_terminal_gap(
             crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
@@ -197,13 +202,22 @@ impl Mux {
         if recorded.is_err() {
             return false;
         }
+        if note_retention {
+            self.note_journal_gap_for_retention(&terminal_id);
+        }
+        true
+    }
+
+    /// Notes a terminal whose journal lost output for the next coalesced
+    /// checkpoint, and starts the retention worker on first use.
+    pub(crate) fn note_journal_gap_for_retention(self: &Arc<Self>, terminal_id: &TerminalPublicId) {
         let retention = &self.journal_retention;
         retention
             .shared
             .schedule
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .note(TerminalPublicId::clone(&terminal_id), Instant::now());
+            .note(terminal_id.clone(), Instant::now());
         retention.shared.changed.notify_all();
         if !retention.worker_started.swap(true, Ordering::AcqRel) {
             let shared = retention.shared.clone();
@@ -216,7 +230,6 @@ impl Mux {
                 eprintln!("cmux-tui: could not start the journal retention worker: {error}");
             }
         }
-        true
     }
 
     /// Coalesced checkpoints committed by the retention worker.
@@ -259,6 +272,13 @@ impl Mux {
         let Some(first) = batch.first().filter(|_| live > 0) else {
             return CaptureOutcome::NothingLive;
         };
+        // A gap still pending (its terminal printed nothing since the drop)
+        // goes into the journal ahead of the checkpoint that covers it.
+        for terminal in batch {
+            if let Some(surface) = self.terminal_resource_surface(terminal) {
+                surface.record_pending_journal_gap();
+            }
+        }
         let sequence = self.journal_retention.captures.load(Ordering::Acquire);
         let key = format!(
             "host-reconnects:{}:{}:{sequence}:{}",
