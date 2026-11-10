@@ -45,6 +45,7 @@ mod parked_trim;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 mod tail;
+mod writer;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -544,7 +545,7 @@ pub(crate) struct OutputStore {
     /// `None` for an in-memory session (no registry directory).
     directory: Option<PathBuf>,
     logs: Mutex<HashMap<TerminalPublicId, Arc<TerminalLog>>>,
-    writer: snapshot::Writer,
+    writer: writer::Writer,
     full: segments::Segments,
     /// Snapshot mode: output after the snapshot goes to its tail file.
     tail: std::sync::atomic::AtomicBool,
@@ -598,7 +599,7 @@ impl OutputStore {
         Self {
             directory: registry_directory.map(|directory| directory.join(STORE_DIRECTORY)),
             logs: Mutex::new(HashMap::new()),
-            writer: snapshot::Writer::default(),
+            writer: writer::Writer::default(),
             full: segments::Segments::default(),
             tail: std::sync::atomic::AtomicBool::new(false),
             last_enforce: Mutex::new(None),
