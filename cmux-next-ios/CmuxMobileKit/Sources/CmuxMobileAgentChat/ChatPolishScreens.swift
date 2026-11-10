@@ -318,7 +318,7 @@ struct EventInspectorDetail: View {
                     Text("Cut at \(json.text.count) of \(total) characters").font(.footnote).foregroundStyle(.secondary)
                 }
                 // Range-selectable (CMUX-33): `.textSelection` grabbed the whole document.
-                SelectableTextView(json.text, textStyle: .footnote, monospaced: true, scrolls: false)
+                SelectableTextView(json.text, textStyle: .footnote, monospaced: true, scrolls: false, identifier: "chat.inspector.json")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("chat.inspector.json")
             }

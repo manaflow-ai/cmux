@@ -42,6 +42,7 @@ struct AgentIncomingCard: View {
         .contextMenu {
             Section(AgentTurn.menuTimestamp(at)) {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = incoming.text }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(incoming.text) }
                 // The prompt the agent got, envelope and all.
                 Button("Copy as Sent", systemImage: "envelope") { UIPasteboard.general.string = incoming.raw }
                 if let id = incoming.messageID {

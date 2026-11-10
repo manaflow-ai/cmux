@@ -495,7 +495,7 @@ struct FailureCard: View {
             if let detail {
                 DisclosureGroup("Details") {
                     // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
-                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false)
+                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote)

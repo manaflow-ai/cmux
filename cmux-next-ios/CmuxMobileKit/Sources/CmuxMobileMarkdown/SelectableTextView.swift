@@ -15,12 +15,17 @@ public struct SelectableTextView: UIViewRepresentable {
     public let monospaced: Bool
     /// False: sized to its text (in a scroll view or a disclosure); true: scrolls itself (a sheet).
     public let scrolls: Bool
+    public let textColor: UIColor
+    public let identifier: String
 
-    public init(_ text: String, textStyle: UIFont.TextStyle = .body, monospaced: Bool = false, scrolls: Bool = true) {
+    public init(_ text: String, textStyle: UIFont.TextStyle = .body, monospaced: Bool = false, scrolls: Bool = true,
+                textColor: UIColor = .label, identifier: String = "selectText.text") {
         self.text = text
         self.textStyle = textStyle
         self.monospaced = monospaced
         self.scrolls = scrolls
+        self.textColor = textColor
+        self.identifier = identifier
     }
 
     public func makeUIView(context: Context) -> UITextView {
@@ -52,40 +57,36 @@ public struct SelectableTextView: UIViewRepresentable {
         view.isScrollEnabled = scrolls
         view.dataDetectorTypes = [.link]
         view.backgroundColor = .clear
-        view.textColor = .label
+        view.textColor = textColor
         let base = UIFont.preferredFont(forTextStyle: textStyle)
         view.font = monospaced
             ? UIFontMetrics(forTextStyle: textStyle).scaledFont(for: .monospacedSystemFont(ofSize: base.pointSize, weight: .regular))
             : base
         view.adjustsFontForContentSizeCategory = true
         view.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
-        view.accessibilityIdentifier = "selectText.text"
+        view.accessibilityIdentifier = identifier
         return view
     }
 }
 
-/// The Select Text sheet: the whole text in a `SelectableTextView`, at medium and large detents.
-struct SelectTextSheet: View {
-    let text: String
-    let monospaced: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            SelectableTextView(text, monospaced: monospaced)
-                .ignoresSafeArea(edges: .bottom)
-                .navigationTitle("Select text")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
-        }
-        .presentationDetents([.medium, .large])
-    }
-}
-
-public extension View {
-    /// Presents the Select Text sheet for `text` (read when it opens) while `isPresented` is true.
-    func selectTextSheet(isPresented: Binding<Bool>, monospaced: Bool = false, text: @escaping () -> String) -> some View {
-        sheet(isPresented: isPresented) { SelectTextSheet(text: text(), monospaced: monospaced) }
+public extension SelectableTextView {
+    /// The Select Text sheet: this text, at medium and large detents, presented from the key
+    /// window's top controller. Not a SwiftUI `.sheet` on the row: a transcript row is lazy, and
+    /// a chat that follows new rows would recycle it and close the sheet mid-selection.
+    func present() {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        guard let top else { return }
+        let controller = UIViewController()
+        controller.view = makeTextView()
+        controller.title = String(localized: "Select text")
+        let navigation = UINavigationController(rootViewController: controller)
+        controller.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
+            navigation?.dismiss(animated: true)
+        })
+        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        top.present(navigation, animated: true)
     }
 }
 #endif

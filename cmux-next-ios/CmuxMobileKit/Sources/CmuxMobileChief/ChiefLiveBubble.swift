@@ -184,7 +184,6 @@ struct ChiefLiveDetails: View {
 /// One detail: a thought's text, or a tool or note step.
 struct ChiefLiveDetailRow: View {
     let detail: ChiefLive.Detail
-    @State private var selecting = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -203,9 +202,8 @@ struct ChiefLiveDetailRow: View {
                         .foregroundStyle(.secondary)
                         .contextMenu {
                             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = detail.text }
-                            Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
+                            Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(detail.text).present() }
                         }
-                        .selectTextSheet(isPresented: $selecting) { detail.text }
                 }
             }
             if detail.isRunning {
