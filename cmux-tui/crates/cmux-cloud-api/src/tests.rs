@@ -1610,3 +1610,69 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
         assert_eq!(failure, Failure::http(500, None, None));
     });
 }
+
+/// Review of #40104 at bac760b8 (F1): a preview or publication call keeps its caller's deadline
+/// ([`perform_by`]). With less than the second a request needs left, none is sent; a publication
+/// call whose first request used up its time never sends its second. A fake clock (each request
+/// the fake answers moves it on by `step`), synthetic deadlines and edges; no test waits.
+#[test]
+fn preview_and_publication_calls_end_by_the_callers_deadline() {
+    use std::time::Instant;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    // Through perform_by itself: 999 ms is less than a request's second, so nothing is sent.
+    const CATALOG: &str =
+        r#"{"machine":"vm_abc","listening":[3000],"previews":[],"unavailable":[]}"#;
+    let (origin, seen) = fake(|_| ok(CATALOG));
+    let refresh =
+        request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" }));
+    let by = Instant::now() + Duration::from_millis(999);
+    let answer = runtime.block_on(perform_by(&refresh, Zeroizing::new(Vec::new()), by));
+    assert!(matches!(answer, Err(Failure::TimedOut(_))), "{answer:?}");
+    assert!(seen.lock().unwrap().is_empty(), "no request past the deadline");
+
+    for round in 0..3 {
+        // (call, args, time left, each request's time, requests sent, answered)
+        let keys = json!({ "publication": "p3000-abc.preview.test" });
+        let cases = [
+            ("previews.refresh", json!({ "machine": "vm_abc" }), 1_000, 0, 1, true),
+            ("previews.refresh", json!({ "machine": "vm_abc" }), 999, 0, 0, false),
+            ("vm.publication_api_keys", keys.clone(), 30_000, 10_000, 2, true),
+            // The list takes 10 s of 10.5: the keys request is never sent.
+            ("vm.publication_api_keys", keys.clone(), 10_500, 10_000, 1, false),
+            // Exactly the second the keys request needs is left.
+            ("vm.publication_api_keys", keys, 11_000, 10_000, 2, true),
+        ];
+        for (call, args, left_ms, step_ms, sent, answered) in cases {
+            let start = Instant::now();
+            let clock = Arc::new(Mutex::new(start));
+            let tick = Arc::clone(&clock);
+            let (origin, seen) = fake(move |s| {
+                *tick.lock().unwrap() += Duration::from_millis(step_ms);
+                if s.line.starts_with("GET /v1/cloud/previews ") {
+                    ok(&format!(r#"{{"previews":[{PUBLICATION}]}}"#))
+                } else if s.line.starts_with("GET") {
+                    ok(&format!(r#"{{"apiKeys":[{KEY}]}}"#))
+                } else {
+                    ok(CATALOG)
+                }
+            });
+            let now = Arc::clone(&clock);
+            let deadline = Deadline {
+                by: start + Duration::from_millis(left_ms),
+                now: Arc::new(move || *now.lock().unwrap()),
+            };
+            let call_request = request(&origin, Auth::Worker, call, args);
+            let answer = runtime.block_on(perform_until(
+                &call_request,
+                Zeroizing::new(Vec::new()),
+                deadline,
+            ));
+            let case = format!("round {round}, {call}, {left_ms} ms left: {answer:?}");
+            assert_eq!(seen.lock().unwrap().len(), sent, "{case}");
+            assert_eq!(answer.is_ok(), answered, "{case}");
+            if !answered {
+                assert!(matches!(answer, Err(Failure::TimedOut(_))), "{case}");
+            }
+        }
+    }
+}

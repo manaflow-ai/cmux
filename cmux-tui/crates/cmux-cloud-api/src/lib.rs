@@ -244,8 +244,18 @@ pub async fn perform_by(
     tail: Zeroizing<Vec<u8>>,
     by: std::time::Instant,
 ) -> Result<Value, Failure> {
+    perform_until(request, tail, Deadline { by, now: std::sync::Arc::new(std::time::Instant::now) })
+        .await
+}
+
+/// [`perform_by`] with the deadline's own clock (a test's fake one).
+pub(crate) async fn perform_until(
+    request: &Request,
+    tail: Zeroizing<Vec<u8>>,
+    deadline: Deadline,
+) -> Result<Value, Failure> {
+    let by = deadline.by;
     let cut = tokio::time::Instant::from_std(by.checked_add(CLEANUP).unwrap_or(by));
-    let deadline = Deadline { by, now: std::sync::Arc::new(std::time::Instant::now) };
     match tokio::time::timeout_at(cut, DEADLINE.scope(deadline, perform(request, tail))).await {
         Ok(result) => result,
         Err(_) => Err(Failure::TimedOut(request.call.clone())),

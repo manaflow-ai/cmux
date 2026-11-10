@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// NEXT's Cloud API client: each call is one of the cmux daemon's `cloud.*` operations
 /// (``CloudDaemon``; crate `cmux-cloud-api`), which sends the request, holds its deadline, retries
@@ -25,6 +26,8 @@ public struct CloudAPIClient: Sendable {
     var machineIO: CloudMachineIO?
     /// A Worker machines client's install token, for the routes that take an install, not a session (``listNetworks()``).
     var installToken: (@Sendable () async throws -> String)?
+    /// A Worker machines client's blocking-work lanes: its transfer files' disk work runs there.
+    var work: BackgroundWork?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with

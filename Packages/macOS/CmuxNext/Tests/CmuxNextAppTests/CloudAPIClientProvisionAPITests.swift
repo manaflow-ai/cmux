@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -29,7 +30,7 @@ struct CloudAPIClientProvisionAPITests {
     /// The app's preview client (CloudService.previewAPI): the person's session at the platform origin.
     private func api(_ fake: CloudDaemonFake) throws -> CloudAPIClient {
         CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
-                                      teamID: { "team-1" }, daemon: fake.daemon)
+                                      teamID: { "team-1" }, daemon: fake.daemon, work: BackgroundWork())
             .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 

@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ struct CloudPreviewShareLinkTests {
 
     private func api(_ fake: CloudDaemonFake) throws -> CloudAPIClient {
         CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
-                                      accessToken: { "access" }, teamID: { "team_1" }, daemon: fake.daemon)
+                                      accessToken: { "access" }, teamID: { "team_1" }, daemon: fake.daemon, work: BackgroundWork())
             .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 

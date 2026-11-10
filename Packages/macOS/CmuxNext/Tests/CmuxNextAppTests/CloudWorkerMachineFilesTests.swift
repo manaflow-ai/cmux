@@ -2,6 +2,7 @@
 @testable import CmuxNextCloud
 @testable import CmuxNextCloudCredentials
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -10,6 +11,8 @@ import Testing
 /// person's Stack session and the cmux team: a Mac install has no execute grant (backend
 /// domains/user.ts), so the route's caller check (cloud-client-session.ts) refuses its token with a 403.
 struct CloudWorkerMachineFilesTests {
+    /// The client's blocking-work lanes: every transfer file's disk work runs on its files lane.
+    let work = BackgroundWork()
     private static let origin = URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/dev/null")
 
     private func fake() -> CloudDaemonFake {
@@ -28,7 +31,7 @@ struct CloudWorkerMachineFilesTests {
     }
 
     private func worker(_ fake: CloudDaemonFake) -> CloudAPIClient {
-        CloudAPIClient.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" }, daemon: fake.daemon)
+        CloudAPIClient.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" }, daemon: fake.daemon, work: work)
     }
 
     @Test func execAndFilesGoToTheWorkerRoutesWithThePersonsSessionAndCmuxTeam() async throws {
@@ -152,18 +155,40 @@ struct CloudWorkerMachineFilesTests {
     @Test func aTransferFileOutlivesACancelledCallerUntilTheCallEnds() async throws {
         let folder = try CloudTransferFile.folder()
         #expect(folder.lastPathComponent == "cmux-cloud-transfer" && folder.path.hasPrefix("/var/folders/"))
-        let file = try await CloudTransferFile.make()
-        try await file.write(Data("x".utf8))
-        await file.done()
+        let file = try await CloudTransferFile.make(on: work)
+        try await file.write(Data("x".utf8), on: work)
+        await file.done(on: work)
         #expect(FileManager.default.fileExists(atPath: file.url.path), "the call still holds it")
         file.callEnded()
         #expect(!FileManager.default.fileExists(atPath: file.url.path))
 
-        let other = try await CloudTransferFile.make()
-        try await other.write(Data("y".utf8))
+        let other = try await CloudTransferFile.make(on: work)
+        try await other.write(Data("y".utf8), on: work)
         other.callEnded()
         #expect(FileManager.default.fileExists(atPath: other.url.path), "the caller still reads it")
-        await other.done()
+        await other.done(on: work)
         #expect(!FileManager.default.fileExists(atPath: other.url.path))
+    }
+
+    /// Review of #40104 at bac760b8 (F2): a transfer file's disk work goes through the client's
+    /// files lane, never Swift's cooperative pool. With those lanes shut down (no item starts), a
+    /// large write and a read each end before any daemon call, again and again.
+    @Test func transferFileDiskWorkRunsOnTheFilesLane() async throws {
+        let fake = fake()
+        let closed = BackgroundWork()
+        await closed.shutdown()
+        let client = CloudAPIClient.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" },
+                                                   daemon: fake.daemon, work: closed)
+        let large = Data(repeating: 7, count: CloudTransferFile.inlineLimit + 1)
+        for _ in 0..<3 {
+            await #expect(throws: CancellationError.self) {
+                try await client.writeFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/big", data: large)
+            }
+            await #expect(throws: CancellationError.self) { try await client.readFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/a") }
+        }
+        #expect(fake.sent.isEmpty, "no daemon call went without its file")
+        // A small write needs no file and no lane.
+        try await client.writeFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/small", data: Data("hi".utf8))
+        #expect(fake.sent.last?.args["data_base64"] as? String == "aGk=")
     }
 }

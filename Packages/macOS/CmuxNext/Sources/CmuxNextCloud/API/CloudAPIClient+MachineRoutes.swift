@@ -1,8 +1,9 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
 
 /// A machine's exec and file calls on a Worker machines client
-/// (``workerMachines(baseURL:accessToken:teamID:daemon:appVersion:machineIO:installToken:)``): the
+/// (``workerMachines(baseURL:accessToken:teamID:daemon:work:appVersion:machineIO:installToken:)``): the
 /// daemon's `cloud.machine.io` (cmux-cloud-api `machine_io`), which reaches the machine's provider
 /// directly with a short-lived client session when it can and cmux-platform's
 /// `/v1/cloud/machines/{id}/...` otherwise, as the person's Stack session in the cmux team, never
@@ -14,15 +15,17 @@ extension CloudAPIClient {
     /// link lists its machines in), like ``CloudOwnerAPIClient``. Never this Mac's install token: a
     /// Mac install has no execute grant (cmux-platform#89). `machineIO`: the bundled cmux, for the
     /// sealed secret delivery. `installToken`: this Mac's install token, for the one route that
-    /// takes an install, not a session (``listNetworks()``).
+    /// takes an install, not a session (``listNetworks()``). `work`: the app's blocking-work lanes;
+    /// a transfer file's disk work runs on its files lane, never on Swift's cooperative pool.
     public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
-                                      teamID: @escaping TeamID, daemon: CloudDaemon, appVersion: String = "cmux-next",
+                                      teamID: @escaping TeamID, daemon: CloudDaemon, work: BackgroundWork, appVersion: String = "cmux-next",
                                       machineIO: CloudMachineIO? = nil,
                                       installToken: (@Sendable () async throws -> String)? = nil) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, daemon: daemon,
                                     appVersion: appVersion)
         client.machineIO = machineIO
         client.installToken = installToken
+        client.work = work
         return client
     }
 
@@ -50,15 +53,16 @@ extension CloudAPIClient {
             var path: String?
             var size: Int64?
         }
-        let file = try await CloudTransferFile.make()
+        let work = try fileWork()
+        let file = try await CloudTransferFile.make(on: work)
         do {
             let read = try await machine("read", id, ["path": path, "local_path": file.url.path], wait: .seconds(120),
                                          ended: file.callEnded, as: Read.self)
-            let (encoded, count) = try await file.base64()
-            await file.done()
+            let (encoded, count) = try await file.base64(on: work)
+            await file.done(on: work)
             return CloudFileContents(path: read.path, dataBase64: encoded, size: read.size ?? Int64(count))
         } catch {
-            await file.done()
+            await file.done(on: work)
             throw error
         }
     }
@@ -74,23 +78,24 @@ extension CloudAPIClient {
             _ = try await machine("write", id, args, wait: .seconds(120))
             return
         }
-        let file = try await CloudTransferFile.make()
+        let work = try fileWork()
+        let file = try await CloudTransferFile.make(on: work)
         do {
-            try await file.write(data)
+            try await file.write(data, on: work)
         } catch {
             // No call was made: the call's hold goes too.
             file.callEnded()
-            await file.done()
+            await file.done(on: work)
             throw error
         }
         do {
             args["local_path"] = file.url.path
             _ = try await machine("write", id, args, wait: .seconds(120), ended: file.callEnded)
         } catch {
-            await file.done()
+            await file.done(on: work)
             throw error
         }
-        await file.done()
+        await file.done(on: work)
     }
 
     public func makeDirectory(_ id: String, path: String) async throws {
@@ -103,6 +108,13 @@ extension CloudAPIClient {
 
     public func statFile(_ id: String, path: String) async throws -> CloudFileStat {
         try await machine("stat", id, ["path": path], wait: .seconds(20), as: CloudFileStat.self)
+    }
+
+    /// The lanes a transfer file's disk work runs on (a Worker machines client's own).
+    private func fileWork() throws -> BackgroundWork {
+        try requireWorker()
+        guard let work else { throw CloudAPIError.transport("machine file calls are a Worker machines client's") }
+        return work
     }
 
     /// One exec or file operation (`cloud.machine.io` with `op`); refused on the sign-in client.
@@ -158,33 +170,46 @@ final class CloudTransferFile: Sendable {
     }
 
     /// A fresh name in the transfer folder, made 0700 if it is new; nothing is created at the name.
-    /// (The daemon refuses a folder open to anyone else.) Off the caller's actor, as is every disk
-    /// step here: a Cloud action handler calls these on the main actor.
-    @concurrent nonisolated static func make() async throws -> CloudTransferFile {
+    /// (The daemon refuses a folder open to anyone else.) Every disk step here runs on `work`'s files
+    /// lane (review of #40104 at bac760b8, F2): never on the caller's actor (a Cloud action handler
+    /// calls these on the main actor) nor on Swift's cooperative pool, which large transfers would hold.
+    static func make(on work: BackgroundWork) async throws -> CloudTransferFile {
         let folder = try Self.folder()
-        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try await work.run(.userVisible, mayBlock: .files) {
+            try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         return CloudTransferFile(url: folder.appendingPathComponent(UUID().uuidString, isDirectory: false))
     }
 
     /// Writes `data` to a new 0600 file at the name (in a folder only this user may enter).
-    @concurrent nonisolated func write(_ data: Data) async throws {
-        guard FileManager.checked.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
-            throw CloudAPIError.transport("the transfer file could not be written")
+    func write(_ data: Data, on work: BackgroundWork) async throws {
+        let url = url
+        let written = try await work.run(.userVisible, mayBlock: .files) {
+            FileManager.checked.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600])
         }
+        guard written else { throw CloudAPIError.transport("the transfer file could not be written") }
     }
 
     /// The bytes the daemon wrote at the name, as base64, and how many there are.
-    @concurrent nonisolated func base64() async throws -> (String, Int) {
-        let data = try Data(blockingContentsOf: url)
-        return (data.base64EncodedString(), data.count)
+    func base64(on work: BackgroundWork) async throws -> (String, Int) {
+        let url = url
+        return try await work.run(.userVisible, mayBlock: .files) {
+            let data = try Data(blockingContentsOf: url)
+            return (data.base64EncodedString(), data.count)
+        }
     }
 
     /// The call's end (``CloudDaemon/Send``'s `ended`, on the call's own thread).
     var callEnded: @Sendable () -> Void { { [self] in release() } }
 
-    /// The caller is done with the file (answered, failed or cancelled).
-    @concurrent nonisolated func done() async {
-        release()
+    /// The caller is done with the file (answered, failed or cancelled): let go on the files lane,
+    /// which runs it even at quit; a caller cancelled before it starts lets go here (one unlink).
+    func done(on work: BackgroundWork) async {
+        do {
+            try await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { [self] in release() }
+        } catch {
+            release()
+        }
     }
 
     /// Removes the file when the last holder lets it go.

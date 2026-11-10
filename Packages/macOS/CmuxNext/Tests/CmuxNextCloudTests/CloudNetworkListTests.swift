@@ -1,4 +1,5 @@
 @testable import CmuxNextCloud
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ struct CloudNetworkListTests {
             CloudDaemonFake.read(#"[{"id":"team_aaaaaaaaaaaaaaaaaaaa","meshId":"mesh_0123456789abcdefghjkmnpqrs","cidr":"10.128.16.0/20","cidrV6":null,"scope":"team"}]"#)
         }
         let worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
-                                                   accessToken: { "session" }, teamID: { "team_1" }, daemon: fake.daemon,
+                                                   accessToken: { "session" }, teamID: { "team_1" }, daemon: fake.daemon, work: BackgroundWork(),
                                                    installToken: { "install" })
         let networks = try await worker.listNetworks()
         // The id is the team's, so `cloud network-list` output feeds `cloud tunnel attach` as it is.

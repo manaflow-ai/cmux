@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -17,7 +18,7 @@ struct CloudLivePreviewTests {
     @Test func refreshUsesNewCloudWithThePersonsAccessAndTeam() async throws {
         let fake = CloudDaemonFake { _, _ in CloudDaemonFake.value(Self.response) }
         let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
-                                                accessToken: { "person-access" }, teamID: { "team-one" }, daemon: fake.daemon)
+                                                accessToken: { "person-access" }, teamID: { "team-one" }, daemon: fake.daemon, work: BackgroundWork())
             .previewClient(baseURL: try #require(URL(string: "https://machines.standin.invalid")))
         let result = try await api.refreshPreviews("vm-one")
         #expect(result.listening == [22, 3000, 8080])

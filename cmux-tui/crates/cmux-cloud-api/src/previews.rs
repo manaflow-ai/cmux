@@ -182,7 +182,12 @@ async fn answered(
     sent: impl Future<Output = Result<Value, ClientError>>,
 ) -> Result<Value, Failure> {
     // One deadline for the whole call, its refusal's body included, not the generated
-    // client's longer default.
+    // client's longer default, and never past the caller's ([`crate::perform_by`]): with no
+    // time left the request is never sent (`sent` is never polled). A publication call's every
+    // request comes through here, each cut to what is left (review of #40104 at bac760b8, F1).
+    let Some(limit) = crate::within(limit, std::time::Duration::ZERO) else {
+        return Err(Failure::TimedOut(path));
+    };
     let now = tokio::time::Instant::now();
     let deadline = now.checked_add(limit).unwrap_or(now);
     within(deadline, path, sent, |error| async move {
