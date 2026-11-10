@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CoreFoundation
 import Foundation
-import CmuxNextCompat
+@testable import CmuxNextCompat
 import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogTests {
@@ -60,10 +60,12 @@ import Testing
         watchdog.afterSampleForTesting.withLock { $0 = { sampled.fire() } }
         watchdog.start()
         defer { watchdog.stop() }
+        let table = BlockingViolationTable(mode: .record)  // the site is recorded here, never in the process's table
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-            // The process's detector records this site once (Debug: record unless CMUX_BLOCKING_TRAP=1).
-            blockingCall(.fileIO, line: 4_242) {
-                stallForTestUntilSampled(clock: clock, by: .milliseconds(150), sampled: sampled)
+            BlockingViolationTable.$scoped.withValue(table) {
+                blockingCall(.fileIO, line: 4_242) {
+                    stallForTestUntilSampled(clock: clock, by: .milliseconds(150), sampled: sampled)
+                }
             }
             CFRunLoopStop(CFRunLoopGetMain())
         }

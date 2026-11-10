@@ -34,9 +34,11 @@ struct BlockingOpenCallTests {
         #expect(BlockingOpenCall.current() == .none)
     }
 
-    @Test func aCallOffTheMainThreadIsNotOpen() async {
-        let seen = await Task.detached { blockingCall(.fileIO) { BlockingOpenCall.current() } }.value
-        #expect(seen == .none)
+    /// The open call is the main thread's: a checked call on another thread never becomes it,
+    /// whatever the main thread is doing meanwhile (line 1 is used nowhere else).
+    @Test func aCallOffTheMainThreadIsNeverTheOpenCall() async {
+        let inside = await Task.detached { blockingCall(.fileIO, line: 1) { BlockingOpenCall.current() } }.value
+        #expect(inside.location?.hasSuffix("BlockingOpenCallTests.swift:1") != true)
     }
 
     @Test func theWordsRoundTrip() {
