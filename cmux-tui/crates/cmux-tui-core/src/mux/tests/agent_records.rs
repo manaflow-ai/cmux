@@ -452,3 +452,128 @@ fn closed_terminals_leave_no_hook_fence_and_the_start_load_reads_none() {
     );
     mux.shutdown();
 }
+
+/// The number for the person's session shape (2026-11-10: 826 workspaces, 214 agent records, 111
+/// of them of closed terminals): what `agent.list` and one session snapshot cost with the dead
+/// records stored and with none, in turn, in one process.
+///
+/// In process: a LOWER BOUND. The registry is in memory (no file, no WAL, no page cache miss), no
+/// other request holds the two locks, no terminal has a process, and the reply is not written to
+/// a socket. The daemon start, the read of each agent report and the journal checkpoint are not
+/// timed. It asserts only the rows read; the times are printed.
+#[cfg(unix)]
+#[test]
+fn the_cost_of_dead_agent_records_at_the_persons_session_shape() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    use crate::mux::resource_content::without_crosscheck;
+
+    const WORKSPACES: usize = 826;
+    const LIVE: usize = 103;
+    const DEAD: usize = 111;
+    const ROUNDS: usize = 15;
+
+    // One running terminal in each workspace; the last `DEAD` workspaces close.
+    let mux = without_crosscheck(|| super::workspace_close_cost::session(WORKSPACES + DEAD));
+    let public_id = |index: usize| {
+        let raw = format!("00000000000040008000{:012x}", index + 1);
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(&raw).unwrap().unwrap()
+    };
+    let live = (0..LIVE).map(|index| public_id(index).to_string()).collect::<Vec<_>>();
+    let dead = (WORKSPACES..WORKSPACES + DEAD)
+        .map(|index| public_id(index).to_string())
+        .collect::<Vec<_>>();
+    without_crosscheck(|| {
+        for id in live.iter().chain(&dead) {
+            start_hook_agent(&mux, id);
+        }
+    });
+    settled(&mux);
+    let old = dead.iter().map(|id| old_record(&mux, id)).collect::<Vec<_>>();
+    let keys = mux.with_state(|state| {
+        state.workspaces[WORKSPACES..]
+            .iter()
+            .map(|workspace| workspace.key.clone())
+            .collect::<Vec<_>>()
+    });
+    without_crosscheck(|| {
+        for key in keys.iter().rev() {
+            let mutation =
+                WorkspaceMutation::daemon(format!("agent-records-close-{key}"), "test").unwrap();
+            mux.close_workspace_ending_terminals(None, Some(key), None, None, &mutation).unwrap();
+        }
+    });
+    settled(&mux);
+    assert_eq!(mux.with_state(|state| state.workspaces.len()), WORKSPACES);
+    let tombstoned: i64 = mux
+        .registry_connection
+        .get()
+        .query_row(
+            "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tombstoned, DEAD as i64, "setup: the close tombstones each terminal");
+
+    let remove_dead = || {
+        let db = mux.registry_connection.get();
+        for id in &dead {
+            db.execute("DELETE FROM resource_agent_projections WHERE terminal_id = ?1", [id])
+                .unwrap();
+            db.execute("DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1", [id])
+                .unwrap();
+        }
+    };
+    let timed = |operation: &str| {
+        let start = Instant::now();
+        black_box(resource(&mux, operation, json!({})));
+        start.elapsed().as_secs_f64() * 1000.0
+    };
+    // [arm][operation] -> times in ms; arm 0 has the dead records, arm 1 has none.
+    let mut times = [[Vec::new(), Vec::new()], [Vec::new(), Vec::new()]];
+    let mut rows = [0, 0];
+    let mut listed = [0, 0];
+    // As release builds run: the debug cross-check of each projection is off for both arms.
+    without_crosscheck(|| {
+        for _ in 0..ROUNDS {
+            for arm in 0..2 {
+                if arm == 0 {
+                    old.iter().for_each(|record| put_old_record(&mux, record));
+                } else {
+                    remove_dead();
+                }
+                let before = rows_read();
+                listed[arm] =
+                    resource(&mux, "agent.list", json!({})).as_array().map_or(0, Vec::len);
+                rows[arm] = rows_read() - before;
+                times[arm][0].push(timed("agent.list"));
+                times[arm][1].push(timed("session.snapshot"));
+            }
+        }
+    });
+    remove_dead();
+
+    let summary = |samples: &mut Vec<f64>| {
+        samples.sort_by(f64::total_cmp);
+        format!(
+            "p50 {:.2} min {:.2} max {:.2}",
+            samples[samples.len() / 2],
+            samples[0],
+            samples[samples.len() - 1]
+        )
+    };
+    let mut report = Vec::new();
+    for (arm, name) in ["with 111 dead records", "with no dead record"].into_iter().enumerate() {
+        let (list, snapshot) = (summary(&mut times[arm][0]), summary(&mut times[arm][1]));
+        report.push(format!(
+            "agent-records-measure {name}: workspaces={WORKSPACES} records_read={} \
+             agents_listed={} n={ROUNDS} ms: agent.list {list}; session.snapshot {snapshot}",
+            rows[arm], listed[arm],
+        ));
+    }
+    assert_eq!(rows, [LIVE + DEAD, LIVE], "agent records that agent.list decodes in each arm");
+    mux.shutdown();
+    panic!("MEASURE ONLY (not a failure of the code):\n{}", report.join("\n"));
+}
