@@ -129,6 +129,17 @@ impl MacDesktop {
         Ok(())
     }
 
+    /// Refuses keys or text that open a focused pop-up's menu (Space, Return,
+    /// arrows). An editable combo box only types them.
+    fn refuse_menu_keys(&self, el: &Ax) -> DResult<()> {
+        match menu_role(el) {
+            Some(role) if role != "AXComboBox" => {
+                Err(DesktopError::Unsupported(roles::menu_refusal(&role)))
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Refuses a background pointer click at `at` that would land on a
     /// menu-opening element (the app's own hit test, then a few ancestors:
     /// the click may hit a pop-up's inner cell or text).
@@ -304,7 +315,7 @@ pub(super) fn type_text(
         if delivery == Delivery::Background {
             // A space or newline typed into a focused pop-up opens its menu.
             if roles::text_opens_menu(text) {
-                d.refuse_menu(el)?;
+                d.refuse_menu_keys(el)?;
             }
             // Focusing an element of the app the person is using moves their
             // caret, and keys sent after it would follow.
@@ -350,7 +361,7 @@ pub(super) fn press_keys(
         && roles::key_opens_menu(&combo.key)
         && let Some(focused) = d.focused_in(&t)
     {
-        d.refuse_menu(&focused)?;
+        d.refuse_menu_keys(&focused)?;
     }
     input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
     Ok(ActionOutcome::delivered(route.name()))

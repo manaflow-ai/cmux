@@ -119,7 +119,8 @@ pub fn opens_menu(role: &str, in_web: bool, has_menu: bool) -> bool {
     )
 }
 
-/// Keys that open a focused pop-up button or combo box.
+/// Keys that open a focused pop-up or menu button (an editable combo box
+/// only types them).
 pub fn key_opens_menu(key: &crate::keys::Key) -> bool {
     use crate::keys::Key;
     matches!(key, Key::Space | Key::Return | Key::Up | Key::Down) || *key == Key::Char(' ')

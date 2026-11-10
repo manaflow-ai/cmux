@@ -167,11 +167,15 @@ fn running(bundle_id: &str) -> Option<RunningApp> {
 }
 
 /// Launches the app with `bundle_id` without activating it, and returns it
-/// once it runs. An app that already runs is returned as it is, with no
-/// open request at all: LaunchServices would send it a reopen event, and
-/// apps answer that by showing (and often activating) a window.
+/// once it runs. An app that already runs with a window on screen is
+/// returned as it is, with no open request: LaunchServices would send it a
+/// reopen event, which apps answer by showing (and often activating) a
+/// window. One with no window gets the reopen, so the agent has a window to
+/// work in; the engine's focus guard puts back any activation it causes.
 pub fn launch(bundle_id: &str) -> DResult<RunningApp> {
-    if let Some(app) = running(bundle_id) {
+    if let Some(app) = running(bundle_id)
+        && super::cgwindows::on_screen().iter().any(|w| w.pid == app.pid && w.is_app_window())
+    {
         return Ok(app);
     }
     let rx = autoreleasepool(|_| start_launch(bundle_id))?;
