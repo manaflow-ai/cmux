@@ -3096,8 +3096,13 @@ async fn dispatch_request_with_identity(
             answerer.author = author.as_ref();
             // A notification's one-tap choice (`hub/ask_choices.rs`): the option and answers it
             // stands for, then the same answer and checks.
-            if let Some(choice) = str_param(&params, "choiceId") {
-                if option.is_some() || answers.is_some() || annotations.is_some() {
+            // One that is not a string is refused, never read as no choice (a cancel).
+            if let Some(choice) = params.get("choiceId").filter(|v| !v.is_null()) {
+                let choice = choice
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("choiceId must be a string"))?;
+                let answered = answers.as_ref().is_some_and(|a| !a.is_null());
+                if option.is_some() || answered || annotations.is_some() {
                     return Err(RpcError::invalid_params(
                         "choiceId goes alone: no optionId, answers or annotations beside it",
                     ));

@@ -11,8 +11,8 @@
 //!   needs the chat.
 //! - A folder-trust card has none: only the app or the CLI trusts a folder.
 //!
-//! A tap answers through `mux/permission_respond` with `choiceId` ([`Hub::respond_choice`]): the
-//! choice becomes the option and answers the chat's own card would send, then the same answer
+//! A tap answers through `_acpmux/permission_respond` with `choiceId` ([`Hub::respond_choice`]):
+//! the choice becomes the option and answers the chat's own card would send, then the same answer
 //! path runs with the same checks. An allow or a question's answer from a device that is not the
 //! person still needs the person's decision proof or the phone's signature over that very answer;
 //! a deny needs none, as a deny from anywhere. A tap on an ask that was answered meanwhile is
