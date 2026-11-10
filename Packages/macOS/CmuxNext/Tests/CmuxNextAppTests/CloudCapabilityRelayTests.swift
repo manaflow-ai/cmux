@@ -311,9 +311,11 @@ struct CloudCapabilityRelayTests {
         try await mints.until(3)
         #expect(await mints.asked == ["install-a", "install-b", "install-a"])
         await mints.answer(0, ok: false) // the first A's cancellation lands after the second A started
+        // firstA waits on its own mint task, so this returns only after that cancellation reached minted(), while
+        // the second A is still in flight: a team-only guard takes it and drops the second A's answer every time.
+        await firstA.value
         await mints.answer(2, ok: true)
         await mints.answer(1, ok: true) // B's late answer
-        await firstA.value
         await teamB.value
         await secondA.value
         #expect(await capability.holds, "the second A's capability was dropped")
