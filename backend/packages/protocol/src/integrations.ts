@@ -165,6 +165,24 @@ export type Connection = typeof Connection.Type
 
 const Scopes = Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))).check(Schema.isMaxLength(30))
 
+/** The longest return link a connect carries through its signed state. */
+export const CONNECT_RETURN_TO_MAX = 512
+const RETURN_ID = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+const RETURN_VALUE = "[A-Za-z0-9._~%-]{1,128}"
+const RETURN_KEY = "(?:host|name|message)"
+/**
+ * Where a connect started from a chat sends the person back after GitHub: a cmux deep link to that chat
+ * (`cmux://session/<id>`, `cmux://agent/<harness>/<session>`, `cmux://tab/tab_<hex>`, `cmux://workspace/ws_<id>`,
+ * `cmux://conversation/<id>`, `cmux://chief/<id>`; `cmux-dev://` only off production), with at most the
+ * `host`, `name` and `message` query keys. Nothing else: no web origin, no other scheme, no fragment.
+ */
+export const CONNECT_RETURN_TO = new RegExp(
+  `^cmux(?:-dev)?://(?:session/${RETURN_ID}|agent/[a-z][a-z0-9-]{0,31}/${RETURN_ID}|tab/tab_[0-9a-f]{32}|workspace/ws_[A-Za-z0-9]{8,64}|conversation/${RETURN_ID}|chief/${RETURN_ID})` +
+    `(?:\\?${RETURN_KEY}=${RETURN_VALUE}(?:&${RETURN_KEY}=${RETURN_VALUE}){0,2})?$`
+)
+/** Is `s` a return link a connect may carry (the dashboard checks it again before it redirects)? */
+export const isConnectReturnTo = (s: unknown): s is string => typeof s === "string" && s.length <= CONNECT_RETURN_TO_MAX && CONNECT_RETURN_TO.test(s)
+
 export const IntegrationConnect = def({
   name: "integration.connect",
   owner: "cloud:ConnectionDO",
@@ -175,11 +193,20 @@ export const IntegrationConnect = def({
   params: Schema.Struct({
     provider: IntegrationProvider,
     scopes: Schema.optionalKey(Scopes),
-    sharing: Schema.optionalKey(Schema.Literals(["private", "team"]))
+    sharing: Schema.optionalKey(Schema.Literals(["private", "team"])),
+    /** GitHub: the repository the person needs (OWNER/REPO). A connection that already covers it is reused. */
+    repo: Schema.optionalKey(Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))),
+    /** A cmux deep link to the chat that asked; the callback page opens it after linking (`CONNECT_RETURN_TO`). */
+    return_to: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(CONNECT_RETURN_TO_MAX), isPattern(CONNECT_RETURN_TO)))
   }),
-  result: Schema.Struct({ connection: Connection, authorize_url: Schema.String }),
+  /**
+   * `connected: true` (no `authorize_url`): a connection this person may use already covers `repo`; nothing to open.
+   * Otherwise `authorize_url` is the one page to open: GitHub's authorize page when the App's installation already
+   * covers `repo`, that installation's configure page when it leaves `repo` out, else the install page.
+   */
+  result: Schema.Struct({ connection: Connection, authorize_url: Schema.optionalKey(Schema.String), connected: Schema.optionalKey(Schema.Literal(true)) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.limit", "policy.denied"],
-  docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
+  docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.",
   cli: { path: "integration connect", visible: true },
   mcp: { expose: "never", group: "integration" }
 })
@@ -197,7 +224,8 @@ export const IntegrationComplete = def({
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
     setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
   }),
-  result: Connection,
+  /** `return_to`: the connect's return link, read from the verified state (never from the redirect's query). */
+  result: Schema.Struct({ ...Connection.fields, return_to: Schema.optionalKey(Schema.String) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.state_invalid", "mutation.indeterminate"],
   docs: "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
   cli: { path: "", visible: false },

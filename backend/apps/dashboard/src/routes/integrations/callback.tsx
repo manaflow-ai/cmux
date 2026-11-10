@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
-import { integrationCompletionRequest } from "../../lib/integration-callback"
+import { integrationCompletionRequest, integrationReturnLink } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
 import { mutate } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
@@ -21,16 +21,23 @@ function Callback() {
   const signedIn = useSignedIn()
   const search = Route.useSearch()
   const redirectScheduled = useRef(false)
-  const result = useLoad<{ ok: boolean; message: string }>(signedIn && search.state && !search.error ? `complete:${search.state}` : null, async () => {
+  const result = useLoad<{ ok: boolean; message: string; returnTo?: string }>(signedIn && search.state && !search.error ? `complete:${search.state}` : null, async () => {
     // The key is derived from the state, so a reload of this page replays instead of exchanging the code twice.
     const r = await mutate({ data: { op: "integration.complete", ...integrationCompletionRequest(search.state!, search) } })
     if (r.status === 401) setSignedIn(false)
-    if (r.body.ok) return { ok: true, message: "Connected." }
+    // A connect started from a chat returns to it: the link comes from the API's verified state, never this page's query.
+    const returnTo = r.body.ok ? integrationReturnLink(r.body.value) : undefined
+    if (r.body.ok) return { ok: true, message: returnTo ? "Connected. Opening cmux." : "Connected.", ...(returnTo ? { returnTo } : {}) }
     return { ok: false, message: `${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? "failed"}` }
   })
   useEffect(() => {
     if (!result.data?.ok || redirectScheduled.current) return
     redirectScheduled.current = true
+    const returnTo = result.data.returnTo
+    if (returnTo) {
+      window.location.assign(returnTo)
+      return
+    }
     // Completing an OAuth flow should not strand the user on an intermediate
     // page. Keep the team scope selected before the provider redirect.
     let team: string | null = null
@@ -60,6 +67,11 @@ function Callback() {
       {result.loading ? <p className="muted">Finishing the connection</p> : null}
       {result.error ? <p className="error">{result.error}</p> : null}
       {result.data ? <p className={result.data.ok ? undefined : "error"}>{result.data.message}</p> : null}
+      {result.data?.returnTo ? (
+        <p>
+          <a href={result.data.returnTo}>Back to your chat in cmux</a>
+        </p>
+      ) : null}
       <p>
         <Link to="/integrations">Back to integrations</Link>
       </p>
