@@ -482,9 +482,6 @@ class FindSocket(unittest.TestCase):
             self.hot.find_socket(self.app, Path("cmux"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RunningAcpmux(unittest.TestCase):
     """--restart-acpmux: the acpmux daemons running from the app's bin folder are found and restarted, each
@@ -545,7 +542,8 @@ class RunningAcpmux(unittest.TestCase):
 
     def test_only_the_apps_daemons_are_found_with_their_homes(self):
         found = self.hot.running_acpmux(self.app)
-        self.assertEqual(found, [{"pid": 52164, "home": self.CHIEF, "build": "c230bb58a 2026-10-29",
+        self.assertEqual(found, [{"pid": 52164, "home": self.CHIEF, "socket": f"{self.CHIEF}/acpmux.sock",
+                                  "build": "c230bb58a 2026-10-29",
                                   "keeps_chats": True, "env_readable": True}])
 
     def test_the_multicall_daemon_is_found_too(self):
@@ -585,3 +583,62 @@ class RunningAcpmux(unittest.TestCase):
         self.hot.subprocess.run = no_new_daemon
         with self.assertRaises(RuntimeError):
             self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+
+    def test_a_daemon_serving_its_own_socket_keeps_it(self):
+        # #40219 review P2: a daemon started with ACPMUX_SOCKET and serving there (not at its home's default)
+        # is found there and comes back on that socket.
+        custom = "/u/custom/acpmux.sock"
+        self.status["/u/custom"] = self.status.pop(self.CHIEF)  # the fake answers by the socket's folder
+        self.envs[52164]["ACPMUX_SOCKET"] = custom
+        real = self.hot.subprocess.run
+
+        def by_socket(argv, **kwargs):
+            env = kwargs.get("env") or {}
+            if argv[1:] == ["daemon", "restart"]:
+                self.calls.append((list(argv), dict(env)))
+                entry = self.status["/u/custom"]
+                entry["pid"] += 1
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            if argv[1:] == ["--json", "daemon", "status"] and "ACPMUX_HOME" in env:
+                return subprocess.CompletedProcess(argv, 1, "", "no daemon")  # nothing at the home's default
+            return real(argv, **kwargs)
+        self.hot.subprocess.run = by_socket
+        done = self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164}, {self.CHIEF: custom})
+        self.assertEqual(done[0]["new_pid"], 52165)
+        env = next(env for argv, env in self.calls if argv[1:] == ["daemon", "restart"])
+        self.assertEqual(env["ACPMUX_SOCKET"], custom)
+
+    def test_a_daemon_whose_status_does_not_answer_is_reported(self):
+        # #40219 Codex F2: never dropped from discovery, so the receipt names it as left on the old build.
+        self.status.clear()
+        self.assertEqual(self.hot.running_acpmux(self.app),
+                         [{"pid": 52164, "home": None, "build": "", "keeps_chats": False, "env_readable": False,
+                           "status_unreadable": True}])
+
+    def test_an_ssh_session_on_macos_restarts_nothing(self):
+        # #40219 Codex F1: there launchd would start the daemon without its launch environment.
+        saved = (self.hot.sys.platform, dict(os.environ))
+        try:
+            self.hot.sys.platform = "darwin"
+            os.environ["SSH_CONNECTION"] = "1 2 3 4"
+            self.assertTrue(self.hot.outside_login_session())
+            os.environ.pop("SSH_CONNECTION")
+            os.environ.pop("SSH_TTY", None)
+            self.assertFalse(self.hot.outside_login_session())
+        finally:
+            self.hot.sys.platform = saved[0]
+            os.environ.clear()
+            os.environ.update(saved[1])
+
+    def test_an_empty_environment_is_an_unreadable_one(self):
+        # #40219 review P2: a process always starts with some environment; none read means it is hidden.
+        reloaded = __import__("importlib.util").util
+        spec = reloaded.spec_from_file_location("hot_apply_env_under_test", SCRIPT)
+        fresh = reloaded.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertIsNone(fresh.process_env(2 ** 22 + 12345))  # no such process
+        self.assertIsNotNone(fresh.process_env(os.getpid()))
+
+
+if __name__ == "__main__":
+    unittest.main()
