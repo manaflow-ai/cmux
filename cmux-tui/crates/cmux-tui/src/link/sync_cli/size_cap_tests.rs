@@ -124,7 +124,7 @@ fn a_git_folder_counts_its_history_and_names_it() {
     let large = with_limits(1024 * 1024 * 1024, u64::MAX, || refused(&top));
     assert!(large.git_bytes * 2 > large.bytes, "{large:?}");
     let text = large.to_string();
-    assert!(text.contains("the repository's history (.git) is at least"), "{text}");
+    assert!(text.contains("of it the repository's history (.git)"), "{text}");
     assert!(text.contains("Push it to GitHub"), "{text}");
     // A plain-folder check leaves a git folder to the copy (a seed may take it whole).
     assert_eq!(with_limits(1, 1, || super::check_plain(&top)), Ok(()));

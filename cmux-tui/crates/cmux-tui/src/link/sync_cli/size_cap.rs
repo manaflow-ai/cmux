@@ -100,11 +100,11 @@ impl std::fmt::Display for TooLarge {
         if self.git_bytes.saturating_mul(2) > self.bytes {
             return write!(
                 formatter,
-                "{folder} is too big to copy to a Cloud machine: the repository's history (.git) is at \
-                 least {} of the at least {} found ({limit}). Push it to GitHub so the machine clones \
-                 it instead",
-                size(self.git_bytes),
+                "{folder} is too big to copy to a Cloud machine: it holds at least {} to send, {} of \
+                 it the repository's history (.git) ({limit}). Push it to GitHub so the machine \
+                 clones it instead",
                 size(self.bytes),
+                size(self.git_bytes),
             );
         }
         write!(
