@@ -1,7 +1,7 @@
 name: Remote GUI proof (localhost SSH host, NEXT DEV app)
 run-name: ${{ format('Remote GUI proof{0}', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
-# One manual trip through cmux NEXT Remote over SSH in the app's GUI, on a throwaway GitHub-hosted Mac.
+# One manual trip through cmux NEXT Remote over SSH in the app's GUI, on a throwaway CI Mac.
 # Leo, 2026-11-10: "we're not a terminal-first app anymore. cmux-next is a gui."; Remote is "something
 # that I do certainly care about". No soak, no gate: manual dispatch only, nothing waits on it.
 #
@@ -36,11 +36,14 @@ concurrency:
 
 jobs:
   proof:
-    # GitHub-hosted: the proof adds a user, an sshd and pf rules, which only a throwaway Mac may take.
-    runs-on: macos-26
+    # An ephemeral Blacksmith Mac (never an owned one, never GitHub-hosted: tests/test_ci_no_github_hosted_macos.py):
+    # the proof adds a user, an sshd and pf rules, which only a throwaway Mac may take.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      # remote-gui-proof-host.sh changes the machine (a user, sshd, pf) only where this says it is throwaway.
+      REMOTE_GUI_PROOF_THROWAWAY: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Proof directory
@@ -52,6 +55,24 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # The built app is kept by its sources (as scripts/measure/split-spring.sh keys its app cache): a change to
+      # the proof's own scripts or a workflow builds nothing, so a selector fix reruns in minutes, not the ~2 h of
+      # acpmux and app builds on this runner (run 42827751536: 31 min acpmux, 63 min app).
+      - name: App key
+        id: app-key
+        run: |
+          key="$( { git ls-tree HEAD | grep -v -E $'\t(scripts|\\.github)$'; git ls-tree HEAD:scripts | grep -v -E $'\t(cmux-next|measure)$'; } \
+            | git hash-object --stdin)"
+          echo "key=rgp-app-$key" >> "$GITHUB_OUTPUT"
+          echo "App key: rgp-app-$key"
+
+      - name: Restore the built app
+        id: app-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/rgp-app
+          key: ${{ steps.app-key.outputs.key }}
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -59,11 +80,13 @@ jobs:
       # and check-webviews-bun-version.sh refuses a bun older than the
       # webviews/package.json devEngines pin, which stopped run 41798237731.
       - name: Setup Node
+        if: steps.app-cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Setup Bun
+        if: steps.app-cache.outputs.cache-hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -74,6 +97,7 @@ jobs:
       # After the build, run 42730570609 stopped at "failed to run 'zig build' ...
       # No such file or directory".
       - name: Install build prerequisites
+        if: steps.app-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
@@ -86,6 +110,7 @@ jobs:
       # newest published commit with the same cmux-tui and Ghostty inputs,
       # checked against its build-provenance attestation.
       - name: Build in-tree acpmux
+        if: steps.app-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
@@ -98,6 +123,7 @@ jobs:
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       - name: Install the matching published cmux-tui client
+        if: steps.app-cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -135,11 +161,12 @@ jobs:
       # proof drives the app through its debug control surface (debug.page, debug.agent_pane, debug.key,
       # debug.window_snapshot), which the published NEXT DEV app, a Release build, does not compile in.
       - name: Build the tagged app
+        if: steps.app-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           # --keep-app: without it a --build-only build deletes the bundle it made and prints no App path
           # (run 42827751536: "==> removed temporary build-only artifact" after a 63 min build).
-          ./scripts/reload.sh --tag "rgp-$GITHUB_RUN_ID" --build-only --keep-app "$RUNNER_TEMP/rgp-app/cmux DEV rgp.app" \
+          ./scripts/reload.sh --tag rgp --build-only --keep-app "$RUNNER_TEMP/rgp-app/cmux DEV rgp.app" \
             --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
           app="$(awk '/^App path:/{getline; sub(/^ +/, ""); print; exit}' "$RUNNER_TEMP/reload.out")"
           if [ -z "$app" ] || [ ! -d "$app" ]; then
@@ -147,6 +174,37 @@ jobs:
             exit 1
           fi
           echo "PROOF_APP=$app" >> "$GITHUB_ENV"
+
+      - name: Keep the built app
+        if: steps.app-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/rgp-app
+          key: ${{ steps.app-key.outputs.key }}
+
+      - name: Use the kept app
+        if: steps.app-cache.outputs.cache-hit == 'true'
+        run: |
+          app="$RUNNER_TEMP/rgp-app/cmux DEV rgp.app"
+          [ -d "$app" ] || { echo "::error::the restored cache holds no app"; exit 1; }
+          echo "Reusing the app built for ${{ steps.app-key.outputs.key }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "PROOF_APP=$app" >> "$GITHUB_ENV"
+
+      # The Add Device card is a native panel: the proof clicks its controls with real mouse events found through
+      # the accessibility tree (osascript, System Events). Grant osascript that on this throwaway runner when the
+      # image has not; best effort, and the proof records a refusal as a snag.
+      - name: Accessibility for osascript (throwaway runner)
+        continue-on-error: true
+        run: |
+          now="$(date +%s)"
+          for db in "/Library/Application Support/com.apple.TCC/TCC.db" "$HOME/Library/Application Support/com.apple.TCC/TCC.db"; do
+            sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier, flags, last_modified) VALUES ('kTCCServiceAccessibility', '/usr/bin/osascript', 1, 2, 4, 1, 'UNUSED', 0, $now);" \
+              && echo "accessibility row in $db" || echo "no write to $db"
+            sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier, flags, last_modified) VALUES ('kTCCServiceAppleEvents', '/usr/bin/osascript', 1, 2, 4, 1, 'com.apple.systemevents', 0, $now);" \
+              && echo "apple events row in $db" || echo "no write to $db"
+          done
+          csrutil status || true
+          osascript -l JavaScript -e 'Application("System Events").processes.length' || true
 
       - name: SSH host on loopback (second local account, key-only sshd)
         run: scripts/cmux-next/remote-gui-proof-host.sh up "$PROOF_DIR/host"

@@ -45,7 +45,7 @@
     "ci.yml:dogfood-build": {"class": "mac-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cloud-chat-proof.yml:proof-staging": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
     "cloud-chat-proof.yml:proof-prod": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
-    "remote-gui-proof.yml:proof": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh Debug build into a fresh DerivedData on a throwaway GitHub-hosted Mac that the proof adds a user, an sshd and pf rules to; manual dispatch only"},
+    "remote-gui-proof.yml:proof": {"class": "mac-build", "warm": ["actions-cache"]},
     "cloud-devbox-image-rebake.yml:rebake": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-journey-pr.yml:journey": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the PR Cloud journey; no warm source wired yet"},
     "cloud-rd-link-readback.yml:readback": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory on an ephemeral Mac that holds the dev stack pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},

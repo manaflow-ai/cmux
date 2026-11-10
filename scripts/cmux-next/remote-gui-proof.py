@@ -272,65 +272,138 @@ def watch_link(seconds: float, label: str) -> list:
 
 # --- 1. add the host ----------------------------------------------------------------------------------------
 
-def add_host() -> bool:
-    start = time.monotonic()
-    reply = action("device.add")
-    if reply.get("error"):
-        snag(f"action device.add: {reply['error']}")
-    time.sleep(1.5)
-    shot("add-device")
-    dump_state("add-device")
-    # Add Device's network way hands off to Add Machine; the field takes the host a person types.
-    reply = action("machine.add")
-    if reply.get("error"):
-        snag(f"action machine.add: {reply['error']}")
-    waited = card("wait", selector="input.am-host", timeout_ms=30000)
-    if waited.get("error"):
-        snag(f"Add Machine card: no host field: {waited['error']}")
-        return step("add host (Add Machine card)", False, error=waited.get("error"))
-    typed = card("type", selector="input.am-host", text=args.alias)
-    if not typed.get("inserted"):
-        snag(f"typing the host into the card: {typed}")
-    ready, ms = wait_until("Add enabled", lambda: not (card("query", selector='button[data-action="add"][disabled]').get("elements")), 15, 0.2)
-    if not ready:
-        snag(f"Add stayed disabled {ms} ms after typing {args.alias!r}")
-    card_shot("add-machine-filled")
-    pressed_at = time.monotonic()
-    pressed = native_press('button[data-action="add"]')
-    if pressed.get("error"):
-        snag(f"pressing Add: {pressed['error']}")
-        key("return")
+APP_PID: list[int] = []
+
+
+def app_pid() -> int | None:
+    if not APP_PID:
+        code, out, _ = cli("app", "identify", "--json", timeout=20)
+        try:
+            pid = json.loads(out).get("pid") if code == 0 else None
+        except ValueError:
+            pid = None
+        if isinstance(pid, int):
+            APP_PID.append(pid)
+    return APP_PID[0] if APP_PID else None
+
+
+def ax(identifier: str, mode: str = "click") -> dict:
+    """A native control by its accessibility identifier: find it, click it with a real mouse event, or AXPress it
+    (remote-gui-proof-ax.js). The Add Device card is a native panel, out of debug.page's and debug.mouse's reach."""
+    pid = app_pid()
+    if not pid:
+        return {"error": "no app pid (cmux app identify)"}
+    try:
+        done = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", str(HERE / "remote-gui-proof-ax.js"), str(pid), identifier, mode],
+                              capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired:
+        return {"error": f"osascript {mode} {identifier}: timed out after 90 s"}
+    try:
+        return json.loads(done.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": f"osascript exit {done.returncode}: {(done.stderr or done.stdout).strip()[:500]}"}
+
+
+def native_click(identifier: str) -> bool:
+    """A real click; when the mouse event did not land (no Accessibility for osascript, a covered window), AXPress."""
+    reply = ax(identifier, "click")
+    log("ax click", identifier, json.dumps(reply)[:300])
+    if reply.get("clicked"):
+        return True
+    snag(f"native click on {identifier}: {reply.get('error') or reply}")
+    reply = ax(identifier, "press")
+    log("ax press", identifier, json.dumps(reply)[:300])
+    return bool(reply.get("pressed"))
+
+
+def watch_add(pressed_at: float) -> tuple[str | None, int]:
+    """The Add Machine card's phase (best effort: its page) and the app's own machine row, until ready or failed."""
     phases = []
 
     def phase():
         rows = card("query", selector=".am-card").get("elements") or []
         ph = ((rows[0].get("data") or {}).get("phase")) if rows else None
         steps = card("query", selector="li.am-step").get("elements") or []
-        now = (ph, tuple(((e.get("data") or {}).get("status"), (e.get("text") or "")[:80]) for e in steps))
+        row = machine_row() or {}
+        now = (ph, tuple(((e.get("data") or {}).get("status"), (e.get("text") or "")[:80]) for e in steps), row.get("status"), row.get("link"))
         if not phases or phases[-1]["v"] != now:
             phases.append({"at_ms": round((time.monotonic() - pressed_at) * 1000), "v": now})
-            log("card", ph, [s[0] for s in now[1]])
-            if ph == "running" and len(phases) == 2:
+            log("add", ph, [s[0] for s in now[1]], row.get("status"), row.get("link"))
+            if len(phases) == 2:
                 card_shot("add-machine-running")
-        return ph if ph in ("ready", "failed") else None
+        if ph in ("ready", "failed"):
+            return ph
+        if row.get("link") == "connected" or row.get("status") == "connected":
+            return "ready"
+        return None
 
-    outcome, ms = wait_until("card done", phase, 300, 0.3)
-    card_shot(f"add-machine-{outcome or 'timeout'}")
+    outcome, ms = wait_until("add done", phase, 300, 0.3)
     title = card("query", selector="h1.am-title").get("elements") or [{}]
     evidence["add_machine_card"] = {"outcome": outcome, "ms_from_press": ms, "title": title[0].get("text"),
-                                    "phases": [{"at_ms": p["at_ms"], "phase": p["v"][0], "steps": p["v"][1]} for p in phases]}
+                                    "phases": [{"at_ms": p["at_ms"], "phase": p["v"][0], "steps": p["v"][1],
+                                                "machine_status": p["v"][2], "link": p["v"][3]} for p in phases]}
     if outcome != "ready":
-        snag(f"Add Machine card: {outcome or 'no outcome in 300 s'}: {title[0].get('text')}",
+        snag(f"Add Machine: {outcome or 'no outcome in 300 s'}: {title[0].get('text')}",
              steps=[s for s in (phases[-1]["v"][1] if phases else ())])
-    row, link_ms = wait_until("link connected", lambda: (lambda r: r if r and r.get("link") in ("connected", None) and r.get("status") not in ("offline",) else None)(machine_row()), 60, 0.5)
+    return outcome, ms
+
+
+def add_host() -> bool:
+    """Add Device (the sidebar's +), Advanced: add over SSH, the ~/.ssh/config row e2ehost, Add."""
+    start = time.monotonic()
+    reply = action("device.add")
+    if reply.get("error"):
+        snag(f"action device.add: {reply['error']}")
+    time.sleep(1.5)
+    shot("add-device")
+    via = None
+    if native_click("cmux.addDevice.advanced"):
+        time.sleep(0.8)
+        shot("add-device-advanced")
+        row_id = f"cmux.addDevice.add.{args.alias}"
+        found, ms = wait_until("ssh row", lambda: (lambda r: r if r.get("found") else None)(ax(row_id, "find")), 30, 1)
+        shot("add-device-ssh-row" if found else "add-device-no-ssh-row")
+        if found:
+            evidence["times_ms"]["advanced_to_ssh_row"] = ms
+            pressed_at = time.monotonic()
+            if native_click(row_id):
+                via = "Add Device > Advanced: add over SSH > e2ehost (ssh config) > Add"
+        else:
+            listing = ax("cmux.addDevice.network.list", "find")
+            snag(f"Advanced shows no {args.alias} row in {ms} ms (the runner's ~/.ssh/config has Host {args.alias})", listing=listing)
+            if native_click("cmux.addDevice.button.otherComputer"):
+                waited = card("wait", selector="input.am-host", timeout_ms=30000)
+                if waited.get("error"):
+                    snag(f"Other Computer…: no host field: {waited['error']}")
+                else:
+                    card("type", selector="input.am-host", text=args.alias)
+                    card_shot("add-machine-filled")
+                    pressed_at = time.monotonic()
+                    pressed = native_press('button[data-action="add"]')
+                    if pressed.get("error"):
+                        snag(f"pressing Add: {pressed['error']}")
+                    else:
+                        via = "Add Device > Advanced > Other Computer… > host field > Add"
+    if not via:
+        # The journey goes on from the CLI's add so the later steps still run; the GUI add stays a failure.
+        snag("the GUI add did not start; falling back to `cmux setup machine e2ehost` for the later steps")
+        code, out, err = cli("setup", "machine", args.alias, "--json", timeout=300)
+        evidence["setup_machine_fallback"] = {"exit": code, "out": out[-2000:], "err": err[-2000:]}
+        row, ms = wait_until("link connected", lambda: (lambda r: r if r and r.get("link") == "connected" else None)(machine_row()), 120, 0.5)
+        evidence["remote_machine"] = machine_row()
+        shot("added-by-cli")
+        step("add host (GUI)", False, error="GUI add did not start", cli_fallback_exit=code)
+        return bool(row)
+    outcome, ms = watch_add(pressed_at)
+    card_shot(f"add-machine-{outcome or 'timeout'}")
     evidence["remote_machine"] = machine_row()
     total = round((time.monotonic() - start) * 1000)
     evidence["times_ms"]["add_host"] = total
     evidence["times_ms"]["add_press_to_ready"] = ms
-    # Done closes the card, as a person would.
     if outcome == "ready":
         native_press('button[data-action="done"]')
-    return step("add host (Add Machine card)", outcome == "ready", ms=total, press_to_ready_ms=ms, machine=evidence["remote_machine"])
+    step("add host (GUI)", outcome == "ready", ms=total, press_to_ready_ms=ms, via=via, machine=evidence["remote_machine"])
+    return outcome == "ready" or bool(evidence["remote_machine"])
 
 
 # --- 2. a chat on the host ----------------------------------------------------------------------------------

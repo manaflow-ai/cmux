@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The SSH host of the Remote GUI proof (remote-gui-proof.yml): a second local macOS account reached over a
-# key-only sshd on 127.0.0.1, on the throwaway GitHub-hosted Mac the proof runs on. Nothing listens beyond
+# key-only sshd on 127.0.0.1, on the throwaway CI Mac the proof runs on. Nothing listens beyond
 # loopback and nothing outside the runner changes.
 #
 #   remote-gui-proof-host.sh up DIR      make the account (rhost), its stand-in `claude`, a key-only sshd on
@@ -11,7 +11,7 @@
 #   remote-gui-proof-host.sh restore DIR the network back: the pf rules this script loaded are removed
 #   remote-gui-proof-host.sh down DIR    stop the sshd this script started (its own pid file) and pf if loaded
 #
-# It refuses to run anywhere but a GitHub-hosted runner: it adds a user and rewrites pf rules.
+# It refuses to run anywhere but a throwaway CI Mac: it adds a user and rewrites pf rules.
 set -euo pipefail
 
 USER_NAME=rhost
@@ -20,8 +20,10 @@ PORT="${REMOTE_GUI_PROOF_PORT:-2222}"
 cmd="${1:-}"
 dir="${2:-}"
 [ -n "$cmd" ] && [ -n "$dir" ] || { echo "usage: $0 up|drop|restore|down DIR" >&2; exit 2; }
-if [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ] || [ "$(uname)" != Darwin ]; then
-  echo "remote-gui-proof-host.sh runs only on a GitHub-hosted macOS runner (it adds a user and pf rules)" >&2
+# remote-gui-proof.yml sets REMOTE_GUI_PROOF_THROWAWAY=1 on its job, whose runs-on is an ephemeral Mac.
+if [ "${GITHUB_ACTIONS:-}" != true ] || [ "$(uname)" != Darwin ] \
+  || { [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ] && [ "${REMOTE_GUI_PROOF_THROWAWAY:-}" != 1 ]; }; then
+  echo "remote-gui-proof-host.sh runs only on a throwaway CI Mac (it adds a user and pf rules)" >&2
   exit 2
 fi
 mkdir -p "$dir"
