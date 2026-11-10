@@ -1546,8 +1546,10 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
 
     Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
-    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. It fails open, with a warning: a hook install older
-    than the checker, a HEAD without the declaration, no PyYAML, or a checker that does not run refuses nothing."""
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. Only two cases pass unchecked: a HEAD without the
+    declaration (a branch older than it), and a hook install older than the checker (a warning). A checker that runs
+    and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
+    the checker and the layer passed), whatever the cause, a missing PyYAML included."""
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
     if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
         return []
@@ -1566,30 +1568,34 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
 
-        def keyed(rev: str) -> dict[str, str] | None:
+        def keyed(rev: str) -> dict[str, str] | str:
+            """The findings at REV by key, or the reason the checker gave none (a crash, an exit, no JSON)."""
             tree = work / rev[:12]
             tree.mkdir()
             paths = [".github/workflows"] + ([FALLBACKS_DECLARATION] if blob_at(repo, rev, FALLBACKS_DECLARATION) else [])
             archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, *paths],
                                      capture_output=True)
             if archive.returncode != 0:
-                return None
+                return f"git archive {rev[:12]} failed: {archive.stderr.decode(errors='replace').strip()[:200]}"
             subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
             if not (tree / FALLBACKS_DECLARATION).is_file():
                 return {}
             code, out = run([sys.executable, "-I", str(work / "check.py"), "--root", str(tree), "--json"], work)
+            tail = " ".join(out.strip().splitlines()[-3:])[:300]
+            if code != 0:
+                return f"exited {code}: {tail or 'no output'}"
             try:
-                listed = next(line for line in out.splitlines() if line.startswith("["))
-                return {f["key"]: f["message"] for f in json.loads(listed)} if code == 0 else None
-            except (ValueError, StopIteration, KeyError, TypeError):
-                return None
+                listed = json.loads(next(line for line in out.splitlines() if line.startswith("[")))
+                return {str(f["key"]): str(f["message"]) for f in listed}
+            except (ValueError, StopIteration, KeyError, TypeError) as error:
+                return f"printed no JSON list of findings ({error.__class__.__name__}): {tail or 'no output'}"
 
         now = keyed(head)
-        if now is None:
-            log("prepush-gate: WARNING: the single-host fallback check could not run (PyYAML missing?); CI's "
-                "advisory step still reports it.")
-            return []
-        before = keyed(base) or {}
+        if isinstance(now, str):
+            return [f"the single-host fallback checker did not give a verdict at the pushed head, so the push is "
+                    f"refused (fix the declaration or the checker; `python3 {FALLBACKS_SCRIPT}` shows it): {now}"]
+        before = keyed(base)
+        before = before if isinstance(before, dict) else {}  # no verdict at the base: every head finding is new
         return [message for key, message in sorted(now.items()) if key not in before]
 
 

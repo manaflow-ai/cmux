@@ -73,7 +73,9 @@ def declaration_faults(policy: object) -> list[str]:
     for label, entry in labels.items():
         bad.extend(bounded(label, entry))
     controller = policy.get("controller_labels", [])
-    if not isinstance(controller, list) or not set(controller) <= set(labels):
+    if not isinstance(controller, list) or not all(isinstance(c, str) for c in controller):
+        bad.append("controller_labels must be a list of label names")
+    elif not set(controller) <= set(labels):
         bad.append("every controller_labels entry must be declared in labels")
     prefixes = policy.get("single_host_prefixes", [])
     if not isinstance(prefixes, list) or not all(isinstance(p, str) and p for p in prefixes):
@@ -106,7 +108,10 @@ def declaration_faults(policy: object) -> list[str]:
                        f"(Leo's freshness budget), not {minutes!r}")
     declarable = set(terminals) | {f"vars.{name}" for name in variables}
     outputs = policy.get("nightly_job_outputs", {})
-    for key, entry in (outputs.items() if isinstance(outputs, dict) else ()):
+    if not isinstance(outputs, dict):
+        bad.append("nightly_job_outputs must be an object")
+        outputs = {}
+    for key, entry in outputs.items():
         if not isinstance(entry, dict):
             bad.append(f"{key}: job-output declaration must be an object")
             continue
@@ -117,7 +122,7 @@ def declaration_faults(policy: object) -> list[str]:
             bad.append(f"{key}: labels must be a non-empty list of the labels it can emit")
             emitted = []
         for label in emitted:
-            if not isinstance(label, str) or not label.strip():
+            if not isinstance(label, str) or not label.strip():  # also a null or a list in the list
                 bad.append(f"{key}: every label must be a non-empty string, not {label!r}")
             elif HOSTED.fullmatch(label.strip()):
                 bad.append(f"{key}: {label} is a GitHub-hosted label; a run-time pick may not emit one")
@@ -130,6 +135,18 @@ def declaration_faults(policy: object) -> list[str]:
         if "array_pin" in entry and entry["array_pin"] != ARRAY_PIN:
             bad.append(f"{key}: array_pin must be {ARRAY_PIN!r}, not {entry['array_pin']!r}")
     return bad
+
+
+def scannable(policy: object) -> bool:
+    """Whether the sections the workflow scan reads have the types it walks (Codex on #40799: `"variables": null`
+    passed declaration_faults with a finding, then crashed findings(), so --json printed nothing)."""
+    if not isinstance(policy, dict):
+        return False
+    labels, variables = policy.get("labels", {}), policy.get("variables", {})
+    controller, prefixes = policy.get("controller_labels", []), policy.get("single_host_prefixes", [])
+    return (isinstance(labels, dict) and isinstance(variables, dict)
+            and isinstance(controller, list) and all(isinstance(c, str) for c in controller)
+            and isinstance(prefixes, list) and all(isinstance(p, str) for p in prefixes))
 
 
 def bounded(name: str, entry: object) -> list[str]:
@@ -336,9 +353,17 @@ def check(root: Path) -> list[dict]:
     if not path.is_file():
         return [{"key": "declaration:missing", "file": DECLARATION, "line": 1,
                  "message": f"{DECLARATION} is missing, so no runs-on variable has a declared fallback"}]
-    policy = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        policy = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        return [{"key": "declaration:unreadable", "file": DECLARATION, "line": 1,
+                 "message": f"{DECLARATION} is not readable JSON: {error}"}]
     found = [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "message": f"{DECLARATION}: {fault}"}
              for fault in declaration_faults(policy)]
+    if not scannable(policy):
+        # The schema findings alone: a section of the wrong type (null, a list for an object) is never walked.
+        return found or [{"key": "declaration:shape", "file": DECLARATION, "line": 1,
+                          "message": f"{DECLARATION}: a section the scan reads has the wrong type"}]
     return found + findings([root / WORKFLOWS], policy)
 
 
