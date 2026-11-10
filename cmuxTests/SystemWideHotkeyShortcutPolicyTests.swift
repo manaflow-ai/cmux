@@ -1,6 +1,7 @@
 import Carbon
 import enum CmuxSettings.ShortcutAction
 import Foundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -83,6 +84,18 @@ extension GlobalSearchShortcutBehaviorTests {
             KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(bareEscape)
                 == .rejected(.systemWideHotkeyRequiresModifier)
         )
+    }
+
+    @Test func handWrittenModifiedEscapeMatchesInAppAndKeepsMenuKeyEquivalent() {
+        // Hand-written config ("opt+escape") carries no keyCode, and AppKit reports
+        // Escape as "\u{1b}", so matching must fall back to the physical key code.
+        let optionEscape = ShortcutStroke(key: "escape", command: false, shift: false, option: true, control: false)
+
+        #expect(optionEscape.matches(keyCode: UInt16(kVK_Escape), modifierFlags: [.option], eventCharacter: "\u{1b}"))
+        #expect(!optionEscape.matches(keyCode: UInt16(kVK_Escape), modifierFlags: [.command], eventCharacter: "\u{1b}"))
+        #expect(!optionEscape.matches(keyCode: UInt16(kVK_ANSI_A), modifierFlags: [.option], eventCharacter: "a"))
+        #expect(optionEscape.menuItemKeyEquivalent == "\u{1b}")
+        #expect(optionEscape.keyEquivalent == .escape)
     }
 
     @Test func registrationPolicyContainsOnlyExplicitlySystemWideActions() {

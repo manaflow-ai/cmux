@@ -233,7 +233,8 @@ public final class RecorderHostButton: NSButton {
 
     deinit {
         if isRecording {
-            Self.unregisterCarbonEscapeHotKeys()
+            // AppKit views deallocate on the main thread.
+            MainActor.assumeIsolated { Self.unregisterCarbonEscapeHotKeys() }
         }
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
@@ -338,9 +339,10 @@ public final class RecorderHostButton: NSButton {
         installEventMonitor()
         refreshTitle()
         Self.postActiveRecordingDidChange()
-        // Register on the next main-loop turn: the app's system-wide hotkey stands
-        // down from a `.main`-queue observer of the notification above, and Carbon
-        // rejects a second registration of the same combo while that one is live.
+        // Carbon rejects a second registration of a combo this process already
+        // holds, so register only after the app's system-wide hotkey has handled
+        // the notification above and stood down. Deferring one main-loop turn
+        // keeps that order whether its observer runs inline or is enqueued.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isRecording, Self.activeRecorder === self else { return }
             Self.registerCarbonEscapeHotKeys(for: self)
@@ -392,8 +394,11 @@ public final class RecorderHostButton: NSButton {
     }
 
     private static func registerCarbonEscapeHotKeys(for recorder: RecorderHostButton) {
-        guard recorder.isRecording,
-              recorder.window?.isKeyWindow == true else { return }
+        // No key-window requirement here: recording already stops when the window
+        // resigns key, and the handler checks key window and first responder on fire.
+        // Requiring it at registration skipped Cmd+Escape when recording started
+        // while the window was still becoming key.
+        guard recorder.isRecording else { return }
 
         installCarbonEscapeHotKeyHandlerIfNeeded()
         unregisterCarbonEscapeHotKeys()
@@ -465,30 +470,34 @@ public final class RecorderHostButton: NSButton {
             return OSStatus(eventNotHandledErr)
         }
 
-        let modifierSets = carbonEscapeModifierSets()
-        let index = Int(hotKeyID.id - 1)
-        guard modifierSets.indices.contains(index),
-              let recorder = activeRecorder,
-              recorder.isRecording,
-              recorder.window?.isKeyWindow == true,
-              recorder.window?.firstResponder === recorder,
-              let recordingEvent = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: modifierFlags(fromCarbonModifiers: modifierSets[index]),
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: recorder.window?.windowNumber ?? 0,
-                context: nil,
-                characters: "\u{1b}",
-                charactersIgnoringModifiers: "\u{1b}",
-                isARepeat: false,
-                keyCode: UInt16(kVK_Escape)
-              ) else {
-            return OSStatus(eventNotHandledErr)
-        }
+        // Carbon dispatches application-target hotkeys on the main thread, the
+        // same assumption SystemWideHotkeyController makes for its handler.
+        return MainActor.assumeIsolated {
+            let modifierSets = carbonEscapeModifierSets()
+            let index = Int(hotKeyID.id - 1)
+            guard modifierSets.indices.contains(index),
+                  let recorder = activeRecorder,
+                  recorder.isRecording,
+                  recorder.window?.isKeyWindow == true,
+                  recorder.window?.firstResponder === recorder,
+                  let recordingEvent = NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: modifierFlags(fromCarbonModifiers: modifierSets[index]),
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: recorder.window?.windowNumber ?? 0,
+                    context: nil,
+                    characters: "\u{1b}",
+                    charactersIgnoringModifiers: "\u{1b}",
+                    isARepeat: false,
+                    keyCode: UInt16(kVK_Escape)
+                  ) else {
+                return OSStatus(eventNotHandledErr)
+            }
 
-        recorder.handleRecordingEvent(recordingEvent)
-        return OSStatus(noErr)
+            recorder.handleRecordingEvent(recordingEvent)
+            return OSStatus(noErr)
+        }
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {

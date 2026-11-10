@@ -1597,6 +1597,8 @@ struct ShortcutStroke: Equatable, Hashable {
             return .upArrow
         case "↓":
             return .downArrow
+        case "escape":
+            return .escape
         case "\r":
             return KeyEquivalent(Character("\r"))
         default:
@@ -1644,6 +1646,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "↓":
             guard let scalar = UnicodeScalar(NSDownArrowFunctionKey) else { return nil }
             return String(Character(scalar))
+        case "escape":
+            return "\u{1b}"
         case "\r":
             return "\r"
         default:
@@ -2132,7 +2136,7 @@ struct ShortcutStroke: Equatable, Hashable {
     /// physical key codes without changing the bare-key recording policy.
     private static func usesPhysicalKeyCodeMatching(_ key: String) -> Bool {
         switch key {
-        case "←", "→", "↓", "↑":
+        case "←", "→", "↓", "↑", "escape":
             return true
         default:
             return usesDirectKeyCodeMatching(key)
