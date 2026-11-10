@@ -38,7 +38,7 @@ struct KeyResizeKeyTurnSurfaceTests {
     }
 
     /// Ctrl-Shift-H, L, K or J on p2 with a terminal in each pane: the key's turn and the turns after it up to the next
-    /// frame resize no terminal surface and send at most one grid per terminal (its first frame's, drawn ahead); with the
+    /// frame resize no terminal surface and send at most one grid per terminal; with the
     /// frames each terminal's PTY gets its grids coalesced and ends at its final grid, nothing after it; after the landing
     /// each surface rests at its host's size.
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
