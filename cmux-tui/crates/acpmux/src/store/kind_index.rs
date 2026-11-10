@@ -129,8 +129,18 @@ impl Stamp {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Reads every birth time on this thread as unknown, as a file system that keeps none does.
+    pub(crate) static NO_BIRTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// The file's device, inode and birth time (ns since the epoch; 0 where the system does not say).
 fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
+    #[cfg(test)]
+    if NO_BIRTH.with(std::cell::Cell::get) {
+        return (0, 0, 0);
+    }
     let born = birth_ns(file).unwrap_or_else(|| {
         meta.created()
             .ok()
@@ -198,6 +208,16 @@ impl Scan<'_> {
 }
 
 impl LocalStore {
+    /// Whether this store's file system names a birth time, so a scan keeps copies
+    /// ([`Self::write_kind_index`] keeps none without one). Read from the store's folder: a log
+    /// lives on the same file system. Without copies a scan of these kinds reads the whole log, so a
+    /// newest-first page reads back from the end instead (`Hub::events_page`).
+    pub(super) fn keeps_kind_copies(&self) -> bool {
+        std::fs::File::open(&self.root)
+            .and_then(|dir| Ok(file_id(&dir, &dir.metadata()?).2 != 0))
+            .unwrap_or(false)
+    }
+
     fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }

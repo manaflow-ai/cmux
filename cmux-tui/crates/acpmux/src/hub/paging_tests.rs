@@ -347,6 +347,44 @@ fn a_page_of_prompts_reads_the_copies_not_the_log() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// On a file system that names no birth time no copy is kept (`store/kind_index.rs`), so a page of
+/// prompts reads back from the log's end as before, not the whole log from its start: the newest
+/// prompt costs its own segment (review of #40573).
+#[test]
+fn a_page_of_prompts_reads_back_from_the_end_where_no_copy_is_kept() {
+    let root = std::env::temp_dir().join(format!("acpmux-no-birth-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_chat(6, 120, 85, false);
+    for (n, rec) in log.iter_mut().enumerate() {
+        rec.seq = n as u64 + 1;
+    }
+    let writer = LocalStore::new(sessions.clone(), 64 << 10).unwrap();
+    writer.save(&meta("c")).unwrap();
+    for rec in &log {
+        writer.append("c", rec).unwrap();
+    }
+    writer.flush().unwrap();
+    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
+    crate::store::NO_BIRTH.with(|n| n.set(true));
+    assert!(!hub.store.copies_kinds(), "no birth time, no copies");
+    let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
+    let r0 = read_bytes();
+    let page = hub.events_page("c", 0, None, 1, Some(OPEN_BYTES), true, &prompts).unwrap();
+    let read = read_bytes() - r0;
+    crate::store::NO_BIRTH.with(|n| n.set(false));
+    let newest = log.iter().rev().find(|r| r.kind == "user_message").unwrap();
+    assert_eq!(page.events, vec![newest.clone()]);
+    assert!(page.has_more);
+    if cfg!(target_os = "linux") {
+        assert!(read < log_bytes / 2, "the newest prompt read {read} of {log_bytes} bytes");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
 fn read_bytes() -> u64 {
     std::fs::read_to_string("/proc/thread-self/io")

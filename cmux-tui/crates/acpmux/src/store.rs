@@ -26,6 +26,8 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+#[cfg(test)]
+pub(crate) use kind_index::NO_BIRTH;
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -1713,7 +1715,7 @@ impl Store for LocalStore {
     }
 
     fn copies_kinds(&self) -> bool {
-        true
+        self.keeps_kind_copies()
     }
 
     /// Segment `000000`, written beside the log under a temporary name and renamed in whole.
