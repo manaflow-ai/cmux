@@ -128,7 +128,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // A style with no shade (bare, panes, flat-sidebar-line): a track or a nav on the chrome keeps the
             // hover fill it had, rather than going clear.
             "--cmux-chrome-shade": Self.css(chromeShade > 0 ? ThemeRGB.black.withAlpha(chromeShade) : tokens.hoverFill),
-            "--cmux-selected-surface": Self.css(selectedOnChrome ?? tokens.selectionFill),
+            // With no shade the track is the hover fill: an opaque page's own surface stands out of it, as
+            // the segment did before the layers.
+            "--cmux-selected-surface": Self.css(selectedOnChrome ?? (chromeShade <= 0 && page.alpha >= 1 ? page : tokens.selectionFill)),
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
             // The page color made opaque (its own background over the theme's, if it has one),

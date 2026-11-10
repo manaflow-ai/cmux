@@ -144,6 +144,8 @@ public final class CornerFlushChrome: NSView {
     private(set) var topRowHasStrip = true
     /// The content the last ``apply`` framed, so a strip's report can tell whether the top row changed.
     private weak var framedContent: NSView?
+    /// Inside ``redraw``, which reports every strip: the top row is checked once, after them.
+    private var redrawing = false
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -247,7 +249,8 @@ public final class CornerFlushChrome: NSView {
         var card = content.frame
         let flush = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
         framedContent = content
-        let topRow = stripsKnown(in: root) ? topRowStrip(content: content, in: root) : true
+        // Only under the folder tab: off, nothing is trimmed and no strip lookup runs.
+        let topRow = !flush || !stripsKnown(content: content, in: root) || topRowStrip(content: content, in: root)
         if topRow != topRowHasStrip {
             topRowHasStrip = topRow
             root.needsLayout = true // the top inset follows (`WindowRootView.layout`, `topInset(of:)`)
@@ -276,28 +279,55 @@ public final class CornerFlushChrome: NSView {
         redraw()
     }
 
-    /// Whether any strip of `root`'s window has reported: before one has, the top row is unknown.
-    private func stripsKnown(in root: NSView) -> Bool {
-        strips.allObjects.contains { ($0 as? NSView)?.window === root.window }
+    /// Whether the top row can be told: a strip of `root`'s window is known, or `content` is in a window.
+    /// Before a strip has reported, the strips under `content` are looked up and kept (a strip hidden from
+    /// launch, Hide Tab Bar or vertical tabs, may never lay out into a report), so the top row is known
+    /// from the first frame; the walk runs only while no strip of the window is known.
+    private func stripsKnown(content: NSView, in root: NSView) -> Bool {
+        if strips.allObjects.contains(where: { ($0 as? NSView)?.window === root.window }) { return true }
+        var stack: [NSView] = [content]
+        var found = false
+        while let view = stack.popLast() {
+            if let strip = view as? (any TabStripCorner & NSView) {
+                strips.add(strip)
+                found = true
+                continue
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        // In a window with no strip under its content at all, the top row has none.
+        return found || content.window != nil
     }
 
-    /// Whether a shown strip with a height runs along `content`'s top edge (root's unflipped coordinates).
-    /// O(strips) in the window.
+    /// Whether shown strips run along `content`'s whole top edge (root's unflipped coordinates): every
+    /// top-row pane has its strip. A top row where one pane hides its strip (Hide Tab Bar beside a
+    /// strip, Home Chief beside a pane) keeps the whole card too, since a trim there would shade that
+    /// pane's top and put a wedge over its content; its strips then draw their own band. O(strips).
     private func topRowStrip(content: NSView, in root: NSView) -> Bool {
         let top = content.frame.maxY
+        var spans: [(CGFloat, CGFloat)] = []
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
             guard strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor, strip.bounds.height > 0.5 else { continue }
             let frame = root.convert(strip.cornerFrameInWindow, from: nil)
-            if abs(frame.maxY - top) < 2, frame.width > 0.5 { return true }
+            if abs(frame.maxY - top) < 2, frame.width > 0.5 { spans.append((frame.minX, frame.maxX)) }
         }
-        return false
+        guard !spans.isEmpty else { return false }
+        // Panes part by a divider or a gap of a few points at most.
+        let slack = Metrics.scale(LayoutGrid.base) * 2
+        var reach = content.frame.minX
+        for (minX, maxX) in spans.sorted(by: { $0.0 < $1.0 }) {
+            guard minX <= reach + slack else { return false }
+            reach = max(reach, maxX)
+        }
+        return reach >= content.frame.maxX - slack
     }
 
-    /// A strip reported: when the top row gained or lost its strip, the root lays out again and the
-    /// frame follows (``apply``).
+    /// A strip reported on its own (not in a ``redraw``): when the top row gained or lost its strip, the
+    /// root lays out again and the frame follows (``apply``). O(strips), once per report.
     private func checkTopRow() {
-        guard let root = superview, let content = framedContent else { return }
-        let topRow = stripsKnown(in: root) ? topRowStrip(content: content, in: root) : true
+        guard !redrawing, let root = superview, let content = framedContent else { return }
+        guard CornerFlush.current.isOn else { return }
+        let topRow = !stripsKnown(content: content, in: root) || topRowStrip(content: content, in: root)
         if topRow != topRowHasStrip { root.needsLayout = true }
     }
 
@@ -326,9 +356,11 @@ public final class CornerFlushChrome: NSView {
         shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
         // Every strip's hole follows the card at once (a resize, a workspace switch); the strips' own
         // bands follow on their next layout.
+        redrawing = true
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
             folderDidChange(strip, animated: false, gone: strip.window !== root.window)
         }
+        redrawing = false
     }
 
     /// Whether the shown strip at the card's top minX corner selects its first tab, whichever side the

@@ -76,7 +76,9 @@ export function webThemePayload(
     variables: {
       "--cmux-content-surface": css(content),
       "--cmux-chrome-shade": css(shade > 0 ? withAlpha(BLACK, shade) : tokens.hoverFill),
-      "--cmux-selected-surface": css(selectedOnChrome(content, shade) ?? tokens.selectionFill),
+      "--cmux-selected-surface": css(
+        selectedOnChrome(content, shade) ?? (shade <= 0 && content.alpha >= 1 ? content : tokens.selectionFill),
+      ),
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
       "--cmux-surface-solid": css(page),
