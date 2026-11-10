@@ -160,12 +160,13 @@ import {
   BACKGROUND_TURN,
   backgroundTurnRecord,
   backgroundTurnRowId,
-  isReactionNote,
+  saysNothing,
 } from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
+import { BTW_INLINE_HERE } from "./btwCapability";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
 import { shownPresence } from "./multiplayer/livePresenceModel";
@@ -7125,7 +7126,7 @@ export class AcpmuxDirectClient {
     if (!reactsOnCall(experimentArm(backgroundReactionLook))) return false;
     // An older page's result was seen long ago: only a live one is new (ReactionMark.tsx draws it
     // in the arm that marks it).
-    // A later end of the same call keeps what an earlier one left: its words and its new mark. An
+    // A later end of the same call keeps what an earlier one left: its new mark. An
     // older page's end of a call a newer one already reached leaves the newer one's in place.
     const prior = this.reactions.get(cause.origin)?.reaction;
     if (prior && this.foldingBelow !== undefined) {
@@ -7136,7 +7137,6 @@ export class AcpmuxDirectClient {
     const reaction: AcpmuxBackgroundReaction = {
       turn: turn.id,
       weight: cause.weight,
-      ...(prior?.text && { text: prior.text }),
       ...(fresh && { fresh: true }),
       ...(cause.status === "interim" && { interim: true }),
     };
@@ -7145,31 +7145,23 @@ export class AcpmuxDirectClient {
     return true;
   }
 
-  /// A background turn that ended: its reply goes onto the call its reaction is on, when the turn
-  /// folds it (a silent one, or a quiet one); a reply with something to say draws as a message.
-  /// Only a short quiet note goes onto the call: a reply with more to say is the main agent's own turn
-  /// (`ownTurn`), drawn at the reply column with its own footer, never as the call's or the
-  /// subagent's words (Leo, 2026-11-08: "the text in this situation isn't from the subagent?", on
-  /// three later turns of the chat's replies drawn as one block under "Subagent finished").
+  /// A background turn that ended: its reply never goes onto the call its reaction is on, nor onto
+  /// the subagent's line. Any words it said are the main agent's own turn (`ownTurn`), drawn at the
+  /// reply column with its own footer, however short or quiet (Leo, 2026-11-08: "the text in this
+  /// situation isn't from the subagent?"; 2026-11-09: "your response was weirdly folded into the
+  /// rende?", on a one-line reply drawn muted inside "Subagent finished"). The call keeps only its
+  /// mark (`attachReaction`). A failure's turn takes no call, but its line is a notification row
+  /// too: a quiet one that said something keeps its named line over its words, which draw as the
+  /// agent's own (backgroundTurns.ts `headsBackground`), never folded inside the line.
   private settleReaction(turn: string): void {
-    const origin = this.reactionOrigins.get(turn);
-    if (!origin) return;
     const id = backgroundTurnRowId(turn);
     const row = this.rows.get(id);
     const line = row?.background;
-    if (!row || !line || (line.quiet !== true && line.cause?.weight !== "silent")) return;
-    const reply = this.rows.backgroundReply(turn);
-    if (!reply) return;
-    // acpmux calls it quiet (one short line, nothing new); the length is the pane's own floor.
-    if (line.quiet !== true || !isReactionNote(reply)) {
-      if (!line.ownTurn)
-        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
-      return;
-    }
-    const reaction = this.reactions.get(origin)?.reaction;
-    if (reaction?.turn !== turn) return;
-    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
-    this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
+    if (!row || !line || line.ownTurn) return;
+    if (!this.reactionOrigins.has(turn) && line.cause?.weight !== "failure") return;
+    if (line.quiet !== true && line.cause?.weight !== "silent") return;
+    if (saysNothing(this.rows.backgroundReply(turn))) return;
+    this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
   }
 
   /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started
@@ -9572,6 +9564,9 @@ export class AcpmuxDirectClient {
       });
     let taken = false;
     let released = false;
+    /// Ends this prompt's count in the composer's "Sending when ready" (sendWhenReady.ts): set while
+    /// the prompt waits for acpmux, released once acpmux took it or the send ended.
+    let unhold: (() => void) | undefined;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
@@ -9591,6 +9586,8 @@ export class AcpmuxDirectClient {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      // Taken: the composer stops saying "Sending when ready" now, not when the turn ends.
+      unhold?.();
       tookIt();
       if (workspace) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
@@ -9674,7 +9671,6 @@ export class AcpmuxDirectClient {
     // A prompt sent while acpmux starts, restarts or reconnects waits for it (sendWhenReady.ts):
     // the same frame goes again under the same promptId, so a copy acpmux did take runs once. The
     // row keeps its clock and says "Sending when ready"; only past the deadline does it fail below.
-    let unhold: (() => void) | undefined;
     try {
       const answer = await untilHostAnswers(
         () =>
@@ -10280,6 +10276,15 @@ export class AcpmuxDirectClient {
     await this.request("_acpmux/archive", { sessionId, archived });
     return sessionId;
   }
+  /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
+  /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
+  /// `hub/cold_archive.rs`; opening the chat does too). acpmux answers the chat's summary, which
+  /// the list takes at once (its `session_changed` says the same, later).
+  async coldArchive(sessionId: string, archived: boolean): Promise<void> {
+    const session = await this.request("_acpmux/cold_archive", { sessionId, archived }, 60_000);
+    if (session && typeof session === "object" && (session as SessionSummary).sessionId === sessionId)
+      this.sessionChanged({ sessionId, session, kind: "cold_archive", recordKind: "cold_archive" } as SessionChanged);
+  }
   /// Permanently removes the shown session from acpmux history. The caller closes the tab only
   /// after this authenticated, session-scoped purge succeeds.
   async purge(sessionId: string): Promise<void> {
@@ -10470,15 +10475,41 @@ export class AcpmuxDirectClient {
   }
   /// `promptUnseen` that rejects as the prompt does: `/side <prompt>`'s prompt to its side chat,
   /// whose caller says when the host refused it (a `transport.` code: it never reached acpmux).
-  /// The reply comes when the side chat's turn ends.
-  async promptSide(sessionId: string, text: string): Promise<void> {
+  /// The reply comes when the side chat's turn ends. `attachments`: `/side`'s staged files, in the
+  /// prompt as a send puts them (#40066); past one message's budget, the largest image previews go
+  /// as links to their saved originals (promptBudget.ts).
+  /// A recording goes only to an agent that takes voice, a video's frames only to one that takes
+  /// images, as a send's do. `gesture`: the Enter a `/side` held for its files bound
+  /// (`bindSideGesture`); the prompt goes under its prompt id and redeems its ticket.
+  async promptSide(
+    sessionId: string,
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    gesture?: { promptId: string; ticket: Promise<string | undefined> },
+  ): Promise<void> {
+    const capabilities = this.summary?.agentCapabilities?.promptCapabilities;
+    const audible = takesAudio(capabilities, this.summary?.configOptions)
+      ? attachments
+      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
+    const carried = sendable.length ? fitPromptBudget(text, sendable) : sendable;
+    const ticket = gesture ? await gesture.ticket : undefined;
     await this.offerChildren.prompting(sessionId, () =>
       this.request("session/prompt", {
         sessionId,
-        prompt: promptBlocks(text, []),
-        _meta: { acpmux: { promptId: crypto.randomUUID() } },
+        prompt: promptBlocks(text, carried),
+        _meta: {
+          acpmux: { promptId: gesture?.promptId ?? crypto.randomUUID() },
+          ...(ticket ? { cmuxGesture: ticket } : {}),
+        },
       }),
     );
+  }
+  /// Binds the person's current gesture to `/side`'s prompt, held for its files: bound to no chat
+  /// (the side chat it goes to does not exist yet), so the side chat's prompt redeems it by its
+  /// prompt id (AgentPaneUserGestures `redeem`). Not a send ticket: it holds no uploads.
+  bindSideGesture(promptId: string = crypto.randomUUID()): { promptId: string; ticket: Promise<string | undefined> } {
+    return { promptId, ticket: reservePromptGesture(promptId) };
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
   /// goes to the chat that sent it as this chat's cmux agent message in the same thread, as
@@ -11361,7 +11392,7 @@ export class AcpmuxDirectClient {
     this.readAheadTimer = setTimeout(() => {
       this.readAheadTimer = undefined;
       const recent = [...this.sessions]
-        .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId)
+        .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId && !session.coldArchive)
         .sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
         .slice(0, READ_AHEAD_RECENT)
         .map((session) => session.sessionId);
@@ -11369,10 +11400,18 @@ export class AcpmuxDirectClient {
     }, delayMs);
   }
 
+  /// A chat whose log is in acpmux's cold archive: any read of its log brings it back
+  /// (hub/cold_archive.rs), so only opening it reads it, never a read ahead or a hover (review of
+  /// #39141: the 12 recent chats' reads undid Compress Chat on a page with no kept tails).
+  private listedCold(sessionId: string): boolean {
+    return Boolean(this.sessions.find((session) => session.sessionId === sessionId)?.coldArchive);
+  }
+
   private queueReadAhead(sessionIds: string[], first: boolean): void {
     const now = Date.now();
     const wanted = sessionIds.filter((sessionId) => {
       if (!sessionId || sessionId === this.selectedSessionId || this.readingAhead.has(sessionId)) return false;
+      if (this.listedCold(sessionId)) return false;
       const readAt = this.readAheadAt.get(sessionId);
       // A chat this page opened keeps the tail it read itself; one read ahead is read again only
       // when it ran on since, and not more often than READ_AHEAD_REFRESH_MS.
@@ -11397,7 +11436,7 @@ export class AcpmuxDirectClient {
   private pumpReadAhead(): void {
     while (!this.closed && this.readingAhead.size < READ_AHEAD_LANES && this.readAheadQueue.length > 0) {
       const sessionId = this.readAheadQueue.shift()!;
-      if (sessionId === this.selectedSessionId) continue;
+      if (sessionId === this.selectedSessionId || this.listedCold(sessionId)) continue;
       const read = this.readAhead(sessionId)
         .catch(() => undefined)
         .finally(() => {
@@ -12111,6 +12150,18 @@ export class AcpmuxDirectClient {
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
   }
+  /// A Cloud chat's machine answers `/btw` inline itself (`btw_inline`, RemoteAcpmuxWire).
+  get answersBtwInline(): boolean {
+    return this.features.has(BTW_INLINE_HERE);
+  }
+  /// `/btw <question>` answered inline on the chat's own machine (`_acpmux/btw` with `inline`,
+  /// through its daemon's `agent-session-btw`): the answer's text. The chat is not touched.
+  async btwInlineHere(question: string, sessionId = this.actingSessionId): Promise<string> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const result = await this.request(SIDE_SESSION_METHOD, { sessionId, question, inline: true });
+    if (typeof result?.text !== "string" || !result.text.trim()) throw new Error("");
+    return result.text;
+  }
   /// One-shot cross-harness guest reply. The daemon creates a fresh read-only side session,
   /// carries the bounded transcript context, returns its answer, and removes the guest session.
   async btwInline(question: string, targetHarness: string, sessionId = this.actingSessionId): Promise<string> {
@@ -12128,6 +12179,11 @@ export class AcpmuxDirectClient {
   /// from acpmux's ledger index, never a log scan. An older acpmux answers method not found.
   async ledger(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/ledger", params, 15_000);
+  }
+  /// The team's agent spend for History > Team (`_acpmux/team_audit`, teamAudit/teamAuditModel.ts):
+  /// acpmux reads cmux-platform with its sign-in. An older acpmux answers method not found.
+  async teamAudit(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/team_audit", params, 45_000);
   }
   /// Every ask waiting on the person across agents and machines, for History > Waiting on you
   /// (`_acpmux/review_queue`, queue/queueModel.ts).

@@ -642,7 +642,7 @@ button.sv-role:focus-visible {
   pointer-events: none;
 }
 
-.sv-chip:focus-within {
+.sv-chip:is(:focus-visible, :has(:focus-visible)) {
   outline: 2px solid var(--cmux-accent, var(--page-text-2));
 }
 

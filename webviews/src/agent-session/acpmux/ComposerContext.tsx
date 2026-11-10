@@ -38,7 +38,10 @@ import {
   type ConnectKind,
   type EnvironmentKind,
   type OffloadKind,
+  type OffloadReasons,
 } from "./environments";
+import type { PeerLinkDetail } from "./linkState";
+import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -65,7 +68,7 @@ import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
-import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
+import { CONTEXT_LABELS, emptyFolderLabel, splitForMiddleTruncation } from "./composerContextModel";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -104,6 +107,7 @@ type Computer = Location & {
   kind: EnvironmentKind;
   connected?: boolean;
   state?: string;
+  downSince?: number;
   cloudMachine?: CloudMachine;
   resources?: MachineResources;
 };
@@ -111,6 +115,7 @@ const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
@@ -126,6 +131,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
   onProject,
@@ -146,6 +152,7 @@ export function ComposerContext({
   connectOnlyWhenEmpty = false,
   onOffload,
   offloads = NO_OFFLOADS,
+  offloadReasons,
   saved,
   onRefreshMachines: onRefreshPeers,
   folderNote,
@@ -165,6 +172,8 @@ export function ComposerContext({
   extraFolders,
   cloudEnvironment: cloudEnvironmentSeam,
   cloudEnvironmentDropUp,
+  unavailableGroup,
+  unavailableExpanded,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -178,6 +187,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
+  /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
+  peerLinks?: Record<string, PeerLinkDetail>;
   /// The computer control is the environment picker (EnvironmentPicker.tsx), with Local, SSH and
   /// Cloud sections and ⌥⌘1–9. The agent page always passes it (not behind Labs, Leo 2026-10-30);
   /// off, the plain Computer menu, for surfaces that pass nothing.
@@ -222,6 +234,9 @@ export function ComposerContext({
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
+  /// Why each offered move would refuse now (`pane.tabState` `moveReasons`: a chat with no first message
+  /// yet): the picker's row is disabled and says it, never a click that does nothing.
+  offloadReasons?: OffloadReasons;
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder control steps aside. One that is only a folder on
   /// this computer is a folder instead: the folder menu lists and picks it, and names it while it is
@@ -280,6 +295,10 @@ export function ComposerContext({
   cloudEnvironment?: CloudEnvironmentControl;
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
+  /// Gallery seam: how the machine lists show the machines acpmux cannot reach (`collapsed` ships),
+  /// and whether that group starts open.
+  unavailableGroup?: UnavailableGroup;
+  unavailableExpanded?: boolean;
 }) {
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
   // unread, title or cost changing leaves the list they are made from as it is, so they are not made
@@ -303,7 +322,17 @@ export function ComposerContext({
     // A Cloud machine acpmux has no link to that the account says is paused or resuming reads so,
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
-      availableComputers(summary, sessions, peers, peerKinds, ownName, peerConnected, peerStates, peerResources),
+      availableComputers(
+        summary,
+        sessions,
+        peers,
+        peerKinds,
+        ownName,
+        peerConnected,
+        peerStates,
+        peerResources,
+        peerLinks,
+      ),
       shownMachines,
       newChat,
     );
@@ -320,6 +349,7 @@ export function ComposerContext({
     peerConnected,
     peerStates,
     peerResources,
+    peerLinks,
     ownName,
     newChat,
     shownMachines,
@@ -716,6 +746,8 @@ export function ComposerContext({
   const layout: StripLayout = readOnly || offload ? "combined" : stripLayout;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
   const pickerProps = {
+    ...(unavailableGroup ? { unavailableGroup } : {}),
+    ...(unavailableExpanded ? { unavailableExpanded } : {}),
     environments: pickerComputers,
     current: selectedComputer,
     onPick: pickEnvironment,
@@ -880,18 +912,14 @@ export function ComposerContext({
                       <FolderIcon />
                     )
                   }
+                  // No folder is a settled choice, drawn like a picked folder: the chat starts in its
+                  // own private folder (Leo, 2026-11-09: "this no folder selected should be, like,
+                  // good as well"). Never a dimmed "Choose folder" prompt (emptyFolderLabel).
                   value={
-                    (newProject
-                      ? t(CONTEXT_LABELS.newProject)
-                      : currentName
-                        ? currentName
-                        : noProject
-                          ? t(CONTEXT_LABELS.noProject)
-                          : t(CONTEXT_LABELS.chooseFolder)) + extraCount
+                    (newProject ? t(CONTEXT_LABELS.newProject) : (currentName ?? t(emptyFolderLabel))) + extraCount
                   }
                   chevron
                   middle={currentFolder !== undefined && !newProject}
-                  dim={!currentName && !noProject && !newProject}
                 />
               }
               folders={folders}
@@ -906,7 +934,8 @@ export function ComposerContext({
                   onNoProject();
                 })
               }
-              noProject={noProject && !currentFolder}
+              // Checked whenever the chip reads No folder, so the menu agrees with it.
+              noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
@@ -916,7 +945,7 @@ export function ComposerContext({
             <LocationPicker
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
-              value={(currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)) + extraCount}
+              value={(currentFolder ? projectLabel(currentFolder) : t(emptyFolderLabel)) + extraCount}
               options={folders}
               selected={currentFolder}
               disabled={readOnly && !newChats}
@@ -983,6 +1012,7 @@ export function ComposerContext({
                 }
                 environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
+                {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
               />
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
@@ -1191,6 +1221,7 @@ function availableComputers(
   peerConnected: Record<string, boolean>,
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
+  peerLinks: Record<string, PeerLinkDetail>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1198,10 +1229,13 @@ function availableComputers(
   const current = summary ? [summary] : [];
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
+    const link = peerLinks[machine.id];
+    const downSince = link && link.link !== "connected" ? link.since : undefined;
     computers.push({
       ...machine,
       detail,
       ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
+      ...(downSince !== undefined ? { downSince } : {}),
     });
   }
   return computers;
@@ -1246,7 +1280,6 @@ function LocationFace({
   middle = false,
   live,
   sleep,
-  dim = false,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -1257,8 +1290,6 @@ function LocationFace({
   /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
-  /// An empty choice ("Choose project"): dimmed until something is picked.
-  dim?: boolean;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -1270,9 +1301,7 @@ function LocationFace({
           <span className="acpmux-location-tail">{tail}</span>
         </span>
       ) : (
-        <span className="acpmux-location-label" data-dim={dim ? "" : undefined}>
-          {value}
-        </span>
+        <span className="acpmux-location-label">{value}</span>
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
