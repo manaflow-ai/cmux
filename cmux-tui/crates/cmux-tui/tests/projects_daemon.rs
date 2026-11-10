@@ -695,6 +695,8 @@ struct FakeAcpmux {
     answer: std::sync::Arc<std::sync::Mutex<Value>>,
     watchers: std::sync::Arc<std::sync::Mutex<Vec<std::os::unix::net::UnixStream>>>,
     reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// The `_acpmux/chats_watch` connections whose `initialize` did not say they only observe.
+    keeping_watchers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl FakeAcpmux {
@@ -705,14 +707,20 @@ impl FakeAcpmux {
             answer: Arc::new(Mutex::new(answer)),
             watchers: Arc::new(Mutex::new(Vec::new())),
             reads: Arc::new(AtomicUsize::new(0)),
+            keeping_watchers: Arc::new(AtomicUsize::new(0)),
         };
-        let (answer, watchers, reads) =
-            (fake.answer.clone(), fake.watchers.clone(), fake.reads.clone());
+        let (answer, watchers, reads, keeping) = (
+            fake.answer.clone(),
+            fake.watchers.clone(),
+            fake.reads.clone(),
+            fake.keeping_watchers.clone(),
+        );
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
-                let (answer, watchers, reads) = (answer.clone(), watchers.clone(), reads.clone());
-                std::thread::spawn(move || serve(stream, &answer, &watchers, &reads));
+                let (answer, watchers, reads, keeping) =
+                    (answer.clone(), watchers.clone(), reads.clone(), keeping.clone());
+                std::thread::spawn(move || serve(stream, &answer, &watchers, &reads, &keeping));
             }
         });
         fake
@@ -741,15 +749,23 @@ fn serve(
     answer: &std::sync::Mutex<Value>,
     watchers: &std::sync::Mutex<Vec<std::os::unix::net::UnixStream>>,
     reads: &std::sync::atomic::AtomicUsize,
+    keeping_watchers: &std::sync::atomic::AtomicUsize,
 ) {
     let mut writer = stream.try_clone().unwrap();
+    let mut observer = false;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
         let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
         let result = match request["method"].as_str() {
-            Some("initialize") => json!({"protocolVersion": 1}),
+            Some("initialize") => {
+                observer = request["params"]["_meta"]["acpmux"]["observer"] == true;
+                json!({"protocolVersion": 1})
+            }
             Some("_acpmux/watch") => json!({"sessions": [], "nextCursor": null}),
             Some("_acpmux/chats_watch") => {
+                if !observer {
+                    keeping_watchers.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 watchers.lock().unwrap().push(writer.try_clone().unwrap());
                 json!({"ready": true, "enabled": true, "chats": [], "nextCursor": null, "seq": 0})
             }
@@ -819,6 +835,13 @@ fn projects_daemon_project_chats_imports_the_acpmux_chat_index_itself() {
     assert_eq!(merged["sources"]["claude-code"]["last_used_ms"], "10", "{merged}");
     assert_eq!(merged["sources"]["codex"]["last_used_ms"], "20", "{merged}");
     assert_eq!(projects.len(), 2, "{projects:?}");
+    // The import's connection only watches: it says so, so it keeps no acpmux
+    // daemon after the app quit while this daemon holds shells (R-LIFECYCLE ORPHANS).
+    assert_eq!(
+        acpmux.keeping_watchers.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the index watch must say `_meta.acpmux.observer: true` in its initialize"
+    );
 
     // The user's edit stays through every later import.
     daemon.mutate("project.update", json!({"path": app, "rename": "Mine"}), "c-1");
