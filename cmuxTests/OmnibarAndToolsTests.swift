@@ -729,18 +729,18 @@ final class OmnibarStateMachineTests: XCTestCase {
         _ = omnibarReduce(state: &state, event: .bufferChanged("browse"))
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated(OmnibarSelectedSuggestionFillHarness.rows))
         XCTAssertNil(
-            omnibarFillTextForSelectedSuggestion(state: state),
+            state.fillTextForSelectedSuggestion,
             "A row the popup picked on its own must not take over Tab"
         )
 
         _ = omnibarReduce(state: &state, event: .moveSelection(delta: 2))
         XCTAssertEqual(
-            omnibarFillTextForSelectedSuggestion(state: state),
+            state.fillTextForSelectedSuggestion,
             OmnibarSelectedSuggestionFillHarness.pickedURL
         )
 
         _ = omnibarReduce(state: &state, event: .bufferChanged("browse/"))
-        XCTAssertNil(omnibarFillTextForSelectedSuggestion(state: state), "Typing drops the keyboard pick")
+        XCTAssertNil(state.fillTextForSelectedSuggestion, "Typing drops the keyboard pick")
     }
 
     @MainActor
@@ -752,7 +752,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         _ = omnibarReduce(state: &state, event: .highlightIndex(2))
 
         XCTAssertEqual(state.selectedSuggestionIndex, 2)
-        XCTAssertNil(omnibarFillTextForSelectedSuggestion(state: state))
+        XCTAssertNil(state.fillTextForSelectedSuggestion)
     }
 
     @MainActor
@@ -766,10 +766,10 @@ final class OmnibarStateMachineTests: XCTestCase {
         ]))
 
         _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
-        XCTAssertEqual(omnibarFillTextForSelectedSuggestion(state: state), "go tutorial")
+        XCTAssertEqual(state.fillTextForSelectedSuggestion, "go tutorial")
 
         _ = omnibarReduce(state: &state, event: .moveSelection(delta: -1))
-        XCTAssertNil(omnibarFillTextForSelectedSuggestion(state: state), "Filling the typed text again would swallow Tab")
+        XCTAssertNil(state.fillTextForSelectedSuggestion, "Filling the typed text again would swallow Tab")
     }
 
     @MainActor
@@ -1310,7 +1310,7 @@ private final class OmnibarSelectedSuggestionFillHarness {
                 ),
                 selectAllRequestId: 0,
                 inlineCompletion: inlineCompletion,
-                selectedSuggestionFillText: omnibarFillTextForSelectedSuggestion(state: state),
+                selectedSuggestionFillText: state.fillTextForSelectedSuggestion,
                 placeholder: "",
                 onTap: {},
                 onSubmit: { _ in self.submitCount += 1 },

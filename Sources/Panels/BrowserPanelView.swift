@@ -1793,7 +1793,7 @@ struct BrowserPanelView: View {
                 isFocused: $addressBarFocused,
                 selectAllRequestId: omnibarSelectAllRequestId,
                 inlineCompletion: inlineCompletion,
-                selectedSuggestionFillText: omnibarFillTextForSelectedSuggestion(state: omnibarState),
+                selectedSuggestionFillText: omnibarState.fillTextForSelectedSuggestion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
                 onTap: {
                     handleOmnibarTap()
@@ -3939,20 +3939,22 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
     return effects
 }
 
-/// The text Tab, Right arrow or End copies into the field from the row picked
-/// with the arrow keys (or Ctrl+N/P): the row's URL, or the query of a search
-/// row. Nothing loads, so the text can be edited before Return, like Chrome
-/// filling its omnibox from the selected row. Nil keeps the key's own behavior:
-/// no row was picked by keyboard (a hovered or auto-picked row doesn't count),
-/// or the field already holds the row's text.
-func omnibarFillTextForSelectedSuggestion(state: OmnibarState) -> String? {
-    guard state.isFocused, state.selectionIsExplicit else { return nil }
-    guard state.suggestions.indices.contains(state.selectedSuggestionIndex) else { return nil }
-    let suggestion = state.suggestions[state.selectedSuggestionIndex]
-    guard suggestion.id == state.selectedSuggestionID else { return nil }
-    let fill = suggestion.completion.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !fill.isEmpty, fill != state.buffer else { return nil }
-    return fill
+extension OmnibarState {
+    /// The text Tab, Right arrow or End copies into the field from the row picked
+    /// with the arrow keys (or Ctrl+N/P): the row's URL, or the query of a search
+    /// row. Nothing loads, so the text can be edited before Return, like Chrome
+    /// filling its omnibox from the selected row. Nil keeps the key's own behavior:
+    /// no row was picked by keyboard (a hovered or auto-picked row doesn't count),
+    /// or the field already holds the row's text.
+    var fillTextForSelectedSuggestion: String? {
+        guard isFocused, selectionIsExplicit else { return nil }
+        guard suggestions.indices.contains(selectedSuggestionIndex) else { return nil }
+        let suggestion = suggestions[selectedSuggestionIndex]
+        guard suggestion.id == selectedSuggestionID else { return nil }
+        let fill = suggestion.completion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fill.isEmpty, fill != buffer else { return nil }
+        return fill
+    }
 }
 
 struct OmnibarSuggestion: Identifiable, Hashable {
@@ -4398,7 +4400,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
     let inlineCompletion: OmnibarInlineCompletion?
-    /// From `omnibarFillTextForSelectedSuggestion`; nil when no row was picked by keyboard.
+    /// From `OmnibarState.fillTextForSelectedSuggestion`; nil when no row was picked by keyboard.
     var selectedSuggestionFillText: String? = nil
     let placeholder: String
     let onTap: () -> Void
