@@ -186,6 +186,23 @@ describe("revoking a VM's public egress", () => {
     expect(t.upstream.firewallRules.has("late")).toBe(true);
   });
 
+  it("answers 503, not off, when an allow lands at the front during the read-back", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT, ["vm:network"]);
+    const vm = t.addVm(TENANT);
+    narrowRules(t, vm.upstreamId, 65);
+    // The revoke's list is two pages with nothing to delete. After the read-back's first page, an allow lands first in
+    // the list (the provider lists newest first) and the first narrower rule goes: the total and the overlap rule stay.
+    t.upstream.afterRuleList.push(undefined, undefined, () => {
+      const rest = [...t.upstream.firewallRules.entries()].filter(([ruleId]) => ruleId !== "narrow-0");
+      t.upstream.firewallRules.clear();
+      t.upstream.firewallRules.set("late", ruleOf(vm.upstreamId, "late", { public: true }));
+      for (const [ruleId, entry] of rest) t.upstream.firewallRules.set(ruleId, entry);
+    });
+    expect((await egress(t, vm.vmId, key, "DELETE")).status).toBe(503);
+    expect(t.upstream.firewallRules.has("late")).toBe(true);
+  });
+
   it("does not touch another VM's rule, and needs the network scope", async () => {
     const t = await harness();
     const vm = t.addVm(TENANT);

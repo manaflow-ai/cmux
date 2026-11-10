@@ -47,11 +47,15 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
    * So each page after the first starts one rule early: its first rule must be the previous page's last, and the
    * total must not change. Any net shift at a page boundary breaks one of the two, and the whole list is read again
    * (LIST_TRIES times, then 503). A rule seen is real whatever moved after, so `first` returns at once.
+   *
+   * That catches every rule that was there for the whole read; a rule added during it, at a place already read, can
+   * still be missed (an add and a delete before the boundary leave no shift). `confirmOff` closes that.
    */
   const egressRules = (operation: string, id: string, first: boolean) => Effect.gen(function* () {
     const invalid = () => new UpstreamError({ operation, status: null });
     for (let attempt = 0; attempt < LIST_TRIES; attempt += 1) {
       const found: string[] = [];
+      const listed: string[] = [];
       let offset = 0;
       let total: number | null = null;
       let last: string | null = null;
@@ -76,11 +80,12 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
         total = page.totalCount;
         // The overlap rule was counted on the page before.
         for (const { ruleId, rule } of last === null ? rules : rules.slice(1)) {
+          listed.push(ruleId);
           if (!egressRule(rule, id)) continue;
           found.push(ruleId);
-          if (first) return found;
+          if (first) return { found, listed };
         }
-        if (offset + rules.length >= page.totalCount) return found;
+        if (offset + rules.length >= page.totalCount) return { found, listed };
         const end = rules.at(-1);
         // A page past the first must move past its overlap rule.
         if (end === undefined || (last !== null && rules.length < 2)) return yield* Effect.fail(invalid());
@@ -90,7 +95,17 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
     }
     return yield* Effect.fail(new UpstreamError({ operation, status: 409 }));
   });
-  const read = (operation: string, id: string) => egressRules(operation, id, true).pipe(Effect.map((rules) => rules.length > 0));
+  const read = (operation: string, id: string) => egressRules(operation, id, true).pipe(Effect.map(({ found }) => found.length > 0));
+  /**
+   * Whether the VM is off for sure: two whole reads in a row find no egress rule and list the same rules in the same
+   * order. A rule added during the first read sits in the second; one added during the second changes the list.
+   */
+  const confirmOff = (operation: string, id: string) => Effect.gen(function* () {
+    const one = yield* egressRules(operation, id, false);
+    if (one.found.length > 0) return false;
+    const two = yield* egressRules(operation, id, false);
+    return two.found.length === 0 && two.listed.length === one.listed.length && two.listed.every((ruleId, index) => ruleId === one.listed[index]);
+  });
   return {
     readVmPublicEgress: (_vm, { owns }) =>
       Effect.sync(() => upstreamIdOf(owns)).pipe(Effect.flatMap((id) => read("readVmPublicEgress", id))),
@@ -105,7 +120,7 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
     revokeVmPublicEgress: (_vm, { owns }) => Effect.gen(function* () {
       const operation = "revokeVmPublicEgress";
       const id = yield* Effect.sync(() => upstreamIdOf(owns));
-      const rules = yield* egressRules(operation, id, false);
+      const { found: rules } = yield* egressRules(operation, id, false);
       for (const ruleId of rules) {
         // A rule already gone (a concurrent revoke, or the VM's delete) is what this call wants.
         yield* http.json(operation, "DELETE", `/v5/firewall/rules/${encodeURIComponent(ruleId)}`).pipe(
@@ -113,7 +128,7 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
         );
       }
       // Read back: a rule a concurrent allow added in between, or a delete the provider dropped, must not pass as off.
-      if (yield* read(operation, id)) return yield* Effect.fail(new UpstreamError({ operation, status: 409 }));
+      if (!(yield* confirmOff(operation, id))) return yield* Effect.fail(new UpstreamError({ operation, status: 409 }));
       return rules.length;
     }),
   };
