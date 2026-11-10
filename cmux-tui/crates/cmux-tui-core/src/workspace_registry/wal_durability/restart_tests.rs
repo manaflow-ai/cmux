@@ -400,3 +400,40 @@ fn a_wal_left_over_the_limit_is_copied_at_the_next_open_with_no_commit() {
     assert!(frames > 16 * 1024 && copied_at_open == 0, "{copied_at_open} of {frames} at the open");
     assert_eq!(copied, frames, "the syncer copied {copied} of {frames} left frames in 30 s");
 }
+
+#[test]
+fn after_a_cut_the_syncer_checkpoints_by_what_commits_wrote_not_at_each_request() {
+    // A cut leaves the WAL file at its limit for the rest of the run. The
+    // syncer must then checkpoint once per `CHECKPOINT_BYTES` of new frames,
+    // not once per answered request because the file is large.
+    let (dir, connection) = database("rest");
+    let path = dir.join("r.sqlite");
+    let wal = dir.join("r.sqlite-wal");
+    let durability = WalDurability::attach(&connection, &path, None, false);
+    commit_storm(&connection, &durability, 2 * WAL_SIZE_LIMIT_BYTES);
+    let file = std::fs::metadata(&wal).unwrap().len();
+    let before = durability.checkpoints_once_idle();
+    let frames_before = durability.wal_frame_bytes();
+    let commits = 200u64;
+    for _ in 0..commits {
+        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        durability.request_flush();
+        durability.checkpoints_once_idle();
+    }
+    let checkpoints = durability.checkpoints_once_idle() - before;
+    let written = durability.wal_frame_bytes() - frames_before;
+    println!(
+        "wal_rest: wal_file_bytes={file} commits={commits} frame_bytes={written} \
+         checkpoints={checkpoints}"
+    );
+    drop(connection);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(file > CHECKPOINT_BYTES, "the storm left a WAL file of only {file} bytes");
+    assert!(written < CHECKPOINT_BYTES, "{commits} small commits wrote {written} bytes");
+    // What the storm's last commits left may be one checkpoint size.
+    assert!(
+        checkpoints <= 1,
+        "{checkpoints} checkpoints for {commits} small commits ({written} bytes of frames) at \
+         rest after a cut; a checkpoint is due once per {CHECKPOINT_BYTES} bytes"
+    );
+}

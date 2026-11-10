@@ -189,6 +189,12 @@ struct SyncState {
     restart_wait_longest: Duration,
     #[cfg(test)]
     restart_timeouts: u64,
+    /// Checkpoints the syncer ran, and the announced commits its ended
+    /// passes had looked at.
+    #[cfg(test)]
+    checkpoints: u64,
+    #[cfg(test)]
+    settled: u64,
 }
 
 struct Shared {
@@ -392,6 +398,21 @@ impl WalDurability {
         (state.restart_waits, state.restart_wait_longest)
     }
 
+    /// The checkpoints the syncer ran, read once it ended the pass for the
+    /// last flush request (or 10 s passed).
+    #[cfg(test)]
+    pub(crate) fn checkpoints_once_idle(&self) -> u64 {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let state = self.shared.state.lock().recover_poison();
+            if state.settled >= state.requested || std::time::Instant::now() > deadline {
+                return state.checkpoints;
+            }
+            drop(state);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     /// Waits that ended at the limit before their checkpoint did.
     #[cfg(test)]
     pub(crate) fn restart_timeouts(&self) -> u64 {
@@ -553,10 +574,14 @@ fn run(shared: &Shared) {
         if force {
             flush(shared);
         }
-        if owed || !force {
-            synced |= checkpoint_if_large(shared, &mut checkpointer, owed);
-        }
+        let ran = (owed || !force) && checkpoint_if_large(shared, &mut checkpointer, owed);
+        synced |= ran;
         state = shared.state.lock().recover_poison();
+        #[cfg(test)]
+        {
+            state.checkpoints += u64::from(ran);
+            state.settled = state.handled;
+        }
         state.leftover_running = false;
         state.restart_done = state.restart_done.max(asked);
         if synced {
