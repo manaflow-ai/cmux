@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42916166281",
+  "recorded_at": "2026-11-10T22:45:39Z",
+  "reason": "cmux-tui 81914bf14d72 changes the image's cmux-tui (pinned 6b2d2b4dc103)",
+  "dry_run": false,
+  "cmux_tui": "81914bf14d72dd3ba301b03b1454cf3605f9ac5a",
+  "fixes": [
+    {
+      "sha": "6286eba3ca085694a7a8bcbf7340e08d9d081e60",
+      "mergedAt": "2026-11-10T22:16:04Z",
+      "subject": "cmux-tui: a list with no scope builds its own collection, not the session snapshot (#40709)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T22:45:39Z",
+    "snapshot_id": "sh-94d30dd3c78648f5b339a5d136c01dcb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42916166281): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "102883bac82c2d3261420242e4f284706b4d5220",
+    "image": "cloud-native-auto-81914bf1-42916166281-1",
+    "revision": "ci-42916166281-1",
+    "at": "2026-11-10T22:45:39Z"
+  },
+  "rolled_back": false
+}
