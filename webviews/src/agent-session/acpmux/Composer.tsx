@@ -123,7 +123,7 @@ import { UsageRingMenu } from "./composerChrome";
 import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
+import { setAttachmentView, setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
@@ -696,7 +696,7 @@ function ComposerFrame({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } = useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2331,6 +2331,23 @@ function ComposerFrame({
       checked: scrollToBottomOnSend,
       separatorBefore: true,
       onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
+    },
+    // Where attachments show, in every composer and sent message (agentPane.attachmentView, written
+    // through the host as Settings' Attachment View is). Leo, 2026-11-09: "In the right-click menu
+    // for the composer ... all attachments in line, or all attachments at the top like normal."
+    // Settings' Inline and Strip ("both") checks neither row; picking one replaces it.
+    {
+      id: "attachmentsInline",
+      label: t(COMPOSER_LABELS.attachmentsInline),
+      checked: attachmentView === "inline",
+      separatorBefore: true,
+      onSelect: () => setAttachmentView("inline"),
+    },
+    {
+      id: "attachmentsAtTop",
+      label: t(COMPOSER_LABELS.attachmentsAtTop),
+      checked: attachmentView === "strip",
+      onSelect: () => setAttachmentView("strip"),
     },
   ];
 

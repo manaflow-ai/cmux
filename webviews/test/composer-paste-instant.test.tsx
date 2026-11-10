@@ -519,9 +519,9 @@ test.each([
 });
 
 // Review of #37674 (F1): only the paste's own gesture takes the selection's place. A screenshot pasted
-// with the caret in a code block cannot go there and waits in the strip; the person then selects the
-// whole prompt while it loads. Once read, it is placed on its own (useInlineAttachments `ready`), and
-// that never deletes what is typed: the selection stays text, the chip goes after it.
+// with the caret in a code block cannot go in the block: it goes on a line of its own under it at
+// once, never in the strip (Leo, 2026-11-09: "we have inline stuff, so why is this not inline?").
+// The person then selects the whole prompt while it loads; the read never deletes what is typed.
 test("an attachment placed once read never replaces the selection the person made meanwhile", async () => {
   const rects = { getClientRects: () => [], getBoundingClientRect: () => new dom.window.DOMRect() };
   Object.assign(dom.window.Range.prototype, rects);
@@ -537,7 +537,8 @@ test("an attachment placed once read never replaces the selection the person mad
   });
   const shot = slowScreenshot();
   await paste([shot.file]);
-  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(field().querySelector("pre [data-inline-attachment]")).toBeNull();
+  expect(field().querySelector("pre + p [data-inline-attachment]")).not.toBeNull();
   await act(async () => markdownField().selectAll());
   shot.release();
   await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");

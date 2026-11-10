@@ -95,6 +95,73 @@ async function pasteTwoScreenshots(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] img").length === 2);
 }
 
+/// The `attachment-inline-image-and-file` scene, in the view that shows: a screenshot pasted after
+/// "Compare this" and a notes file after "the notes in", in the draft "Compare this with the notes
+/// in and summarize."
+async function pasteImageAndNotes(ctx: PlayContext) {
+    const view = ctx.document.defaultView!;
+    const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+    const handle = field.acpmuxMarkdownField!;
+    const paste = (file: File) => {
+      const event = new view.Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: { files: [file], types: ["Files"], getData: () => "" },
+      });
+      ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+    };
+    const canvas = ctx.document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 180;
+    const drawing = canvas.getContext("2d")!;
+    drawing.fillStyle = "#5783b5";
+    drawing.fillRect(0, 0, 320, 180);
+    drawing.fillStyle = "white";
+    drawing.font = "24px system-ui";
+    drawing.fillText("Before and after", 36, 96);
+    const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+    handle.setCaret("Compare this".length);
+    paste(new view.File([blob], "comparison.png", { type: "image/png" }));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+    // An atom in the text is one position of the paragraph; the strip view adds none.
+    const atoms = ctx.document.querySelectorAll("[data-inline-attachment]").length;
+    handle.setCaret("Compare this with the notes in".length + atoms);
+    paste(new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+}
+
+const MIXED_DRAFT = "Compare this with the notes in and summarize.";
+
+/// Opens the prompt's right-click menu (Composer `fieldMenu`).
+async function openFieldMenu(ctx: PlayContext) {
+  const field = ctx.find({ selector: ".acpmux-md" });
+  const box = field.getBoundingClientRect();
+  field.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.right - 40, clientY: box.top + 12 }),
+  );
+  await ctx.waitFor(() => ctx.document.querySelector('.ui-context-menu [role="menuitemcheckbox"]'));
+}
+
+/// Picks the field menu's attachment row named `label` and waits for the view it sets.
+async function pickAttachmentView(ctx: PlayContext, label: string, view: "inline" | "strip") {
+  await openFieldMenu(ctx);
+  const row = [...ctx.document.querySelectorAll<HTMLElement>('.ui-context-menu [role="menuitemcheckbox"]')].find(
+    (each) => each.textContent?.trim().endsWith(label),
+  );
+  if (!row) throw new Error(`the composer's menu must offer ${label}`);
+  row.click();
+  await ctx.waitFor(() => ctx.document.querySelector(`[data-attachment-view="${view}"]`));
+  await ctx.waitFor(() => !ctx.document.querySelector(".ui-context-menu"));
+}
+
+/// The two attachment rows' checks as the open menu draws them, by label.
+function attachmentRows(ctx: PlayContext) {
+  return Object.fromEntries(
+    [...ctx.document.querySelectorAll<HTMLElement>('.ui-context-menu [role="menuitemcheckbox"]')]
+      .filter((row) => /All Attachments/.test(row.textContent ?? ""))
+      .map((row) => [row.textContent!.replace("✓", "").trim(), row.getAttribute("aria-checked") === "true"]),
+  );
+}
+
 /// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
 async function pasteComparison(ctx: PlayContext) {
   const view = ctx.document.defaultView!;
@@ -1583,34 +1650,87 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       ready: { draft: "Compare this with the notes in and summarize." },
       play: async (ctx) => {
+        await pasteImageAndNotes(ctx);
+      },
+    },
+    // Leo, 2026-11-09: "In the right-click menu for the composer ... all attachments in line, or all
+    // attachments at the top like normal." The prompt's menu sets agentPane.attachmentView for every
+    // composer and sent message; inline stays the default.
+    "attachments-menu-inline": {
+      note: 'Right-click on a draft with a screenshot and a notes file in its text: the menu ends with "All Attachments Inline" (checked, the default) and "All Attachments at the Top".',
+      snapshot: chat(finished),
+      ready: { draft: MIXED_DRAFT },
+      play: async (ctx) => {
+        await pasteImageAndNotes(ctx);
+        await openFieldMenu(ctx);
+        const rows = attachmentRows(ctx);
+        if (rows["All Attachments Inline"] !== true || rows["All Attachments at the Top"] !== false)
+          throw new Error(`the inline view must check All Attachments Inline: ${JSON.stringify(rows)}`);
+      },
+    },
+    "attachments-menu-picked-top": {
+      note: '"All Attachments at the Top" picked from the menu: the same screenshot and notes file move to the row above the text, as common chat apps show them; the words read on with nothing between them, and the draft sends the same.',
+      snapshot: chat(finished),
+      ready: { draft: MIXED_DRAFT },
+      play: async (ctx) => {
+        await pasteImageAndNotes(ctx);
+        await pickAttachmentView(ctx, "All Attachments at the Top", "strip");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length === 2);
+      },
+    },
+    "attachments-menu-top-checked": {
+      note: 'At the Top, right-click again: "All Attachments at the Top" is checked, and "All Attachments Inline" puts them back where each was pasted.',
+      snapshot: chat(finished),
+      ready: { draft: MIXED_DRAFT },
+      play: async (ctx) => {
+        await pasteImageAndNotes(ctx);
+        await pickAttachmentView(ctx, "All Attachments at the Top", "strip");
+        await openFieldMenu(ctx);
+        const rows = attachmentRows(ctx);
+        if (rows["All Attachments Inline"] !== false || rows["All Attachments at the Top"] !== true)
+          throw new Error(`the top view must check All Attachments at the Top: ${JSON.stringify(rows)}`);
+      },
+    },
+    "attachments-menu-picked-inline": {
+      note: 'Back to "All Attachments Inline": the screenshot is again after "Compare this" and the notes file after "the notes in", and the row above the text is gone.',
+      snapshot: chat(finished),
+      ready: { draft: MIXED_DRAFT },
+      play: async (ctx) => {
+        await pasteImageAndNotes(ctx);
+        await pickAttachmentView(ctx, "All Attachments at the Top", "strip");
+        await pickAttachmentView(ctx, "All Attachments Inline", "inline");
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] .acpmux-attachment").length === 2 &&
+            !ctx.document.querySelector(".acpmux-attachments .acpmux-attachment"),
+        );
+      },
+    },
+    "attachment-inline-under-code-block": {
+      note: 'Leo, 2026-11-09: "we have inline stuff, so why is this not inline? This one went above the whole thing." A screenshot pasted with the caret in a code block, which takes no attachment, goes on a line of its own under the block, never in the row above the text.',
+      snapshot: chat(finished),
+      ready: { draft: "```\nnpm test\n```\n\nThe failure is above." },
+      play: async (ctx) => {
         const view = ctx.document.defaultView!;
-        const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
-        const handle = field.acpmuxMarkdownField!;
-        const paste = (file: File) => {
-          const event = new view.Event("paste", { bubbles: true, cancelable: true });
-          Object.defineProperty(event, "clipboardData", {
-            value: { files: [file], types: ["Files"], getData: () => "" },
-          });
-          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
-        };
-        const canvas = ctx.document.createElement("canvas");
-        canvas.width = 320;
-        canvas.height = 180;
+        view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md pre"));
+        const code = ctx.find({ selector: ".acpmux-md pre code, .acpmux-md pre" });
+        const range = ctx.document.createRange();
+        range.selectNodeContents(code);
+        range.collapse(false);
+        view.getSelection()!.removeAllRanges();
+        view.getSelection()!.addRange(range);
+        ctx.document.dispatchEvent(new view.Event("selectionchange"));
+        const canvas = new view.OffscreenCanvas(320, 180);
         const drawing = canvas.getContext("2d")!;
-        drawing.fillStyle = "#5783b5";
+        drawing.fillStyle = "#b5574f";
         drawing.fillRect(0, 0, 320, 180);
-        drawing.fillStyle = "white";
-        drawing.font = "24px system-ui";
-        drawing.fillText("Before and after", 36, 96);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
-        handle.setCaret("Compare this".length);
-        paste(new view.File([blob], "comparison.png", { type: "image/png" }));
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
-        // An atom in the text is one position of the paragraph; the strip view adds none.
-        const atoms = ctx.document.querySelectorAll("[data-inline-attachment]").length;
-        handle.setCaret("Compare this with the notes in".length + atoms);
-        paste(new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }));
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+        pasteFiles(ctx, [new view.File([await canvas.convertToBlob({ type: "image/png" })], "failure.png", { type: "image/png" })]);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md > p [data-inline-attachment] img"));
+        if (ctx.document.querySelector(".acpmux-attachments .acpmux-attachment"))
+          throw new Error("an attachment pasted in a code block must not show above the text");
+        if (ctx.document.querySelector(".acpmux-md pre [data-inline-attachment]"))
+          throw new Error("an attachment never goes inside a code block");
       },
     },
     // #26545's review at 2b4ccd42: in the prompt, a PDF, a video and an image that cannot be drawn

@@ -533,11 +533,11 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
-// Review of #37516 (P1 at 8b9b479d): an oversized paste made in a code block has no place in the
-// text, so its chip waits in the strip. Keep as .txt puts the file where the chip was, the strip,
-// never at a caret outside the block: an undo there would take the file out with no chip to bring
-// back, and the paste would be gone from the draft.
-test("Keep as .txt on a chip with no place keeps its file through an undo", async () => {
+// Review of #37516 (P1 at 8b9b479d): an oversized paste made in a code block cannot go in the
+// block. It goes on a line of its own under it, never in the strip (Leo, 2026-11-09: "we have
+// inline stuff, so why is this not inline?"). Keep as .txt puts the file where the chip was, and
+// an undo brings the paste back: it is never gone from the draft.
+test("an oversized paste in a code block goes under it, and Keep as .txt keeps its file through an undo", async () => {
   const composer = await openComposer();
   await showAttachments("inline");
   await act(async () => composer.current!.restore("```\nlet x = 1\n```\n\nhello world", []));

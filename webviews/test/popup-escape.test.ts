@@ -160,7 +160,8 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       );
     });
     await page.waitForSelector(".ui-context-menu[data-escaped]", { state: "attached", timeout: 10_000 });
-    // Its rows: the actions and, last, the "Scroll to bottom when I send" checkbox (#25690).
+    // Its rows: the actions, then the "Scroll to bottom when I send" checkbox (#25690) and the two
+    // attachment views.
     const ROWS = ".ui-context-menu :is([role=menuitem], [role=menuitemcheckbox])";
     const rows = await page.locator(ROWS).count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");

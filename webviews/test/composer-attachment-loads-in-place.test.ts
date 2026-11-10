@@ -14,8 +14,9 @@
 //   the placeholder out of the text (into the strip at the top), and the read picture then went in
 //   at the caret, between the words typed meanwhile;
 // - a screenshot dropped between words: it loads in its node, the words around it whole;
-// - a screenshot pasted where no attachment can go (a code block): it loads where it shows, in the
-//   strip, and is never put in at the caret the person moved on to.
+// - a screenshot pasted where no attachment can go (a code block): it goes on a line of its own
+//   under the block at once and loads there, never in the strip and never at the caret the person
+//   moved on to (Leo, 2026-11-09: "we have inline stuff, so why is this not inline?").
 //
 // The page is the pane's dev entry with the in-page mock daemon. Real Chromium from Playwright; CI
 // fails the file when it cannot launch (requireBrowserLane).
@@ -358,10 +359,10 @@ await requireBrowserLane("composer-attachment-loads-in-place.test.ts", async () 
     await page.close();
   });
 
-  test("a screenshot that loads in the strip stays there, never put in at the caret the person moved to", async () => {
+  test("a screenshot pasted in a code block loads on its own line under it, never at the caret the person moved to", async () => {
     const page = await openPane();
     await select(page, "mock-session");
-    // A code block takes no attachment: the paste's placeholder shows in the strip.
+    // A code block takes no attachment: the paste's placeholder goes on a line under it.
     await page.evaluate((prompt) => {
       const field = document
         .querySelector(prompt)!
@@ -381,14 +382,16 @@ await requireBrowserLane("composer-attachment-loads-in-place.test.ts", async () 
     await page.keyboard.type(" end", { delay: 20 });
     await page.evaluate(() => window.cmuxPaintFrame());
     const frames = await stopFrames(page);
-    expect(await promptText(page)).toBe("npm testafter hello world end");
+    expect(await promptText(page)).toBe("npm test[ATT]after hello world end");
+    expect(await page.locator(`${PROMPT} pre [data-inline-attachment]`).count()).toBe(0);
+    expect(await page.locator(`${PROMPT} pre + p [data-inline-attachment]`).count()).toBe(1);
     const drawn = frames.filter((frame) => frame.nodes.length || frame.strip.length);
     expect(drawn.length).toBeGreaterThan(0);
     for (const frame of drawn) {
-      expect(frame.nodes).toEqual([]);
-      expect(frame.strip.length).toBe(1);
-      expect(frame.strip[0]!.x).toBeCloseTo(drawn[0]!.strip[0]!.x, 0);
-      expect(frame.strip[0]!.y).toBeCloseTo(drawn[0]!.strip[0]!.y, 0);
+      expect(frame.strip).toEqual([]);
+      expect(frame.nodes.length).toBe(1);
+      expect(frame.nodes[0]!.rect.x).toBeCloseTo(drawn[0]!.nodes[0]!.rect.x, 0);
+      expect(frame.nodes[0]!.rect.y).toBeCloseTo(drawn[0]!.nodes[0]!.rect.y, 0);
     }
     await page.close();
   });
