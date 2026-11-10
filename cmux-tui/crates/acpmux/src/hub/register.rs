@@ -166,6 +166,10 @@ impl Hub {
             ),
         };
         let name = req.name.clone();
+        // One registration at a time: the name check below and the rename after it are one step,
+        // so two sessions registering the same name at once never both get it.
+        static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _one_at_a_time = REGISTERING.lock().await;
         let stores = super::adoption::store_families(&*self.config.read().await);
         let shown = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());

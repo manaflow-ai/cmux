@@ -259,14 +259,23 @@ impl Hub {
                 let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
                 return Some(Target::Codex { home: homes.codex, thread });
             }
-            crate::claude_peers::find(&homes.claude, &agent_session_id)
-                .filter(|p| registered || p.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
-                .map(|peer| {
-                    let token = registered
-                        .then(|| crate::claude_peers::token_for(&acpmux_home, &chat_id, &peer))
-                        .flatten();
-                    Target::Claude { config: homes.claude, peer, token }
-                })
+            let by_setting = |p: &crate::claude_peers::Peer| {
+                crate::claude_peers::enabled()
+                    && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
+            };
+            let peer = crate::claude_peers::find(&homes.claude, &agent_session_id)
+                .filter(|p| registered || by_setting(p))?;
+            let token = registered
+                .then(|| crate::claude_peers::token_for(&acpmux_home, &chat_id, &peer))
+                .flatten();
+            // A registered chat opens with the token its session handed over. A restarted
+            // session's new process has none until it registers again, so the send waits
+            // (`bridge.not_running`) rather than opening with the undocumented peer key, unless
+            // the bridge setting would have taken the chat by itself.
+            if registered && token.is_none() && !by_setting(&peer) {
+                return None;
+            }
+            Some(Target::Claude { config: homes.claude, peer, token })
         })
         .await
         .ok()
