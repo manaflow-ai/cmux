@@ -77,7 +77,7 @@ public struct CloudLoginCopyConsentNow: Sendable, Equatable {
 /// send is sent again with the next state.
 struct CloudLoginCopyConsentPush {
     /// The consent the daemon holds on the current link; nil: none sent on it yet.
-    private var sent: Bool?? = nil
+    private var sent: Bool??
 
     /// The consent to send now, or nil to send nothing.
     mutating func next(_ now: CloudLoginCopyConsentNow) -> Bool?? {
