@@ -53,7 +53,7 @@ public struct Motion {
     /// (`Motion.sidebar.policy(in: window)`), which adds the category and the window's live resize.
     public static var basePolicy: MotionPolicy {
         let design = DesignSettings.shared
-        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
+        return MotionPolicy(speed: speed, reduceMotion: reduceMotion,
                             enabledKinds: design.enabledAnimations,
                             animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
                             disabledCategories: design.disabledAnimationCategories)

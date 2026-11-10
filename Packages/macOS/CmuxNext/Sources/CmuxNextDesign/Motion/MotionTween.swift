@@ -41,7 +41,7 @@ nonisolated extension MotionPolicy {
             case .off: 2
             }
         }
-        return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: bounce == .subtle ? 1 : 0,
+        return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: 0,
                                 pane_animations: false, new_tab: enabledKinds.contains(.newTab),
                                 new_workspace: enabledKinds.contains(.newWorkspace))
     }

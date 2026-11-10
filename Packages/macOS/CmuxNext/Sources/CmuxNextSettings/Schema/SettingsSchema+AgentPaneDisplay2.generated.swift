@@ -270,6 +270,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.promptCoachPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
+                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat that took several corrections, shows how its first prompt could have said it all at once."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
+                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.statusVerbsModePath,
                 section: .appearance,
                 group: group,
