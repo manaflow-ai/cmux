@@ -244,7 +244,6 @@ test("every string the page uses exists in every locale, with its placeholders",
   for (const window of ["24h", "7d", "30d", "90d", "1y"]) used.add(`chiefUsage.window.${window}`);
   for (const by of ["chief", "agent", "model", "harness", "kind"]) used.add(`chiefUsage.by.${by}`);
   for (const kind of ["turn", "compactor", "subagent"]) used.add(`chiefUsage.kind.${kind}`);
-  for (const tab of ["cost", "tokens", "cache", "latency"]) used.add(`chiefUsage.tabs.${tab}`);
   expect(LOCALES.length).toBe(21);
   const missing: string[] = [];
   for (const key of used) {

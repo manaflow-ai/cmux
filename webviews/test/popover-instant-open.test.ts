@@ -163,7 +163,6 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
     count: 3,
     what: "a paused chat's card, its one-line form above a missing chat's kept rows, and its resume spinner into a slot already there (afterDelay.ts)",
   },
-  "src/agent-session/acpmux/CloudResumeDesigns.tsx": { count: 1, what: "the gallery's slow-resume note designs" },
   "src/agent-session/acpmux/ComposerQueue.tsx": { count: 1, what: "the held prompt's waking line" },
   "src/agent-session/acpmux/DictationListening.tsx": {
     count: 1,
