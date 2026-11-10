@@ -20147,7 +20147,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : true,
+        "is_palette_visible" : false,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -20193,7 +20193,9 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : "offered"
+        "palette" : {
+          "exempt" : "duplicateOfDefault"
+        }
       },
       "surfaces" : [
         "contextMenu"
@@ -20958,7 +20960,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : true,
+        "is_palette_visible" : false,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -21004,7 +21006,9 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : "offered"
+        "palette" : {
+          "exempt" : "duplicateOfDefault"
+        }
       },
       "surfaces" : [
         "contextMenu"
@@ -21769,7 +21773,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : true,
+        "is_palette_visible" : false,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -21815,7 +21819,9 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : "offered"
+        "palette" : {
+          "exempt" : "duplicateOfDefault"
+        }
       },
       "surfaces" : [
         "contextMenu"
@@ -22580,7 +22586,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : true,
+        "is_palette_visible" : false,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -22626,7 +22632,9 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : "offered"
+        "palette" : {
+          "exempt" : "duplicateOfDefault"
+        }
       },
       "surfaces" : [
         "contextMenu"

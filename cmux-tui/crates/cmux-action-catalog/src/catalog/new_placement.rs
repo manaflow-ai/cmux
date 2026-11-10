@@ -17,7 +17,7 @@ pub static ACTIONS: &[Action] = &[
         category: "pane",
         symbol: "terminal",
         surfaces: CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -190).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("duplicateOfDefault"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -190).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
         targets: &["pane"],
         cli_name: "action new-terminal",
         ..Action::DEFAULT
@@ -170,7 +170,7 @@ pub static ACTIONS: &[Action] = &[
         category: "pane",
         symbol: "globe",
         surfaces: CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -180).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("duplicateOfDefault"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -180).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
         targets: &["pane"],
         cli_name: "action new-browser",
         ..Action::DEFAULT
@@ -313,7 +313,7 @@ pub static ACTIONS: &[Action] = &[
         category: "pane",
         symbol: "message",
         surfaces: CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -170).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("duplicateOfDefault"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -170).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
         targets: &["pane"],
         cli_name: "action new-agent-chat",
         ..Action::DEFAULT
@@ -456,7 +456,7 @@ pub static ACTIONS: &[Action] = &[
         category: "pane",
         symbol: "square.grid.2x2",
         surfaces: CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -160).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("duplicateOfDefault"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -160).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
         targets: &["pane"],
         cli_name: "action new-new-tab-page",
         ..Action::DEFAULT

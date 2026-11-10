@@ -84,7 +84,9 @@ nonisolated enum NewPlacementActionCatalog: ActionCatalogGroup {
             let submenu = ActionDescriptor(
                 id: anchor, title: kind.title(), keywords: ["new"] + kind.keywords, category: .pane, symbol: kind.symbol,
                 surfaces: [.contextMenu], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [
+                // Menu only: the palette lists the kind's ten places, "New … to the Right" among them, which
+                // is what running the submenu row does. Listed, New Tab Page shared its name with `newTab.page`.
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.duplicateOfDefault), cli: .exempt(.guiOnly), contextMenus: [
                     ActionSurfaceCatalog.p(.pane, .create, kind.rank, .submenu, folder: .new),
                 ])
             )

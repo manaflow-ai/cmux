@@ -46,7 +46,8 @@ import Testing
     /// Chief, whose rows they are; the sidebar's Compact
     /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows; Mute Tab and
     /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle; Open Feed Item and
-    /// Run a Feed Item's GitHub Action act on a row of the Feed page, which passes the item).
+    /// Run a Feed Item's GitHub Action act on a row of the Feed page, which passes the item; the New ▸
+    /// kind submenus duplicate New … to the Right).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -60,6 +61,7 @@ import Testing
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
                 "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
+                "new.agentChat", "new.browser", "new.newTabPage", "new.terminal",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
