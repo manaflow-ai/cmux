@@ -99,13 +99,15 @@ private struct Timeline {
         phases.first { $0.at >= t && $0.phase.isConnected }?.at
     }
 
-    /// Every status line shown in `[from, to)`.
+    /// Every status line shown in `[from, to)`: the phase after the events
+    /// at `from` (a link dropped at `from` never shows "Connected" in the
+    /// window), then every later one before `to`.
     func statusLines(from: Duration, to: Duration, mac: String = "Studio") -> Set<String> {
         var lines = Set<String>()
-        var current = phases.last { $0.at < from }?.phase
-        if let current, let line = current.statusLine(macName: mac) { lines.insert(line) }
-        for (at, phase) in phases where at >= from && at < to {
-            current = phase
+        if let first = phases.last(where: { $0.at <= from })?.phase, let line = first.statusLine(macName: mac) {
+            lines.insert(line)
+        }
+        for (at, phase) in phases where at > from && at < to {
             if let line = phase.statusLine(macName: mac) { lines.insert(line) }
         }
         return lines
@@ -122,7 +124,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     // MARK: Network
 
     /// The phone loses its network (subway, flight) for 10 s or 8 h (god),
-    /// then gets it back; the path monitor's change sends `.foreground` after
+    /// then gets it back; the path monitor's change sends `.networkChanged` after
     /// `networkSettle`. Reconnected within 2 s of the network being back,
     /// "Reconnecting…" while down, and 8 h within 1.2x of 10 s.
     @Test func cellNetworkOfflineThenBack() {
@@ -137,7 +139,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             timeline.run(world: world, external: [
                 (.zero, .target(studio)),
                 (lost, .linkDropped(generation: 1, reason: "network lost")),
-                (back + LinkController.networkSettle, .foreground),
+                (back + LinkController.networkSettle, .networkChanged),
             ], until: back + .seconds(60))
             let reconnected = timeline.connected(after: back).map { $0 - back }
             report("network_offline_then_back", variant, [
@@ -168,7 +170,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             timeline.run(world: world, external: [
                 (.zero, .target(studio)),
                 (lost, .linkDropped(generation: 1, reason: "network lost")),
-                (back + LinkController.networkSettle, .foreground),
+                (back + LinkController.networkSettle, .networkChanged),
             ], until: back + .seconds(120))
             let reconnected = timeline.connected(after: back).map { $0 - back }
             report("network_back_during_inflight_dial", variant, [
