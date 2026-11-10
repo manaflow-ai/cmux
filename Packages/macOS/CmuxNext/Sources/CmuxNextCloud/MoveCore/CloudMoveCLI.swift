@@ -184,8 +184,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public static let copyLoginOnClaimKey = "cmux.cloud.copyLoginOnClaim"
 
     /// Whether a reserve's or a claim's machine starts the login copy onto that machine (cmux-platform#1084, item (a)).
-    /// Off unless `cmux.cloud.copyLoginOnClaim` is YES: until then only the warm on intent copies, as before.
-    public static func copiesLoginOnClaim(_ defaults: UserDefaults) -> Bool { defaults.bool(forKey: copyLoginOnClaimKey) }
+    /// On unless `cmux.cloud.copyLoginOnClaim` is NO (Leo, 2026-11-09: "at least frontload the stuff that we can check earlier").
+    public static func copiesLoginOnClaim(_ defaults: UserDefaults) -> Bool { defaults.object(forKey: copyLoginOnClaimKey) as? Bool ?? true }
 
     /// The machine a reservation answer (``startChatReservation(release:request:access:install:)``, read as an object) reserved; nil for a refusal.
     public static func reservedMachine(_ reply: [String: Any]) -> String? {

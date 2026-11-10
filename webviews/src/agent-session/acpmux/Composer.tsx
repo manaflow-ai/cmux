@@ -298,6 +298,9 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
+  /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
+  onBindSideGesture?(): SendGesture | undefined;
   /// Whether the chat's transcript is at its latest row now (VirtualTranscript's follow, App.tsx
   /// `followingTranscript`): a prompt sent away from it tucks behind the composer (conversation/sendTuck.ts).
   transcriptFollowing?(): boolean;
@@ -354,7 +357,14 @@ type Props = {
   /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
   /// promise keeps the text until it resolves; accepted commands consume their attachments immediately.
   /// `CMUX_PASS_THROUGH` hands the prompt to the normal send path (onSend), attachments and steer included.
-  onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
+  /// `attachments`: `/side`'s staged files, which go to its side chat with its prompt (#40066);
+  /// `gesture`: the one `onBindSideGesture` bound when the composer held it for them.
+  onCmuxCommand?(
+    command: CmuxCommand,
+    args?: string,
+    attachments?: ComposerAttachment[],
+    gesture?: SendGesture,
+  ): CmuxCommandResult;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -491,6 +501,7 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  onBindSideGesture,
   transcriptFollowing,
   onStop,
   onQueueRemove,
@@ -1314,24 +1325,20 @@ function ComposerFrame({
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
-  // The table loads in its own chunk once the composer is idle after its first paint.
+  // The table loads in its own chunk at the first idle moment after the person first types in this
+  // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
-  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
-  useEffect(() => {
-    let alive = true;
+  const emojiRequested = useRef(false);
+  const requestEmoji = () => {
+    if (emojiRequested.current) return;
+    emojiRequested.current = true;
     const load = () =>
-      void loadEmojiShortcodes().then(
-        (data) => alive && setEmojiData(data),
-        () => undefined,
-      );
-    const idle = globalThis.requestIdleCallback?.(load, { timeout: 2000 });
-    const timer = idle === undefined ? setTimeout(load, 0) : undefined;
-    return () => {
-      alive = false;
-      if (idle !== undefined) globalThis.cancelIdleCallback?.(idle);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, []);
+      void loadEmojiShortcodes().then(setEmojiData, () => {
+        emojiRequested.current = false;
+      });
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
+    else setTimeout(load, 0);
+  };
   // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
   // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
@@ -1376,6 +1383,7 @@ function ComposerFrame({
   });
 
   const edit = (value: string, at: number) => {
+    requestEmoji();
     setText(value);
     setCaret(at);
     setDismissed(undefined);
@@ -1530,10 +1538,27 @@ function ComposerFrame({
       return true;
     }
     if (owned) {
-      // Side questions and /side's prompt carry text only; staged files stay here for the main
-      // turn. A file still being read counts too: /btw and /side must not cancel it.
-      if ((owned.action === "btw" || owned.action === "side") && (attachments.length > 0 || pending.length > 0))
-        return false;
+      // A side question carries text only; staged files stay here for the main turn. A file still
+      // being read counts too: /btw must not cancel it.
+      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
+      // `/side`'s prompt takes the staged files to its side chat (#40066): it waits for a file still
+      // being read, and for the originals a too-large prompt goes with, as a send does.
+      const sideFiles = owned.action === "side";
+      if (sideFiles) {
+        const again = (gesture?: SendGesture) => submitNow.current(force, steer, gesture, route);
+        // Bound to no chat: one bound to this chat would not let its prompt go to the side chat.
+        const bindSide = () => onBindSideGesture?.();
+        if (holdForAttachments(again, kept, bindSide)) return false;
+        const waits = awaitsOriginals(
+          prompt,
+          placed.attachments,
+          (id) => originalUploads.has(id),
+          {},
+          undefined,
+          needsOriginal,
+        );
+        if (holdForOriginals(waits, again, kept, bindSide)) return false;
+      }
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));
@@ -1551,7 +1576,9 @@ function ComposerFrame({
         }
         owned = undefined;
       } else {
-        const accepted = onCmuxCommand(owned, ownedArgs);
+        const accepted = sideFiles
+          ? onCmuxCommand(owned, ownedArgs, placed.attachments, kept)
+          : onCmuxCommand(owned, ownedArgs);
         // A passthrough command goes as a normal prompt, keeping its staged attachments.
         if (accepted === CMUX_PASS_THROUGH) owned = undefined;
         else if (typeof accepted === "string") {
@@ -1573,14 +1600,19 @@ function ComposerFrame({
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
           const went = new Set(attachments.map((attachment) => attachment.id));
-          box.current?.sent(went);
-          setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
+          const consume = () => {
+            box.current?.sent(went);
+            setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
+          };
+          // `/side`'s files go with its prompt: a side chat that did not open leaves them here.
+          if (!sideFiles) consume();
           setAttachError(undefined);
           plusDraft.current = undefined;
           sending.current = true;
           accepted.then(
             () => {
               sending.current = false;
+              if (sideFiles) consume();
               if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
               sentAt.current = Date.now();
             },
@@ -2450,7 +2482,6 @@ function ComposerFrame({
         draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason),
         sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
         side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
-        files: attachments.length > 0 || pending.length > 0,
       });
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
