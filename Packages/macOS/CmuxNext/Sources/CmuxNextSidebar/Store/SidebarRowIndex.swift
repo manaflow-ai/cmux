@@ -129,7 +129,7 @@ extension SidebarListView {
     }
 
     /// Patches each row in place; true when one row's height changed.
-    private func patchRowsNow(_ patched: [SidebarWorkspace]) -> Bool {
+    func patchRowsNow(_ patched: [SidebarWorkspace]) -> Bool {
         var options: SidebarLayoutOptions?
         var heightChanged = false
         let shownCard = hoverCard.shownID
