@@ -2315,6 +2315,11 @@ export class AcpmuxDirectClient {
   private usageFromSeq = Infinity;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
+  /// The selected chat's command list has been read (its last visit's list, its attach's, the
+  /// log's, a live update), or there is none to read: until then `/` says it is loading, not
+  /// "No commands" (`commandsPending`). The first chat a page opens is selected without a
+  /// selection reset, so this starts unread; no chat selected has nothing to read.
+  private commandsRead = false;
   private optimisticPromptRows = new Map<string, string>();
   /// A prompt's transcript row id survives replay after acpmux accepts it, so an echo never
   /// becomes a different `user-${seq}` row when a live rebuild happens.
@@ -3567,6 +3572,7 @@ export class AcpmuxDirectClient {
     // The chat's commands from its last visit on this page, so `/` lists them before the attach.
     this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
     this.commandsApplied = false;
+    this.commandsRead = !this.selectedSessionId || knownCommands.has(this.selectedSessionId);
     this.handoff.select(this.selectedSessionId);
     this.permissions.select(this.selectedSessionId);
   }
@@ -6023,6 +6029,7 @@ export class AcpmuxDirectClient {
       : commandsFromUpdate(detail.availableCommands);
     if (keptCommands && !this.commandsApplied) {
       this.commands = keptCommands;
+      this.commandsRead = true;
       rememberCommands(sessionId, keptCommands);
       this.emit("commands");
     }
@@ -6065,6 +6072,8 @@ export class AcpmuxDirectClient {
     } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
+    // No log to read the list back from (a chat with no records yet): what the attach named is all.
+    else this.commandsRead = true;
     // Merged after the opener's read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.sawPrompts(page);
@@ -6181,18 +6190,31 @@ export class AcpmuxDirectClient {
 
   /// The newest command list at or before `lastSeq`, unless a live update already arrived.
   private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
-    const result = await this.typed("_acpmux/events", {
-      sessionId,
-      beforeSeq: lastSeq + 1,
-      limit: 1,
-      kinds: [COMMANDS_KIND],
-    });
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commandsApplied) return;
+    const current = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    let result: AcpmuxRequests["_acpmux/events"]["result"];
+    try {
+      result = await this.typed("_acpmux/events", {
+        sessionId,
+        beforeSeq: lastSeq + 1,
+        limit: 1,
+        kinds: [COMMANDS_KIND],
+      });
+    } catch (error) {
+      // A read that failed has nothing more to say: `/` stops saying it is loading.
+      if (current() && !this.commandsRead) {
+        this.commandsRead = true;
+        this.emit("commands");
+      }
+      throw error;
+    }
+    if (!current() || this.commandsApplied) return;
     const event: EventRecord | undefined = records(result?.events).at(-1);
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
-    if (!commands) return;
-    this.commands = commands;
-    rememberCommands(sessionId, commands);
+    this.commandsRead = true;
+    if (commands) {
+      this.commands = commands;
+      rememberCommands(sessionId, commands);
+    }
     this.emit("commands");
   }
 
@@ -8265,6 +8287,7 @@ export class AcpmuxDirectClient {
     if (commands) {
       this.commands = commands;
       this.commandsApplied = true;
+      this.commandsRead = true;
       if (this.selectedSessionId) rememberCommands(this.selectedSessionId, commands);
       return;
     }
@@ -9115,6 +9138,13 @@ export class AcpmuxDirectClient {
       groupedAsks: this.asks.listGrouped(),
       catalog: NO_CATALOG,
       commands: this.commands,
+      // Not once the link is down or refused: a list that cannot come never reads as loading.
+      ...(this.commandsRead ||
+      !this.selectedSessionId ||
+      connection === "disconnected" ||
+      connection.startsWith("failed")
+        ? {}
+        : { commandsPending: true as const }),
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
       ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),

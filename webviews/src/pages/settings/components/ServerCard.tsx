@@ -7,6 +7,7 @@ import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { ServerHostState } from "../ops";
 import { ActionRow } from "./ActionRow";
+import { PartReadState } from "./PartReadState";
 
 type ServerRow = ServerHostState["servers"][number];
 
@@ -60,8 +61,10 @@ function ServerSection({ state, server }: { state: ServerHostState; server: Serv
 }
 
 export function ServerCard() {
-  const state = useSettingsState().host?.server;
-  if (!state) return null;
+  const store = useStore();
+  const { host, hostRead } = useSettingsState();
+  const state = host?.server;
+  if (!state) return <PartReadState card="server" read={hostRead} onRetry={() => void store.refreshHost()} />;
   if (state.servers.length === 0)
     return (
       <section className="group" data-card="server" data-empty="">

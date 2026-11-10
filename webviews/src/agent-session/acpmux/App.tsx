@@ -114,7 +114,6 @@ import {
   projectLabel,
   recentLocalFolders,
   SessionsBy,
-  sessionTitle,
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
@@ -192,7 +191,7 @@ import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
 import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
-import { isNewChat, projectName } from "./emptyStateModel";
+import { isNewChat, projectName, shownChatName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
@@ -2489,7 +2488,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
-  const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
+  // An existing chat whose summary is not in yet is not called "New chat" (shownChatName).
+  const chatName = shownChatName(snapshot, t);
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the
   // transcript's group cards and the agents pill.

@@ -9,12 +9,19 @@ const matches: SlashMatch[] = Array.from({ length: 40 }, (_, index) => ({
   ranges: [],
 }));
 
-function SlashMenuGallery() {
+/** `loading`: the chat's own commands are not read yet and nothing matched (`commandsPending`). */
+function SlashMenuGallery({ loading = false }: { loading?: boolean }) {
   const [active, setActive] = useState(-1);
   return (
     <div className="acpmux-shell" style={{ height: "100%", position: "relative" }}>
       <div style={{ position: "absolute", bottom: 8, left: 16, right: 16 }}>
-        <SlashMenu matches={matches} active={active} empty="No commands" onHover={setActive} onPick={() => undefined} />
+        <SlashMenu
+          matches={loading ? [] : matches}
+          active={active}
+          empty={loading ? "Loading commands…" : "No commands"}
+          onHover={setActive}
+          onPick={() => undefined}
+        />
       </div>
     </div>
   );
@@ -30,5 +37,9 @@ export default componentEntry({
   styles: () => import("./styles.css"),
   covers: ["agent-session/acpmux/SlashMenu.tsx#SlashMenu"],
   load: async () => SlashMenuGallery,
-  variants: { overflowing: { props: {} } },
+  variants: {
+    overflowing: { props: {} },
+    // Typed before the agent's command list arrived: it says so instead of "No commands".
+    "loading-commands": { props: { loading: true } },
+  },
 });

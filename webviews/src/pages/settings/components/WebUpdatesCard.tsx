@@ -8,6 +8,7 @@ import { useSettingsState, useStore } from "../context";
 import type { WebUpdatesState, WebUpdateVersion } from "../ops";
 import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
+import { PartReadState } from "./PartReadState";
 
 type Run = "check" | "rollback";
 
@@ -44,11 +45,11 @@ function rollBackText(state: WebUpdatesState): string {
 
 export function WebUpdatesCard() {
   const store = useStore();
-  const { host } = useSettingsState();
+  const { host, hostRead } = useSettingsState();
   const [running, setRunning] = useState<Run | null>(null);
   const [failed, setFailed] = useState<Run | null>(null);
   const state = host?.web_updates;
-  if (!state) return null;
+  if (!state) return <PartReadState card="web-updates" read={hostRead} onRetry={() => void store.refreshHost()} />;
   const busy = running !== null || state.phase === "checking" || state.phase === "downloading";
   const run = async (action: Run) => {
     setRunning(action);

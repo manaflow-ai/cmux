@@ -6,15 +6,17 @@ import { Button } from "../../../ui/Button";
 import { SignInButton } from "../../../ui/SignInButton";
 import { useSettingsState, useStore } from "../context";
 import { ActionRow } from "./ActionRow";
+import { PartReadState } from "./PartReadState";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 export function MobileCard() {
   const store = useStore();
-  const { host } = useSettingsState();
+  const { host, hostRead } = useSettingsState();
   const state = host?.iphone;
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
   const fade = useLoadFade(Boolean(state));
-  if (!state) return null;
+  // Not read yet: a placeholder holds the card's place; a failed read says so with Try Again.
+  if (!state) return <PartReadState card="mobile" read={hostRead} onRetry={() => void store.refreshHost()} />;
   return (
     <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="mobile" data-phase={state.phase}>
       <h3 className="group-title">{state.title}</h3>

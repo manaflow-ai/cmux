@@ -252,3 +252,85 @@ test("the page names the missing step, then the host's status, requests and phon
   expect(host.querySelector("img.pairing-qr")).toBeNull();
   expect(host.querySelector(".pairing-failure-detail")?.textContent).toBe("relay refused");
 });
+
+/// A host that never answers the subscribe or the status read until the test lets it.
+function silentHost() {
+  const answers: Array<(status: MobilePairingStatus) => void> = [];
+  const client: PageClient = {
+    call: <R,>(op: string) =>
+      op === "cmux.mobilePairing.status"
+        ? new Promise<R>((resolve) => answers.push((status) => resolve(status as R)))
+        : Promise.reject(pageError("cmux.op.unknown", op)),
+    subscribe: () => new Promise(() => {}),
+    handle: () => () => {},
+  };
+  return { client, answers };
+}
+
+/// A deadline the test fires by hand (no wall-clock wait).
+function manualDeadline() {
+  const pending: Array<{ fire: () => void; ms: number; cancelled: boolean }> = [];
+  return {
+    schedule: (fire: () => void, ms: number) => {
+      const entry = { fire, ms, cancelled: false };
+      pending.push(entry);
+      return () => void (entry.cancelled = true);
+    },
+    fire: () => pending.filter((entry) => !entry.cancelled).forEach((entry) => entry.fire()),
+    pending,
+  };
+}
+
+test("a host that never answers ends Loading… in the failure with Retry at the deadline", async () => {
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const deadline = manualDeadline();
+  const store = new MobilePairingStore(silentHost().client, Date.now, { ms: 10_000, schedule: deadline.schedule });
+  void store.start();
+  expect(store.getSnapshot().loading).toBe(true);
+  expect(store.getSnapshot().failed).toBeUndefined();
+  expect(deadline.pending.map((entry) => entry.ms)).toEqual([10_000]);
+  deadline.fire();
+  expect(store.getSnapshot()).toEqual({ loading: false, failed: {} });
+  store.stop();
+});
+
+test("a status that arrives after the deadline replaces the failure", async () => {
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const deadline = manualDeadline();
+  // The subscribe answers at once here, so the status read goes out and stays out.
+  const answers: Array<(status: MobilePairingStatus) => void> = [];
+  const client: PageClient = {
+    call: <R,>() => new Promise<R>((resolve) => answers.push((status) => resolve(status as R))),
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+  const store = new MobilePairingStore(client, Date.now, { schedule: deadline.schedule });
+  const started = store.start();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  deadline.fire();
+  expect(store.getSnapshot().failed).toEqual({});
+  answers[0]!(BASE);
+  await started;
+  expect(store.getSnapshot()).toEqual({ status: BASE, loading: false });
+  store.stop();
+});
+
+test("the page shows Retry, not Loading…, once the deadline passes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { MobilePairingPage } = await import("../src/pages/mobile-pairing/MobilePairingPage");
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/mobile-pairing/generated/strings.json")).default;
+  const deadline = manualDeadline();
+  const store = new MobilePairingStore(silentHost().client, Date.now, { schedule: deadline.schedule });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<MobilePairingPage store={store} strings={createStrings(table, ["en"])} />));
+  act(() => void store.start());
+  expect(host.querySelector(".pairing-muted")?.textContent).toBeTruthy();
+  expect(host.querySelector(".pairing-panel button")).toBeNull();
+  act(() => deadline.fire());
+  expect(host.querySelector(".pairing-muted")).toBeNull();
+  expect(host.querySelector(".pairing-panel button")).not.toBeNull();
+  store.stop();
+});

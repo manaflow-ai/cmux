@@ -2315,3 +2315,20 @@ button.menu-disclosure {
   display: flex;
   gap: 4px;
 }
+
+/* A host-part card not read yet (components/PartReadState.tsx): bars that hold the card's place. */
+.part-read-bar {
+  display: block;
+  height: var(--ds-space-3);
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border-radius: var(--ds-radius-control);
+}
+
+.part-read-title {
+  width: 40%;
+}
+
+.part-read-help {
+  width: 64%;
+  margin-top: var(--ds-space-2);
+}

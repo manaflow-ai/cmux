@@ -176,7 +176,7 @@ import {
   type EmojiMatch,
   type EmojiShortcodes,
 } from "./emojiShortcodes";
-import { COMPOSER_LABELS } from "./composerModel";
+import { COMPOSER_LABELS, slashMenuEmptyLabel } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -2757,7 +2757,7 @@ function ComposerFrame({
                   key={query}
                   matches={matches}
                   active={selected}
-                  empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                  empty={t(slashMenuEmptyLabel(commands, snapshot.commandsPending))}
                   fast={fastModeState(snapshot.summary?.configOptions)}
                   onHover={setActive}
                   onPick={pick}

@@ -13,16 +13,29 @@ export interface MobilePairingSnapshot {
   unavailable?: boolean;
 }
 
+/** How long the page shows "Loading…" before it says the status did not load (with Retry). */
+export const MOBILE_PAIRING_DEADLINE_MS = 10_000;
+
+/** Runs `fire` once after `ms`; the returned function cancels it. Tests pass their own. */
+export type Schedule = (fire: () => void, ms: number) => () => void;
+
+const scheduleTimeout: Schedule = (fire, ms) => {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
+};
+
 export class MobilePairingStore {
   private snapshot: MobilePairingSnapshot = { loading: true };
   private readonly listeners = new Set<() => void>();
   private request = 0;
   private stopChanges?: () => void;
   private stopped = false;
+  private cancelDeadline?: () => void;
 
   constructor(
     private readonly client: PageClient | null,
     private readonly now: () => number = Date.now,
+    private readonly deadline: { ms?: number; schedule?: Schedule } = {},
   ) {}
 
   subscribe = (listener: () => void) => {
@@ -35,6 +48,14 @@ export class MobilePairingStore {
   /** Follows the host's change events, then reads the status once. */
   async start(): Promise<void> {
     if (!this.client) return this.set({ loading: false, unavailable: true });
+    // A host that never answers the subscribe or the first read must not leave the page on
+    // "Loading…": past the deadline it says the status did not load, with Retry. A status that
+    // arrives later still replaces that.
+    this.cancelDeadline = (this.deadline.schedule ?? scheduleTimeout)(() => {
+      this.cancelDeadline = undefined;
+      if (this.stopped || this.snapshot.status) return;
+      this.set({ loading: false, failed: {} });
+    }, this.deadline.ms ?? MOBILE_PAIRING_DEADLINE_MS);
     try {
       const stop = await this.client.subscribe(MobilePairingOps.changes, () => void this.refresh());
       if (this.stopped) stop();
@@ -47,6 +68,8 @@ export class MobilePairingStore {
 
   stop(): void {
     this.stopped = true;
+    this.cancelDeadline?.();
+    this.cancelDeadline = undefined;
     this.stopChanges?.();
     this.stopChanges = undefined;
   }
@@ -57,7 +80,11 @@ export class MobilePairingStore {
     this.set({ ...this.snapshot, loading: true });
     try {
       const status = await this.client.call<MobilePairingStatus>(MobilePairingOps.status, {});
-      if (id === this.request) this.set({ status, loading: false });
+      if (id === this.request) {
+        this.cancelDeadline?.();
+        this.cancelDeadline = undefined;
+        this.set({ status, loading: false });
+      }
     } catch {
       if (id === this.request) this.set({ status: this.snapshot.status, loading: false, failed: {} });
     }

@@ -22,6 +22,7 @@ export const COMPOSER_LABELS = {
   escapeAgainToStop: "composer.escapeAgainToStop",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
+  loadingCommands: "composer.loadingCommands",
   noMatchingCommands: "composer.noMatchingCommands",
   attachments: "composer.attachments",
   removeAttachment: "composer.removeAttachment",
@@ -44,3 +45,14 @@ export const COMPOSER_LABELS = {
   attachmentsInline: "composer.menu.attachmentsInline",
   attachmentsTop: "composer.menu.attachmentsTop",
 } as const satisfies Record<string, StringKey>;
+
+/// The `/` menu's line when no command matches: "Loading commands…" while the chat's own list is
+/// not read yet (`commandsPending`, or no list at all), "No commands" for a read list that is
+/// empty, else "No matching commands". An empty-state line shows only after the read.
+export function slashMenuEmptyLabel(
+  commands: readonly unknown[] | undefined,
+  pending: boolean | undefined,
+): (typeof COMPOSER_LABELS)["loadingCommands" | "noCommands" | "noMatchingCommands"] {
+  if (pending || commands === undefined) return COMPOSER_LABELS.loadingCommands;
+  return commands.length === 0 ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands;
+}

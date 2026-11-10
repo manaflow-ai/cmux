@@ -1777,6 +1777,24 @@ variants["github-connect-confirm"] = variant("accounts", {
   },
 });
 
+// A host part's card before its read answers and after it failed (components/PartReadState.tsx):
+// a placeholder holds the card's place, and a failed read says so with Try Again, never nothing.
+variants["devices-loading"] = variant("devices", {
+  pendingOps: ["cmux.settings.devices.state"],
+  steps: [{ selector: '[data-card-read="devices"][data-read="pending"]', action: "wait" }],
+  note: "Settings > Devices while the device list is still being read: placeholder bars hold the card's place.",
+});
+variants["devices-failed"] = variant("devices", {
+  options: { failing: { "cmux.settings.devices.state": "cmux.settings.devices.failed" } },
+  steps: [{ selector: '[data-card-read="devices"][data-read="failed"]', action: "wait" }],
+  note: "Settings > Devices when the device list read failed: an error line with Try Again, not a missing card.",
+});
+variants["mobile-failed"] = variant("mobile", {
+  options: { failing: { "cmux.settings.host.lists": "cmux.settings.host.failed" } },
+  steps: [{ selector: '[data-card-read="mobile"][data-read="failed"]', action: "wait" }],
+  note: "Settings > Mobile when the host's lists did not load: the iPhone card says so with Try Again.",
+});
+
 export default settingsPageEntry({
   id: "pages.settings",
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],
@@ -1794,6 +1812,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
+    "pages/settings/components/PartReadState.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",

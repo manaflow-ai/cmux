@@ -1449,6 +1449,9 @@ export type AcpmuxSnapshot = {
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
+  /** The selected chat's own command list is not read yet (direct.ts `commandsRead`): the `/` menu
+   * says "Loading commands…" where it would say "No commands" or "No matching commands". */
+  commandsPending?: true;
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
    * the next turn while one streams (deferred), or failed with acpmux's reason. */
   switching?: {

@@ -79,6 +79,8 @@ export type SettingsPageVariant = VariantBase & {
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;
+  /** Ops the host never answers (a card's part still being read: its placeholder). */
+  pendingOps?: string[];
   steps?: PageFixtureStep[];
   /** Publish every bundled theme and its colors (the app does); default the mock's six. */
   allThemes?: boolean;

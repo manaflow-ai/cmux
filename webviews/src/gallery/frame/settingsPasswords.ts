@@ -107,7 +107,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {
     call: (op, params) =>
-      state.loading && (op === "cmux.settings.list" || op === "cmux.settings.snapshot")
+      (state.loading && (op === "cmux.settings.list" || op === "cmux.settings.snapshot")) ||
+      state.pendingOps?.includes(op)
         ? new Promise(() => {})
         : mock.client.call(op, params),
     subscribe: (stream, listener) => mock.client.subscribe(stream, listener),
@@ -138,7 +139,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   );
   document.documentElement.dataset.cmuxPage = "settings";
   await import("../../pages/settings/main");
-  if (!state.loading && !state.options?.failing && state.options?.connected !== false) {
+  if (!state.loading && !state.pendingOps && !state.options?.failing && state.options?.connected !== false) {
     const { categoryOf, categoryRows } = await import("../../pages/settings/categories");
     await fixtureElement(settingsReadySelector(categoryRows(categoryOf(state.section)).length > 0));
   }
