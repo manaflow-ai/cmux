@@ -155,6 +155,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_rust_targets_helper.sh
 
+      # The Ghostty Zig (resolve + mlugg/setup-zig) is installed only through
+      # .github/actions/setup-ghostty-zig, so the copies cannot drift apart again.
+      - name: Validate workflows install the Ghostty Zig through the shared action
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ghostty_zig_setup_uses_action.py
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).

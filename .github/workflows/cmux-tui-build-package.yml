@@ -329,17 +329,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
 
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        shell: bash
-        run: |
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
+        id: ghostty-zig-version
+        uses: ./.github/actions/setup-ghostty-zig
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
@@ -849,17 +841,9 @@ jobs:
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        shell: bash
-        run: |
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
+        id: ghostty-zig-version
+        uses: ./.github/actions/setup-ghostty-zig
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.

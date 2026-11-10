@@ -76,20 +76,9 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-        run: |
-          set -euo pipefail
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          [[ -n "$version" ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Set up Zig for Ghostty
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
+        id: ghostty-zig-version
+        uses: ./.github/actions/setup-ghostty-zig
 
       - name: Build cmux-tui
         id: build

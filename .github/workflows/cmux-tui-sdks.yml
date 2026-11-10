@@ -8,6 +8,7 @@ on:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/setup-ghostty-zig/**"
       - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
@@ -45,6 +46,7 @@ on:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/setup-ghostty-zig/**"
       - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
@@ -122,7 +124,7 @@ jobs:
           changed=true
           if [ "$EVENT_NAME" = "pull_request" ] && git rev-parse -q --verify 'HEAD^2' > /dev/null; then
             if files="$(git diff --no-renames --name-only 'HEAD^1' HEAD)"; then
-              if ! grep -Eq '^(cmux-tui/[^/]+$|cmux-tui/(bindings|spec|vendor|build-support)/|cmux-tui/crates/[^/]+/Cargo\.toml$|\.github/actions/setup-cmux-tui-rust/|\.github/workflows/cmux-tui-sdks\.yml$)' <<< "$files"; then
+              if ! grep -Eq '^(cmux-tui/[^/]+$|cmux-tui/(bindings|spec|vendor|build-support)/|cmux-tui/crates/[^/]+/Cargo\.toml$|\.github/actions/setup-cmux-tui-rust/|\.github/actions/setup-ghostty-zig/|\.github/workflows/cmux-tui-sdks\.yml$)' <<< "$files"; then
                 changed=false
               fi
             fi
@@ -671,18 +673,9 @@ jobs:
           "$JAVA_HOME_17_X64/bin/java" -version
           "$JAVA_HOME_17_X64/bin/javac" -version
 
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        run: |
-          set -euo pipefail
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          [[ -n "$version" ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Set up Zig for Ghostty
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
+        id: ghostty-zig-version
+        uses: ./.github/actions/setup-ghostty-zig
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript

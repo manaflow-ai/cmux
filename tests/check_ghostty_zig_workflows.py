@@ -23,6 +23,10 @@ CONSUMER_NAMES = (
 CHECKOUT_ACTION = "actions/checkout@"
 SETUP_ZIG_ACTION = "mlugg/setup-zig@"
 SETUP_ZIG_VERSION = "${{ steps.ghostty-zig-version.outputs.version }}"
+# The shared action resolves the version with scripts/ghostty-zig-version.sh and
+# installs it with setup-zig; tests/test_ghostty_zig_setup_uses_action.py keeps
+# workflows from inlining that pair again.
+SHARED_SETUP_ACTION = "./.github/actions/setup-ghostty-zig"
 TUI_WORKFLOW_NAMES = frozenset({"cmux-tui-build-package.yml", "cmux-tui.yml"})
 # Either Ghostty source satisfies the guard: the classic `ghostty` (the Mac
 # app's GhosttyKit) or `ghostty-next` (libghostty-vt; GHOSTTY_ZIG_SOURCE).
@@ -488,6 +492,13 @@ def _job_events(path: Path, job: Job,) -> tuple[list[tuple[int, RunEvent]], list
     for step_index, step in enumerate(job.steps):
         if _checkout_initializes_ghostty(step):
             events.append((step_index, RunEvent(kind="init", line=step.line)))
+        if step.uses == SHARED_SETUP_ACTION:
+            events.append(
+                (
+                    step_index,
+                    RunEvent(kind="consumer", line=step.line, consumer="scripts/ghostty-zig-version.sh"),
+                )
+            )
         if step.run is None:
             continue
         run_events, parse_error = _run_events(step.run, step.run_line or step.line,)
@@ -510,6 +521,11 @@ def _setup_zig_failures(
         for index, step in enumerate(job.steps)
         if step.uses is not None and step.uses.startswith(SETUP_ZIG_ACTION)
     ]
+    shared_steps = [
+        (index, step) for index, step in enumerate(job.steps) if step.uses == SHARED_SETUP_ACTION
+    ]
+    if shared_steps and not setup_steps:
+        return _shared_setup_failures(path, job, events, shared_steps), True
     if not setup_steps:
         return [], False
 
@@ -575,6 +591,21 @@ def _setup_zig_failures(
             fail("expected ordered Ghostty init -> resolver -> setup-zig wiring")
 
     return failures, True
+
+
+def _shared_setup_failures(
+    path: Path, job: Job, events: list[tuple[int, RunEvent]], shared_steps: list[tuple[int, Step]],
+) -> list[str]:
+    """A job on the shared action: one Ghostty init, then one setup-ghostty-zig step."""
+    failures: list[str] = []
+    init_indexes = sorted({index for index, event in events if event.kind == "init"})
+    if len(init_indexes) != 1:
+        failures.append(f"{path.name}: job {job.name}: expected exactly one Ghostty submodule initialization")
+    if len(shared_steps) != 1:
+        failures.append(f"{path.name}: job {job.name}: expected exactly one {SHARED_SETUP_ACTION} step")
+    if len(init_indexes) == 1 and len(shared_steps) == 1 and not init_indexes[0] < shared_steps[0][0]:
+        failures.append(f"{path.name}: job {job.name}: expected ordered Ghostty init -> {SHARED_SETUP_ACTION}")
+    return failures
 
 
 def workflow_failures(
