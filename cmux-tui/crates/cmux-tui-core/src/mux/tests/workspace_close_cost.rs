@@ -390,21 +390,129 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
     );
 }
 
-/// The scoped close commits what the full projection would: the debug cross-check (on in tests)
-/// fails a close whose rows or public values differ, for the last, a middle, the first and the
-/// active workspace.
+/// Gives the workspace at `index` a second pane (a split) and a second tab in its first pane, so
+/// it is not the one-pane, one-tab workspace that [`session`] makes.
+fn split_and_add_a_tab(mux: &Arc<Mux>, index: usize) {
+    let pane = mux.with_state(|state| state.workspaces[index].screens[0].active_pane);
+    mux.split(pane, SplitDir::Right, Some((80, 24))).unwrap();
+    mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+}
+
+fn close_at(mux: &Arc<Mux>, index: usize) {
+    let key = mux.with_state(|state| state.workspaces[index].key.clone());
+    let mutation = WorkspaceMutation::daemon(format!("close-at-{key}"), "close-cost-test").unwrap();
+    mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
+}
+
+/// The indexes of the live state that are not what a rebuild of every index gives now, each with
+/// both forms.
+fn index_differences(mux: &Arc<Mux>) -> Vec<String> {
+    fn entries<K: std::fmt::Debug, V: std::fmt::Debug>(map: &HashMap<K, V>) -> BTreeSet<String> {
+        map.iter().map(|(key, value)| format!("{key:?} -> {value:?}")).collect()
+    }
+    fn placements<K: std::fmt::Debug>(map: &HashMap<K, Vec<SurfaceId>>) -> BTreeSet<String> {
+        map.iter()
+            .map(|(key, value)| {
+                let mut value = value.clone();
+                value.sort_unstable();
+                format!("{key:?} -> {value:?}")
+            })
+            .collect()
+    }
+    mux.with_state(|state| {
+        let mut rebuilt = state.clone();
+        // The split index first, then (inside it) the public indexes from the live tree.
+        Mux::rebuild_split_screen_index(&mut rebuilt);
+        let (live, built) = (&state.resource_indexes, &rebuilt.resource_indexes);
+        let indexes = [
+            ("split_screens", entries(&state.split_screens), entries(&rebuilt.split_screens)),
+            ("workspaces", entries(&live.workspaces), entries(&built.workspaces)),
+            ("workspace_ids", entries(&live.workspace_ids), entries(&built.workspace_ids)),
+            ("screens", entries(&live.screens), entries(&built.screens)),
+            ("screen_ids", entries(&live.screen_ids), entries(&built.screen_ids)),
+            ("screen_workspace", entries(&live.screen_workspace), entries(&built.screen_workspace)),
+            ("panes", entries(&live.panes), entries(&built.panes)),
+            ("pane_ids", entries(&live.pane_ids), entries(&built.pane_ids)),
+            ("pane_screen", entries(&live.pane_screen), entries(&built.pane_screen)),
+            ("tabs", entries(&live.tabs), entries(&built.tabs)),
+            ("tab_ids", entries(&live.tab_ids), entries(&built.tab_ids)),
+            ("tab_pane", entries(&live.tab_pane), entries(&built.tab_pane)),
+            ("content_ids", entries(&live.content_ids), entries(&built.content_ids)),
+            (
+                "content_placements",
+                placements(&live.content_placements),
+                placements(&built.content_placements),
+            ),
+            ("splits", entries(&live.splits), entries(&built.splits)),
+            ("split_ids", entries(&live.split_ids), entries(&built.split_ids)),
+        ];
+        indexes
+            .into_iter()
+            .filter(|(_, live, built)| live != built)
+            .map(|(name, live, built)| format!("{name}: live {live:?}, rebuilt {built:?}"))
+            .collect()
+    })
+}
+
+/// The positions (workspace indexes) that the split index names.
+fn split_positions(mux: &Arc<Mux>) -> BTreeSet<usize> {
+    mux.with_state(|state| state.split_screens.values().map(|location| location.0).collect())
+}
+
+/// A close drops the index entries of the closed workspace and moves the split index of each
+/// later workspace one position down; it does not rebuild every index (step 2). What it leaves
+/// must be what the rebuild gives: for a close before workspaces that have a split, for a close
+/// of a workspace that has one, and for a close of the first workspace. The cross-check is off,
+/// as in a release daemon: it runs a full projection, which builds the public indexes again.
+#[test]
+fn a_workspace_close_leaves_the_indexes_that_a_rebuild_gives() {
+    let mux = session(8);
+    for index in [3, 6] {
+        split_and_add_a_tab(&mux, index);
+    }
+    assert_eq!(split_positions(&mux), BTreeSet::from([3, 6]), "the fixture's splits");
+    assert_eq!(index_differences(&mux), Vec::<String>::new(), "the fixture, before any close");
+
+    // A middle workspace before both: each split entry moves one position down.
+    without_crosscheck(|| close_at(&mux, 2));
+    assert_eq!(split_positions(&mux), BTreeSet::from([2, 5]), "after a close before the splits");
+    assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close before the splits");
+
+    // The first workspace that has a split: its entries go, the later one's move.
+    without_crosscheck(|| close_at(&mux, 2));
+    assert_eq!(split_positions(&mux), BTreeSet::from([4]), "after a close of a split workspace");
+    assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close of a split workspace");
+
+    // A workspace after the last split: no entry moves.
+    let live = mux.with_state(|state| state.workspaces.len());
+    without_crosscheck(|| close_at(&mux, live - 1));
+    assert_eq!(split_positions(&mux), BTreeSet::from([4]), "after a close behind the splits");
+    assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close behind the splits");
+
+    without_crosscheck(|| close_at(&mux, 0));
+    assert_eq!(split_positions(&mux), BTreeSet::from([3]), "after a close of the first workspace");
+    assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close of the first one");
+}
+
+/// The scoped close commits what the full projection would, in a session where two workspaces
+/// have a split and a second tab: after each close a full projection of the live state finds
+/// every row stored, and in a debug build the cross-check fails a close whose rows or public
+/// values differ. The closes: the last workspace, a middle one before the split ones, a
+/// workspace that has a split, the first one, the active one, and two after a selection that no
+/// commit stored (the stored active workspace is not the live one): another workspace, then the
+/// live active one.
 #[test]
 fn a_workspace_close_commits_what_the_full_projection_would() {
     let mux = session(12);
+    for index in [4, 8] {
+        split_and_add_a_tab(&mux, index);
+    }
     let live = mux.with_state(|state| state.workspaces.len());
     let before = mux.resource_projection_stats();
-    for index in [live - 1, 5, 0, 0] {
-        let key = mux.with_state(|state| state.workspaces[index].key.clone());
-        let mutation =
-            WorkspaceMutation::daemon(format!("close-check-{key}"), "close-cost-test").unwrap();
-        mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
+    let close_and_compare = |index: usize, what: &str| {
+        close_at(&mux, index);
         let stats = mux.resource_projection_stats();
-        assert_eq!(stats.crosscheck_mismatches, 0, "closing workspace {key}");
+        assert_eq!(stats.crosscheck_mismatches, 0, "closing {what}");
         let written = {
             let full = mux.resource_effect_projection().unwrap();
             let registry = mux.workspace_registry.lock().unwrap();
@@ -418,15 +526,45 @@ fn a_workspace_close_commits_what_the_full_projection_would() {
         };
         assert!(
             written.changes.is_empty(),
-            "the close of {key} left rows for a full projection: {written:?}"
+            "the close of {what} left rows for a full projection: {written:?}"
         );
+    };
+    close_and_compare(live - 1, "the last workspace");
+    close_and_compare(2, "a middle workspace before the split ones");
+    close_and_compare(3, "a workspace that has a split and a second tab");
+    close_and_compare(0, "the first workspace");
+    let active = mux.with_state(|state| state.active_workspace);
+    close_and_compare(active, "the active workspace");
+
+    // A selection that no commit stored, as a local change of the active workspace leaves it.
+    let (selected, other) = {
+        let mut state = mux.state.lock().unwrap();
+        let count = state.workspaces.len();
+        let selected = (state.active_workspace + 2) % count;
+        state.active_workspace = selected;
+        (selected, (selected + 2) % count)
+    };
+    close_and_compare(other, "a workspace after a selection that no commit stored");
+    let selected = if other < selected { selected - 1 } else { selected };
+    assert_eq!(mux.with_state(|state| state.active_workspace), selected, "the selection stays");
+    {
+        let mut state = mux.state.lock().unwrap();
+        let count = state.workspaces.len();
+        state.active_workspace = (selected + 1) % count;
     }
-    assert_eq!(mux.with_state(|state| state.workspaces.len()), live - 4);
+    let active = mux.with_state(|state| state.active_workspace);
+    close_and_compare(active, "the active workspace of a selection that no commit stored");
+
+    let closes = 7;
+    assert_eq!(mux.with_state(|state| state.workspaces.len()), live - closes);
     let after = mux.resource_projection_stats();
     assert_eq!(after.scope_fallbacks, before.scope_fallbacks, "a close left its scope");
-    assert_eq!(
-        after.crosschecks - before.crosschecks,
-        4,
-        "each close is a scoped projection compared with the full one"
-    );
+    // A release test build runs no cross-check (`crosscheck_enabled`), so it counts none.
+    if cfg!(debug_assertions) {
+        assert_eq!(
+            after.crosschecks - before.crosschecks,
+            closes as u64,
+            "each close is a scoped projection compared with the full one"
+        );
+    }
 }
