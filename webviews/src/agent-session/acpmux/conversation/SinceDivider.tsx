@@ -28,6 +28,17 @@ const subscribe = (listener: () => void) => {
 };
 const readView = () => view;
 
+/// Ends Jump to new for `mark` (`seen`) without the line having been on screen: the reader pressed it,
+/// or went to the latest message themselves (VirtualTranscript.tsx, follow-bottom turning on). The
+/// virtual transcript drops a row far from the view, so a jump past the line (End, Jump to latest, a
+/// scrollbar drag) took the row away before its observer saw it in view, and the pill kept the side it
+/// last saw at the latest message, where nothing could bring the line in view to clear it (#40065).
+export function sinceDone(mark: string): void {
+  // Below the latest message, a line is above the view whatever its observer last read.
+  const side = view?.mark === mark && view.side === "in" ? "in" : "above";
+  setView({ mark, side, seen: true });
+}
+
 /// Follows the drawn line's place in the transcript's scroller with one IntersectionObserver, which
 /// goes with the row (a ref callback's cleanup): nothing runs per scroll frame.
 function useSinceObserver(mark: string) {
@@ -100,7 +111,11 @@ export function SinceJump({ mark, onJump }: { mark: string; onJump: () => void }
       data-side={mine?.side === "below" ? "below" : "above"}
       inert={!shown}
       title={label}
-      onClick={onJump}
+      onClick={() => {
+        // Pressed, it has done its job, also when the line's row is not drawn in view after the move.
+        sinceDone(mark);
+        onJump();
+      }}
     >
       <span className="acpmux-since-jump__arrow" aria-hidden="true">
         <ArrowDown size={12} />
