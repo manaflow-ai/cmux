@@ -960,6 +960,38 @@
 .cv-user__actions--versions {
   opacity: 1;
 }
+/* A rewind on its way or done (MessageActions.tsx RewindButton) keeps its prompt's row shown with the
+   pointer elsewhere, as Read aloud keeps a reply's: the spinner and then its time stay in view, in
+   the same 24 square, so nothing moves. */
+.cv-user__actions:has(.cv-turn-rewind:is([data-rewind-state="pending"], [data-rewind-state="done"])) {
+  opacity: 1;
+}
+/* The rewind's words show only in the gallery's labelled placement (UserBubble.gallery.ts, B). */
+.cv-turn-rewind__label {
+  display: none;
+}
+:root[data-turn-rewind-look="label"] .cv-user__actions .cv-iconbtn--compact.cv-turn-rewind {
+  width: auto;
+  gap: var(--grid-half-step);
+  padding-inline: var(--grid-base);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+:root[data-turn-rewind-look="label"] .cv-turn-rewind[data-rewind-state="idle"] > svg {
+  display: none;
+}
+:root[data-turn-rewind-look="label"] .cv-turn-rewind__label {
+  display: inline;
+}
+/* The gallery's corner placement (C, the arrow in the bubble's corner): the same button out of
+   the row, inside the bubble's bottom-right corner. The row is laid under the bubble, so its own
+   offset below the bubble is taken back. */
+:root[data-turn-rewind-look="corner"] .cv-user__actions .cv-turn-rewind {
+  position: absolute;
+  right: calc(var(--cv-action-inset) + var(--grid-base));
+  bottom: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2 + var(--grid-base));
+}
 /* The rows' icon buttons are Claude's 24px squares (--cv-action-button), not the 20px compact ones. */
 :is(.cv-user__actions, .cv-received-actions) .cv-iconbtn--compact:not(.cv-turn-retry-menu) {
   width: var(--cv-action-button);

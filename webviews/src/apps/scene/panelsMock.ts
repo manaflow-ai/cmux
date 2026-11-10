@@ -111,7 +111,10 @@ export class MockAppPanelsClient implements PageClient {
   /** Apps whose mount the mock refuses (a widget in its error state). */
   readonly failing = new Set<string>();
   readonly dispatches: unknown[] = [];
-  readonly layouts: string[][] = [];
+  /** Layouts the page saved (`cmux.apps.panels.layout.set`), in order. */
+  readonly savedLayouts: string[][] = [];
+  readonly reloads: string[] = [];
+  readonly layouts: { mount_id: string; height: number }[] = [];
   private nextMount = 0;
   private seq = 0;
   private readonly mounts = new Map<string, { panel: AppPanel; context: MountContext }>();
@@ -131,7 +134,7 @@ export class MockAppPanelsClient implements PageClient {
       case "cmux.apps.panels.layout.set":
         if (this.refusesLayout) throw pageError("cmux.protocol.unknown_op", op);
         this.layout = [...(params.layout as string[])];
-        this.layouts.push(this.layout);
+        this.savedLayouts.push(this.layout);
         break;
       case "cmux.apps.panels.mount": {
         const panel = [...this.panels, ...this.widgets].find(
@@ -149,6 +152,12 @@ export class MockAppPanelsClient implements PageClient {
         break;
       case "cmux.apps.panels.dispatch":
         this.dispatches.push(params);
+        break;
+      case "cmux.apps.panels.reload":
+        this.reloads.push(String(params.mount_id));
+        break;
+      case "cmux.apps.panels.layout":
+        this.layouts.push({ mount_id: String(params.mount_id), height: Number(params.height) });
         break;
       default:
         throw pageError("cmux.protocol.unknown_op", op);
@@ -215,6 +224,12 @@ export class MockAppPanelsClient implements PageClient {
       if (panelId(mount.panel) !== panelId(panel)) continue;
       for (const listener of this.scenes.get(mountId) ?? []) listener({ mount_id: mountId, ops }, ++this.seq);
     }
+  }
+
+  /** Sends a mount's status on its scene stream, as the host forwards its model's status. */
+  status(mountId: string, status: "loading" | "ready" | "failed" | "disconnected", reason?: string): void {
+    for (const listener of this.scenes.get(mountId) ?? [])
+      listener({ mount_id: mountId, status, ...(reason !== undefined && { reason }) } satisfies SceneEvent, ++this.seq);
   }
 
   /** A mock local edit sends a replacement scene to every mount of the same contribution. */

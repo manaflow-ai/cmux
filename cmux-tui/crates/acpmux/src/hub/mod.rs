@@ -697,6 +697,9 @@ pub struct Hub {
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
     /// close clients normally so they do not immediately reconnect to a dead daemon.
     pub(crate) restart_requested: std::sync::atomic::AtomicBool,
+    /// Raised when a supervised task cannot go on: the daemon stops for a restart
+    /// (`crate::supervise`).
+    pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -1137,6 +1140,7 @@ impl Hub {
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1320,8 +1324,8 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
-            let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            // It takes the notices' receiver: it cannot run twice.
+            crate::supervise::once("peer notice", &hub.fatal, hub.clone().peer_notice_loop());
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();

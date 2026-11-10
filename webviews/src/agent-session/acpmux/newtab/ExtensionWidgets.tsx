@@ -159,7 +159,7 @@ export function ExtensionWidgetCell({ widget }: { widget: MountedPanel }) {
           <span>{nt(problem.kind === "failed" ? "extWidget.failed" : "extWidget.over", { name: panel.title })}</span>
         </span>
       ) : (
-        <SceneRenderer store={widget.store} dispatch={widget.dispatch} />
+        <SceneRenderer store={widget.store} dispatch={widget.dispatch} resolveAsset={widget.resolveAsset} />
       )}
     </section>
   );
