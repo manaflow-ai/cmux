@@ -718,7 +718,10 @@ jobs:
       # Runnable tests the focused filter selected here; hosted-verification reads it.
       focused_selected: ${{ steps.focused.outputs.selected }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_15 }}
-    timeout-minutes: 40
+    # 70, not 40: the limit counts glaeda's job-started hook, which waits in
+    # "Set up runner" for the mini's canonical root token. Runs 42712581504 and
+    # 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
