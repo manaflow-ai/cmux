@@ -209,9 +209,12 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             // Typing time grows with the reply, as a person's would.
             await sleep(.milliseconds(min(2600, 900 + reply.count * 12)))
             let seq = headSeq + 1
+            // Markdown links and tables as the real Chief's arrive (``ChiefWire``).
+            let linked = ConversationMarkdownLinks.extract(reply)
+            let tabled = ConversationMarkdownTables.extract(linked.text, links: linked.links)
             let answer = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: Date(), text: reply
+                sentAt: Date(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
             )
             store(answer)
             emit(answer)
