@@ -169,7 +169,7 @@ final class CloudService {
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
-        let daemon = CloudDaemon(socketPath: { @MainActor [weak machines] in await machines?.local.connection?.endpoint?.socketPath })
+        let daemon = CloudDaemon(socketPath: { @MainActor [weak machines] in await machines?.local.connection?.endpoint?.socketPath }, changes: { [weak machines] in ObservationStream { @MainActor [weak machines] in machines?.local.connection.map(ObjectIdentifier.init) } })
         self.daemon = daemon
         api = CloudAPIClient(
             configuration: configuration,

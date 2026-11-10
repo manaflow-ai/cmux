@@ -203,8 +203,14 @@ public struct CloudAPIClient: Sendable {
     }
 
     /// One `cloud.<name>` call as this client; its body as JSON.
-    func call(_ name: String, _ args: [String: any Sendable] = [:], wait: Duration) async throws -> Data {
-        try await daemon.call(name, args, as: try await route(), wait: wait)
+    func call(_ name: String, _ args: [String: any Sendable] = [:], wait: Duration,
+              ended: (@Sendable () -> Void)? = nil) async throws -> Data {
+        let route: CloudDaemon.Route
+        do { route = try await self.route() } catch {
+            ended?()
+            throw error
+        }
+        return try await daemon.call(name, args, as: route, wait: wait, ended: ended)
     }
 
     /// ``call(_:_:wait:)`` read as `T`.

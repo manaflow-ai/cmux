@@ -111,7 +111,7 @@ struct CloudWorkerMachineFilesTests {
         let contents = try await worker(fake).readFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/a")
         #expect(contents.data == Data("hi".utf8) && contents.size == 2)
         let local = try #require(fake.sent.first?.args["local_path"] as? String)
-        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cmux-cloud-transfer").path
+        let folder = try CloudTransferFile.folder().path
         #expect(URL(fileURLWithPath: local).deletingLastPathComponent().path == folder)
         #expect(!FileManager.default.fileExists(atPath: local))
         let mode = try FileManager.default.attributesOfItem(atPath: folder)[.posixPermissions] as? Int
@@ -142,5 +142,26 @@ struct CloudWorkerMachineFilesTests {
 
         try await worker(fake).writeFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/small", data: Data("hi".utf8))
         #expect(fake.sent.last?.args["data_base64"] as? String == "aGk=" && fake.sent.last?.args["local_path"] == nil)
+    }
+
+    /// The transfer folder is the one the daemon resolves (the per-user temp dir from confstr, not a
+    /// `TMPDIR` override), and a transfer file goes only when both the caller and the call let it go:
+    /// a cancelled caller lets go first, while the call may still use the file.
+    @Test func aTransferFileOutlivesACancelledCallerUntilTheCallEnds() async throws {
+        let folder = try CloudTransferFile.folder()
+        #expect(folder.lastPathComponent == "cmux-cloud-transfer" && folder.path.hasPrefix("/var/folders/"))
+        let file = try await CloudTransferFile.make()
+        try await file.write(Data("x".utf8))
+        await file.done()
+        #expect(FileManager.default.fileExists(atPath: file.url.path), "the call still holds it")
+        file.callEnded()
+        #expect(!FileManager.default.fileExists(atPath: file.url.path))
+
+        let other = try await CloudTransferFile.make()
+        try await other.write(Data("y".utf8))
+        other.callEnded()
+        #expect(FileManager.default.fileExists(atPath: other.url.path), "the caller still reads it")
+        await other.done()
+        #expect(!FileManager.default.fileExists(atPath: other.url.path))
     }
 }

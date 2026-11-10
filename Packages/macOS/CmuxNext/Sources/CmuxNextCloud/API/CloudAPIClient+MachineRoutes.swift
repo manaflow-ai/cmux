@@ -52,12 +52,13 @@ extension CloudAPIClient {
         }
         let file = try await CloudTransferFile.make()
         do {
-            let read = try await machine("read", id, ["path": path, "local_path": file.url.path], wait: .seconds(120), as: Read.self)
+            let read = try await machine("read", id, ["path": path, "local_path": file.url.path], wait: .seconds(120),
+                                         ended: file.callEnded, as: Read.self)
             let (encoded, count) = try await file.base64()
-            await file.remove()
+            await file.done()
             return CloudFileContents(path: read.path, dataBase64: encoded, size: read.size ?? Int64(count))
         } catch {
-            await file.remove()
+            await file.done()
             throw error
         }
     }
@@ -76,13 +77,20 @@ extension CloudAPIClient {
         let file = try await CloudTransferFile.make()
         do {
             try await file.write(data)
-            args["local_path"] = file.url.path
-            _ = try await machine("write", id, args, wait: .seconds(120))
         } catch {
-            await file.remove()
+            // No call was made: the call's hold goes too.
+            file.callEnded()
+            await file.done()
             throw error
         }
-        await file.remove()
+        do {
+            args["local_path"] = file.url.path
+            _ = try await machine("write", id, args, wait: .seconds(120), ended: file.callEnded)
+        } catch {
+            await file.done()
+            throw error
+        }
+        await file.done()
     }
 
     public func makeDirectory(_ id: String, path: String) async throws {
@@ -98,36 +106,62 @@ extension CloudAPIClient {
     }
 
     /// One exec or file operation (`cloud.machine.io` with `op`); refused on the sign-in client.
-    private func machine(_ op: String, _ id: String, _ fields: [String: any Sendable], wait: Duration) async throws -> Data {
-        try requireWorker()
+    /// `ended` runs once the call has really ended (``CloudDaemon/Send``).
+    private func machine(_ op: String, _ id: String, _ fields: [String: any Sendable], wait: Duration,
+                         ended: (@Sendable () -> Void)? = nil) async throws -> Data {
+        do { try requireWorker() } catch {
+            ended?()
+            throw error
+        }
         var args = fields
         args["op"] = op
         args["machine"] = id
-        return try await call("machine.io", args, wait: wait + .seconds(30))
+        return try await call("machine.io", args, wait: wait + .seconds(30), ended: ended)
     }
 
     private func machine<T: Decodable>(_ op: String, _ id: String, _ fields: [String: any Sendable], wait: Duration,
-                                       as type: T.Type) async throws -> T {
+                                       ended: (@Sendable () -> Void)? = nil, as type: T.Type) async throws -> T {
         let path = "/v1/cloud/machines/\(id)/\(op == "exec" ? "exec" : "fs/\(op)")"
-        return try CloudMachineRules().answer(try await machine(op, id, fields, wait: wait), as: T.self, context: path)
+        return try CloudMachineRules().answer(try await machine(op, id, fields, wait: wait, ended: ended), as: T.self, context: path)
     }
 }
 
 /// One file of the path form of `cloud.machine.io` (cmux-cloud-api `local_file`): a new name in the
-/// transfer folder `<NSTemporaryDirectory()>/cmux-cloud-transfer` (0700), the only folder the daemon
-/// takes a file from or makes one in. Removed by its exact path after the call.
-struct CloudTransferFile: Sendable {
+/// transfer folder `<per-user temp dir>/cmux-cloud-transfer` (0700), the only folder the daemon takes
+/// a file from or makes one in. The per-user temp dir is `confstr(_CS_DARWIN_USER_TEMP_DIR)`, as the
+/// daemon reads it, never `NSTemporaryDirectory()` (which follows a `TMPDIR` override).
+///
+/// The file is removed by its exact path once both the caller is done with it and the daemon call
+/// has really ended (``callEnded``): a cancelled caller is done at once, while the call may still
+/// create or read the file, so neither alone removes it.
+final class CloudTransferFile: Sendable {
     /// The largest write that goes inline as base64: well under a protocol request's 4 MiB.
     static let inlineLimit = 1 << 20
 
     let url: URL
+    /// The parties still holding the file: the caller and the call.
+    private let holders = Mutex(2)
+
+    private init(url: URL) { self.url = url }
+
+    /// The transfer folder, as the daemon resolves it.
+    static func folder() throws -> URL {
+        #if canImport(Darwin)
+        var buffer = [CChar](repeating: 0, count: 1024)
+        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count)
+        guard length > 1, length <= buffer.count else { throw CloudAPIError.transport("no per-user temp dir") }
+        let temp = String(decoding: buffer.prefix(length - 1).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        #else
+        let temp = NSTemporaryDirectory()
+        #endif
+        return URL(fileURLWithPath: temp, isDirectory: true).appendingPathComponent("cmux-cloud-transfer", isDirectory: true)
+    }
 
     /// A fresh name in the transfer folder, made 0700 if it is new; nothing is created at the name.
     /// (The daemon refuses a folder open to anyone else.) Off the caller's actor, as is every disk
     /// step here: a Cloud action handler calls these on the main actor.
     @concurrent nonisolated static func make() async throws -> CloudTransferFile {
-        let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-cloud-transfer", isDirectory: true)
+        let folder = try Self.folder()
         try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return CloudTransferFile(url: folder.appendingPathComponent(UUID().uuidString, isDirectory: false))
     }
@@ -145,7 +179,20 @@ struct CloudTransferFile: Sendable {
         return (data.base64EncodedString(), data.count)
     }
 
-    @concurrent nonisolated func remove() async {
-        try? FileManager.checked.removeItem(at: url)
+    /// The call's end (``CloudDaemon/Send``'s `ended`, on the call's own thread).
+    var callEnded: @Sendable () -> Void { { [self] in release() } }
+
+    /// The caller is done with the file (answered, failed or cancelled).
+    @concurrent nonisolated func done() async {
+        release()
+    }
+
+    /// Removes the file when the last holder lets it go.
+    private func release() {
+        let last = holders.withLock { count in
+            count -= 1
+            return count == 0
+        }
+        if last { try? FileManager.checked.removeItem(at: url) }
     }
 }

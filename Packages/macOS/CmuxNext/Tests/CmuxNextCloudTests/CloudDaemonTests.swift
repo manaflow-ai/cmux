@@ -1,5 +1,7 @@
 @testable import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
+import Observation
 import Testing
 
 /// The app's half of a Cloud API call (``CloudDaemon``): the params it sends the daemon's `cloud.*`
@@ -59,4 +61,31 @@ struct CloudDaemonTests {
             _ = try await CloudDaemon.none.call("vm.domains", as: .init(api: api, auth: .worker, credential: "a"), wait: .seconds(1))
         }
     }
+
+    /// A daemon that is still starting (or handing off to an upgraded one) when a call is made:
+    /// the call waits for its socket instead of failing, and answers once it comes.
+    @Test func aCallMadeBeforeTheDaemonIsUpWaitsForIt() async throws {
+        let late = await LateDaemon()
+        let found = Task {
+            try await CloudDaemon.socket({ await late.socket }, changes: { ObservationStream { @MainActor in late.socket } },
+                                         within: .seconds(30))
+        }
+        for _ in 0..<5 { await Task.yield() }
+        await MainActor.run { late.socket = "/tmp/cmux-late.sock" }
+        #expect(try await found.value == "/tmp/cmux-late.sock")
+    }
+
+    /// No daemon within the bound: the call fails as before.
+    @Test func noDaemonWithinTheBoundIsNotRunning() async {
+        let late = await LateDaemon()
+        await #expect(throws: CloudAPIError.transport("the cmux daemon is not running")) {
+            _ = try await CloudDaemon.socket({ await late.socket }, changes: { ObservationStream { @MainActor in late.socket } },
+                                             within: .milliseconds(50))
+        }
+    }
+}
+
+/// A local daemon whose connection (its socket) comes later.
+@MainActor @Observable private final class LateDaemon {
+    var socket: String?
 }

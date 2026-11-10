@@ -1,6 +1,6 @@
 import CCmuxSdkFFI
 public import Foundation
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// The app's Cloud API calls, run by this Mac's cmux daemon: its `cloud.*` operations
 /// (`cmux.protocol/2`, capability `cloud-api-v1`; cmux-tui-core `server/cloud_api.rs`). Each
@@ -38,17 +38,57 @@ public struct CloudDaemon: Sendable {
     }
 
     /// One operation sent as is: its wire name, whether it is a mutation, its params (JSON, wiped
-    /// after the send) and how long to wait; answers the SDK's envelope.
+    /// after the send) and how long to wait; answers the SDK's envelope. `ended` runs once, when the
+    /// call has really ended: after the answer, or, for a cancelled call, once the call itself is
+    /// over (later than the caller's cancel), or at once when nothing was sent.
     public typealias Send = @Sendable (_ operation: String, _ mutation: Bool, _ params: CloudSecretBytes,
-                                       _ wait: Duration) async throws -> Data
+                                       _ wait: Duration, _ ended: @escaping @Sendable () -> Void) async throws -> Data
 
     let send: Send
 
-    /// The daemon at `socketPath` (the app's local daemon; nil while it has none).
+    /// The daemon at `socketPath` (the app's local daemon; nil while it has none: still starting,
+    /// or handing off to an upgraded daemon). `changes` yields at each change that may bring one (the
+    /// connection appearing or being replaced): a call made before then waits for it, at most
+    /// `readyWithin`, instead of failing at once, so a call at launch or auth restore reaches the
+    /// daemon once it is up.
+    public init<Change: Sendable>(socketPath: @escaping @Sendable () async -> String?,
+                                  changes: @escaping @Sendable () -> ObservationStream<Change>,
+                                  readyWithin: Duration = .seconds(30)) {
+        send = { operation, mutation, params, wait, ended in
+            let socket: String
+            do { socket = try await Self.socket(socketPath, changes: changes, within: readyWithin) } catch { ended(); throw error }
+            return try await Self.sdkCall(socket: socket, operation: operation, mutation: mutation, params: params, wait: wait, ended: ended)
+        }
+    }
+
+    /// The daemon at `socketPath`, with no wait (``none``, a caller with no daemon to wait for).
     public init(socketPath: @escaping @Sendable () async -> String?) {
-        send = { operation, mutation, params, wait in
-            guard let socket = await socketPath() else { throw CloudAPIError.transport("the cmux daemon is not running") }
-            return try await Self.sdkCall(socket: socket, operation: operation, mutation: mutation, params: params, wait: wait)
+        send = { operation, mutation, params, wait, ended in
+            guard let socket = await socketPath() else {
+                ended()
+                throw CloudAPIError.transport("the cmux daemon is not running")
+            }
+            return try await Self.sdkCall(socket: socket, operation: operation, mutation: mutation, params: params, wait: wait, ended: ended)
+        }
+    }
+
+    /// The daemon's socket now, or once a change of `changes` brings one, within `within`; woken by
+    /// those changes, never by polling. Past `within`, the daemon is not running.
+    static func socket<Change: Sendable>(_ socketPath: @escaping @Sendable () async -> String?,
+                                         changes: @escaping @Sendable () -> ObservationStream<Change>,
+                                         within: Duration) async throws -> String {
+        if let socket = await socketPath() { return socket }
+        do {
+            return try await withDeadline(within, label: "the cmux daemon") {
+                // The stream's first value is read when iteration starts, so a socket that came
+                // between the check above and here is seen at once.
+                for await _ in changes() {
+                    if let socket = await socketPath() { return socket }
+                }
+                throw CancellationError()
+            }
+        } catch is DeadlineExceeded {
+            throw CloudAPIError.transport("the cmux daemon is not running")
         }
     }
 
@@ -65,8 +105,11 @@ public struct CloudDaemon: Sendable {
     ]
 
     /// Runs `call` (one of `cmux_cloud_api::CALLS`) with `args` as `route`; answers its body as JSON.
-    /// `wait` bounds a daemon that does not answer; the call's own deadlines end first.
-    public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, wait: Duration) async throws -> Data {
+    /// `wait` bounds a daemon that does not answer; the call's own deadlines end first. `ended` runs
+    /// once the call has really ended (see ``Send``), for what must outlive a cancelled caller.
+    public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, wait: Duration,
+                     ended: (@Sendable () -> Void)? = nil) async throws -> Data {
+        let ended = ended ?? {}
         var fields: [String: Any] = [
             "machine": "current", "session": "current", "api": route.api.absoluteString, "auth": route.auth.rawValue,
             "access_token": route.credential, "local_only": route.localOnly, "args": args,
@@ -78,10 +121,11 @@ public struct CloudDaemon: Sendable {
         do {
             params = CloudSecretBytes(Array(try JSONSerialization.data(withJSONObject: fields)))
         } catch {
+            ended()
             throw CloudAPIError.transport("the call is not JSON")
         }
         let mutation = !Self.reads.contains(call)
-        let envelope = try await send("cloud.\(call)", mutation, params, wait + .seconds(30))
+        let envelope = try await send("cloud.\(call)", mutation, params, wait + .seconds(30), ended)
         return try Self.answer(envelope, mutation: mutation, api: route.api)
     }
 
@@ -125,14 +169,23 @@ public struct CloudDaemon: Sendable {
 
     /// One call on its own connection, on a thread of its own (the SDK's calls block, for minutes for a sandboxed
     /// Run). A cancel answers at once; the call then ends on the daemon by its own deadlines and its answer is dropped.
-    static func sdkCall(socket: String, operation: String, mutation: Bool, params: CloudSecretBytes, wait: Duration) async throws -> Data {
-        try Task.checkCancellation()
+    /// `ended` runs on the call's thread when the call is over (at once when it never started).
+    static func sdkCall(socket: String, operation: String, mutation: Bool, params: CloudSecretBytes, wait: Duration,
+                        ended: @escaping @Sendable () -> Void = {}) async throws -> Data {
+        if Task.isCancelled {
+            ended()
+            throw CancellationError()
+        }
         let gate = OneAnswer()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                guard gate.hold(continuation) else { return continuation.resume(throwing: CancellationError()) }
+                guard gate.hold(continuation) else {
+                    ended()
+                    return continuation.resume(throwing: CancellationError())
+                }
                 let thread = Thread {
                     gate.finish(Result { try blockingCall(socket: socket, operation: operation, mutation: mutation, params: params, wait: wait) })
+                    ended()
                 }
                 thread.name = "cmux.cloud.daemon-call"
                 thread.start()

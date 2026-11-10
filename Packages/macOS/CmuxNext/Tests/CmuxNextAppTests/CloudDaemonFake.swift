@@ -20,7 +20,8 @@ final class CloudDaemonFake: @unchecked Sendable {
     }
 
     var daemon: CloudDaemon {
-        CloudDaemon(send: { [self] operation, mutation, params, _ in
+        CloudDaemon(send: { [self] operation, mutation, params, _, ended in
+            defer { ended() }
             let object = (try? JSONSerialization.jsonObject(with: Data(params.text.utf8))) as? [String: Any] ?? [:]
             let sent = Sent(operation: operation, mutation: mutation, params: object)
             lock.withLock { calls.append(sent) }
