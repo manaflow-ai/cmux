@@ -201,28 +201,37 @@ impl SessionJournalReader {
         Ok(Self { connection })
     }
 
+    /// One page after `sequence`. Like every multi-statement read on this
+    /// connection, it reads in one read transaction: the head, the sealed
+    /// segments and the active rows come from one snapshot, so a seal that
+    /// commits on the registry connection between two of them (moving
+    /// records from the active table into a segment) cannot show as a gap.
     pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection, sequence, limit)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_after(&snapshot, sequence, limit)
     }
 
     /// The resource events after `revision`, read on this reader's own
-    /// read-only connection (no registry lock). `generation` is the
-    /// registry's, which never changes while it is open.
+    /// read-only connection (no registry lock) in one read transaction.
+    /// `generation` is the registry's, which never changes while it is open.
     pub(crate) fn resource_events_after(
         &self,
         generation: &str,
         revision: u64,
     ) -> anyhow::Result<ResourceEventPage> {
-        resource_store::query_resource_events_after(&self.connection, generation, revision)
+        let snapshot = self.connection.unchecked_transaction()?;
+        resource_store::query_resource_events_after(&snapshot, generation, revision)
     }
 
+    /// One subject-filtered page, in one read transaction (see [`Self::after`]).
     pub(crate) fn after_subjects(
         &self,
         sequence: u64,
         limit: usize,
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
-        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_after_subjects(&snapshot, sequence, limit, subjects)
     }
 
     pub(crate) fn restore_cursor(
