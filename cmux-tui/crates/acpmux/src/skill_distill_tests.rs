@@ -106,6 +106,9 @@ fn an_open_offer_is_not_made_twice() {
     for (n, text) in [RELEASE_1, RELEASE_2, RELEASE_3].iter().enumerate() {
         replay(&mut record, &format!("a{n}"), text);
     }
+    // Drafted and offered, as the hub keeps it.
+    let chats: Vec<Shape> = record.chats.clone();
+    record.patterns[0].draft = Some(shapes_draft(&chats));
     for (n, text) in [RELEASE_1, RELEASE_2, RELEASE_3].iter().enumerate() {
         assert!(replay(&mut record, &format!("b{n}"), text).is_empty(), "chat {n}");
     }
@@ -125,6 +128,65 @@ fn a_chat_no_person_asked_gets_no_entry() {
     replay(&mut record, "r1", RELEASE_1);
     record.update(Shape { session: "r1".into(), steps: vec!["gh pr".into()], ..Shape::default() });
     assert_eq!(record.chats[0].steps.last().map(String::as_str), Some("gh pr"));
+}
+
+#[test]
+fn chats_that_share_too_little_make_no_pattern() {
+    let shape = |id: &str, prompt: &str, steps: &[&str]| Shape {
+        session: id.into(),
+        intent: intent(prompt),
+        prompt: prompt.into(),
+        steps: steps.iter().map(|s| (*s).to_owned()).collect(),
+        commands: Vec::new(),
+        claimed: false,
+    };
+    let mut record = Record::default();
+    // Each is like the newest one, but no two words are in all three: a Not now could not hold.
+    record.update(shape("b", "release nightly", &["cargo test", "git push"]));
+    record.update(shape("c", "cmux build", &["cargo test", "git push"]));
+    record.update(shape("a", "release cmux nightly build", &["cargo test", "git push"]));
+    assert!(record.claim("a", "o").is_none());
+    assert!(record.patterns.is_empty());
+}
+
+#[test]
+fn a_pattern_whose_draft_never_finished_blocks_nothing() {
+    let mut record = Record::default();
+    replay(&mut record, "r1", RELEASE_1);
+    replay(&mut record, "r2", RELEASE_2);
+    assert_eq!(replay(&mut record, "r3", RELEASE_3).len(), 1);
+    // The daemon stopped before the draft was kept: the next three releases are offered.
+    for (n, text) in [RELEASE_1, RELEASE_2].iter().enumerate() {
+        assert!(replay(&mut record, &format!("again{n}"), text).is_empty());
+    }
+    assert_eq!(replay(&mut record, "again2", RELEASE_3).len(), 1);
+}
+
+#[test]
+fn keys_in_prompts_and_drafts_are_cut_out() {
+    assert!(secretish("curl -u admin:hunter2@example.com https://x"));
+    assert!(secretish("export X=ghp_abcdefghijklmnop1234"));
+    assert_eq!(redact("deploy with sk-live1234567890abcdef please"), "deploy with … please");
+    assert_eq!(redact("bump to 0.5.0 and tag it"), "bump to 0.5.0 and tag it");
+    let draft = parse_draft("name: x-y\ndescription: Use AKIA1234567890ABCDEF here\nsteps:\n1. Set sk-abcdef1234567890xyz\n").unwrap();
+    assert!(!draft.description.contains("AKIA") && !draft.body.contains("sk-abc"), "{draft:?}");
+}
+
+#[test]
+fn a_backslash_in_a_description_keeps_the_skill_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    write_skill(dir.path(), "paths", "Use for C:\\temp paths", "## Steps\n\n1. x\n").unwrap();
+    assert_eq!(crate::agent_guidance::user_skills(dir.path()).len(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_skills_folder_takes_the_skill() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("dotfiles")).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("dotfiles"), dir.path().join("skills")).unwrap();
+    write_skill(&dir.path().join("skills"), "linked", "Use it.", "## Steps\n\n1. x\n").unwrap();
+    assert!(dir.path().join("dotfiles/linked/SKILL.md").is_file());
 }
 
 #[test]

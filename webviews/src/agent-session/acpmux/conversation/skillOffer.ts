@@ -122,7 +122,12 @@ export function skillDraftProblems(draft: SkillDraft): SkillDraftProblems {
   const problems: SkillDraftProblems = {};
   if (!SKILL_NAME.test(draft.name)) problems.name = true;
   const description = draft.description.trim();
-  if (!description || description.includes("\n") || description.length > MAX_SKILL_DESCRIPTION)
+  if (
+    !description ||
+    /[\n\r]/.test(description) ||
+    // Characters as the daemon counts them (code points): a surrogate pair is one.
+    description.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "_").length > MAX_SKILL_DESCRIPTION
+  )
     problems.description = true;
   if (!draft.body.trim() || new TextEncoder().encode(draft.body).length > MAX_SKILL_BODY_BYTES) problems.body = true;
   return problems;

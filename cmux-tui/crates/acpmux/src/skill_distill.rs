@@ -236,9 +236,45 @@ fn command_step(line: &str) -> String {
 /// Whether a command looks like it carries a secret: never kept.
 fn secretish(command: &str) -> bool {
     let lower = command.to_lowercase();
-    ["token", "password", "passwd", "secret", "bearer", "api_key", "apikey", "authorization"]
-        .iter()
-        .any(|w| lower.contains(w))
+    [
+        "token",
+        "password",
+        "passwd",
+        "secret",
+        "bearer",
+        "api_key",
+        "api-key",
+        "apikey",
+        "authorization",
+        "credential",
+        "private_key",
+    ]
+    .iter()
+    .any(|w| lower.contains(w))
+        || command.split_whitespace().any(|w| keyish(w) || (w.contains(':') && w.contains('@')))
+}
+
+/// A word that looks like a key or token itself: a known prefix (`ghp_`, `sk-`, `xoxb-`) or a
+/// long run of letters and digits with both in it.
+fn keyish(word: &str) -> bool {
+    let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+    const PREFIXES: &[&str] =
+        &["ghp_", "gho_", "ghs_", "github_pat_", "sk-", "sk_", "xox", "akia", "glpat-", "aiza"];
+    let lower = word.to_lowercase();
+    if PREFIXES.iter().any(|p| lower.starts_with(p)) && word.len() >= 12 {
+        return true;
+    }
+    word.len() >= 24
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+' | '/' | '='))
+        && word.chars().any(|c| c.is_ascii_digit())
+        && word.chars().any(|c| c.is_ascii_alphabetic())
+}
+
+/// `text` with every key-like word ([`keyish`]) cut out.
+fn redact(text: &str) -> String {
+    text.split(' ').map(|w| if keyish(w) { "…" } else { w }).collect::<Vec<_>>().join(" ")
 }
 
 /// A chat's live turn: its person prompt and its tool runs since the last turn end.
@@ -428,8 +464,19 @@ impl Record {
         let steps: Vec<&[String]> = chats.iter().map(|c| c.steps.as_slice()).collect();
         let intent = common(&intents);
         let steps = common(&steps);
+        // What the three share must say what the task is, or a later Not now could not hold it.
+        if intent.len() < 2 || steps.iter().collect::<HashSet<_>>().len() < 2 {
+            return None;
+        }
         // Asked about before: offered once, saved or dismissed, it never comes back.
-        if self.patterns.iter().any(|p| similar(&p.intent, &p.steps, &intent, &steps)) {
+        // A pattern still with no draft is one whose drafting never finished (the daemon stopped
+        // meanwhile): it holds nothing back.
+        if self
+            .patterns
+            .iter()
+            .filter(|p| p.state != "offered" || p.draft.is_some())
+            .any(|p| similar(&p.intent, &p.steps, &intent, &steps))
+        {
             return None;
         }
         let ids: HashSet<&str> = chats.iter().map(|c| c.session.as_str()).collect();
@@ -599,7 +646,7 @@ pub fn parse_draft(answer: &str) -> Option<Draft> {
             name = skill_name(v);
             list = "";
         } else if lower.starts_with("description:") {
-            description = one_line(line["description:".len()..].trim(), MAX_DESCRIPTION);
+            description = redact(&one_line(line["description:".len()..].trim(), MAX_DESCRIPTION));
             list = "";
         } else if lower.starts_with("steps:") {
             list = "steps";
@@ -614,7 +661,7 @@ pub fn parse_draft(answer: &str) -> Option<Draft> {
                 continue;
             }
             match list {
-                "steps" if steps.len() < 12 => steps.push(one_line(item, 200)),
+                "steps" if steps.len() < 12 => steps.push(redact(&one_line(item, 200))),
                 "commands" if commands.len() < MAX_COMMANDS => {
                     let item = item.trim_matches('`');
                     if !item.is_empty() && !secretish(item) {
@@ -694,7 +741,7 @@ pub fn shapes_draft(chats: &[Shape]) -> Draft {
 
 /// The whole `SKILL.md` of a skill.
 pub fn skill_file(name: &str, description: &str, body: &str) -> String {
-    let description = description.replace('"', "'");
+    let description = description.replace('\\', "/").replace('"', "'");
     format!("---\nname: {name}\ndescription: \"{description}\"\n---\n\n{}\n", body.trim_end())
 }
 
@@ -728,9 +775,8 @@ pub fn write_skill(
 ) -> Result<PathBuf, String> {
     check_skill(name, description, body)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
-    if std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
-        return Err(format!("{} is a link; skills are not written through one", dir.display()));
-    }
+    // The folder itself may be a link (into a dotfiles repository); the skill's own folder and
+    // file are made new, so neither is ever one.
     let skill_dir = dir.join(name);
     match std::fs::create_dir(&skill_dir) {
         Ok(()) => {}
@@ -740,14 +786,18 @@ pub fn write_skill(
         Err(e) => return Err(format!("cannot make {}: {e}", skill_dir.display())),
     }
     let path = skill_dir.join("SKILL.md");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    use std::io::Write as _;
-    file.write_all(skill_file(name, description.trim(), body).as_bytes())
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    let written = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).and_then(
+        |mut file| {
+            use std::io::Write as _;
+            file.write_all(skill_file(name, description.trim(), body).as_bytes())
+        },
+    );
+    if let Err(e) = written {
+        // The folder this made, and what part of the file got written, go: a retry starts clean.
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&skill_dir);
+        return Err(format!("cannot write {}: {e}", path.display()));
+    }
     Ok(path)
 }
 
@@ -784,7 +834,7 @@ pub fn take(session: &str) -> Shape {
     Shape {
         session: session.to_owned(),
         intent: intent(&prompt),
-        prompt: one_line(&prompt, MAX_PROMPT_CHARS),
+        prompt: redact(&one_line(&prompt, MAX_PROMPT_CHARS)),
         steps: turn.steps,
         commands: turn.commands,
         claimed: false,
