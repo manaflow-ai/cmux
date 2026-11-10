@@ -310,20 +310,44 @@ fn procargs(buf: &[u8]) -> Option<Vec<String>> {
 }
 
 /// The conversation `args` start Claude Code on (`--resume ID`, `--resume=ID`, `-r ID`,
-/// `--session-id ID`), if they name one.
+/// `--session-id ID`), read conservatively since it decides who may take over a registered chat:
+/// nothing after `--` (positional text), no flag that could be the operand of the option before
+/// it (one with no inline `=value`), and None when more than one argument names a session. A
+/// launch this misreads as naming none only means it cannot take a chat over.
 pub fn resumed_session(args: &[String]) -> Option<String> {
-    let mut it = args.iter();
+    let mut found: Vec<String> = Vec::new();
+    let mut prev: Option<&str> = None;
+    let mut it = args.iter().skip(1).peekable();
     while let Some(arg) = it.next() {
-        for flag in ["--resume", "--session-id"] {
-            if let Some(id) = arg.strip_prefix(flag).and_then(|r| r.strip_prefix('=')) {
-                return Some(id.to_owned());
+        if arg == "--" {
+            break;
+        }
+        // An option with no inline value before this argument may take it as its value.
+        let operand = prev.is_some_and(|p| p.starts_with('-') && !p.contains('='));
+        let named = ["--resume", "--session-id"]
+            .iter()
+            .find_map(|flag| arg.strip_prefix(flag).and_then(|r| r.strip_prefix('=')))
+            .map(str::to_owned);
+        if let Some(id) = named {
+            if operand {
+                return None;
             }
+            found.push(id);
+        } else if ["--resume", "-r", "--session-id"].contains(&arg.as_str()) {
+            if operand {
+                return None;
+            }
+            let id = it.next_if(|id| !id.starts_with('-'))?;
+            found.push(id.clone());
+            prev = Some(id.as_str());
+            continue;
         }
-        if ["--resume", "-r", "--session-id"].contains(&arg.as_str()) {
-            return it.next().filter(|id| !id.starts_with('-')).cloned();
-        }
+        prev = Some(arg.as_str());
     }
-    None
+    match found.as_slice() {
+        [one] if !one.is_empty() => Some(one.clone()),
+        _ => None,
+    }
 }
 
 /// The `startedAt` of the live registry entry for `pid` (checked against the kernel's start of

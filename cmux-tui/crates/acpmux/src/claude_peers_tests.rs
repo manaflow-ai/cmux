@@ -289,6 +289,20 @@ fn a_launch_names_its_conversation_in_any_spelling() {
     assert_eq!(resumed_session(&args(&["claude", "--session-id=abc-4"])).as_deref(), Some("abc-4"));
     assert_eq!(resumed_session(&args(&["claude", "--resume", "--print"])), None);
     assert_eq!(resumed_session(&args(&["claude", "-c"])), None);
+    // Repro (99c410fe): after `--` it is a prompt, not a flag.
+    assert_eq!(resumed_session(&args(&["claude", "--", "--resume=victim"])), None);
+    assert_eq!(resumed_session(&args(&["claude", "--", "--resume", "victim"])), None);
+    // The operand of the option before it.
+    assert_eq!(
+        resumed_session(&args(&["claude", "--append-system-prompt", "--resume=victim"])),
+        None
+    );
+    assert_eq!(resumed_session(&args(&["claude", "--model", "-r", "victim"])), None);
+    // Two sessions named: neither.
+    assert_eq!(resumed_session(&args(&["claude", "--resume=a", "--session-id=b"])), None);
+    // A desktop launch: inline values throughout.
+    let desktop = ["claude", "--output-format=stream-json", "--resume=s-1", "--allowedTools=x,y"];
+    assert_eq!(resumed_session(&args(&desktop)).as_deref(), Some("s-1"));
     // KERN_PROCARGS2: argc, the executable path, padding, then the arguments.
     let mut buf = 3i32.to_ne_bytes().to_vec();
     buf.extend_from_slice(b"/bin/claude\0\0\0claude\0--resume=s-9\0-p\0HOME=/x\0");
