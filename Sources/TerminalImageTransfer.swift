@@ -428,8 +428,13 @@ enum TerminalImageTransferPlanner {
         }
 
         // Preserve file selections after resolving an image copy's auxiliary URLs.
+        // A URL the terminal program cannot open never outranks resolved text.
+        let candidateFileURLs = fileURLs(from: pasteboard)
+        let selectedFileURLs = text?.isEmpty == false
+            ? candidateFileURLs.filter(isReadableFileURL)
+            : candidateFileURLs
         guard let fileURLs = pasteboardService.durableDroppedFileURLs(
-            fileURLs(from: pasteboard),
+            selectedFileURLs,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
                 pasteboard.types ?? []
             )
