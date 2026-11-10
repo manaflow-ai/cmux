@@ -517,6 +517,9 @@ import {
   cloudStartBegun,
   cloudStartEnded,
   cloudStartPushed,
+  cloudStartLocksComposer,
+  cloudStartStalled,
+  watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
 } from "./cloudStartProgress";
@@ -4496,8 +4499,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastCloudAttempt = useRef<{ key: string; request: CloudStart } | undefined>(undefined);
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
-  /// on failure the prompt is still in the composer to edit and send again.
-  const cloudStarting = cloudStart?.state === "starting";
+  /// on failure the prompt is still in the composer to edit and send again. A start the host has
+  /// said nothing about for minutes (cloudStartProgress.ts `CLOUD_START_STALL_MS`) stalled: the card
+  /// says so and the composer is the person's again.
+  const cloudStarting = cloudStartLocksComposer(cloudStart);
+  useEffect(
+    () => watchCloudStartStall(cloudStart, (key) => setCloudStart((current) => cloudStartStalled(current, key))),
+    [cloudStart],
+  );
   /// The same, for dictation's field getter (below), which is made once.
   const cloudStartingNow = useRef(false);
   cloudStartingNow.current = cloudStarting;
