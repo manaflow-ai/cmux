@@ -162,6 +162,42 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test(arguments: [false, true])
+    func ownershipTransitionClearsIndefiniteIconAndInvalidatesCredentials(cloud: Bool) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let animation = TabIconAnimation(id: "ownership-test", frames: [Data([1])], durations: [0.1], loops: true)
+        let entry = try workspace.surfaceIconLeases.set(
+            panelID: panel.id, ownerID: "local-producer", animation: animation
+        )
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == animation)
+        if cloud {
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "icon-test-machine", isBase: false)
+        } else {
+            workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+                destination: "icon-test.invalid", port: nil, identityFile: nil, sshOptions: [],
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+                localSocketPath: nil, terminalStartupCommand: nil
+            )
+        }
+        #expect(workspace.surfaceIdFromPanelId(panel.id) == tabID)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == nil)
+        #expect(throws: SurfaceIconLeaseStore.LeaseError.staleToken) {
+            try workspace.surfaceIconLeases.set(
+                panelID: panel.id, ownerID: "local-producer", token: entry.token,
+                expectedRevision: entry.revision
+            )
+        }
+        #expect(throws: SurfaceIconLeaseStore.LeaseError.staleToken) {
+            try workspace.surfaceIconLeases.clear(
+                panelID: panel.id, ownerID: "local-producer", token: entry.token,
+                expectedRevision: entry.revision
+            )
+        }
+    }
+
+    @MainActor
     private func expectNoAgentMark(
         workspace: Workspace,
         panel: TerminalPanel,
