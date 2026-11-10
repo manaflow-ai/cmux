@@ -280,10 +280,10 @@ public final class ChiefSession {
     /// The failed message whose Try Again was sent (its bar goes away).
     private var retriedFailureID: String?
 
-    /// What the bar over the conversation shows: the open question first,
-    /// else Try Again for a failed newest turn not tried again yet.
+    /// What the bar over the conversation shows: why Chief is unavailable,
+    /// else Try Again for a failed newest turn not tried again yet, else the
+    /// Mac away. Open questions get no bar (see ``ChiefBarItem``).
     public var barItem: ChiefBarItem? {
-        if let question = openQuestion { return .question(question) }
         // The Mac's Chief refused or is missing (D2): say why, instead of
         // the conversation's endless first-load spinner.
         if !isConnected, let status { return .unavailable(reason: status, retrying: isReconnecting) }
