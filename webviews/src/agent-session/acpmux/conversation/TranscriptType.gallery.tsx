@@ -41,6 +41,7 @@ const image = {
 const DEVICE_PAGES = {
   codex: { url: "https://auth.openai.com/codex/device", userCode: "QRST-4821" },
   grok: { url: "https://accounts.x.ai/device", userCode: "WDJB-MJHT" },
+  cursor: { url: "https://cursor.com/loginDeepControl?challenge=gallery" },
 } as const;
 
 /// The route name the card says for each agent.
@@ -49,6 +50,7 @@ const AGENT_NAMES: Record<LoginAgent, string> = {
   codex: "Codex",
   gemini: "Gemini CLI",
   grok: "Grok",
+  cursor: "Cursor",
 };
 
 function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure): CloudSignIn {
@@ -240,6 +242,18 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .cv-turn-error__offer-link"));
+      },
+    },
+    "cursor-sign-in": {
+      props: { signIn: "cursor" },
+      note: "A Cloud chat whose Cursor agent is not signed in on its machine: one Sign in to Cursor button and no Use an API key (a Cursor key goes in as the Cloud secret CURSOR_API_KEY).",
+    },
+    "cursor-approve": {
+      props: { signIn: "cursor" },
+      note: "After the one Sign in to Cursor click: cursor-agent login runs on the machine, its cursor.com page is open, and the card waits for the approve with no code to type.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__text"));
       },
     },
     "codex-code": {

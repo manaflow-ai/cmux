@@ -93,6 +93,8 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         Agent::Gemini | Agent::Grok => p.argv.first().is_some_and(|program| {
             Path::new(program).file_name().and_then(|f| f.to_str()) == Some(agent.name())
         }),
+        // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
+        Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
     };
     let profile =
         selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
@@ -107,19 +109,26 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         .collect();
     let argv: Vec<String> = match profile {
         Some(p) => p.argv.iter().map(|a| expand(a)).collect(),
-        None => vec![crate::config::which(agent.name())?],
+        None => vec![crate::config::which(agent.program())?],
     };
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Gemini | Agent::Grok => None,
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Gemini | Agent::Grok => Vec::new(),
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => Vec::new(),
     };
     Some(Cli { program, globals, env })
+}
+
+/// Whether `argv` runs Cursor's CLI: `cursor-agent` (or `agent`), then `acp`.
+fn cursor_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
+        && argv.get(1).is_some_and(|a| a == "acp")
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {

@@ -46,6 +46,7 @@ const SIGN_IN_LABEL = {
   claude: "turn.signIn.claude",
   codex: "turn.signIn.codex",
   grok: "turn.signIn.grok",
+  cursor: "turn.signIn.cursor",
 } as const satisfies Partial<Record<SignIn["agent"], StringKey>>;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
@@ -311,7 +312,8 @@ export function CloudSignIn({
     </button>
   );
 
-  // Each agent's ways in: its own sign-in page (all but Gemini) and a saved key (all but Grok).
+  // Each agent's ways in: its own sign-in page (all but Gemini) and a saved key (all but Grok and
+  // Cursor).
   const agent = signIn.agent;
   const pageLabel = agent === "gemini" ? undefined : SIGN_IN_LABEL[agent];
   const offersPage = !keyOnly && signsInByPage(agent) && pageLabel !== undefined;
@@ -402,6 +404,17 @@ export function CloudSignIn({
         </form>
       );
     case "device":
+      // A sign-in with no code to type (Cursor's): its page is open and it finishes on the approve.
+      if (!stage.login.userCode)
+        return (
+          <div className="cv-turn-signin">
+            <span className="cv-turn-signin__row">
+              {pageButton(stage.login)}
+              {cancelButton}
+            </span>
+            <span className="cv-turn-signin__text">{t("turn.signIn.approve")}</span>
+          </div>
+        );
       return (
         <div className="cv-turn-signin">
           <span className="cv-turn-signin__row">

@@ -14,7 +14,7 @@ pub(super) fn offer(agent: Agent, output: &str) -> Option<Offer> {
         let hot_agent = match agent {
             Agent::Claude => Some(acpmux_hot::Agent::Claude),
             Agent::Codex => Some(acpmux_hot::Agent::Codex),
-            Agent::Gemini | Agent::Grok => None,
+            Agent::Gemini | Agent::Grok | Agent::Cursor => None,
         };
         if let Some(hot_agent) = hot_agent
             && let Some(slot) = acpmux_hot::daemon()

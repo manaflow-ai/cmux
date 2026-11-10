@@ -130,11 +130,11 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
 }
 
 /// An `agent_login` agent whose account is its store alone (no route account home): Gemini
-/// (`$GEMINI_CLI_HOME/.gemini`) and Grok (`$GROK_HOME`). A sign-in there supersedes the
-/// account's old failures, as for Claude and Codex.
+/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`) and Cursor (`$XDG_CONFIG_HOME/cursor`). A
+/// sign-in there supersedes the account's old failures, as for Claude and Codex.
 fn signs_in_by_store(family: &str) -> Option<crate::agent_login::Agent> {
     use crate::agent_login::Agent;
-    Agent::parse(family).filter(|a| matches!(a, Agent::Gemini | Agent::Grok))
+    Agent::parse(family).filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor))
 }
 
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {

@@ -42,6 +42,14 @@
 //!   --device-auth`, finished by itself like Codex's; `api_key` is
 //!   `unsupported`: grok reads `XAI_API_KEY` from its env, which the person's
 //!   vault delivers).
+//! - Cursor (`cursor-agent login`, Leo 2026-11-10: "if somebody has a ChatGPT
+//!   subscription or a Cursor subscription"): like Codex, it prints one
+//!   `https://cursor.com/...` link (only that host, [`parse::CURSOR_HOSTS`]),
+//!   waits for the approve itself and exits 0 once its
+//!   `<XDG_CONFIG_HOME or ~/.config>/cursor/auth.json` holds the sign-in;
+//!   `NO_OPEN_BROWSER=1` keeps it from opening one. It takes no code and no
+//!   key here: a Cursor API key reaches the agent as the Cloud secret
+//!   `CURSOR_API_KEY` instead.
 //!
 //! The CLI is the one this daemon starts the agent with (the `claude` or
 //! `codex` harness profile, else `claude`/`codex` on the login PATH), with
@@ -158,10 +166,13 @@ pub enum Agent {
     Gemini,
     /// The Grok CLI: its device flow only.
     Grok,
+    /// `cursor-agent`: its browser sign-in only.
+    Cursor,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Grok];
+    pub const ALL: [Agent; 5] =
+        [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Grok, Agent::Cursor];
 
     pub fn parse(name: &str) -> Option<Agent> {
         Agent::ALL.into_iter().find(|a| a.name() == name)
@@ -173,6 +184,7 @@ impl Agent {
             Agent::Codex => "codex",
             Agent::Gemini => "gemini",
             Agent::Grok => "grok",
+            Agent::Cursor => "cursor",
         }
     }
 
@@ -183,16 +195,26 @@ impl Agent {
 
     /// `api_key` saves a key for it.
     pub fn takes_api_key(self) -> bool {
-        self != Agent::Grok
+        !matches!(self, Agent::Grok | Agent::Cursor)
     }
 
-    /// Its store under a home with no override: `.claude`, `.codex`, `.gemini`, `.grok`.
+    /// Its store under a home with no override: `.claude`, `.codex`, `.gemini`, `.grok`,
+    /// `.config/cursor`.
     pub fn home_dir_name(self) -> &'static str {
         match self {
             Agent::Claude => ".claude",
             Agent::Codex => ".codex",
             Agent::Gemini => ".gemini",
             Agent::Grok => ".grok",
+            Agent::Cursor => ".config/cursor",
+        }
+    }
+
+    /// The program on the login PATH when no harness profile names one.
+    pub fn program(self) -> &'static str {
+        match self {
+            Agent::Cursor => "cursor-agent",
+            agent => agent.name(),
         }
     }
 }
@@ -247,6 +269,10 @@ impl Cli {
             Agent::Codex => own("CODEX_HOME"),
             Agent::Gemini => own("GEMINI_CLI_HOME").map(|h| h.join(".gemini")),
             Agent::Grok => own("GROK_HOME"),
+            // `cursor-agent` keeps `auth.json` here on Linux (`harness_health/agent_files.rs`).
+            Agent::Cursor => Some(
+                own("XDG_CONFIG_HOME").unwrap_or_else(|| self.home().join(".config")).join("cursor"),
+            ),
         }
         .unwrap_or_else(|| self.home().join(agent.home_dir_name()))
     }
@@ -277,18 +303,29 @@ impl Cli {
                 cmd.env(key, value);
             }
         }
+        // Cursor's store follows XDG_CONFIG_HOME: the CLI gets exactly the one store() resolved,
+        // so the sign-in it writes is the one finish reads.
+        match self.var("XDG_CONFIG_HOME") {
+            Some(value) => cmd.env("XDG_CONFIG_HOME", value),
+            None => cmd.env_remove("XDG_CONFIG_HOME"),
+        };
         for key in MODEL_PLANE_ENV {
             cmd.env_remove(key);
         }
         cmd.env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY")
             .env("BROWSER", "true")
+            .env("NO_OPEN_BROWSER", "1")
             .env("TERM", "dumb")
             .env("NO_COLOR", "1")
             .env("CMUX_CLAUDE_AUTH", "own")
             .env("CMUX_CODEX_AUTH", "own")
             .env("CMUX_GEMINI_AUTH", "own")
             .env("CMUX_GROK_AUTH", "own");
+        // A Cursor key in this daemon's environment (a Cloud secret) would outrank the sign-in.
+        for key in ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"] {
+            cmd.env_remove(key);
+        }
         cmd.args(&self.globals).args(args).current_dir(cwd);
         cmd
     }
@@ -543,6 +580,12 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
         }
         Agent::Grok => std::fs::read(store.join("auth.json"))
             .is_ok_and(|b| !Zeroizing::new(b).iter().all(u8::is_ascii_whitespace)),
+        // Cursor's `auth.json`: a non-empty object with a non-empty string in it (its token
+        // fields have moved between releases, so no one name is required).
+        Agent::Cursor => read("auth.json").is_some_and(|v| {
+            v.as_object()
+                .is_some_and(|o| o.values().any(|f| f.as_str().is_some_and(|s| !s.is_empty())))
+        }),
     }
 }
 
@@ -766,8 +809,8 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         }
     }
     let store = cli.store(agent);
-    if matches!(agent, Agent::Codex | Agent::Grok) {
-        // `codex login` needs its home to exist (and grok's is made private).
+    if agent != Agent::Claude {
+        // `codex login` needs its home to exist; Grok's and Cursor's are made private first.
         private_dir(&store).map_err(|e| {
             LoginError::new(reason::FAILED, format!("make {}: {e}", store.display()))
         })?;
@@ -777,6 +820,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
     let args: &[&str] = match agent {
         Agent::Claude => &["auth", "login", "--claudeai"],
         Agent::Codex | Agent::Grok => &["login", "--device-auth"],
+        Agent::Cursor => &["login"],
         // Refused above (`signs_in_by_link`).
         Agent::Gemini => &[],
     };
@@ -845,7 +889,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex | Agent::Gemini | Agent::Grok => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -930,7 +974,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             }
         },
         // Device flows finish by themselves.
-        Agent::Codex | Agent::Gemini | Agent::Grok => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
@@ -1004,6 +1048,9 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             (Agent::Claude, false) => {
                 LoginError::new(reason::FAILED, "claude did not finish signing in: start again")
             }
+            (Agent::Cursor, _) => {
+                LoginError::new(reason::FAILED, "cursor-agent did not finish signing in")
+            }
             (agent, _) => LoginError::new(
                 reason::FAILED,
                 format!("{} did not finish signing in", agent.name()),
@@ -1029,6 +1076,14 @@ pub async fn save_api_key(
     agent: Agent,
     key: &str,
 ) -> Result<(), LoginError> {
+    if agent == Agent::Cursor {
+        // `cursor-agent` reads a key only from its environment or `--api-key`, never a file of
+        // its own: the key goes in as the Cloud secret `CURSOR_API_KEY`.
+        return Err(LoginError::new(
+            reason::UNSUPPORTED_AGENT,
+            "Cursor takes an API key as the Cloud secret CURSOR_API_KEY",
+        ));
+    }
     if !agent.takes_api_key() {
         return Err(LoginError::new(
             reason::UNSUPPORTED,
@@ -1052,7 +1107,9 @@ pub async fn save_api_key(
                 .map_err(|e| LoginError::new(reason::FAILED, e))
         }
         // Refused above (`takes_api_key`).
-        Agent::Grok => Err(LoginError::new(reason::UNSUPPORTED, "grok takes no saved key here")),
+        Agent::Grok | Agent::Cursor => {
+            Err(LoginError::new(reason::UNSUPPORTED, format!("{} takes no saved key here", agent.name())))
+        }
         Agent::Claude => merge_claude_api_key(&cli.store(agent), key)
             .map_err(|e| LoginError::new(reason::FAILED, e)),
         Agent::Codex => {

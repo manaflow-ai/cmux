@@ -59,7 +59,8 @@ public final class HomePageAttachmentDrag {
 
     /// ``call(_:userGesture:)`` when `name` is ``op``; nil for the page's other ops.
     public func call(_ name: String, _ fields: [String: JSONValue], userGesture: Bool) throws -> JSONValue? {
-        name == Self.op ? try call(.object(fields), userGesture: userGesture) : nil
+        guard name == Self.op else { return nil }
+        return try call(.object(fields), userGesture: userGesture)
     }
 
     /// The attachment and its place from the page's params; nil when one is missing or malformed.

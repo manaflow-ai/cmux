@@ -8,11 +8,13 @@ import type { AcpmuxDirectClient } from "./direct";
 
 /// The harnesses whose login acpmux runs on the machine. Gemini CLI signs in there with an API key
 /// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
-/// --device-auth`: a page and a code, like Codex), its key coming from the person's vault.
-export type LoginAgent = "claude" | "codex" | "gemini" | "grok";
+/// --device-auth`: a page and a code, like Codex), its key coming from the person's vault; Cursor
+/// with its sign-in page only (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
+/// subscription").
+export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor";
 
 /// The agents ``cloudAgentLogin`` offers a sign-in for.
-export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok"];
+export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor"];
 
 /// `value` as a ``LoginAgent``; else undefined.
 export function loginAgent(value: string | undefined): LoginAgent | undefined {
@@ -26,9 +28,10 @@ export function signsInByPage(agent: LoginAgent): boolean {
 }
 
 /// Whether the agent takes an API key saved on the machine (`_acpmux/agent_login/api_key`): every
-/// agent but Grok, which reads `XAI_API_KEY` from the person's vault.
+/// agent but Grok, which reads `XAI_API_KEY` from the person's vault, and Cursor, whose key goes in
+/// as the Cloud secret `CURSOR_API_KEY` (acpmux `agent_login` refuses one here).
 export function takesApiKey(agent: LoginAgent): boolean {
-  return agent !== "grok";
+  return agent !== "grok" && agent !== "cursor";
 }
 
 /// `_acpmux/agent_login/start`'s answer: the page to open, Codex's device code, whether the page
@@ -69,6 +72,7 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "auth.openai.com",
   "accounts.x.ai",
   "auth.x.ai",
+  "cursor.com",
 ]);
 
 /// `raw` as a URL the card may open: https, no user info, on ``SIGN_IN_HOSTS``; else undefined.

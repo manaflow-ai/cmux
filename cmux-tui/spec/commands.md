@@ -2499,8 +2499,11 @@ Records a remote-terminal tab's title, session name, or text snapshot (the
 frontend shows the snapshot while the other session is offline). An absent
 field is unchanged; `title:null` falls back to `Terminal on <session_name>`
 and `snapshot:null` clears the snapshot. A title or session name change
-persists durably and emits `tab-changed` (and `title-changed` when the
-displayed title changes); a snapshot is
+persists durably. It emits `tab-changed` when the session name changed or when
+what the tab shows of the displayed title changed (its text without the leading
+status glyphs, or the activity they name), and `title-changed` in the second
+case. A spinner frame of the same text is stored and emits nothing, as a local
+terminal's title does. A snapshot is
 stored durably but emits nothing and is not journaled. `changed` is true when
 anything stored changed. Fails for a tab that is not a remote-terminal tab.
 
@@ -9918,7 +9921,7 @@ machine's cmux-tui updated.
 `agent-session-login-v1` (advertised with `agent-session-attach-v1`): a Cloud
 chat's own sign-in on this machine, from the app's sign-in card. On an attached
 tab, `{id, cmd:"agent-session-login", surface, op, ...}` sends acpmux's
-`_acpmux/agent_login/<op>`: `op:"start"` with `agent` (`claude`, `codex` or `grok`; `gemini` answers `unsupported`)
+`_acpmux/agent_login/<op>`: `op:"start"` with `agent` (`claude`, `codex`, `grok` or `cursor`; `gemini` answers `unsupported`)
 sends `{agent, sessionId}`; `op:"finish"` with `login_id` and optionally Claude's `code`
 sends `{loginId, sessionId, code?}` and may wait up to 15 minutes (Codex waits
 for the person's approval); `op:"api_key"` with `agent` (`claude`, `codex` or `gemini`) and `key` sends `{agent,
