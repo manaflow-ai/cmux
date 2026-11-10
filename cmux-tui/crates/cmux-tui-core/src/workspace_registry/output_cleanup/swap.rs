@@ -574,7 +574,17 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     // A file with no floor recorded (an earlier format) left out no run.
     let built_floor =
         state(&staged, "floor").ok().and_then(|floor| floor.parse::<u64>().ok()).unwrap_or(0);
-    let floor = start_floor(&source)?;
+    // A floor that cannot be read (a saved reducer state that is not JSON)
+    // is floor 0: this start may read every record, so only a file built at
+    // floor 0 is installed. It is not a failure of this registry.
+    let floor = if built_floor == 0 {
+        0
+    } else {
+        start_floor(&source).unwrap_or_else(|error| {
+            eprintln!("cmux-tui: output cleanup: could not read the retention floor: {error:#}");
+            0
+        })
+    };
     if built_floor > floor {
         eprintln!(
             "cmux-tui: output cleanup: the new registry was built without the journal through \
