@@ -81,6 +81,10 @@ action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's 
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
+Also on every local run, the same way: "Runs-on variables declare their single-host fallback": when the push changes
+.github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
+hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
+not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
 
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
@@ -249,6 +253,14 @@ rescue Psych::SyntaxError => e
   exit 1
 end
 """
+# A runs-on variable with no declared fallback (cmux#40221 merged two; the build-fleet policy test read this repository
+# live and went red after the merge). Local only: ci-guards.yml runs the same script with --advisory, warnings only.
+FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
+FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
+FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
+                  "`fallback` that takes the job and `after_minutes`), then push. Check with "
+                  "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
 CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_DRIFT = "cannot update the lock file"
@@ -1530,6 +1542,57 @@ def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | Non
     return found
 
 
+def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
+
+    Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. It fails open, with a warning: a hook install older
+    than the checker, a HEAD without the declaration, no PyYAML, or a checker that does not run refuses nothing."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
+    if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
+        return []
+    if blob_at(repo, head, FALLBACKS_DECLARATION) is None:
+        return []  # a branch older than the declaration
+    if trusted_scripts is None:
+        script = blob_at(repo, head, FALLBACKS_SCRIPT)
+    else:
+        installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
+            "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
+        work = Path(tmp)
+        (work / "check.py").write_bytes(script)
+
+        def keyed(rev: str) -> dict[str, str] | None:
+            tree = work / rev[:12]
+            tree.mkdir()
+            paths = [".github/workflows"] + ([FALLBACKS_DECLARATION] if blob_at(repo, rev, FALLBACKS_DECLARATION) else [])
+            archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, *paths],
+                                     capture_output=True)
+            if archive.returncode != 0:
+                return None
+            subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
+            if not (tree / FALLBACKS_DECLARATION).is_file():
+                return {}
+            code, out = run([sys.executable, "-I", str(work / "check.py"), "--root", str(tree), "--json"], work)
+            try:
+                listed = next(line for line in out.splitlines() if line.startswith("["))
+                return {f["key"]: f["message"] for f in json.loads(listed)} if code == 0 else None
+            except (ValueError, StopIteration, KeyError, TypeError):
+                return None
+
+        now = keyed(head)
+        if now is None:
+            log("prepush-gate: WARNING: the single-host fallback check could not run (PyYAML missing?); CI's "
+                "advisory step still reports it.")
+            return []
+        before = keyed(base) or {}
+        return [message for key, message in sorted(now.items()) if key not in before]
+
+
 def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
                        restrict: set[str] | None = None) -> list[str]:
     """`<highlight file>: <validator problem>` for each problem of each What's New highlight BASE..HEAD adds or changes.
@@ -1741,6 +1804,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         broken = workflow_problems(repo, base, head, restrict)
         if broken:
             reserved.append((WORKFLOW_CHECK, broken))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): ci-guards.yml runs the checker --advisory.
+    if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None:
+        undeclared = single_host_fallback_problems(repo, base, head, trusted_scripts)
+        if undeclared:
+            reserved.append((FALLBACKS_CHECK, undeclared))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
@@ -2218,7 +2286,8 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "single-host-fallbacks")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -2367,6 +2436,8 @@ def main(argv: list[str] | None = None) -> int:
             print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == FALLBACKS_CHECK for name, _ in found_any):
+        print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
