@@ -214,7 +214,10 @@ public nonisolated struct ListViewportChange<Old: ListViewportRows, New: ListVie
     }
 
     /// The first row before (`step` -1) or after (1) `position` in `rows` that `other` holds too: a walk over
-    /// the rows that left or came beside it, one step when its neighbour survived.
+    /// the rows that left or came beside it, one step when its neighbour survived. The only loop of the rule that
+    /// can pass the rows in view: it reads as many rows as changed beside `position` (one for a close or a create,
+    /// every row only when the two lists share none on that side).
+    // perf-hot: 0.1ms workspace-list-change
     private static func neighbour<Rows: ListViewportRows, Other: ListViewportRows>(
         of position: Int, by step: Int, in rows: Rows, among other: Other
     ) -> ID? where Rows.ID == ID, Other.ID == ID {

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 /// Sidebar scroll after a close, create or selection change
-/// (plans/cmux-next/close-focus.md): `ListViewport.settle` decides the
+/// (plans/cmux-next/close-focus.md): `ListViewportChange.settle` decides the
 /// offset; this file only reads geometry and applies it.
 extension SidebarListViewComponents {
     /// Applies `layout` keeping what the user sees (the anchor stays put,

@@ -428,7 +428,7 @@ extension SidebarListViewComponents {
     }
 
     /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
-    /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
+    /// rows beside each, among the rows of both layouts, changed (as `ListViewportChange.movedByItself`). A row an insert or
     /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.
     static func movedByThemselves(_ keys: some Collection<SidebarRowKey>, from old: SidebarLayout, to layout: SidebarLayout) -> Set<SidebarRowKey> {
         guard !keys.isEmpty else { return [] }

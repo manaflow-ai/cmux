@@ -151,7 +151,7 @@ public final class SidebarModel {
     /// The focused workspace is always listed (sidebar-focused-visible): a
     /// new workspace selection opens the collapsed sections that hide it
     /// (`expandSections(hiding:)`), and the list scrolls it into view
-    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// (`ListViewportChange.settle`). Every selection path (a click, Cmd-P, a link,
     /// the CLI, an agent's focus, a new workspace) sets this one property.
     public var selectedItem: SidebarItem? {
         didSet {

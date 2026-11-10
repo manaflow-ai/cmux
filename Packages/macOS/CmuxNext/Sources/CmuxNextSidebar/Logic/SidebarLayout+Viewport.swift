@@ -50,9 +50,13 @@ extension SidebarLayout {
     }
 }
 
-/// A layout's rows as the scroll rules read them (`ListViewportRows`). Rows are sorted by `y` and do not overlap (hit
-/// testing searches them the same way, `SidebarLayout.lastIndex(startingAtOrBefore:)`), so the rows in a span are
-/// found by a search. Each row read counts in `viewport_rows`.
+/// A layout's rows as the scroll rules read them (`ListViewportRows`). The rows of a layout with no drag gap are
+/// sorted by `y` and do not overlap (hit testing searches them the same way,
+/// `SidebarLayout.lastIndex(startingAtOrBefore:)`), so the rows in a span are found by a search. A layout with a drag
+/// gap (`gapY`) can be a group drag's (`SidebarGroupDragPlan.layout`): its carried rows stand one over the other at
+/// the card's bottom, a tall one above a short one, so they are not in order of place and every row is read, as the
+/// rule did before. The list gives such a layout to the rule in one reload only, the first after a drop or a cancel
+/// (`applyKeepingViewport` runs with no drag held). Each row read counts in `viewport_rows`.
 nonisolated struct SidebarLayoutViewportRows: ListViewportRows {
     let layout: SidebarLayout
 
@@ -69,6 +73,10 @@ nonisolated struct SidebarLayoutViewportRows: ListViewportRows {
     // perf-hot: 0.1ms workspace-list-change
     func viewportPositions(endingAfter lower: CGFloat, startingBefore upper: CGFloat) -> [Int] {
         let rows = layout.rows
+        guard layout.gapY == nil else {
+            SidebarPerfCounters.addViewportRows(rows.count)
+            return rows.indices.filter { rows[$0].maxY > lower && rows[$0].y < upper }
+        }
         // The first row that ends after `lower`: the last one that starts at or before it, and any row before that
         // one that still ends after `lower` (none while rows do not overlap).
         var first = layout.lastIndex(startingAtOrBefore: lower).map { $0 + 1 } ?? 0
