@@ -50,6 +50,7 @@ final class SidebarBridge {
     let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
+    let rowsKeep = SpaceRowsKeep() // the rows pass's sections of each space the window showed (SPACE SWITCH 3, F3)
     /// Each row's content, observed per row: a status change patches one row, not the sidebar (rows lane). Its flushes
     /// run on the display frame (one commit with the scroll update); it keeps the rows of the window's other spaces.
     let rowFeed: SidebarRowFeed
@@ -149,7 +150,7 @@ final class SidebarBridge {
         let services = services
         guard let windowState = state else { return }
         // Decorations go on after the feed: the pass names rows by stub (no title yet), and a patched row is undecorated.
-        let feed = rowFeed, customization = services.sidebarCustomization, faces = faceBuffers
+        let feed = rowFeed, customization = services.sidebarCustomization, faces = faceBuffers, keep = rowsKeep
         feed.onChange = { [weak self] changed in
             let decorations = customization.rowDecorations
             self?.rows.patch(changed.map { $0.decorated(by: decorations) })
@@ -163,7 +164,11 @@ final class SidebarBridge {
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
-            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            let profile = windowState.profileID // a space shown again with nothing changed lists its kept rows (`SpaceRowsKeep`)
+            let (listed, launching, failed) = keep.rows(for: SidebarProfileKey(profile.rawValue), inputs: Self.passInputs(services), stamp: Self.rowsStamp(services, window: windowState),
+                                                        keeps: !registry.isLaunching, feed: feed) {
+                Self.passSections(services, window: windowState, profile: profile, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            }
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
@@ -300,18 +305,31 @@ final class SidebarBridge {
 
     /// A window's rows (`observe`'s structural pass, `feed`'s, and the snapshot-first seed). No New Tab page set is an
     /// input: each row names its own (`rowNewTabPages`), so a page made in one workspace maps its row only (ask-bdd706af47).
-    static func passSections(_ services: AppServices, window: WindowState, feed: SidebarRowFeed? = nil, faces: SidebarFaceBatch? = nil, rows: SidebarMapping.RowSource? = nil,
-                             pageFace: PageFace? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+    static func passSections(_ services: AppServices, window: WindowState, profile: ProfileID? = nil, feed: SidebarRowFeed? = nil, faces: SidebarFaceBatch? = nil,
+                             rows: SidebarMapping.RowSource? = nil, pageFace: PageFace? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         let machines = services.machines, layout = services.sidebarLayout, muted = services.notifications.preferences.mutedWorkspaces
         let hidesHome = layout.document.hidesHome // an input of each workspace's listing rule (`SidebarRowFeed.lists`) too
-        feed?.beginPass(inputs: [muted, DesignSettings.shared.attention.showsOnSidebar, hidesHome] as [AnyHashable])
+        feed?.beginPass(inputs: passInputs(services))
         let (sections, launching, failed) = liveSections(
-            machines, doc: services.sidebarDoc, registry: services.windows.registry, window: window, creations: services.cloud.creations,
+            machines, doc: services.sidebarDoc, registry: services.windows.registry, window: window, profile: profile, creations: services.cloud.creations,
             hidesHome: hidesHome, rowNewTabPages: services.agentTabs, muted: muted,
-            top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
+            top: .make(layout, machines: machines, room: (profile ?? window.profileID).rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows, listing: feed?.listingSource, groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
             harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none }, faces: faces)
         return (sections, launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
+    }
+
+    /// What a rows pass hands every row's mapping by value (`SidebarRowFeed.beginPass`).
+    static func passInputs(_ services: AppServices) -> AnyHashable {
+        AnyHashable([services.notifications.preferences.mutedWorkspaces, DesignSettings.shared.attention.showsOnSidebar, services.sidebarLayout.document.hidesHome] as [AnyHashable])
+    }
+
+    /// The by-value parts of a window's rows that no observation tells of, for `SpaceRowsKeep`.
+    static func rowsStamp(_ services: AppServices, window: WindowState) -> AnyHashable {
+        let machines = services.machines, doc = services.sidebarDoc.store
+        let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
+        return AnyHashable([AnyHashable(window.id), AnyHashable(doc.map { ObjectIdentifier($0) }), AnyHashable(doc?.shownChanges), AnyHashable(services.settings?.snapshot.workspaceGroups),
+                AnyHashable(machines.local.store.isProvisional || machines.local.recovery.isRestoring), AnyHashable(failed), AnyHashable(SidebarRowSection.debugPreviews().count)] as [AnyHashable])
     }
 
     /// The window's live sidebar, whether the app is still launching (its
@@ -319,7 +337,7 @@ final class SidebarBridge {
     /// connection gave up (their launch placeholders end). Rows from the
     /// daemon's launch snapshot, or the last live tree while the session owner restores again, are `.stale` until it answers.
     static func liveSections(_ machines: MachineRegistry, doc: SidebarDocument, registry: WindowRegistryStore,
-                             window: WindowState, creations: CloudCreations? = nil, hidesHome: Bool = true,
+                             window: WindowState, profile: ProfileID? = nil, creations: CloudCreations? = nil, hidesHome: Bool = true,
                              newTabPages: Set<String> = [], rowNewTabPages: AgentTabStore? = nil, muted: Set<String> = [],
                              top: SidebarTopProjection = .legacy, pageFace: @escaping PageFace = { _, _, _ in nil },
                              tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil, listing: SidebarMapping.ListingSource? = nil,
@@ -327,7 +345,7 @@ final class SidebarBridge {
                              workspaceFilter: @escaping (WorkspaceModel) -> Bool = {
                                  AgentLaneStore.shared.keepsWorkspace($0, turns: AgentTurnStateStore.shared)
                              }, harnessIcons: @escaping () -> HarnessIconLookup = { .none }, faces: SidebarFaceBatch? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
-        var sections = Self.sections(machines, doc: doc, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
+        var sections = Self.sections(machines, doc: doc, members: registry.members(of: window.id), profile: profile ?? window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, rowNewTabPages: rowNewTabPages, muted: muted, top: top,
                                      pageFace: pageFace, tabTitle: tabTitle, rows: rows, listing: listing, workspaceFilter: workspaceFilter, harnessIcons: harnessIcons, faces: faces)
         // cmux.json `workspaceGroups.byCwd`: a configured group's color and icon.
