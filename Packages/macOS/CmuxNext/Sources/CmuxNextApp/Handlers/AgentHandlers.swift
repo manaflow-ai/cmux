@@ -29,7 +29,7 @@ import Observation
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
     /// Inspect Element (#24707): the web-content menus that place it (the agent chat page's)
-    /// leave it out while Debug Settings' Point at Element
+    /// leave it out while Debug Settings' UI pointer inspector
     /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off. Native menus never
     /// place it (InspectElementScopeTests).
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
@@ -151,7 +151,7 @@ enum AgentHandlers {
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
             AgentPaneTunables.pointerInspector.value ? nil :
-                "Point at Element is off. Turn it on in Debug Settings."
+                "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
             // A targeted context-menu invocation starts at the right-click point.
