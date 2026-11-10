@@ -175,6 +175,7 @@ pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
+pub(crate) mod pipe_lines;
 pub mod prompt_coach;
 pub mod shadow_admission;
 pub mod shell_words;
