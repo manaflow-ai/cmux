@@ -10,9 +10,11 @@ extension PageDescriptor {
     /// docked view switch, the composers' edits); `cmux.home.messages.*` adds only what the app knows
     /// (``HomeMessagesPageRoute``, and the app's sheet, card and appearance ops under the same prefix).
     /// The sheets run four catalog actions through `cmux.app.action.run`, each on the person's click.
+    /// A Chief chat's pinned Needs you is the Feed page's view, so `cmux.feed.` goes on the Feed page's relay while it shows.
     public static let homeMessages = PageDescriptor(
         id: "cmux.home-messages", resource: "home-messages",
-        namespaces: ["cmux.host.credential.", "cmux.chief.profile.", "cmux.chief.backend.", "cmux.host.home.", HomeMessagesPageRoute.prefix],
+        namespaces: ["cmux.host.credential.", "cmux.chief.profile.", "cmux.chief.backend.", "cmux.host.home.", HomeMessagesPageRoute.prefix,
+                     "cmux.setup.", "cmux.feed."], // the Set Up cmux card (CmuxNextOnboarding SetupCardRoute), Needs you
         nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: homeMessagesActions, gestureActions: homeMessagesActions,
         commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true)
@@ -149,9 +151,11 @@ public final class HomeMessagesPageRoute: PageProvider {
 extension HomeMessagesPageRoute {
     /// Whether an app op under ``prefix`` (`name` after it, with its params) runs only on the person's own
     /// click or key: a create, an invite, a link out, a header panel, a request's Block and removing a group
-    /// member (cmux#37736 round 9), never a page script's call on its own.
+    /// member (cmux#37736 round 9), the Chief's settings and Teleport menu, and the Needs you rows' clicks,
+    /// never a page script's call on its own.
     public static func needsPerson(_ name: String, _ params: [String: JSONValue]) -> Bool {
-        ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "group.remove"].contains(name)
+        ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "group.remove", "chief.settings", "chief.place",
+         "needsYou.action"].contains(name)
             || (name == "requests.answer" && params["answer"]?.stringValue == "block")
     }
 }
