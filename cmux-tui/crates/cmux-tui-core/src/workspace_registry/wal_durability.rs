@@ -615,6 +615,101 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The WAL file's bound under commits: the size limit, plus the step
+    /// between two tries to restart it (which is far above one commit).
+    const STORM_WAL_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + CHECKPOINT_BYTES;
+
+    /// Commits `frame_bytes` of WAL frames with no pause between them: each
+    /// rewrites one 64 KiB row and, like an answered request, asks for a
+    /// flush. Returns the commit count.
+    fn commit_storm(connection: &Connection, durability: &WalDurability, frame_bytes: u64) -> u64 {
+        let blob = vec![7u8; 64 * 1024];
+        connection.execute("INSERT OR REPLACE INTO t(rowid, v) VALUES (1, ?1)", [&blob]).unwrap();
+        let before = durability.wal_frame_bytes();
+        let mut commits = 0;
+        while durability.wal_frame_bytes() - before < frame_bytes {
+            connection.execute("UPDATE t SET v = ?1 WHERE rowid = 1", [&blob]).unwrap();
+            durability.request_flush();
+            commits += 1;
+        }
+        commits
+    }
+
+    #[test]
+    fn a_commit_storm_keeps_the_wal_file_under_its_bound() {
+        // A session build, a restore or an agent burst commits with no pause
+        // (one registry built 4000 changes in 53 s and left a 1366 MB WAL
+        // beside a 45 MB database). No reader pins the WAL here.
+        let (dir, connection) = database("storm");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let storm = 3 * WAL_SIZE_LIMIT_BYTES;
+        let commits = commit_storm(&connection, &durability, storm);
+        let (now, high_water) = durability.wal_file_bytes();
+        println!(
+            "wal_storm: commits={commits} frame_bytes={storm} wal_file_bytes={now} \
+             wal_file_high_water_bytes={high_water} bound={STORM_WAL_BOUND_BYTES}"
+        );
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            high_water <= STORM_WAL_BOUND_BYTES,
+            "{commits} commits with no pause ({storm} bytes of frames) grew the WAL file to \
+             {high_water} bytes; the bound is {STORM_WAL_BOUND_BYTES}"
+        );
+    }
+
+    #[test]
+    fn a_wal_left_over_the_limit_is_cut_by_the_first_commits_of_the_next_open() {
+        // A daemon that was killed in a commit storm, or one of an older
+        // build, leaves a WAL far over the limit. The next daemon checkpoints
+        // it at once, with no caller that asks, and its first commits cut it.
+        let (dir, connection) = database("left");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let left = grow_a_pinned_wal(&path, &connection, &durability);
+        // What a kill leaves on the disk: the database and its WAL as they
+        // are, with no close. The WAL is never deleted.
+        let next = dir.join("next");
+        std::fs::create_dir_all(&next).unwrap();
+        let next_path = next.join("r.sqlite");
+        let next_wal = next.join("r.sqlite-wal");
+        std::fs::copy(&path, &next_path).unwrap();
+        std::fs::copy(dir.join("r.sqlite-wal"), &next_wal).unwrap();
+        drop(connection);
+
+        let connection = Connection::open(&next_path).unwrap();
+        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;").unwrap();
+        let rows: i64 = connection.query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0)).unwrap();
+        assert!(rows > 0, "the copied WAL lost its rows");
+        let opened = std::fs::metadata(&next_wal).unwrap().len();
+        assert_eq!(opened, left, "the next open found another WAL than the one left");
+        let _durability = WalDurability::attach(&connection, &next_path, None, false);
+        // A quiet daemon: a small commit now and then, and no flush request.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let mut commits = 0;
+        let now = loop {
+            connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+            commits += 1;
+            let len = std::fs::metadata(&next_wal).map_or(0, |meta| meta.len());
+            if len <= WAL_SIZE_LIMIT_BYTES || std::time::Instant::now() > deadline {
+                break len;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        println!(
+            "wal_left: left_bytes={left} commits={commits} wal_file_bytes={now} \
+             limit={WAL_SIZE_LIMIT_BYTES}"
+        );
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            now <= WAL_SIZE_LIMIT_BYTES,
+            "a WAL left at {left} bytes is {now} bytes after {commits} small commits in 10 s \
+             of the next open; the limit is {WAL_SIZE_LIMIT_BYTES}"
+        );
+    }
+
     #[test]
     fn a_transaction_that_reads_then_writes_never_gets_busy_while_the_syncer_checkpoints() {
         // A request transaction reads, then writes (an idle policy update).

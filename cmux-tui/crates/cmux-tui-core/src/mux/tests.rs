@@ -43,6 +43,7 @@ mod pane_close;
 mod read_paths;
 mod registry_premigrate;
 mod registry_reads;
+mod registry_wal_storm;
 mod resource_effects;
 mod resource_restore;
 mod resource_selectors;
