@@ -34,7 +34,7 @@ import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
 import { isActive, useDictation } from "../../../agent-session/acpmux/dictation";
 import { Icon } from "../../../agent-session/acpmux/icons/Icon";
 import type { EmojiTable } from "../../../icon-picker/emojiData";
-import { AttachmentTray } from "../../home-channels/AttachmentViews";
+import { AttachmentTray, type PendingAttachment } from "../../home-channels/AttachmentViews";
 import { attachmentClass, attachmentType, type AttachmentService } from "../../home-channels/attachmentService";
 import { EmojiPicker, loadEmoji } from "../../home-channels/EmojiPicker";
 import { HomeIcon } from "../../home-channels/icons";
@@ -42,8 +42,9 @@ import type { HomeAttachment } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { useWebSwapHold } from "../../shared/useWebSwapHold";
 import { quoteMarkdown } from "../../home-channels/quoteSelection";
+import { useFileUndo } from "../../home-channels/useFileUndo";
 import type { ComposerTarget } from "../composerHandoff";
-import { AttachmentDrafts } from "./attachmentDrafts";
+import { AttachmentDrafts, type Upload } from "./attachmentDrafts";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { excerpt } from "./replyQuote";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
@@ -142,6 +143,8 @@ export function MessageComposer({
   const [emoji, setEmoji] = useState<{ anchor: Element; table?: EmojiTable } | undefined>();
   const editor = useRef<PromptEditorHandle | null>(null);
   const picker = useRef<HTMLInputElement | null>(null);
+  /** The compose bar: Edit > Undo and Redo reach the editor inside it as `beforeinput`. */
+  const barNode = useRef<HTMLDivElement | null>(null);
   // The app's toasts never cover the compose bar and never move it (Leo, 2026-11-07: "The composer
   // should never ever rise up because there's some sort of ... tooltip type thing"): the bar's box
   // goes to the host, which lifts its toasts above it, as the agent pane's (toastAvoidance.ts).
@@ -160,9 +163,35 @@ export function MessageComposer({
   useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
 
+  /** How `file` goes up: prepared by the app, then sent to the conversation. */
+  const uploadFor =
+    (file: File): Upload =>
+    async (signal, progress, sending) => {
+      if (!attachments) throw new Error("no attachments");
+      const { service, conversation, prepare } = attachments;
+      const ready = prepare ? await prepare(file, signal) : file;
+      // The bytes that go are the ones kept (the app's preparation may have changed them).
+      if (ready !== file) sending(ready);
+      return service.upload(conversation, ready, progress, signal);
+    };
+  /** `items` as the tray has them now (a picture or upload that ended after the edit stays with them). */
+  const current = (items: readonly PendingAttachment[]) => {
+    const now = drafts.files(tray);
+    return items.map((item) => now.find((each) => each.id === item.id) ?? item);
+  };
+  /// The staged files' adds and removes share Cmd-Z and Shift-Cmd-Z with the text (useFileUndo.ts).
+  const fileUndo = useFileUndo(editor, barNode, {
+    takeOut: (items) => {
+      for (const item of items) drafts.remove(tray, item.id);
+    },
+    putBack: (items, index) => drafts.restore(tray, items, index, uploadFor, t("home.composer.attach.failed")),
+    current,
+  });
+
   const addFiles = (list: Iterable<File>, group?: string) => {
     if (!attachments) return;
-    const { service, conversation, prepare } = attachments;
+    const { conversation } = attachments;
+    const index = drafts.files(conversation).length;
     const added: string[] = [];
     for (const file of list) {
       const problem = intakeProblem(file, t("home.composer.attach.pasted"));
@@ -171,17 +200,7 @@ export function MessageComposer({
         setNotice({ text: strings.format(key, problem.name), alert: true });
         continue;
       }
-      const id = drafts.add(
-        conversation,
-        file,
-        async (signal, progress, sending) => {
-          const ready = prepare ? await prepare(file, signal) : file;
-          // The bytes that go are the ones kept (the app's preparation may have changed them).
-          if (ready !== file) sending(ready);
-          return service.upload(conversation, ready, progress, signal);
-        },
-        t("home.composer.attach.failed"),
-      );
+      const id = drafts.add(conversation, file, uploadFor(file), t("home.composer.attach.failed"));
       added.push(id);
       // A small local picture while it uploads (a data URL: any page policy).
       if (attachmentClass(attachmentType(file) ?? "") === "image" && file.size <= 8_000_000) {
@@ -192,8 +211,20 @@ export function MessageComposer({
       }
     }
     if (group) groups.current.set(group, [...(groups.current.get(group) ?? []), ...added]);
+    if (added.length)
+      fileUndo.noteFileEdit({
+        kind: "add",
+        items: drafts.files(conversation).filter((item) => added.includes(item.id)),
+        index,
+      });
   };
-  const removeFile = (id: string) => drafts.remove(tray, id);
+  const removeFile = (id: string) => {
+    const index = drafts.files(tray).findIndex((item) => item.id === id);
+    const item = drafts.files(tray)[index];
+    if (!item) return;
+    drafts.remove(tray, id);
+    fileUndo.noteFileEdit({ kind: "remove", items: [item], index });
+  };
   const removeGroup = (group: string): boolean => {
     const ids = groups.current.get(group);
     groups.current.delete(group);
@@ -210,6 +241,7 @@ export function MessageComposer({
       return true;
     }
     setText(value ? `${value.replace(/\s+$/, "")}\n\n${markdown}` : markdown);
+    fileUndo.textWritten();
     return true;
   };
 
@@ -230,6 +262,8 @@ export function MessageComposer({
     setNotice(undefined);
     setText("");
     editor.current?.reset("");
+    // The editor's history starts over with the empty field: the file steps go with it.
+    fileUndo.clear();
     const sentItems = sending.length ? drafts.take(tray, sending) : [];
     // Refused before it was logged: the text comes back to an empty field and the files to the tray.
     const giveBack = () => {
@@ -287,7 +321,14 @@ export function MessageComposer({
   }));
 
   return (
-    <div ref={setBar} className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
+    <div
+      ref={(node) => {
+        barNode.current = node;
+        setBar(node);
+      }}
+      className="mt-compose"
+      data-offline={sendEnabled ? undefined : "true"}
+    >
       {toast}
       {notice && (
         <div className={`mt-notice${notice.alert ? " alert" : ""}`} role={notice.alert ? "alert" : "status"}>
@@ -345,9 +386,11 @@ export function MessageComposer({
             onChange={(markdown) => {
               browse.textChanged(editor.current?.text().value ?? markdown);
               setText(markdown);
+              fileUndo.textChanged();
               if (notice && !notice.alert) setNotice(undefined);
             }}
             onKeyDown={(event) => {
+              if (fileUndo.keyDown(event)) return;
               // Escape and Cmd-. stop a working Chief (AppKit's cancelOperation), after the emoji
               // picker and dictation, which Escape ends first.
               const cancel =

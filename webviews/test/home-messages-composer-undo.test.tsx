@@ -174,7 +174,9 @@ async function mount() {
     },
     async menu(inputType: "historyUndo" | "historyRedo") {
       await act(async () => {
-        editable().dispatchEvent(new dom.window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }));
+        editable().dispatchEvent(
+          new dom.window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }),
+        );
       });
       await settle();
     },

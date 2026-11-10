@@ -22,7 +22,7 @@ import { AttachmentTray, type PendingAttachment } from "./AttachmentViews";
 import { ComposerEdit, type ComposerEditCommand } from "./composerEdit";
 import { QUOTE_EVENT, quoteMarkdown } from "./quoteSelection";
 import { attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
-import { AttachmentUndo, undoChord, type AttachmentEdit } from "./attachmentUndo";
+import { useFileUndo } from "./useFileUndo";
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
@@ -118,16 +118,6 @@ export function Composer({
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   const filesNow = useRef(files);
   filesNow.current = files;
-  /// The staged files' adds and removes, for Cmd-Z and Shift-Cmd-Z (attachmentUndo.ts).
-  const fileHistory = useRef(new AttachmentUndo<PendingAttachment>());
-  /// An undo or redo the editor runs on its text: its change is no new edit.
-  const replaying = useRef(false);
-  /// Text the composer writes itself (a quote, the clear after a send): a new edit like typing, though
-  /// the editor reports no change for it.
-  const writeText = (update: (current: string) => string) => {
-    setValue(update);
-    fileHistory.current.textEdited();
-  };
   const upload = (id: string, file: File) => {
     if (!attachments) return;
     const controller = new AbortController();
@@ -143,14 +133,6 @@ export function Composer({
       .finally(() => {
         if (uploads.current.get(id) === controller) uploads.current.delete(id);
       });
-  };
-  /// A file edit of the person's: undoable, and what they type next is a new text step.
-  const noteFileEdit = (edit: Omit<AttachmentEdit<PendingAttachment>, "depth">) => {
-    const text = editor.current?.history();
-    fileHistory.current.record({ ...edit, depth: text?.depth ?? 0 }, text?.redoDepth ?? 0);
-    editor.current?.closeHistory();
-    // A click on the tray or a file chooser took the keyboard from the field: Cmd-Z goes to it again.
-    editor.current?.focus();
   };
   const addFiles = (list: Iterable<File>) => {
     if (!attachments || disabled) return;
@@ -213,55 +195,17 @@ export function Composer({
   /// after the edit stays with them).
   const current = (items: readonly PendingAttachment[]) =>
     items.map((item) => filesNow.current.find((each) => each.id === item.id) ?? item);
-  /// An undo or redo (its key, or Edit > Undo and Redo as `historyUndo` / `historyRedo` input): a
-  /// file edit that is the newest runs here; otherwise the editor runs its text's in this same event.
-  const replay = (direction: "undo" | "redo", event: Event) => {
-    if (replayFiles(direction)) {
-      event.preventDefault();
-      // The editor's history takes `historyUndo` input too: this one was the files'.
-      if (event.type === "beforeinput") event.stopPropagation();
-      return;
-    }
-    // A text step undone before a newer file edit is gone, as typing would have dropped it.
-    if (direction === "redo" && !fileHistory.current.textRedoAllowed(editor.current?.history().redoDepth ?? 0)) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    replaying.current = true;
-    queueMicrotask(() => {
-      replaying.current = false;
-    });
+  /// The staged files' adds and removes share Cmd-Z and Shift-Cmd-Z with the text (useFileUndo.ts).
+  const fileUndo = useFileUndo(editor, root, { takeOut, putBack, current });
+  const noteFileEdit = fileUndo.noteFileEdit;
+  /// Text the composer writes itself (a quote, the clear after a send): a new edit like typing, though
+  /// the editor reports no change for it.
+  const writeText = (update: (current: string) => string) => {
+    setValue(update);
+    fileUndo.textWritten();
   };
-  const replayRef = useRef(replay);
-  replayRef.current = replay;
-  // Edit > Undo and Redo reach the field as `beforeinput` (historyUndo, historyRedo), not as keys.
-  useEffect(() => {
-    const node = root.current;
-    if (!node) return;
-    const input = (event: Event) => {
-      const type = (event as InputEvent).inputType;
-      if (type === "historyUndo" || type === "historyRedo")
-        replayRef.current(type === "historyUndo" ? "undo" : "redo", event);
-    };
-    node.addEventListener("beforeinput", input, true);
-    return () => node.removeEventListener("beforeinput", input, true);
-  }, []);
-  /// Cmd-Z or Shift-Cmd-Z on a file edit: an add undone or a remove redone takes the files out, the
-  /// others put them back. Returns whether a file edit was the newest.
-  const replayFiles = (direction: "undo" | "redo"): boolean => {
-    const depth = editor.current?.history().depth ?? 0;
-    const edit = direction === "undo" ? fileHistory.current.takeUndo(depth) : fileHistory.current.takeRedo(depth);
-    if (!edit) return false;
-    const removes = (edit.kind === "add") === (direction === "undo");
-    if (removes) {
-      const now = current(edit.items);
-      // Kept as they are now, so a redo brings back the finished upload and its picture.
-      Object.assign(edit, { items: now });
-      takeOut(now);
-    } else putBack(edit.items, edit.index);
-    return true;
-  };
+  const writeTextRef = useRef(writeText);
+  writeTextRef.current = writeText;
   // Every upload ends with the composer (a conversation switch makes a new one).
   useEffect(() => {
     const live = uploads.current;
@@ -319,7 +263,7 @@ export function Composer({
       if (sending.length) {
         setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
         // Sent files are gone for good: no undo brings them back.
-        fileHistory.current.clear();
+        fileUndo.clear();
       }
     });
   };
@@ -357,7 +301,7 @@ export function Composer({
     const take = (event: Event) => {
       const text = (event as CustomEvent<string>).detail;
       if (!text || disabledRef.current) return;
-      writeText((current) => quoteMarkdown(text) + current);
+      writeTextRef.current((current) => quoteMarkdown(text) + current);
       editor.current?.focus();
     };
     node.addEventListener(QUOTE_EVENT, take);
@@ -480,12 +424,11 @@ export function Composer({
           onChange={(markdown) => {
             setValue(markdown);
             refreshFormats();
-            if (!replaying.current) fileHistory.current.textEdited();
+            fileUndo.textChanged();
           }}
           onCaret={refreshFormats}
           onKeyDown={(event) => {
-            const chord = undoChord(event);
-            if (chord) return replay(chord, event);
+            if (fileUndo.keyDown(event)) return;
             if (event.key === "Escape" && onCancel) {
               event.preventDefault();
               onCancel();
