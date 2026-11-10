@@ -156,7 +156,7 @@ acpmux session cancel NAME                         # stop the running turn; the 
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
 acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
-acpmux session kill --purge NAME                   # delete (only sessions you created)
+acpmux session kill --purge NAME [NAME…]          # delete (only sessions you created); each name on its own
 acpmux session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only if idle and unchanged; else exit 6, nothing stopped
 ```
 
