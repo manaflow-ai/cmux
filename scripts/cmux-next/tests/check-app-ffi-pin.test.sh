@@ -238,4 +238,21 @@ if out="$(check_tree)"; then
 fi
 [[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "no stale report for the JSON pin: $out"
 
+# A shallow checkout (cmux-next.yml's checks job checks out 2 commits) still names the commit that changed an
+# input. Its oldest commit has no parent there, so `git log PIN..HEAD -- INPUTS` lists it as adding every input:
+# on 2026-11-09 (run 42704515549) the stale report named #39749, which changed no input, and not #39027. Here
+# the oldest commit of a 2-commit clone ("json pin, stale base") changes no input; the one that did is "rb".
+git -C "$repo" branch -f shallow-tip HEAD
+git clone -q --depth 2 --branch shallow-tip "file://$repo" "$tmp/shallow"
+[[ "$(git -C "$tmp/shallow" rev-parse --is-shallow-repository)" == true ]] || fail "the clone is not shallow"
+if out="$(cd "$tmp" && bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --tree "$tmp/shallow" 2>&1)"; then
+  fail "a shallow checkout passed a stale pin: $out"
+fi
+commits="${out#*Commits since the pin:}"
+commits="${commits%%Fix:*}"
+[[ "$commits" == *"  ${rb:0:7}"*" t: rb"* ]] \
+  || fail "a shallow checkout did not name the commit that changed an input: $out"
+[[ "$commits" != *"json pin, stale base"* ]] \
+  || fail "a shallow checkout named its oldest commit, which changed no input: $out"
+
 echo "check-app-ffi-pin.test.sh: ok"
