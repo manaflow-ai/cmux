@@ -85,7 +85,7 @@ struct ChiefLiveReplyText: View {
     let text: String
     var body: some View {
         ChiefLiveReplyViewport {
-            Text(text)
+            Text(ChiefMarkdownBold.attributed(text))
                 .font(.body)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)

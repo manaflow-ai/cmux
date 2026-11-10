@@ -5980,6 +5980,54 @@ today).
 
 Result: `object{item:FeedLocalItem}`
 
+### shell-run
+
+| Field | Value |
+| --- | --- |
+| name | `shell-run` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `shell-runs-v1` |
+
+Shell mode's `!` command of a chat that lives on this machine: runs `command` in the user's shell, in `cwd` (the home folder when absent). Each `scope` (the chat pane) has its own cap on running commands.
+
+Owner only: a local Unix connection of the daemon's own user that is bound to no agent, or the owner's signed Native link. Any other connection (relayed peer, guest, WebSocket page, agent-bound connection) is refused with `forbidden` before anything runs. Refusals below are answers (`object{refused:string}`), not errors.
+
+Params: `command` (string, required), `cwd` (string, optional), `scope` (string, optional), `run` (string, optional: the run id the caller chose, `run_` and 32 lowercase hex digits, so it can stop the command even when this answer is lost).
+
+Result: `object{run:string}` or `object{refused:"too_many"|"folder_missing"|"spawn_failed"|"invalid"}` (`invalid` also covers a malformed or taken `run`).
+
+### shell-read
+
+| Field | Value |
+| --- | --- |
+| name | `shell-read` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `shell-runs-v1` |
+
+Reads a run's output after byte offset `after`. Answers once there is output after `after` or the command ended, else after `wait_ms` (at most 10 s, the default). A read that waits does so off the connection's dispatcher.
+
+Owner only: a local Unix connection of the daemon's own user that is bound to no agent, or the owner's signed Native link. Any other connection (relayed peer, guest, WebSocket page, agent-bound connection) is refused with `forbidden` before anything runs. Refusals below are answers (`object{refused:string}`), not errors.
+
+Params: `run` (string, required), `after` (uint64, default 0), `wait_ms` (uint64, optional).
+
+Result: `object{output:string, next:uint64, truncated?:true, exit?:object{code?:int32, signal?:int32}}` or `object{refused:"unknown_run"|"busy"}`.
+
+### shell-stop
+
+| Field | Value |
+| --- | --- |
+| name | `shell-stop` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `shell-runs-v1` |
+
+Stops a run: Ctrl-C, escalating.
+
+Owner only: a local Unix connection of the daemon's own user that is bound to no agent, or the owner's signed Native link. Any other connection (relayed peer, guest, WebSocket page, agent-bound connection) is refused with `forbidden` before anything runs. Refusals below are answers (`object{refused:string}`), not errors.
+
+Params: `run` (string, required).
+
+Result: `object{}` or `object{refused:"unknown_run"}`.
+
 ### list-notifications
 
 | Field | Value |
@@ -9945,6 +9993,24 @@ another agent, another `op` or any other param is `agent_session.bad_request`.
 An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
+
+### agent-session-btw
+
+`agent-session-btw-v1` (advertised with `agent-session-attach-v1`): the
+composer's `/btw <question>` on a Cloud chat. On an attached tab, `{id,
+cmd:"agent-session-btw", surface, question}` sends acpmux's `_acpmux/btw
+{sessionId, question, inline:true}` (the question trimmed), marked `via:"app"`
+so acpmux holds it by the folder's trust as it holds the app's own, and may wait
+up to 120 seconds: acpmux answers `{text}` from a read-only side question about the
+chat (`hub/btw.rs`), which never changes the chat. `sessionId` is always the
+tab's own session. acpmux's refusal comes back as an answer, `{refused:{reason}}`
+with its `data.reason` (`btw.no_read_only_mode`, `trust.pending`, `unsupported`
+from an acpmux without the method, or from an older one that opened a side
+session instead of answering inline; that side session is killed). An empty question, one over 16 KiB, or any
+other param (a session, a model, `inline`, `_meta`) is `agent_session.bad_request`.
+The side question approves reads on this machine, so only the chat's owner asks
+one: an observation attachment gets `agent_session.read_only`, and a teammate's
+or link guest's attachment, or the Cloud mobile carrier's, `agent_session.not_trusted`.
 
 ### agent-session-context
 

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c7918328d1ed2da616ebcfd1e02c57525fb3006147d9a2f9dbbb6c9605b18855";
+inline constexpr std::string_view kProtocolIrSha256 = "a099cd27e88a3f8a471562bbe9c29deb7a580553ed7732dd3a75b5be8fe27e98";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -561,6 +561,9 @@ struct SetTerminalTailPinRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
+struct ShellReadRequest;
+struct ShellRunRequest;
+struct ShellStopRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
 struct SnapshotRequestRequest;
@@ -5554,6 +5557,26 @@ struct SettingsChangedEvent {
     friend bool operator==(const SettingsChangedEvent&, const SettingsChangedEvent&) = default;
 };
 
+struct ShellReadRequest {
+    std::optional<std::uint64_t> after{};
+    std::string run{};
+    Field<std::uint64_t> wait_ms{};
+    friend bool operator==(const ShellReadRequest&, const ShellReadRequest&) = default;
+};
+
+struct ShellRunRequest {
+    std::string command{};
+    Field<std::string> cwd{};
+    Field<std::string> run{};
+    Field<std::string> scope{};
+    friend bool operator==(const ShellRunRequest&, const ShellRunRequest&) = default;
+};
+
+struct ShellStopRequest {
+    std::string run{};
+    friend bool operator==(const ShellStopRequest&, const ShellStopRequest&) = default;
+};
+
 struct ShutdownDaemonRequest {
     std::optional<bool> end_terminals{};
     std::optional<bool> force{};
@@ -9676,6 +9699,24 @@ template <>
 struct Codec<SetWorkspaceMetadataRequest> {
     static Result<Json> encode(const SetWorkspaceMetadataRequest& value);
     static Result<SetWorkspaceMetadataRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellReadRequest> {
+    static Result<Json> encode(const ShellReadRequest& value);
+    static Result<ShellReadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellRunRequest> {
+    static Result<Json> encode(const ShellRunRequest& value);
+    static Result<ShellRunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellStopRequest> {
+    static Result<Json> encode(const ShellStopRequest& value);
+    static Result<ShellStopRequest> decode(const Json& value);
 };
 
 template <>

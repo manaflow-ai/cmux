@@ -31,10 +31,18 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
     const timer = setTimeout(() => setLate(true), Math.max(0, CLOCK_AFTER_MS - (Date.now() - delivery.sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, delivery.sentAt]);
+  // Held while acpmux starts or reconnects (sendWhenReady.ts): once its clock shows, so do its words.
+  const words = delivery.slow || delivery.waitingForHost;
   if (!sending || (!late && !delivery.slow)) return null;
-  const label = t(delivery.slow ? "prompt.delivery.stillSending" : "prompt.delivery.sending");
+  const label = t(
+    delivery.waitingForHost
+      ? "prompt.delivery.whenReady"
+      : delivery.slow
+        ? "prompt.delivery.stillSending"
+        : "prompt.delivery.sending",
+  );
   // The clock alone names itself in a tooltip; once the send is slow its words show, and no tooltip.
-  if (!delivery.slow)
+  if (!words)
     return (
       <output
         className="cv-user__status cv-user__delivery"
