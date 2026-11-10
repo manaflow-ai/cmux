@@ -71,13 +71,37 @@ BARE_BUN_INSTALL = re.compile(r"(?<![\w./$-])bun\s+(?:install|i)(?![\w.-])")
 
 
 def unquoted(line: str) -> str:
-    """The line with its quoted strings and trailing comment blanked out."""
-    out, quote = [], None
-    for ch in line:
-        if quote:
+    """The line with its quoted text and trailing comment blanked out. A command substitution (`$(...)` or backticks)
+    runs even inside double quotes, so its text is kept."""
+    out: list[str] = []
+    quote = None  # None, "'" or '"'
+    depth = 0  # open $( ... ) inside double quotes
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote == "'":
             out.append(" ")
-            if ch == quote:
+            if ch == "'":
                 quote = None
+        elif quote == '"' and depth == 0:
+            if line.startswith("$(", i):
+                depth = 1
+                out.append("$(")
+                i += 2
+                continue
+            out.append(" ")
+            if ch == "\\":
+                out.append(" ")
+                i += 2
+                continue
+            if ch == '"':
+                quote = None
+        elif quote == '"':
+            if line.startswith("$(", i):
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            out.append(ch)
         elif ch in "\"'":
             quote = ch
             out.append(" ")
@@ -85,6 +109,7 @@ def unquoted(line: str) -> str:
             break
         else:
             out.append(ch)
+        i += 1
     return "".join(out)
 
 
@@ -98,9 +123,10 @@ def bare_bun_installs(workflow: dict) -> list[str]:
             run = step.get("run") if isinstance(step, dict) else None
             if not isinstance(run, str):
                 continue
-            for line in run.splitlines():
+            # A backslash-newline continues one shell line.
+            for line in re.sub(r"\\\n[ \t]*", " ", run).splitlines():
                 stripped = line.strip()
-                for command in re.split(r"&&|\|\||[;|&()]", unquoted(stripped)):
+                for command in re.split(r"&&|\|\||[;|&()`]", unquoted(stripped)):
                     # `timeout N bun install` is bounded too (a trusted job whose base predates the script).
                     if BARE_BUN_INSTALL.search(command) and not re.match(r"\s*(?:\w+=\S*\s+)*timeout\b", command):
                         found.append(f"{job_id}: {stripped}")
@@ -259,13 +285,16 @@ def self_test() -> None:
     for bare in ("bun install --frozen-lockfile", "cd web && bun install", "(cd x && bun i)",
                  "bun install -g some-tool || true", "[ -d node_modules ] || bun install --frozen-lockfile",
                  'echo "Installing dependencies"; bun install --frozen-lockfile', 'printf "Installing\\n" && bun i',
-                 "echo bun install", "timeout 600 echo x; bun install"):
+                 "echo bun install", "timeout 600 echo x; bun install",
+                 'install_log="$(bun install --frozen-lockfile)"', "bun \\\n  install --frozen-lockfile",
+                 "out=`bun i`", 'echo "$(cd web && bun install)"'):
         assert hits(bare), bare
     for bounded in ('bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile',
                     'bash ../scripts/ci/bun-install.sh --', 'echo "bun install --frozen-lockfile in x"',
                     '(cd x && bash "$RUNNER_TEMP/bun-install.sh") || fail "bun install"',
                     "# bun install runs below", "bun run install-hooks", "bun index.ts",
-                    "X=1 timeout --kill-after=15 600 bun install --frozen-lockfile"):
+                    "X=1 timeout --kill-after=15 600 bun install --frozen-lockfile",
+                    'echo "$(date) bun install starts"', "echo 'run $(bun install) later'"):
         assert not hits(bounded), bounded
 
 

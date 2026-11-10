@@ -1191,6 +1191,18 @@ class BunInstallScript(unittest.TestCase):
             with self.assertRaises(ProcessLookupError, msg=f"the install's child {child} outlived the deadline"):
                 os.kill(child, 0)
 
+    def test_without_timeout_an_early_exit_still_ends_the_installs_children(self):
+        # bun exits (here failing) before the deadline but leaves a child behind: it must not outlive the attempt.
+        pids = Path(tempfile.mkdtemp(prefix="bun-install-early-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(pids)])
+        result = self.install(f'sleep 60 & echo $! >> "{pids}/child"; exit 1\n', no_timeout=True,
+                              BUN_INSTALL_ATTEMPT_SECONDS="30", BUN_INSTALL_ATTEMPTS="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=bun install failed::", result.stdout)
+        for child in [int(line) for line in (pids / "child").read_text(encoding="utf-8").split()]:
+            with self.assertRaises(ProcessLookupError, msg=f"the install's child {child} outlived the attempt"):
+                os.kill(child, 0)
+
     def test_a_zero_bound_is_refused(self):
         # GNU `timeout 0` disables the deadline, so a zero would let a hung install run to the job limit again.
         result = self.install("exit 0\n", BUN_INSTALL_ATTEMPT_SECONDS="0")

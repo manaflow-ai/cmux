@@ -78,10 +78,11 @@ bounded() {
   code=$?
   kill "$watchdog" 2>/dev/null
   wait "$watchdog" 2>/dev/null
+  # The attempt is over either way: whatever of its group is still there (a lifecycle script bun left behind, or
+  # one that ignored TERM) goes now, so nothing holds the log open or races the next attempt.
+  kill -KILL -- "-$pid" 2>/dev/null
   if [ -e "$marker" ]; then
     rm -f "$marker"
-    # Whatever of the group ignored TERM and is still there.
-    kill -KILL -- "-$pid" 2>/dev/null
     return 124
   fi
   return "$code"
