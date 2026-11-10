@@ -584,10 +584,10 @@ fn scoped_resize_reasserts_host_mouse_capture_while_the_terminal_is_busy() {
     let holder = std::thread::spawn(move || {
         holder_surface.with_terminal(|_| {
             held_tx.send(()).unwrap();
-            let _ = release_rx.recv_timeout(std::time::Duration::from_secs(10));
+            let _ = release_rx.recv_timeout(Duration::from_secs(10));
         });
     });
-    held_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
 
     app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
     let applied_after_resize = app.host_mouse_capture_applied;
