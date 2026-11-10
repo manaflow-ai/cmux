@@ -626,6 +626,12 @@ pub enum ResourceOperation {
     CloudOwnerHarnessLoginCopy,
     #[serde(rename = "cloud.owner.github_app")]
     CloudOwnerGithubApp,
+    #[serde(rename = "cloud.owner.turn_checkpoint")]
+    CloudOwnerTurnCheckpoint,
+    #[serde(rename = "cloud.owner.turn_rewind")]
+    CloudOwnerTurnRewind,
+    #[serde(rename = "cloud.owner.turns")]
+    CloudOwnerTurns,
     #[serde(rename = "cloud.previews.refresh")]
     CloudPreviewsRefresh,
     #[serde(rename = "cloud.previews.create_link")]

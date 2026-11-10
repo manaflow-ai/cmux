@@ -142,7 +142,7 @@ final class ExtensionActionToolbar {
         let pinsChanged = actions.filter(\.isPinned).map(\.id) != lastActions.filter(\.isPinned).map(\.id)
         // Chrome animates a pin or an unpin (about 0.2 s): the icon fades and the neighbours
         // slide. Not on a tab's first render, not under Reduce Motion.
-        let animate = hasRendered && pinsChanged && Motion.overlays.animatesMovement && slot.window != nil
+        let animate = hasRendered && pinsChanged && Motion.overlays.animatesMovement(in: slot.window) && slot.window != nil
         hasRendered = true
         let update = { [self] () -> [() -> Void] in
             let pinnedBefore = pinnedCount

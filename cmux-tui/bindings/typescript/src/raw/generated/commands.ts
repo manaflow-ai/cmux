@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14. */
+/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
 
 
 import type * as T from "./types.js";
@@ -2416,6 +2416,15 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetDividerVisibleRequest extends CmuxRequestBase {
+  cmd: "set-divider-visible";
+  "split": T.Id;
+  "transaction"?: (bigint) | null;
+  "visible": boolean;
+}
+export type SetDividerVisibleResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
 export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
   cmd: "set-frontend-browser-history";
   "history": (T.JsonValue) | null;
@@ -2670,6 +2679,8 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
+  /** The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down. */
+  "around"?: (T.Id) | null;
   "before"?: boolean;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
@@ -3239,6 +3250,7 @@ export type CmuxRequest =
   | SetClientSizingRequest
   | SetColumnDockRequest
   | SetDefaultColorsRequest
+  | SetDividerVisibleRequest
   | SetFrontendBrowserHistoryRequest
   | SetHostSizePolicyRequest
   | SetLayoutSizesRequest
@@ -5177,6 +5189,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-divider-visible": {
+    request: SetDividerVisibleRequest;
+    result: SetDividerVisibleResult;
+    authority: "control";
+    since: 12;
+    capability: "split-divider-visibility-v1";
     stream: null;
   };
   "set-frontend-browser-history": {
