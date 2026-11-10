@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use super::OutputMode;
 use crate::localization::AutomationMessages;
 
+mod events;
 mod teleport;
 mod triggers;
 
@@ -267,11 +268,11 @@ impl Args {
 }
 
 const SCHEDULE_FLAGS: &[&str] =
-    &["daily", "weekdays", "weekly", "every", "at", "in", "cron", "watch"];
+    &["when", "daily", "weekdays", "weekly", "every", "at", "in", "cron", "watch"];
 const SPEC_VALUED: &[&str] = &[
     "prompt", "command", "daily", "weekdays", "weekly", "every", "at", "in", "cron", "tz",
     "folder", "model", "timeout", "catch-up", "name", "watch", "debounce", "if", "cooldown",
-    "max-runs",
+    "max-runs", "when",
 ];
 const SPEC_FLAGS: &[&str] = &["hourly", "manual", "paused"];
 
@@ -321,6 +322,7 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
         "edit" | "update" => edit(rest, out),
         "history" | "runs" => history(rest, out),
         "test" | "dry-run" => triggers::test(rest, out),
+        "events" | "event" => events::run(rest, global, out),
         "logs" | "log" => logs(rest, out),
         "delete" | "rm" => delete(rest, out),
         "teleport" | "move" => teleport::run(rest, global, out, false),
@@ -446,6 +448,7 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         "in" => Trigger::At { at: now + parse_duration(value)? as i64 },
         "cron" => Trigger::Cron { expr: value.to_string(), tz: zone.name().to_string() },
         "watch" => triggers::watch_trigger(a, value)?,
+        "when" => triggers::event_trigger(a, value)?,
         _ => return Ok(None),
     };
     trigger.validate().map_err(|e| Failure::Usage(e.0))?;
@@ -503,6 +506,9 @@ fn automation_json(store: &Store, a: &Automation) -> Value {
     let mut v = serde_json::to_value(a).unwrap_or(Value::Null);
     if let Value::Object(map) = &mut v {
         map.insert("next_run_at".into(), json!(next));
+        // The trigger in words, as `list` and the Automations page say it
+        // ("When a pull request is opened", "every 30m").
+        map.insert("trigger_label".into(), json!(describe_trigger(&a.trigger)));
         map.insert(
             "dropped_events".into(),
             json!(store.state(&a.id).map(|s| s.dropped).unwrap_or(0)),
@@ -553,7 +559,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         (None, Some(command)) => Body::Command { command: command.into(), folder },
         _ => return usage(messages().need_body),
     };
-    let new_watch = matches!(trigger, Trigger::Watch { .. });
+    let defaults = triggers::guard_defaults(&trigger);
     let spec = AutomationSpec {
         name,
         trigger,
@@ -561,7 +567,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         catch_up: a.value("catch-up").map(parse_catch_up).transpose()?.unwrap_or_default(),
         timeout_seconds: a.value("timeout").map(parse_duration).transpose()?.unwrap_or(30 * 60),
         enabled: !a.flag("paused"),
-        gate: triggers::gate(&a, Gate::default(), new_watch)?,
+        gate: triggers::gate(&a, Gate::default(), defaults)?,
     };
     let store = open_store()?;
     let created = store.create(spec, now)?;
@@ -584,6 +590,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         if let Some(next) = created.trigger.next_after(now).ok().flatten() {
             println!("{}", messages().next_run.replace("{time}", &when(next)));
         }
+        triggers::print_event_source(&created.trigger);
         if !runner && !matches!(created.trigger, Trigger::Manual) {
             println!("{}", messages().runner_hint);
         }
@@ -755,15 +762,19 @@ fn edit(args: &[String], out: &Out) -> Outcome {
     if let Some(trigger) = parse_trigger(&a, now)? {
         spec.trigger = trigger;
     } else if a.value("debounce").is_some() {
-        let Trigger::Watch { command, .. } = &spec.trigger else {
-            return usage(messages().debounce_needs_watch);
+        spec.trigger = match &spec.trigger {
+            Trigger::Watch { command, .. } => triggers::watch_trigger(&a, &command.clone())?,
+            Trigger::Event { event, .. } => triggers::event_trigger(&a, &event.clone())?,
+            _ => return usage(messages().debounce_needs_watch),
         };
-        spec.trigger = triggers::watch_trigger(&a, &command.clone())?;
+        spec.trigger.validate().map_err(|e| Failure::Usage(e.0))?;
     }
-    let became_watch = matches!(spec.trigger, Trigger::Watch { .. })
-        && !matches!(x.trigger, Trigger::Watch { .. })
-        && x.gate == Gate::default();
-    spec.gate = triggers::gate(&a, spec.gate, became_watch)?;
+    // A schedule that became a watch or an event, with no guardrails of its
+    // own yet, gets that trigger's defaults (flags still win).
+    let defaults = (!x.trigger.is_watched() && x.gate == Gate::default())
+        .then(|| triggers::guard_defaults(&spec.trigger))
+        .flatten();
+    spec.gate = triggers::gate(&a, spec.gate, defaults)?;
     let folder = match a.value("folder") {
         Some(_) => folder_arg(&a)?,
         None => x.body.folder().map(str::to_string),
@@ -963,7 +974,11 @@ fn serve(once: bool, out: &Out) -> Outcome {
     };
     let mut exec = executor(&store)?;
     recover_orphans(&store, now(), &mut exec)?;
-    let mut watches = Watches::new(store.clone());
+    // An event trigger runs `cmux automation events NAME` through this same binary.
+    let program = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "cmux".to_string());
+    let mut watches = Watches::new(store.clone()).with_program(program);
     let mut next_tick_ms = 0i64;
     loop {
         if now_ms() >= next_tick_ms {
@@ -1103,7 +1118,9 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
         cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
         Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
     };
-    for local_only in ["every", "at", "in", "watch", "debounce", "if", "cooldown", "max-runs"] {
+    for local_only in
+        ["every", "at", "in", "watch", "when", "debounce", "if", "cooldown", "max-runs"]
+    {
         if a.value(local_only).is_some() {
             return usage(messages().cloud_local_only.replace("{flag}", local_only));
         }
@@ -1567,6 +1584,37 @@ mod tests {
         assert_eq!(t(&["--manual"]), Some(Trigger::Manual));
         assert_eq!(t(&["--hourly", "--tz", "UTC"]), Some(Trigger::preset_hourly(Zone::Utc)));
         assert_eq!(t(&[]), None);
+    }
+
+    #[test]
+    fn when_names_an_event_with_its_own_debounce_and_guardrails() {
+        let t = |w: &[&str]| parse_trigger(&args(w), 0);
+        assert_eq!(
+            t(&["--when", "pr-opened"]).ok().flatten(),
+            Some(Trigger::Event { event: "pr-opened".into(), debounce_seconds: 5 })
+        );
+        assert_eq!(
+            t(&["--when=agent-idle", "--debounce", "10s"]).ok().flatten(),
+            Some(Trigger::Event { event: "agent-idle".into(), debounce_seconds: 10 })
+        );
+        for bad in [&["--when", "agent-busy"][..], &["--when", "pr-opened", "--daily", "9:00"]] {
+            let Err(Failure::Usage(why)) = t(bad) else { panic!("{bad:?} is a usage error") };
+            assert!(!why.is_empty(), "{bad:?}");
+        }
+        let Err(Failure::Usage(why)) = t(&["--when", "agent-busy"]) else { unreachable!() };
+        assert!(why.contains("agent-idle, agent-needs-input, pr-opened"), "{why}");
+        assert!(why.contains("cmux automation events"), "{why}");
+        // A new automation on an event gets that event's guardrails; flags win.
+        let idle = Trigger::Event { event: "agent-idle".into(), debounce_seconds: 5 };
+        let defaults = triggers::guard_defaults(&idle);
+        assert_eq!(defaults, Some((60, Some(48))));
+        let gate = triggers::gate(&args(&[]), Gate::default(), defaults).ok().unwrap();
+        assert_eq!((gate.cooldown_seconds, gate.max_runs_per_day), (60, Some(48)));
+        let gate =
+            triggers::gate(&args(&["--max-runs", "0"]), Gate::default(), defaults).ok().unwrap();
+        assert_eq!(gate.max_runs_per_day, None);
+        assert_eq!(triggers::guard_defaults(&Trigger::Manual), None);
+        assert_eq!(describe_trigger(&idle), "When an agent goes idle");
     }
 
     #[test]

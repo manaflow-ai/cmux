@@ -22,14 +22,29 @@ use super::{Args, Failure, Out, Outcome, messages, now, open_store, parse_durati
 const WATCH_COOLDOWN_SECONDS: u64 = 600;
 const WATCH_MAX_RUNS: u32 = 24;
 
+/// The guardrails a new automation on `trigger` starts with: a watch's, or
+/// its event's row ([`cmux_automations::events`]); none for a schedule.
+pub(super) fn guard_defaults(trigger: &Trigger) -> Option<(u64, Option<u32>)> {
+    match trigger {
+        Trigger::Watch { .. } => Some((WATCH_COOLDOWN_SECONDS, Some(WATCH_MAX_RUNS))),
+        Trigger::Event { event, .. } => cmux_automations::events::find(event)
+            .map(|kind| (kind.cooldown_seconds, kind.max_runs_per_day)),
+        _ => None,
+    }
+}
+
 /// `base` with `--if`, `--cooldown` and `--max-runs` applied. `--if ""`,
-/// `--cooldown 0` and `--max-runs 0` turn one off. `new_watch`: the watch
-/// defaults fill what no flag set.
-pub(super) fn gate(a: &Args, base: Gate, new_watch: bool) -> Result<Gate, Failure> {
+/// `--cooldown 0` and `--max-runs 0` turn one off. `defaults` (a new watch's
+/// or event's) fill what no flag set.
+pub(super) fn gate(
+    a: &Args,
+    base: Gate,
+    defaults: Option<(u64, Option<u32>)>,
+) -> Result<Gate, Failure> {
     let mut gate = base;
-    if new_watch {
-        gate.cooldown_seconds = WATCH_COOLDOWN_SECONDS;
-        gate.max_runs_per_day = Some(WATCH_MAX_RUNS);
+    if let Some((cooldown, max_runs)) = defaults {
+        gate.cooldown_seconds = cooldown;
+        gate.max_runs_per_day = max_runs;
     }
     if let Some(cmd) = a.value("if") {
         gate.condition = (!cmd.trim().is_empty()).then(|| cmd.to_string());
@@ -56,6 +71,33 @@ pub(super) fn watch_trigger(a: &Args, command: &str) -> Result<Trigger, Failure>
     Ok(Trigger::Watch { command: command.to_string(), debounce_seconds })
 }
 
+/// The trigger `--when NAME [--debounce 5s]` names; the debounce defaults to the event's.
+pub(super) fn event_trigger(a: &Args, name: &str) -> Result<Trigger, Failure> {
+    let name = name.trim();
+    let Some(kind) = cmux_automations::events::find(name) else {
+        return usage(
+            messages()
+                .unknown_event
+                .replace("{value}", name)
+                .replace("{names}", &cmux_automations::events::names()),
+        );
+    };
+    let debounce_seconds = match a.value("debounce") {
+        Some(d) => parse_duration(d)?,
+        None => kind.debounce_seconds,
+    };
+    Ok(Trigger::Event { event: kind.name.to_string(), debounce_seconds })
+}
+
+/// After `create`, for an event trigger: where its events come from and how late.
+pub(super) fn print_event_source(trigger: &Trigger) {
+    if let Trigger::Event { event, .. } = trigger
+        && let Some(kind) = cmux_automations::events::find(event)
+    {
+        println!("  {}", kind.source);
+    }
+}
+
 /// `600` as `10m`, `7200` as `2h`, `90` as `90s`.
 fn duration_words(seconds: u64) -> String {
     match seconds {
@@ -68,6 +110,11 @@ fn duration_words(seconds: u64) -> String {
 /// The `show` lines of the condition and the guardrails.
 pub(super) fn show_lines(x: &Automation, dropped: u64) {
     let m = messages();
+    if let Trigger::Event { event, .. } = &x.trigger
+        && let Some(kind) = cmux_automations::events::find(event)
+    {
+        println!("  {}: {}", m.event_source_label, kind.source);
+    }
     if let Some(c) = &x.gate.condition {
         println!("  {}: {c}", m.condition_label);
     }
@@ -125,7 +172,13 @@ pub(super) fn test(args: &[String], out: &Out) -> Outcome {
         (None, Some(path)) => {
             std::fs::read_to_string(path).map_err(|e| Failure::Usage(format!("{path}: {e}")))?
         }
-        (None, None) => String::new(),
+        // An event trigger with no --event: the sample line its source would print.
+        (None, None) => match &x.trigger {
+            Trigger::Event { event, .. } => cmux_automations::events::find(event)
+                .map(|kind| kind.sample.to_string())
+                .unwrap_or_default(),
+            _ => String::new(),
+        },
     };
     let event = cmux_automations::clip_event(&event);
     let now = now();

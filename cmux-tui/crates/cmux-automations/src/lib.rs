@@ -13,7 +13,9 @@
 //! A [`Gate`] sits between a fire and its run: a condition script (run in
 //! the run's own process) and guardrails (one live run, cooldown, a daily
 //! cap). A `watch` trigger fires on the lines a long-running command prints;
-//! [`watch::Watches`] keeps those commands alive in the runner.
+//! [`watch::Watches`] keeps those commands alive in the runner. An `event`
+//! trigger (`--when agent-idle`) is a watch whose command cmux supplies
+//! ([`events`]).
 //!
 //! No I/O happens outside [`Store`], [`exec`] and [`watch`] (and their
 //! platform seam, `sys`); schedule math takes the
@@ -35,6 +37,7 @@ mod automation;
 mod catch_up;
 mod clock;
 mod cron;
+pub mod events;
 pub mod exec;
 mod gate;
 mod run;
@@ -52,6 +55,7 @@ pub use automation::{
 pub use catch_up::{CatchUp, FirePlan, ON_TIME_SECONDS, plan_fires};
 pub use clock::{Civil, Zone};
 pub use cron::CronExpr;
+pub use events::{EVENTS, EventKind};
 pub use gate::{
     CONDITION_TIMEOUT_SECONDS, Gate, MAX_EVENT_BYTES, Verdict, clip_event, fired, verdict,
 };
