@@ -58,8 +58,11 @@ DEFAULT_IMAGES_DIR = REVIEW_DIR / "subscription-images"
 VERSION_METADATA_DIR = REVIEW_DIR / "metadata" / "version"
 NOTES_LIMIT = 4000
 IN_REVIEW_STATES = {"WAITING_FOR_REVIEW", "IN_REVIEW"}
-# A product Apple already approved (with an earlier version) does not ride again.
-SUBMITTED_OK_STATES = IN_REVIEW_STATES | {"APPROVED"}
+# A product Apple already approved (with an earlier version) does not ride
+# again, and one approved while its app version is still in review waits in
+# PENDING_BINARY_APPROVAL: both carry the version's submission correctly.
+RIDING_STATES = IN_REVIEW_STATES | {"PENDING_BINARY_APPROVAL"}
+SUBMITTED_OK_STATES = RIDING_STATES | {"APPROVED"}
 # A submission that entered review during the verification wait is still
 # withdrawn: a mismatch must never stay in front of a reviewer.
 OPEN_SUBMISSION_STATES = ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW", "UNRESOLVED_ISSUES")
@@ -443,7 +446,7 @@ def verify_submission(api: Api, app: str, version: str, manifest: dict, wait_sec
             if state not in SUBMITTED_OK_STATES:
                 problems.append(f"{product} is {state}, not in review with the version")
         for product, info in sorted(subs.items()):
-            if product not in submit and info["state"] in IN_REVIEW_STATES:
+            if product not in submit and info["state"] in RIDING_STATES:
                 problems.append(f"{product} entered review but the app does not offer it in this version")
         if not problems or time.monotonic() >= deadline:
             break

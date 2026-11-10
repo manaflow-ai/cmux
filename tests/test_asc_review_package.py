@@ -434,6 +434,23 @@ class VerifySubmissionTests(FakeAscCase):
         self.assertEqual(problems, [])
         self.assertEqual(fake.cancelled, [])
 
+    def test_products_approved_while_the_version_is_in_review_pass(self):
+        fake, problems = self.verify({
+            "com.cmux.app.pro.monthly": "PENDING_BINARY_APPROVAL", "com.cmux.app.max.monthly": "IN_REVIEW",
+            "com.cmux.app.go.monthly": "READY_TO_SUBMIT", "com.cmux.app.pro.trial.monthly": "READY_TO_SUBMIT",
+        })
+        self.assertEqual(problems, [])
+        self.assertEqual(fake.cancelled, [])
+
+    def test_a_left_out_product_pending_binary_approval_cancels(self):
+        fake, problems = self.verify({
+            "com.cmux.app.pro.monthly": "IN_REVIEW", "com.cmux.app.max.monthly": "IN_REVIEW",
+            "com.cmux.app.go.monthly": "PENDING_BINARY_APPROVAL", "com.cmux.app.pro.trial.monthly": "APPROVED",
+        })
+        self.assertEqual(len(problems), 1)
+        self.assertIn("go.monthly", problems[0])
+        self.assertEqual(fake.cancelled, ["submission-1"])
+
     def test_a_submission_already_in_review_is_found_for_cancelling(self):
         fake, _ = self.verify({
             "com.cmux.app.pro.monthly": "IN_REVIEW", "com.cmux.app.max.monthly": "IN_REVIEW",
