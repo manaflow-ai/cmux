@@ -124,10 +124,10 @@ struct WorkspaceCloseSelectionTests {
     }
 
     @Test func aRelationDoesNotCrossWindows() {
-        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
+        let rule = WindowCloseSelection()
         make("n", from: "b", quick: false, in: rule)
         // "n" moved to window "v"; the selection repair of "w" settles the state after its pick.
-        rule.settle(window, previous: rows, members: ["a", "b", "c"], owner: { $0 == "n" ? "v" : "w" }, exists: { _ in true }, claimed: { _ in false })
+        rule.settle(window, owner: { $0 == "n" ? "v" : "w" }, exists: { _ in true }, claimed: { _ in false })
         #expect(rule.isEmpty)
         #expect(close("n", shown: "n", rows: ["x", "n", "y"], rule: rule) == "y")
     }
@@ -138,7 +138,7 @@ struct WorkspaceCloseSelectionTests {
         let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
         rule.expect("n", in: window, quick: false)
         // The window lists "n" and still shows "b": the repair after it settles the state.
-        rule.settle(window, previous: ["a", "b", "c"], members: rows, owner: { _ in "w" }, exists: { _ in true }, claimed: { _ in false })
+        rule.settle(window, owner: { _ in "w" }, exists: { _ in true }, claimed: { _ in false })
         go("n", from: "b", in: rule)
         #expect(rule.isEmpty)
         #expect(close("n", shown: "n", rows: rows, rule: rule) == "c")
