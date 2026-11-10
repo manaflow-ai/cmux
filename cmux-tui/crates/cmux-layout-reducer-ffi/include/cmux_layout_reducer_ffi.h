@@ -1122,4 +1122,49 @@ int32_t cmux_shown_resize_trade(const CmuxShownResizeTrade *input, CmuxShownResi
 /* writes every row's height (out_count == input->count) */
 int32_t cmux_shown_resize_row_heights(const CmuxShownResizeRows *input, int64_t *out, size_t out_count);
 
+/* Per-project caps and the "Needs you" section (cmux_layout_reducer::sidebar_caps, Leo 2026-11-10).
+ * flags: PINNED 1, WAITING 2 (yellow), UNREAD 4 (blue), RUNNING 8, KEEP 16 (selected, renamed, dragged).
+ * A project passes its member count and only its active members, ascending by index. */
+enum {
+    CMUX_SIDEBAR_ACTIVE_PINNED = 1,
+    CMUX_SIDEBAR_ACTIVE_WAITING = 2,
+    CMUX_SIDEBAR_ACTIVE_UNREAD = 4,
+    CMUX_SIDEBAR_ACTIVE_RUNNING = 8,
+    CMUX_SIDEBAR_ACTIVE_KEEP = 16,
+    CMUX_SIDEBAR_TAIL_NONE = 0,
+    CMUX_SIDEBAR_TAIL_SHOW_MORE = 1,
+    CMUX_SIDEBAR_TAIL_SHOW_LESS = 2,
+};
+
+typedef struct CmuxSidebarActive {
+    uint32_t index;
+    uint8_t flags;
+    uint8_t reserved[3];
+} CmuxSidebarActive;
+
+typedef struct CmuxSidebarCaps {
+    uint32_t cap; /* 0: All */
+    uint32_t revealed;
+    uint8_t floats;
+    uint8_t include_working;
+    uint8_t reserved[2];
+} CmuxSidebarCaps;
+
+typedef struct CmuxSidebarProjectTail {
+    uint8_t kind;
+    uint8_t reserved[3];
+    uint32_t hidden;
+    uint32_t next;
+    uint32_t floated;
+    uint32_t rows; /* written, or needed on ERR_BUFFER */
+    uint32_t revealed_after_press;
+} CmuxSidebarProjectTail;
+
+int32_t cmux_sidebar_project_rows(uint32_t count, const CmuxSidebarActive *active, size_t active_len,
+                                  const CmuxSidebarCaps *caps, uint32_t *out, size_t out_capacity,
+                                  CmuxSidebarProjectTail *tail);
+/* rows: the sidebar's active rows in drawn order; limit 0 is three */
+int32_t cmux_sidebar_needs_you(const CmuxSidebarActive *rows, size_t rows_len, uint8_t include_working, uint32_t limit,
+                               uint32_t *out, size_t out_capacity, size_t *out_len, uint32_t *more);
+
 #endif
