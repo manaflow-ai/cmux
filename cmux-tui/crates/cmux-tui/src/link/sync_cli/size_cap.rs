@@ -153,7 +153,7 @@ pub(crate) fn count(number: u64) -> String {
     let digits = number.to_string();
     let mut out = String::new();
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);
@@ -241,7 +241,7 @@ pub(crate) fn check_plain(folder: &Path) -> Result<(), TooLarge> {
         return Ok(());
     }
     let cap = Some(Cap::of(&folder));
-    match super::local::collect_capped(&folder, super::local::Rules::Copy, cap) {
+    match super::local::collect(&folder, super::local::Rules::Copy, cap) {
         // Any other failure is the copy's to report.
         Err(error) => error.downcast::<TooLarge>().map_or(Ok(()), Err),
         Ok(_) => Ok(()),

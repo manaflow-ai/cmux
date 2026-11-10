@@ -205,13 +205,10 @@ const PER_WORKTREE: &[&str] = &[
 const MAX_NAME_BYTES: usize = 255;
 const MAX_PATH_BYTES: usize = 4000;
 
-pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
-    collect_capped(folder, rules, None)
-}
-
-/// [`collect`] counted against `cap` as it lists: it stops with a
-/// [`super::size_cap::TooLarge`] error the moment a limit is passed.
-pub(super) fn collect_capped(
+/// The files a push of `folder` sends, by `rules`, counted against `cap` (a chat's copy, see
+/// [`super::size_cap`]) as they are listed: it stops with a [`super::size_cap::TooLarge`] error the
+/// moment a limit is passed; `None` counts nothing.
+pub(super) fn collect(
     folder: &Path,
     rules: Rules,
     cap: Option<super::size_cap::Cap>,

@@ -71,7 +71,7 @@ fn a_plain_copy_leaves_credential_folders_and_files_here() {
     for relative in kept {
         write(&top, relative);
     }
-    let set = collect(&top, Rules::Copy).unwrap();
+    let set = collect(&top, Rules::Copy, None).unwrap();
     for relative in secrets {
         assert!(!set.files.contains_key(relative), "{relative} went: {:?}", set.files.keys());
     }
@@ -215,7 +215,7 @@ fn a_symlinked_git_config_goes_as_the_file_it_names() {
     let (config, real) = (repo.join(".git/config"), root.join("dotfiles-config"));
     std::fs::rename(&config, &real).unwrap();
     let config_text =
-        |repo: &Path| match collect(repo, Rules::Copy).unwrap().files.remove(".git/config") {
+        |repo: &Path| match collect(repo, Rules::Copy, None).unwrap().files.remove(".git/config") {
             Some(LocalFile { source: super::Source::Bytes(bytes), .. }) => {
                 String::from_utf8(bytes).unwrap()
             }
@@ -271,7 +271,7 @@ fn a_stray_file_in_a_borrowed_store_stays_here() {
     git(&root, &["clone", "-q", "--shared", "base", "copy"]);
     let copy = root.join("copy");
 
-    let set = collect(&copy, Rules::Copy).unwrap();
+    let set = collect(&copy, Rules::Copy, None).unwrap();
     let borrowed: Vec<&str> =
         set.files.keys().filter_map(|path| path.strip_prefix(".git/objects/")).collect();
     assert!(

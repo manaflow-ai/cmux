@@ -1018,7 +1018,7 @@ fn push_inner(
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
         .then(|| size_cap::Cap::of(&local));
-    let mut set = local::collect_capped(&local, rules, cap)?;
+    let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;
     // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to

@@ -272,7 +272,7 @@ mod tests {
         std::fs::write(top.join("a.txt"), "a\n").unwrap();
         std::fs::write(top.join(".env"), "TOKEN=x\n").unwrap();
         std::fs::set_permissions(top.join(".env"), std::fs::Permissions::from_mode(0o000)).unwrap();
-        let set = collect(&top, Rules::Share).unwrap();
+        let set = collect(&top, Rules::Share, None).unwrap();
         let env = set.files.get(".env").expect("listed");
         assert_eq!(env.permissions, 0o600);
         assert!(env.id.is_some() && set.files.contains_key("a.txt"));
@@ -342,7 +342,7 @@ mod tests {
         ]);
         let head = top.join(".git/logs/HEAD");
         std::fs::set_permissions(&head, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let set = collect(&top, Rules::Share).unwrap();
+        let set = collect(&top, Rules::Share, None).unwrap();
         std::fs::set_permissions(&head, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(
             set.files.contains_key("a.txt")

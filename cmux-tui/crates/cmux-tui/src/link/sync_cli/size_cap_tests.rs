@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use super::super::local::{Rules, collect, collect_capped};
+use super::super::local::{Rules, collect};
 use super::{CODE, Cap, TEST_LIMITS, TooLarge, count, size};
 
 fn write(top: &Path, relative: &str, bytes: usize) {
@@ -22,7 +22,7 @@ fn with_limits<T>(bytes: u64, files: u64, run: impl FnOnce() -> T) -> T {
 
 fn refused(top: &Path) -> TooLarge {
     let cap = Some(Cap::of(top));
-    match collect_capped(top, Rules::Copy, cap) {
+    match collect(top, Rules::Copy, cap) {
         Err(error) => error.downcast::<TooLarge>().expect("refused as too large"),
         Ok(set) => panic!("copied {} files past the limit", set.files.len()),
     }
@@ -78,7 +78,7 @@ fn what_the_copy_leaves_out_is_not_counted() {
         write(&top, &format!("node_modules/p{index}/index.js"), 1000);
     }
     write(&top, ".env", 100_000);
-    let set = with_limits(1000, 10, || collect_capped(&top, Rules::Copy, Some(Cap::of(&top))))
+    let set = with_limits(1000, 10, || collect(&top, Rules::Copy, Some(Cap::of(&top))))
         .expect("the copy's own files are under the limit");
     assert_eq!(set.files.len(), 2);
 }
@@ -91,8 +91,8 @@ fn a_folder_under_the_limits_is_unchanged() {
     for index in 0..500 {
         write(&top, &format!("d{}/f{index}.txt", index % 13), 1 + index % 300);
     }
-    let capped = collect_capped(&top, Rules::Copy, Some(Cap::of(&top))).unwrap();
-    let plain = collect(&top, Rules::Copy).unwrap();
+    let capped = collect(&top, Rules::Copy, Some(Cap::of(&top))).unwrap();
+    let plain = collect(&top, Rules::Copy, None).unwrap();
     assert_eq!(capped.files.keys().collect::<Vec<_>>(), plain.files.keys().collect::<Vec<_>>());
     assert_eq!(super::check_plain(&top), Ok(()));
 }
