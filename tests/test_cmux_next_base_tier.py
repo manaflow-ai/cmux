@@ -10,6 +10,7 @@ The Release compiles, the DEV landing compile and the fast tier stay on every pu
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -340,7 +341,7 @@ class CancelAfterAWait(unittest.TestCase):
             slept.append(seconds)
             clock["at"] += seconds
 
-        api = tier.GitHub("t", deadline=self.NOW + 900, now=lambda: clock["at"], sleep=sleep)
+        api = tier.QuotaGitHub("t", deadline=self.NOW + 900, now=lambda: clock["at"], sleep=sleep)
 
         def send(method, url, body=None):
             sent.append((method, url))
@@ -433,6 +434,115 @@ class QuotaLine(unittest.TestCase):
         timeout = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["timeout-minutes"]
         self.assertLess(tier.API_DEADLINE_S, timeout * 60)
 
+
+class QuotaRetry(unittest.TestCase):
+    """Every workflow's GITHUB_TOKEN in a repository shares one REST quota (2026-11-10: the base tier
+    kick died on `HTTP 403` from it 14 times in 40 runs). With a deadline, the client waits out a
+    spent quota with one sleep when the reset fits the deadline, and otherwise raises QuotaExhausted
+    with one line naming the quota and its reset."""
+
+    NOW = 1_800_000_000.0
+
+    def client(self, responses, deadline):
+        clock = {"at": self.NOW}
+        slept: list[float] = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock["at"] += seconds
+
+        api = tier.QuotaGitHub("t", deadline=deadline, now=lambda: clock["at"], sleep=sleep)
+        sent = []
+
+        def send(method, url, body=None):
+            sent.append((method, url))
+            return responses.pop(0)
+
+        api._send = send
+        return api, slept, sent
+
+    def spent(self, reset_in: float):
+        return (403, b'{"message": "API rate limit exceeded for installation ID 1."}',
+                {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW + reset_in)),
+                 "x-ratelimit-resource": "core"})
+
+    def test_a_reset_within_the_budget_sleeps_once_and_succeeds(self):
+        api, slept, sent = self.client([self.spent(120), (200, b'{"ok": 1}', {})], self.NOW + 600)
+        self.assertEqual(api.get("repos/o/r/git/ref/heads/x"), {"ok": 1})
+        self.assertEqual(slept, [121])
+        self.assertEqual(len(sent), 2)
+
+    def test_a_reset_past_the_budget_raises_one_line_naming_the_quota(self):
+        api, slept, sent = self.client([self.spent(3000)], self.NOW + 600)
+        with self.assertRaises(tier.QuotaExhausted) as raised:
+            api.get("repos/o/r/actions/workflows/cmux-next.yml/runs")
+        message = str(raised.exception)
+        self.assertIsInstance(raised.exception, RuntimeError)  # callers that catch RuntimeError still do
+        self.assertEqual(len(message.splitlines()), 1)
+        self.assertIn("GET repos/o/r/actions/workflows/cmux-next.yml/runs: HTTP 403", message)
+        self.assertIn("core REST quota", message)
+        self.assertIn(f"resets at {tier.utc(self.NOW + 3000)}", message)
+        self.assertRegex(message, r"resets at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+        self.assertEqual(slept, [])
+        self.assertEqual(len(sent), 1)
+
+    def test_a_secondary_limit_backs_off_then_gives_up_at_the_deadline(self):
+        limited = (403, b'{"message": "You have exceeded a secondary rate limit."}', {})
+        api, slept, _ = self.client([limited, limited, (200, b"{}", {})], self.NOW + 600)
+        self.assertEqual(api.get("repos/o/r/actions/runs/1"), {})
+        self.assertEqual(slept, [30, 60])
+        api, slept, _ = self.client([(429, b"", {"retry-after": "90"})], self.NOW + 60)
+        with self.assertRaisesRegex(tier.QuotaExhausted, "secondary rate limit; retry after 90 s"):
+            api.get("repos/o/r/actions/runs/1")
+        self.assertEqual(slept, [])
+
+    def test_a_write_is_never_retried_after_a_wait(self):
+        """A cancel decided on a job read must not fire minutes later, after the job may have started
+        (review of #40369: a retried cancel stopped a running Mac job after a 601 s wait). A write
+        refused on the quota raises at once, even when the reset fits the deadline."""
+        for method, call in (("POST", lambda api: api.post("repos/o/r/actions/runs/1/cancel", {})),
+                             ("DELETE", lambda api: api.delete("repos/o/r/actions/artifacts/1"))):
+            api, slept, sent = self.client([self.spent(60), (202, b"", {})], self.NOW + 600)
+            with self.assertRaises(tier.QuotaExhausted) as raised:
+                call(api)
+            self.assertIn(f"{method} repos/o/r/", str(raised.exception))
+            self.assertIn("not retried", str(raised.exception))
+            self.assertEqual(len(str(raised.exception).splitlines()), 1)
+            self.assertEqual(slept, [])
+            self.assertEqual(len(sent), 1)
+
+    def test_a_refusal_that_is_not_a_rate_limit_is_returned_as_before(self):
+        # The takeover reads `This workflow is already running` as a 403 status.
+        api, slept, _ = self.client([(403, b'{"message": "This workflow is already running"}', {})], self.NOW + 600)
+        self.assertEqual(api.post("repos/o/r/actions/runs/1/rerun", {}), 403)
+        self.assertEqual(slept, [])
+
+    def test_no_deadline_never_retries(self):
+        api, slept, _ = self.client([self.spent(60), self.spent(60)], None)
+        with self.assertRaisesRegex(RuntimeError, r"^GET repos/o/r/pulls/1: HTTP 403$"):
+            api.get("repos/o/r/pulls/1")
+        self.assertEqual(api.post("repos/o/r/actions/runs/1/cancel", {}), 403)
+        self.assertEqual(slept, [])
+
+    def test_it_reads_the_rate_limit_headers_off_the_http_error(self):
+        import email.message
+
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = "0"
+        headers["X-RateLimit-Reset"] = str(int(self.NOW + 9999))
+
+        def urlopen(request, timeout):
+            raise tier.urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
+                                                io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+
+        original = tier.urllib.request.urlopen
+        tier.urllib.request.urlopen = urlopen
+        try:
+            api = tier.QuotaGitHub("t", deadline=self.NOW + 60, now=lambda: self.NOW, sleep=lambda _: None)
+            with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
+                api.get("repos/o/r/git/ref/heads/x")
+        finally:
+            tier.urllib.request.urlopen = original
 
 class PushPaths(unittest.TestCase):
     def test_it_reads_cmux_next_push_paths(self):
