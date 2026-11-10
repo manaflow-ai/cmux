@@ -172,9 +172,10 @@ fn caps_read_the_four_choices_only() {
 /// The bench (Leo's rule: constant cost as things grow). A project of 30 and
 /// one of 3,000 quiet chats, with the same active rows (and a god session: 600
 /// active members), collapsed and expanded: the projection visits the same
-/// members, never more than its rows plus its active members. Counted, not
-/// timed, so it holds on any runner. Prints `SIDEBAR-CAPS` lines, the numbers
-/// for the PR.
+/// members, never more than its rows plus its active members (counted, so it
+/// holds on any runner), and a coarse wall-time backstop catches what the
+/// counter cannot see: the median at 3,000 stays within 3x the median at 30.
+/// Prints `SIDEBAR-CAPS` lines, the numbers for the PR.
 #[test]
 fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
     let active_at = |count: u32, n: u32| -> Vec<Active> {
@@ -224,6 +225,39 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
             assert!(
                 large.rows.len() <= small.rows.len() + 1 + revealed as usize,
                 "{label}: rows grew: {small:?} {large:?}"
+            );
+            // A coarse wall-time backstop for costs the counter does not see (an allocation,
+            // hashing, a clone per call): the median batch at 3,000 chats stays within 3x the
+            // median at 30. Medians of 21 batches of 1,000 calls, alternating sizes so both see
+            // the same runner load; constant cost measures about 1.0x to 1.4x here.
+            let batch = |count: u32, active: &[Active]| {
+                let start = Instant::now();
+                for _ in 0..1_000 {
+                    std::hint::black_box(project_rows(
+                        std::hint::black_box(count),
+                        std::hint::black_box(active),
+                        &c,
+                    ));
+                }
+                start.elapsed().as_secs_f64() * 1e9 / 1_000.0
+            };
+            let (mut small_ns, mut large_ns) = (Vec::with_capacity(21), Vec::with_capacity(21));
+            for _ in 0..21 {
+                small_ns.push(batch(30, &small_active));
+                large_ns.push(batch(3_000, &large_active));
+            }
+            let median = |samples: &mut Vec<f64>| {
+                samples.sort_by(f64::total_cmp);
+                samples[samples.len() / 2]
+            };
+            let (small_median, large_median) = (median(&mut small_ns), median(&mut large_ns));
+            let ratio = large_median / small_median;
+            println!(
+                "SIDEBAR-CAPS time shape={label} revealed={revealed} median_ns chats=30 {small_median:.0} | chats=3000 {large_median:.0} ratio={ratio:.2}"
+            );
+            assert!(
+                large_median <= small_median * 3.0,
+                "{label}: median {large_median:.0} ns at 3,000 chats vs {small_median:.0} ns at 30 ({ratio:.2}x, over 3x)"
             );
         }
     }
