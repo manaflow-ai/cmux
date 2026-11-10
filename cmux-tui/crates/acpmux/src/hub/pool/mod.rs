@@ -426,7 +426,12 @@ impl Hub {
             family: &family,
             preset: r.preset_name.clone(),
             model_request: if spawn_model {
-                spare.flatten().or_else(|| r.defaults.model.clone())
+                match spare {
+                    Some(model) => model.or_else(|| r.defaults.model.clone()),
+                    // A hinted or last-used entry starts on the model a new chat there would ask
+                    // for (`new_session`): the key carries it, so any other model never matches.
+                    None => self.pool_start_model(&r),
+                }
             } else {
                 None
             },
@@ -443,6 +448,23 @@ impl Hub {
             draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
         }
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
+    }
+
+    /// The model a new chat of `r` asks for when its request names none, as `new_session` picks
+    /// it: a preset's, a folder profile's or a profile's pin (`defaults.model`), else the start default
+    /// (`start_defaults`: the saved pick, the harness's own config, the catalog default).
+    fn pool_start_model(&self, r: &super::resolve::Resolved) -> Option<String> {
+        let pinned = r.preset_name.is_some()
+            || r.folder_root.is_some()
+            || r.profile.model.is_some()
+            || super::start_defaults::profile_sets_model(&r.profile, &r.defaults.env);
+        if pinned {
+            return r.defaults.model.clone();
+        }
+        self.start_defaults(&r.agent, &r.profile, &r.defaults, None)
+            .0
+            .map(|start| start.value)
+            .or_else(|| r.defaults.model.clone())
     }
 
     /// `_acpmux/prewarm`: accepted at once; after the debounce, the newest
