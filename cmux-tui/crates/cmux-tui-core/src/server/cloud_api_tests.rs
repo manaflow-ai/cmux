@@ -222,6 +222,63 @@ fn a_run_is_the_daemons_own_and_sends_nothing_to_the_api() {
     assert!(seen.lock().unwrap().is_empty(), "no Run call goes over HTTP");
 }
 
+/// Codex's review of #39022 at e59d43c8 (F1): a Run the app followed from before the daemon ran
+/// Runs is classic Cloud's. Its wait and cancel drain there with the app's Stack session, in the
+/// Run's team, so an upgrade never drops its result; a Run the daemon knows never goes there.
+#[test]
+fn a_run_from_before_the_upgrade_drains_on_classic_cloud() {
+    let (origin, seen) = fake(|seen| {
+        if seen.line.starts_with("GET") {
+            let done =
+                r#"{"run":{"id":"r-old","status":"succeeded"},"receipt":{"status":"succeeded"}}"#;
+            (200, done.into())
+        } else {
+            (200, r#"{"run":{"id":"r-old","status":"cancelled"}}"#.into())
+        }
+    });
+    let daemon = Daemon::start("classic-drain");
+    let classic = |args: Value| {
+        let mut args = args;
+        args["classicApi"] = json!(origin);
+        args["classicTeam"] = json!("team_stack");
+        params("https://owner.invalid", "owner", args)
+    };
+    let waited = daemon
+        .send("cloud.runs.wait", classic(json!({"id": "r-old", "timeoutMs": 1})), None)
+        .unwrap();
+    assert_eq!(waited["receipt"]["status"], "succeeded", "{waited}");
+    let cancelled = daemon
+        .send("cloud.runs.cancel", classic(json!({"id": "r-old"})), Some("drain-cancel"))
+        .unwrap();
+    assert_eq!(cancelled["value"]["run"]["status"], "cancelled", "{cancelled}");
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(
+            seen[0].line.starts_with("GET /api/runs/r-old/wait?timeoutMs=1 "),
+            "{}",
+            seen[0].line
+        );
+        assert!(seen[1].line.starts_with("POST /api/runs/r-old/cancel "), "{}", seen[1].line);
+        for request in seen.iter() {
+            assert_eq!(request.header("authorization").as_deref(), Some("Bearer secret-access"));
+            assert_eq!(request.header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
+            assert_eq!(request.header("x-cmux-team-id").as_deref(), Some("team_stack"));
+        }
+    }
+    // With no classic session (not the app's), a Run the daemon never made is just not found,
+    // and nothing is sent.
+    let (_, _, details) = daemon
+        .send(
+            "cloud.runs.wait",
+            params(&origin, "owner", json!({"id": "r-x", "timeoutMs": 1})),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(details["extra"]["failure"]["code"], "run_not_found");
+    assert_eq!(seen.lock().unwrap().len(), 2);
+}
+
 #[test]
 fn an_owner_read_sends_only_authorization_and_the_team() {
     let (origin, seen) = fake(|_| (200, r#"{"handoffs":[{"id":"h"}],"nextCursor":null}"#.into()));

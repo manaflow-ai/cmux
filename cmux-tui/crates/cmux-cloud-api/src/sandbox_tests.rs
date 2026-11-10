@@ -577,7 +577,7 @@ fn the_apps_list_answer_names_the_account_whatever_ffi_it_links() {
     let pinned = json!({ "loaded": true, "count": 0, "machines": [], "creating": [],
                          "account": { "signed_in": true } });
     assert_eq!(account_scope(&pinned), None, "an answer with no person is no one's");
-    let mut app = pinned.clone();
+    let mut app = pinned;
     app["account"] = json!({ "signed_in": true, "user_id": "u1", "team_id": "team_1" });
     assert_eq!(account_scope(&app).as_deref(), Some("user:u1|team:team_1"));
     app["account"]["team_id"] = Value::Null;

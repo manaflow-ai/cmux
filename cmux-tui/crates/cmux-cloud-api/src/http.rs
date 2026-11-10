@@ -245,6 +245,27 @@ impl Http {
             };
         Ok(Reply { status, header_code, body })
     }
+
+    /// A classic call (`/api/runs`, only a Run made before the daemon ran Runs: [`crate::classic_runs`]):
+    /// a 2xx body as JSON (`null` when it has none), a refusal read by [`vm_error`].
+    pub(crate) async fn classic(
+        &self,
+        method: reqwest::Method,
+        segments: &[&str],
+        query: &[(&str, String)],
+        timeout: Duration,
+    ) -> Result<Value, Failure> {
+        let path = path_text(segments);
+        let url = self.url(segments, query);
+        let reply = self.send(method, url, None, None, timeout, &path).await?;
+        if !reply.ok() {
+            return Err(vm_error(reply.status, &reply.body, reply.header_code.as_deref()));
+        }
+        if reply.body.iter().all(u8::is_ascii_whitespace) {
+            return Ok(Value::Null);
+        }
+        reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))
+    }
 }
 
 /// Why [`bounded_body`] read no body.

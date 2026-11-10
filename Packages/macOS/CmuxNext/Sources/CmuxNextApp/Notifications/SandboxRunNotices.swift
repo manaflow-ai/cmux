@@ -27,7 +27,7 @@ final class SandboxRunNotices {
     init(services: AppServices, follower: SandboxRunFollower? = nil, user: (@MainActor () -> String?)? = nil) {
         self.services = services
         self.currentUser = user ?? { [weak services] in services?.cloud.auth.user?.id }
-        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.machineAPI] id, team in
+        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.machineAPI.drainingClassic(services.cloud.api)] id, team in
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
         self.follower.onEnd = { [weak self] end in self?.ended(end) }

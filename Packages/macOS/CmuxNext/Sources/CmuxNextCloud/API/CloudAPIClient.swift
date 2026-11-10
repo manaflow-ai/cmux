@@ -32,6 +32,8 @@ public struct CloudAPIClient: Sendable {
     private(set) var runAccount: RunAccount?
     /// A Worker machines client's install token, for the routes that take an install, not a session (``listNetworks()``).
     var installToken: (@Sendable () async throws -> String)?
+    /// Classic Cloud's Run API and Stack session (``drainingClassic(_:)``): where a Run the daemon never made drains; nil: none does.
+    private(set) var classicRuns: (@Sendable () async throws -> (api: URL, access: String, refresh: String, team: String?))?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -52,9 +54,23 @@ public struct CloudAPIClient: Sendable {
     /// goes to the same team whatever the app switches to meanwhile.
     /// A Worker machines client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudAPIClient {
-        guard sendsStackSession else { return self }
         var copy = self
+        // A classic Run drains in the Stack team it was sent in.
+        if let classic = classicRuns { copy.classicRuns = { let session = try await classic(); return (session.api, session.access, session.refresh, team) } }
+        guard sendsStackSession else { return copy }
         copy.teamID = { team }
+        return copy
+    }
+
+    /// This client with `classic` (the sign-in client) as where a wait or cancel of a Run the daemon never made goes:
+    /// a Run the app followed from before the daemon ran Runs drains on classic Cloud's `/api/runs` to its end
+    /// (cmux-cloud-api `classic_runs`), so an upgrade never drops its result. New Runs are the daemon's alone.
+    public func drainingClassic(_ classic: CloudAPIClient) -> CloudAPIClient {
+        var copy = self
+        copy.classicRuns = {
+            let session = try await classic.tokens()
+            return (classic.baseURL, session.access, session.refresh, await classic.teamID())
+        }
         return copy
     }
 

@@ -235,12 +235,16 @@ mod calls {
         let result = if request.call.starts_with("runs.") {
             // The daemon's own sandboxed Runs (cloud_runs.rs): whose Run it is comes from the app's
             // signed-in account, never from this call; its credential is not used.
-            super::super::cloud_runs::engine(mux).perform(&request.call, &request.args)
-        } else {
-            match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),
-                Err(e) => Err(Failure::Transport(e.to_string())),
+            match super::super::cloud_runs::engine(mux).perform(&request.call, &request.args) {
+                // A wait or cancel of a Run the daemon never made: one the app followed from before
+                // the upgrade, which classic Cloud drains to its end (never a record dropped as gone).
+                Err(failure) if never_made(&request.call, &failure) => {
+                    block_on(cmux_cloud_api::classic_runs::drain(request))
+                }
+                own => own,
             }
+        } else {
+            block_on(cmux_cloud_api::perform(request, key))
         };
         let result = result.and_then(|body| {
             let size = serde_json::to_vec(&body).map_or(usize::MAX, |bytes| bytes.len());
@@ -264,6 +268,23 @@ mod calls {
     }
 
     /// `operation.failed` for `failure`, with neither credential in it.
+    /// One library call on a runtime of its own (this is a worker thread).
+    fn block_on(
+        future: impl std::future::Future<Output = Result<Value, Failure>>,
+    ) -> Result<Value, Failure> {
+        match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime.block_on(future),
+            Err(e) => Err(Failure::Transport(e.to_string())),
+        }
+    }
+
+    /// The daemon's answer to a wait or cancel of a Run it has no record of (`run_not_found`):
+    /// never one it made, so a Run from before the upgrade.
+    pub(super) fn never_made(call: &str, failure: &Failure) -> bool {
+        matches!(call, "runs.wait" | "runs.cancel")
+            && matches!(failure, Failure::Http { status: 404, code: Some(code), .. } if code == "run_not_found")
+    }
+
     pub(super) fn refusal(
         operation: ResourceOperation,
         request: &Request,

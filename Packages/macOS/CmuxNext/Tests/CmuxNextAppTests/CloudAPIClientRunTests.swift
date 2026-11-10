@@ -192,6 +192,31 @@ struct CloudAPIClientRunTests {
     /// The account the person sent under goes with the create and its retry, so the daemon starts nothing
     /// under another one; a client with no such account sends no create at all (Codex's reviews of #39022 at
     /// 1bf18b3d and 551a7dca, F1: every caller of create, the composer's and the control API's alike).
+    /// Codex's review of #39022 at e59d43c8 (F1): a Run the app followed from before the daemon ran Runs (its saved
+    /// record has no backend) is classic Cloud's. Its wait and cancel carry the classic API, the Run's team and the Stack
+    /// session, so the daemon drains it there (cmux-cloud-api `classic_runs`); a create never carries them.
+    @Test func aRunFromBeforeTheUpgradeIsWaitedOnAndCancelledWithTheClassicSession() async throws {
+        let daemon = FakeDaemon { _, _, _ in Self.done }
+        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                     tokens: { ("stack-access", "stack-refresh") }, teamID: { "team_now" },
+                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
+        let api = api(daemon).drainingClassic(classic).pinningTeam("team_stack")
+        _ = try await api.waitRun("r-old", timeoutMs: 1_000)
+        _ = try await api.cancelRun("r-old")
+        #expect(daemon.requests.count == 2)
+        for request in daemon.requests {
+            #expect(request["credential"] as? String == "stack-access")
+            #expect(request["refresh"] as? String == "stack-refresh")
+            let args = request["args"] as? [String: Any]
+            #expect(args?["id"] as? String == "r-old")
+            #expect(args?["classicApi"] as? String == "https://classic.standin.invalid")
+            #expect(args?["classicTeam"] as? String == "team_stack")
+        }
+        _ = try await api.createSandboxRun(task: "hi", idempotencyKey: "k-new")
+        #expect(daemon.requests.last?["refresh"] == nil)
+        #expect((daemon.requests.last?["args"] as? [String: Any])?["classicApi"] == nil)
+    }
+
     @Test func everyCreateNamesTheAccountItWasSentUnderAndNoneGoesWithout() async throws {
         let daemon = sandbox(dropCreates: 1)
         _ = try await api(daemon).runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-4")

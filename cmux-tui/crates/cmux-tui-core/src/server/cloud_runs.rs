@@ -11,8 +11,11 @@
 //!   path a person's `cmux chat --on vm:new` takes, checks and approvals included. `--account`
 //!   names the Run's account: start-chat starts nothing unless the app is signed in to it, and
 //!   sends the task only to a machine that account's list shows;
-//! - the scope, before the task: `cloud list-machines`' `account` (signed in, the person and the
-//!   team, [`account_scope`]);
+//! - the scope, at every create, wait and cancel: `cloud run-account`, the app's `auth.status`
+//!   (signed in, the person and the team, [`account_scope`]). An organization's Cloud policy
+//!   leaves it open, so with Cloud turned off a Run that exists is still waited on and cancelled;
+//!   the start and the cleanup's list and delete are the app's Cloud verbs, which the policy
+//!   refuses: a cleanup then reads again later and finishes once Cloud is back;
 //! - the cleanup: `cloud list-machines` finds the machine by its id or its title, then
 //!   `cloud kill-machine --target machine:ID --confirm` asks for its delete. A delete's answer
 //!   only says the delete started (`pending`, `deleting`), so the machine counts as gone only once
@@ -427,7 +430,11 @@ pub(super) fn outcome(
 
 impl Steps for AppVerbs {
     fn scope(&self) -> Option<String> {
-        self.list().ok().as_ref().and_then(account_scope)
+        // The app's sign-in (`cmux cloud run-account`, its `auth.status`), never its machine list:
+        // an organization's Cloud policy refuses the list, and a Run that exists is still waited on
+        // and cancelled with Cloud turned off (its cleanup reads the list again once it is back).
+        let ran = self.cmux(&["cloud", "run-account"], None, STEP_BOUND, None);
+        answer(&ran).ok().as_ref().and_then(account_scope)
     }
 
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome {

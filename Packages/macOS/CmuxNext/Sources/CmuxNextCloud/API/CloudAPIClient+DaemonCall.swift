@@ -22,6 +22,13 @@ extension CloudAPIClient {
         do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
         var request: [String: any Sendable] = ["call": call, "api": baseURL.absoluteString, "auth": "owner", "credential": access,
                                                "app_version": appVersion, "args": args]
+        // A wait or cancel of a Run the daemon never made (one followed from before it ran Runs) drains on classic Cloud with
+        // the Stack session whole (cmux-cloud-api `classic_runs`); no other call carries the refresh token or the classic API.
+        if call == "runs.wait" || call == "runs.cancel", let classicRuns, let classic = try? await classicRuns(), !classic.refresh.isEmpty {
+            request["credential"] = classic.access
+            request["refresh"] = classic.refresh
+            request["args"] = args.merging(["classicApi": classic.api.absoluteString, "classicTeam": classic.team ?? ""]) { $1 }
+        }
         if let team = await teamID() { request["team"] = team }
         let output: Data
         do {

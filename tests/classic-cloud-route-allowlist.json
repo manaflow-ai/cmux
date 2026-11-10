@@ -12,6 +12,12 @@
   },
   "entries": [
     {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/classic_runs.rs",
+      "pattern": "segments:/api/runs",
+      "count": 2,
+      "reason": "keep: the drain of a sandboxed Run a person started before the daemon ran Runs (#39022): only its wait and cancel, for a Run the daemon never made, so an upgrade never drops its result or strands its VM; no create; goes once no classic Run can still be followed (a Run's record is kept a week)"
+    },
+    {
       "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",
       "pattern": "base:cmux-staging",
       "count": 1,

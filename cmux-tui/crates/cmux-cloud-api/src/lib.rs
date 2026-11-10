@@ -32,7 +32,8 @@
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's (no NEXT call sends it now): the Stack access token as the
+//! Auth: `stack` is classic cmux.com's (only [`classic_runs`]' drain of a Run made before the
+//! daemon ran Runs sends it): the Stack access token as the
 //! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
@@ -43,6 +44,7 @@
 
 #![cfg(unix)]
 
+pub mod classic_runs;
 mod http;
 mod machine;
 pub mod machine_io;
