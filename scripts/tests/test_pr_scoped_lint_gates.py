@@ -19,6 +19,7 @@ SCRIPTS = (
     'scripts/cmux-next/check-concurrency.sh',
     'scripts/cmux-next/check-main-actor-work.py',
     'scripts/cmux-next/swift_scope.py',
+    'scripts/cmux-next/caller_isolation.py',
     'Packages/macOS/CmuxNext/Package.swift',
 )
 # The fixture starts with no grandfathered debt.

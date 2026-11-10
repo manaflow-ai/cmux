@@ -564,7 +564,8 @@ if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "
           "`// concurrency-allow: <reason>` when it provably never runs on the main thread. "
           "Idle-wakeup hits need an event-driven wait or a reviewed `// wakeup-allow: <reason>` "
-          "(plans/cmux-next/idle-wakeups.md).")
+          "(plans/cmux-next/idle-wakeups.md). Caller-isolated hits need `@concurrent`, `work.run(_, mayBlock:)` "
+          "or a reviewed `// caller-isolation-allow: <reason>` (skills/cmux-architecture/references/main-thread-model.md).")
     sys.exit(1)
 print("check-concurrency: ok")
 PY
