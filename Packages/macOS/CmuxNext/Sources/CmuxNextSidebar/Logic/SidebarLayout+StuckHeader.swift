@@ -17,7 +17,7 @@ extension SidebarLayout {
         guard let position = position(of: .group(group)), position <= first else { return nil }
         let header = rows[position]
         guard header.y < top, !header.isCollapsed else { return nil }
-        let inGroup = { (row: SidebarRow) in row.group.map(topLevel) == group }
+        func inGroup(_ row: SidebarRow) -> Bool { row.group.map { topLevel($0) } == group }
         // The group's last row that starts above the header's bottom edge; a row after it in the group means the group
         // goes on below the header, so nothing pushes it yet.
         var last = lastIndex(startingAtOrBefore: top + header.height) ?? first
