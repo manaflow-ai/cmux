@@ -130,14 +130,22 @@ pub(super) fn serve_line_connection(
                 };
                 match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame(
-                        &mux,
-                        client,
-                        transport,
-                        &line,
-                        &writer,
-                        &surface_scheduler,
-                    ),
+                    None => {
+                        #[cfg(test)]
+                        connection_scheduler::panic_seam::check(
+                            &mux,
+                            client,
+                            connection_scheduler::panic_seam::Site::Reader,
+                        );
+                        handle_connection_frame(
+                            &mux,
+                            client,
+                            transport,
+                            &line,
+                            &writer,
+                            &surface_scheduler,
+                        )
+                    }
                 }
             }
         };
