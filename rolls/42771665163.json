@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42771665163",
+  "recorded_at": "2026-11-10T07:02:27Z",
+  "reason": "cmux-tui 3e04c80b7d70 changes the image's cmux-tui (pinned 309b59fb19e9)",
+  "dry_run": false,
+  "cmux_tui": "3e04c80b7d70118c80e7b3d185661a2806c57181",
+  "fixes": [
+    {
+      "sha": "3e04c80b7d70118c80e7b3d185661a2806c57181",
+      "mergedAt": "2026-11-09T22:40:03-08:00",
+      "subject": "cmux-tui: an update premigrates the agent roster beside the running owner (#39503)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T07:02:27Z",
+    "snapshot_id": "sh-c86066ce8e8546f98f9b7dfdfc1af7bb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42771665163): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5b1146f47899489ec734b98d31c8c326a2c05185",
+    "image": "cloud-native-auto-3e04c80b-42771665163-1",
+    "revision": "ci-42771665163-1",
+    "at": "2026-11-10T07:02:27Z"
+  },
+  "rolled_back": false
+}
