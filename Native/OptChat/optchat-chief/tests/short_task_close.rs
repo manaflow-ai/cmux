@@ -201,3 +201,21 @@ fn a_short_task_that_did_not_land_keeps_its_workspace() {
     );
     assert!(closed.is_empty(), "work still to do stays open: {closed:?}");
 }
+
+#[test]
+fn a_short_task_that_asks_the_user_keeps_its_workspace() {
+    let closed = finish_a1(
+        "Built nothing yet. Seven architecture questions for you: which host should it build on?",
+        Duration::from_secs(3 * 60),
+    );
+    assert!(closed.is_empty(), "an interview waiting on answers stays open: {closed:?}");
+}
+
+#[test]
+fn a_short_task_waiting_on_a_build_keeps_its_workspace() {
+    let closed = finish_a1(
+        "Fix written; waiting on the fleet build and screenshots, nothing pushed yet.",
+        Duration::from_secs(8 * 60),
+    );
+    assert!(closed.is_empty(), "a build wait stays open: {closed:?}");
+}
