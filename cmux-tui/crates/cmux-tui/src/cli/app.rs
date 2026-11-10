@@ -26,7 +26,9 @@ use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, open_is_interactive, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
-pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
+pub(super) use run::{
+    action_run_params, insert_run_key, request_with_retry, request_with_retry_within, safe_to_resend,
+};
 
 mod agent_open;
 mod batch;
@@ -1450,7 +1452,7 @@ fn read_reply(
     alive: impl Fn(&UnixStream, Duration) -> bool,
 ) -> Result<Result<Value, Value>, String> {
     let mut reader = BufReader::new(
-        stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
+        stream.try_clone().map_err(|error| io_message(&error))?.take(MAX_RESPONSE_BYTES),
     );
     // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
     let mut response = Vec::new();
@@ -1462,7 +1464,12 @@ fn read_reply(
         let Some(window) = window_before(timeout, deadline) else {
             return Ok(Err(deadline_passed(method)));
         };
-        stream.set_read_timeout(window).map_err(|error| error.to_string())?;
+        // macOS refuses a socket option (EINVAL) once the peer closed: that is a dropped connection too.
+        stream.set_read_timeout(window).map_err(|error| match error.kind() {
+            // (A zero window is the other EINVAL, and not a dropped connection.)
+            std::io::ErrorKind::InvalidInput if window != Some(Duration::ZERO) => crate::localization::catalog().app_control.closed.to_owned(),
+            _ => io_message(&error),
+        })?;
         let read = match reader.fill_buf() {
             Ok(available) => {
                 let newline = available.iter().position(|byte| *byte == b'\n');
@@ -1553,7 +1560,34 @@ fn note_busy(method: &str, waited: Duration) {
 pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
-    stream.write_all(&bytes).map_err(|error| error.to_string())
+    stream.write_all(&bytes).map_err(|error| io_message(&error))
+}
+
+/// An I/O failure's text. A connection the app dropped (a restart of its control server, a close under load)
+/// reads as the app's `closed` message: the one transport failure a new connection may heal ([`is_dropped`]).
+fn io_message(error: &std::io::Error) -> String {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, NotConnected, UnexpectedEof};
+    if matches!(error.kind(), BrokenPipe | ConnectionReset | ConnectionAborted | NotConnected | UnexpectedEof) {
+        crate::localization::catalog().app_control.closed.to_owned()
+    } else {
+        error.to_string()
+    }
+}
+
+/// Whether a transport failure is a dropped connection, which a new connection may heal. Any other one
+/// (an answer this cmux cannot read, a socket that is not the app's) fails the same way every time.
+pub(super) fn is_dropped(message: &str) -> bool {
+    message == crate::localization::catalog().app_control.closed
+}
+
+/// Whether a failed connect to the app's socket may pass by waiting: nothing is at the path or nothing
+/// listens there (the app restarting its control server, or quit; a short grace tells them apart). A
+/// permission, peer-uid or not-the-app failure fails the same way every time.
+pub(super) fn socket_may_come_back(global: &GlobalArgs) -> bool {
+    let Ok(socket) = command_socket(global) else { return false };
+    UnixStream::connect(&socket.path).is_err_and(|error| {
+        matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+    })
 }
 
 fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
@@ -1561,7 +1595,7 @@ fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
         (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
             wait::timeout_message(timeout)
         }
-        _ => error.to_string(),
+        _ => io_message(error),
     }
 }
 
