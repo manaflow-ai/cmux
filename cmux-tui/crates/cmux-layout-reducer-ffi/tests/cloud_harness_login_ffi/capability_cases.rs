@@ -1,5 +1,6 @@
-//! `cloud_capability_*` through the C ABI: the app holds a mint's answer and asks what each relayed
-//! call sends (cmux-cloud-start-core `capability` holds the rules and their cases).
+//! `cloud_capability_step` through the C ABI: the app's capability holder keeps an opaque state,
+//! sends one event at a time and runs the effects (cmux-cloud-start-core `capability::holder` holds
+//! the flows and their cases).
 
 use cmux_layout_reducer_ffi::{ERR_INVALID, OK, cmux_layout_reducer_json};
 use serde_json::{Value, json};
@@ -26,41 +27,67 @@ fn call(operation: &CStr, request: &Value) -> (i32, Value) {
 
 const TOKEN: &str = "cc1.eyJ2IjoxfQ.c2lnbmF0dXJl";
 
+fn step(state: &Value, event: Value, now: i64) -> Value {
+    let (code, reply) =
+        call(c"cloud_capability_step", &json!({"state": state, "event": event, "now": now}));
+    assert_eq!(code, OK, "{event}");
+    reply
+}
+
 #[test]
-fn a_held_mint_is_sent_by_a_call_of_its_team_and_not_by_another() {
+fn intent_mints_and_a_call_of_its_team_sends_it_and_not_another() {
+    let used = step(&Value::Null, json!({"on": "use"}), 0);
+    assert_eq!(used["generation"], 0);
+    let intent =
+        step(&used["state"], json!({"on": "intent", "team": "team_a", "generation": 0}), 0);
+    assert_eq!(intent["effects"], json!([{"do": "mint", "team": "team_a", "generation": 0}]));
+    assert_eq!(intent["minting"], true);
+
     let body = json!({"ok": true, "value": {"capability": TOKEN, "team": "team_a", "issued_at": 0,
-                      "expires_at": 300_000, "refresh_at": 240_000}});
-    let (code, minted) = call(
-        c"cloud_capability_mint",
-        &json!({"status": 200, "body": body, "team": "team_a", "now": 10}),
+                      "expires_at": 300_000, "refresh_at": 240_000}})
+    .to_string();
+    let minted = step(
+        &intent["state"],
+        json!({"on": "minted", "team": "team_a", "generation": 0, "status": 200, "body": body}),
+        10,
     );
-    assert_eq!(code, OK);
-    assert_eq!(minted["held"]["token"], TOKEN);
-    assert_eq!(minted["held"]["expiresAt"], 300_010);
-    let held = minted["held"].clone();
+    assert_eq!(minted["holds"], true);
+    assert_eq!(minted["minting"], false);
+    assert_eq!(minted["effects"], json!([{"do": "schedule", "afterMs": 240_000, "generation": 0}]));
 
-    let (code, own) = call(
-        c"cloud_capability_plan",
-        &json!({"state": {"held": held, "team": "team_a", "now": 20}, "reason": "call"}),
-    );
-    assert_eq!(code, OK);
-    assert_eq!(own, json!({"send": TOKEN, "fetch": false, "wakeIn": 239_990}));
-
-    let (_, other) = call(
-        c"cloud_capability_plan",
-        &json!({"state": {"held": held, "team": "team_b", "now": 20}, "reason": "call"}),
-    );
+    let own = step(&minted["state"], json!({"on": "call", "team": "team_a"}), 20);
+    assert_eq!(own["send"], TOKEN);
+    assert_eq!(own["effects"], json!([]));
+    let other = step(&minted["state"], json!({"on": "call", "team": "team_b"}), 20);
     assert_eq!(other["send"], Value::Null);
-    assert_eq!(other["fetch"], true);
+    assert_eq!(other["effects"], json!([{"do": "mint", "team": "team_b", "generation": 0}]));
+
+    let cleared = step(&own["state"], json!({"on": "clear"}), 30);
+    assert_eq!(cleared["holds"], false);
+    assert_eq!(cleared["generation"], 1);
+    assert_eq!(cleared["effects"], json!([{"do": "cancelMint"}, {"do": "cancelTimer"}]));
 }
 
 #[test]
 fn a_refused_mint_holds_nothing_and_a_bad_request_is_invalid() {
-    let (code, refused) = call(
-        c"cloud_capability_mint",
-        &json!({"status": 403, "body": {"ok": false}, "team": "team_a", "now": 0}),
+    let call_ = step(&Value::Null, json!({"on": "call", "team": "team_a"}), 0);
+    let refused = step(
+        &call_["state"],
+        json!({"on": "minted", "team": "team_a", "generation": 0, "status": 403, "body": "{\"ok\":false}"}),
+        1,
     );
-    assert_eq!(code, OK);
-    assert_eq!(refused, json!({"held": null}));
-    assert_eq!(call(c"cloud_capability_plan", &json!({"reason": "sometimes"})).0, ERR_INVALID);
+    assert_eq!(refused["holds"], false);
+    assert_eq!(refused["effects"], json!([{"do": "cancelTimer"}]));
+    assert_eq!(
+        call(c"cloud_capability_step", &json!({"event": {"on": "sometimes"}, "now": 0})).0,
+        ERR_INVALID
+    );
+    assert_eq!(
+        call(
+            c"cloud_capability_step",
+            &json!({"state": "not json", "event": {"on": "use"}, "now": 0})
+        )
+        .0,
+        ERR_INVALID
+    );
 }

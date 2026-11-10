@@ -48,7 +48,7 @@ struct CloudCapabilityRelayTests {
     }
 
     /// Which install token the relay sends now (a team switch mints one for the other team).
-    final class Install: @unchecked Sendable {
+    nonisolated final class Install: @unchecked Sendable {
         private let lock = NSLock()
         private var current = "install-a"
         var token: String { lock.withLock { current } }
@@ -57,28 +57,16 @@ struct CloudCapabilityRelayTests {
 
     nonisolated static func teamOf(_ token: String) -> String? { token == "install-a" ? "team_a" : token == "install-b" ? "team_b" : nil }
 
-    /// The seam's own rules, so these cases do not wait for the pinned app FFI to carry Rust's
-    /// (cmux-cloud-start-core `capability` has their cases): hold a 200's token, send it to its own team,
-    /// mint when none is held for the team.
-    nonisolated static let plainRules = CloudCapabilityHolder.Rules(
-        mint: { status, body, team, now in
-            struct Answer: Decodable { struct Value: Decodable { var capability: String; var team: String }; var value: Value }
-            guard status == 200, let answer = try? JSONDecoder().decode(Answer.self, from: body), answer.value.team == team else { return nil }
-            return .init(token: answer.value.capability, team: team, expiresAt: now + 300_000, refreshAt: now + 240_000)
-        },
-        plan: { state, _ in
-            guard let team = state.team else { return .init(send: nil, fetch: false, wakeIn: nil) }
-            let held = state.held.flatMap { $0.team == team ? $0 : nil }
-            return .init(send: held?.token, fetch: held == nil && state.failedTeam != team, wakeIn: nil)
-        })
-
-    /// Rust's rules answer through the pinned app FFI (false until the FFI with `cloud_capability_*` is pinned).
-    nonisolated static var rustRulesPinned: Bool {
-        CloudCapabilityHolder.Rules.rust.plan(.init(held: nil, team: "team_a", now: 0), .intent) != nil
+    /// Whether the pinned app FFI carries Rust's holder (`cloud_capability_step`); until it is pinned these cases
+    /// skip (cmux-cloud-start-core `capability::holder` has them all, the timer's retry and backoff too).
+    nonisolated static var rustHolderPinned: Bool {
+        struct Request: Encodable { var event = ["on": "use"], now = 0 }
+        struct Reply: Decodable { var state: String }
+        return CloudStartCore().call("cloud_capability_step", Request(), as: Reply.self) != nil
     }
 
-    static func holder(_ worker: Worker, _ install: Install, rules: CloudCapabilityHolder.Rules = plainRules) -> CloudCapabilityHolder {
-        CloudCapabilityHolder(transport: worker, headers: ["x-cmux-client-version": "test"], token: { install.token }, teamOf: teamOf, rules: rules)
+    static func holder(_ worker: Worker, _ install: Install) -> CloudCapabilityHolder {
+        CloudCapabilityHolder(transport: worker, headers: ["x-cmux-client-version": "test"], token: { install.token }, teamOf: teamOf)
     }
 
     /// The relay with the post ``CloudCredentialRelay/live`` builds, serving the start path's ops.
@@ -96,7 +84,7 @@ struct CloudCapabilityRelayTests {
         #expect(result.ok == true, "\(op)")
     }
 
-    @Test func signInMintsOnceAndEveryStartCreateAndReadCarriesIt() async throws {
+    @Test(.enabled(if: rustHolderPinned)) func signInMintsOnceAndEveryStartCreateAndReadCarriesIt() async throws {
         let worker = Worker(), install = Install()
         let capability = Self.holder(worker, install)
         await capability.intent()
@@ -112,7 +100,7 @@ struct CloudCapabilityRelayTests {
         #expect(ops.allSatisfy { $0.capability == Self.token && $0.bearer == "install-a" })
     }
 
-    @Test func aCallBeforeAnyMintGoesWithoutOneAndStartsTheMint() async throws {
+    @Test(.enabled(if: rustHolderPinned)) func aCallBeforeAnyMintGoesWithoutOneAndStartsTheMint() async throws {
         let worker = Worker(), install = Install()
         let capability = Self.holder(worker, install)
         let relay = Self.relay(worker, install, capability)
@@ -124,7 +112,7 @@ struct CloudCapabilityRelayTests {
         #expect(await worker.mints.count == 1)
     }
 
-    @Test func afterATeamSwitchTheOldTeamsCapabilityIsNeverSent() async throws {
+    @Test(.enabled(if: rustHolderPinned)) func afterATeamSwitchTheOldTeamsCapabilityIsNeverSent() async throws {
         let worker = Worker(), install = Install()
         let capability = Self.holder(worker, install)
         await capability.intent()
@@ -135,26 +123,13 @@ struct CloudCapabilityRelayTests {
         #expect(create?.capability == nil)
     }
 
-    @Test func aRefusedMintSendsNothingAndTheCallStillGoes() async throws {
+    @Test(.enabled(if: rustHolderPinned)) func aRefusedMintSendsNothingAndTheCallStillGoes() async throws {
         let worker = Worker(), install = Install()
         await worker.refuseMints()
         let capability = Self.holder(worker, install)
         await capability.intent()
         #expect(await capability.holds == false)
         try await Self.send("cloud.machine.create", key: "k-1", relay: Self.relay(worker, install, capability))
-        #expect(await worker.ops.last?.capability == nil)
-    }
-
-    /// The same flow on Rust's rules, through the app FFI.
-    @Test(.enabled(if: rustRulesPinned)) func rustsRulesSendTheMintedCapabilityOnACreate() async throws {
-        let worker = Worker(), install = Install()
-        let capability = Self.holder(worker, install, rules: .rust)
-        await capability.intent()
-        #expect(await capability.holds)
-        try await Self.send("cloud.machine.create", key: "k-1", relay: Self.relay(worker, install, capability))
-        #expect(await worker.ops.last?.capability == Self.token)
-        install.switchTeam()
-        try await Self.send("cloud.machine.create", key: "k-2", relay: Self.relay(worker, install, capability))
         #expect(await worker.ops.last?.capability == nil)
     }
 
@@ -170,10 +145,10 @@ struct CloudCapabilityRelayTests {
     }
 
     /// cmux#40172 F1: a sign-out while intent() waits for the install token keeps nothing that mint answers.
-    @Test func aSignOutWhileIntentWaitsForTheTokenKeepsNothing() async throws {
+    @Test(.enabled(if: rustHolderPinned)) func aSignOutWhileIntentWaitsForTheTokenKeepsNothing() async throws {
         let worker = Worker(), gate = Gate()
         let capability = CloudCapabilityHolder(transport: worker, headers: [:], token: { await gate.token() },
-                                               teamOf: Self.teamOf, rules: Self.plainRules)
+                                               teamOf: Self.teamOf)
         let intent = Task { await capability.intent() }
         await gate.untilAsked()
         await capability.clear()
@@ -183,25 +158,7 @@ struct CloudCapabilityRelayTests {
         #expect(await worker.mints.isEmpty, "no mint for the signed-out account")
     }
 
-    /// cmux#40172 F2: a refresh that fails re-arms the timer, and the next one holds a capability again.
-    @Test func aFailedRefreshIsRetriedAndRecovers() async throws {
-        let worker = Worker(), install = Install()
-        // Due at once, so the timer refreshes as soon as it may (Rust's rules hold the real times and backoff).
-        let rules = CloudCapabilityHolder.Rules(mint: Self.plainRules.mint, plan: { state, _ in
-            let held = state.held.flatMap { $0.team == state.team ? $0 : nil }
-            return .init(send: held?.token, fetch: state.team != nil, wakeIn: held == nil ? nil : 0)
-        })
-        let capability = Self.holder(worker, install, rules: rules)
-        await capability.intent()
-        await worker.refuseMints()
-        try await worker.untilMints(2) // the timer's refresh, refused
-        await worker.acceptMints()
-        try await worker.untilMints(3) // the retry, answered
-        #expect(await capability.holds)
-        await capability.clear()
-    }
-
-    @Test func signOutForgetsIt() async throws {
+    @Test(.enabled(if: rustHolderPinned)) func signOutForgetsIt() async throws {
         let worker = Worker(), install = Install()
         let capability = Self.holder(worker, install)
         await capability.intent()

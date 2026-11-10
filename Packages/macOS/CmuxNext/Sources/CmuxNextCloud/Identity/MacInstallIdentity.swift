@@ -1,5 +1,6 @@
 public import CmuxInstallAuthCore
 import CmuxNextCompat
+import CmuxNextWakeups
 import CryptoKit
 public import Foundation
 import os
@@ -193,5 +194,157 @@ public actor MacInstallIdentity {
     private func recordChanged(_ record: InstallRecord?, for stackUser: String, generation bound: UInt64) {
         guard bound == generation else { return }
         store.saveRecord(record, for: stackUser)
+    }
+}
+
+/// The signed Cloud capability (cmux-platform#1126; Leo, 2026-11-09: "can't we just pre-approve peopel
+/// sometimes? the handshakes themsleves take ms, no?"): minted with this Mac's install token at sign-in, on a
+/// team switch, on Cloud intent and before the held one is due, never on a start; sent in ``header`` on every
+/// op the credential relay posts to `/v1/ops` and `/v1/read` with a token of the same team, so the Worker skips
+/// that call's plan and membership reads. Held in memory only: never written to disk, the keychain or a log.
+/// The holder is Rust's (cmux-cloud-start-core `capability::holder`, op `cloud_capability_step`): what it
+/// holds, when it mints, a team switch, sign-out and retry. This keeps the install token, the clock, the HTTP
+/// and the timer, and runs the effects Rust names. An FFI that does not answer holds and sends nothing.
+public actor CloudCapabilityHolder {
+    /// The request header (cmux-platform `CAPABILITY_HEADER`).
+    public static let header = "x-cmux-cloud-capability"
+    /// The mint route, relative to the API origin.
+    public static let path = "v1/cloud/capability"
+
+    /// `POST v1/cloud/capability` with `bearer` and no body: the status and the body.
+    public typealias Mint = @Sendable (_ bearer: String) async throws -> (status: Int, body: Data)
+    /// This Mac's install token, the one the relay sends its ops with.
+    public typealias Token = @Sendable () async throws -> String
+    /// The team an install token names (``MacInstallIdentity/team(ofToken:)``).
+    public typealias TeamOf = @Sendable (_ token: String) -> String?
+
+    private let mint: Mint
+    private let token: Token
+    private let teamOf: TeamOf
+    private let now: @Sendable () -> Int64
+    /// Rust's state between steps (opaque here), and what its last answer said.
+    private var state: String?
+    private var generation: UInt64 = 0
+    /// Whether a capability is held now (tests and diagnostics; never the token itself).
+    public private(set) var holds = false
+    private var minting: Task<Void, Never>?
+    /// Wakes at the held one's refresh time (one deadline, never a poll).
+    private let timer = DemandTimer(owner: "CloudCapabilityHolder.refresh")
+
+    public init(mint: @escaping Mint, token: @escaping Token, teamOf: @escaping TeamOf = MacInstallIdentity.team(ofToken:),
+                now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
+        (self.mint, self.token, self.teamOf, self.now) = (mint, token, teamOf, now)
+    }
+
+    /// Mints with `transport` (the install transport the relay posts with) and `headers` (its client version).
+    public init(transport: any InstallAuthTransport, headers: [String: String], token: @escaping Token,
+                teamOf: @escaping TeamOf = MacInstallIdentity.team(ofToken:)) {
+        self.init(mint: { bearer in try await transport.post(Self.path, json: Data("{}".utf8), bearer: bearer, headers: headers) },
+                  token: token, teamOf: teamOf)
+    }
+
+    /// The credential relay's post (``CloudCredentialRelay/Post``): `path` with `bearer` and `headers`, plus the
+    /// capability `capability` holds for `bearer`'s team when there is one. Nothing else changes about the call.
+    public nonisolated static func relayPost(transport: any InstallAuthTransport, headers: [String: String],
+                                             capability: CloudCapabilityHolder?)
+        -> @Sendable (_ path: String, _ body: Data, _ bearer: String) async throws -> (status: Int, body: Data) {
+        { path, body, bearer in
+            var sent = headers
+            if let value = await capability?.header(forBearer: bearer) { sent[Self.header] = value }
+            return try await transport.post(path, json: body, bearer: bearer, headers: sent)
+        }
+    }
+
+    /// The capability a call going with `bearer` sends, or nil. Never waits for a mint: one Rust finds due
+    /// starts in the background and this call goes with what is held (or none, today's full checks).
+    public func header(forBearer bearer: String) -> String? {
+        step(Event(on: "call", team: teamOf(bearer)), bearer: bearer)
+    }
+
+    /// Sign-in, a team switch or the person's Cloud intent: mints now when Rust finds none held for the install
+    /// token's team or the held one due. Returns once that mint (if any) has answered.
+    public func intent() async {
+        step(Event(on: "use"), bearer: nil)
+        let bound = generation
+        guard let bearer = try? await token(), bound == generation else { return }
+        step(Event(on: "intent", team: teamOf(bearer), generation: bound), bearer: bearer)
+        await minting?.value
+    }
+
+    /// Sign-out: Rust forgets the capability and stops the timer; a mint in flight keeps nothing.
+    public func clear() {
+        step(Event(on: "clear"), bearer: nil)
+    }
+
+    // MARK: The FFI's words (cmux-cloud-start-core `capability::holder`)
+
+    private struct Event: Encodable {
+        var on: String
+        var team: String?
+        var generation: UInt64?
+        var status: Int?
+        var body: String?
+    }
+
+    private struct Effect: Decodable {
+        enum CodingKeys: String, CodingKey { case kind = "do", team, generation, afterMs }
+        var kind: String
+        var team: String?
+        var generation: UInt64?
+        var afterMs: Int64?
+    }
+
+    private struct Reply: Decodable {
+        var state: String
+        var send: String?
+        var effects: [Effect]
+        var holds: Bool
+        var generation: UInt64
+        var minting: Bool
+    }
+
+    /// One event to Rust; runs the effects it names (a mint with `bearer`, the timer) and returns what a call sends.
+    @discardableResult
+    private func step(_ event: Event, bearer: String?) -> String? {
+        struct Request: Encodable { var state: String?, event: Event, now: Int64 }
+        guard let reply = CloudStartCore().call("cloud_capability_step", Request(state: state, event: event, now: now()), as: Reply.self)
+        else { return nil }
+        (state, generation, holds) = (reply.state, reply.generation, reply.holds)
+        for effect in reply.effects {
+            switch effect.kind {
+            case "mint":
+                if let bearer, let team = effect.team, let bound = effect.generation { startMint(bearer: bearer, team: team, generation: bound) }
+            case "schedule":
+                guard let after = effect.afterMs, let bound = effect.generation else { continue }
+                timer.schedule(after: .milliseconds(after)) { [weak self] in await self?.wake(generation: bound) }
+            case "cancelTimer":
+                timer.cancel()
+            case "cancelMint":
+                minting?.cancel()
+                minting = nil
+            default:
+                continue
+            }
+        }
+        if !reply.minting { minting = nil }
+        return reply.send
+    }
+
+    private func startMint(bearer: String, team: String, generation bound: UInt64) {
+        // task-owner: minting; one mint at a time (Rust's), cancelled by clear(), ended by the transport's own timeout.
+        minting = Task { [mint] in
+            let answer = try? await mint(bearer)
+            self.minted(answer, team: team, generation: bound)
+        }
+    }
+
+    private func minted(_ answer: (status: Int, body: Data)?, team: String, generation bound: UInt64) {
+        let body = answer.map { String(decoding: $0.body, as: UTF8.self) }
+        step(Event(on: "minted", team: team, generation: bound, status: answer?.status, body: body), bearer: nil)
+    }
+
+    private func wake(generation bound: UInt64) async {
+        guard bound == generation, let bearer = try? await token(), bound == generation else { return }
+        step(Event(on: "wake", team: teamOf(bearer), generation: bound), bearer: bearer)
     }
 }

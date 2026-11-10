@@ -6,11 +6,14 @@
 //! and `/v1/read` with a token of the same team. The Worker then skips the plan and membership
 //! reads of that call; a missing, expired or stale capability only means today's full checks.
 //!
-//! Pure: the app does the HTTP and the clock; these rules say what a mint's answer holds, what a
-//! call sends and when the next mint goes.
+//! Pure: the app does the HTTP, the timer and the clock; these rules say what a mint's answer
+//! holds, what a call sends and when the next mint goes, and [`holder`] is the app's holder over
+//! them (sign-in, a team switch, sign-out, refresh and retry) as one reducer.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+pub mod holder;
 
 /// The request header a relayed op carries the capability in (cmux-platform `CAPABILITY_HEADER`).
 pub const HEADER: &str = "x-cmux-cloud-capability";
