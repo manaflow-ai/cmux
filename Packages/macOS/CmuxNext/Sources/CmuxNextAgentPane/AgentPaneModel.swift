@@ -417,7 +417,9 @@ public final class AgentPaneModel {
     /// Session Info's Remote Control switch (``AgentPaneRemoteControl``, the iPhone host's); nil: no row.
     @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
-    @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
+    @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines? { didSet { cloudMachines?.follow(self) } }
+    /// Runs when the account's active team changes (``AgentPaneCloudMachines/publishTeamChange()``): the view tells its page.
+    @ObservationIgnored var onCloudTeamChange: (() -> Void)?
     @ObservationIgnored public var onCloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     @ObservationIgnored public var onIMessage: (@MainActor (AgentPaneIMessageAction) async -> [String: Any])?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
