@@ -122,14 +122,17 @@ const MAX_CWD_BYTES: usize = 4096;
 /// A harness spawns and answers `session/new` (a cold agent can take long).
 const NEW_TIMEOUT: Duration = Duration::from_secs(60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long the start waits for acpmux's catalog (`_acpmux/harnesses`). A starting acpmux holds
-/// that answer until its catalog is ready (`Hub::harnesses_reply` waits on `catalog_ready`): after
-/// its login shell read (`login_env::import`, up to 2 x 3 s) and the catalog reload that follows.
-/// The app restarts acpmux with a person key just before a Cloud chat's start (remote approvals),
-/// so the start's catalog read can land on an acpmux still in that wait; with [`CALL_TIMEOUT`] it
-/// was refused `agent_session.timeout` ("did not start the agent in time") while acpmux was about
-/// to answer (cmuxterm-hq run 42837396397, cloud-chat-replies-production, 2026-11-10).
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long the start waits for acpmux to be ready, from its connect: its catalog answered
+/// (`_acpmux/harnesses`, which acpmux itself holds until `catalog_ready` in `hub/startup.rs`:
+/// after its login shell read, up to 2 x 3 s, and the catalog reload that follows), across an
+/// acpmux that restarts meanwhile. The app restarts acpmux with a person key just before a Cloud
+/// chat's start (remote approvals), so the start can reach an acpmux that is not ready yet, or
+/// one about to exit; with a fixed 5 s per call it was refused `agent_session.timeout` ("did not
+/// start the agent in time") while acpmux was about to answer (cmuxterm-hq run 42837396397,
+/// cloud-chat-replies-production, 2026-11-10).
+const READY_BUDGET: Duration = Duration::from_secs(20);
+/// Between connects to an acpmux that restarts (its socket gone or closed under the read).
+const READY_RETRY: Duration = Duration::from_millis(200);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
@@ -523,9 +526,47 @@ fn run(
     let began = Instant::now();
     let (link, started) = connect_noting(mux, &socket)?;
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
-    let result = start_and_bind(mux, client, &link, &params, phone, timings);
+    let checks = Instant::now();
+    let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, checks + READY_BUDGET)?;
+    let result = start_and_bind(mux, client, &link, &catalog, &params, phone, checks, timings);
     link.close();
     result
+}
+
+/// acpmux's catalog for a start in `cwd`, read once acpmux is ready (its own `catalog_ready`:
+/// the read waits for it), by `deadline`. An acpmux that goes away under the read, or is not
+/// listening yet, is one restarting (the app's keyed restart for remote approvals): the read
+/// connects again and asks again until `deadline`. It never runs the starter again: the restart
+/// brings its own acpmux, and a second start here would race it. The read changes nothing, so
+/// asking twice is safe; what the start changes comes after it, on the link this returns.
+fn ready_catalog(
+    socket: &std::path::Path,
+    mut link: Arc<AcpmuxLink>,
+    cwd: &str,
+    deadline: Instant,
+) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match link.call("_acpmux/harnesses", json!({"cwd": cwd}), left.max(READY_RETRY)) {
+            Ok(catalog) => return Ok((link, catalog)),
+            Err(super::agent_session_link::LinkError::Closed) if Instant::now() < deadline => {
+                link.close();
+            }
+            Err(error) => {
+                link.close();
+                return Err(Refusal::of(error));
+            }
+        }
+        link = loop {
+            std::thread::sleep(READY_RETRY);
+            match AcpmuxLink::connect(socket, |_| {}) {
+                Ok(link) => break link,
+                Err(_) if Instant::now() < deadline => {}
+                Err(_) => return Err(Refusal::Unavailable),
+            }
+        };
+    }
 }
 
 /// A link to acpmux, starting it once when nothing listens (also an
@@ -574,15 +615,19 @@ pub(in crate::server) fn restart_with(
 
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 /// `timings`: each phase reached, on this machine's clock.
+/// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
+/// checks before the agent began (the readiness wait included).
+#[allow(clippy::too_many_arguments)]
 fn start_and_bind(
     mux: &Arc<Mux>,
     client: u64,
     link: &AcpmuxLink,
+    catalog: &Value,
     params: &StartParams,
     phone: bool,
+    checks: Instant,
     timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
-    let checks = Instant::now();
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
@@ -599,10 +644,7 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog = link
-        .call("_acpmux/harnesses", json!({"cwd": cwd}), CATALOG_TIMEOUT)
-        .map_err(Refusal::of)?;
-    let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    let family = catalog_family(catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
