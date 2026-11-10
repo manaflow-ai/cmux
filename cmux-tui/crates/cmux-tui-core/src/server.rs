@@ -14667,6 +14667,24 @@ fn subscription_overflow_json() -> Value {
     })
 }
 
+#[cfg(test)]
+impl ClientRegistry {
+    /// Tests outside `server`: a new local client with an attach stream on
+    /// `surface`. Returns the client id.
+    pub(crate) fn attach_test_stream(&self, surface: SurfaceId) -> u64 {
+        let writer = MessageWriter::new(QueuedSink {
+            outbound: Arc::new(BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(ClientTransport::Unix, writer.clone());
+        let stream = writer
+            .start_stream(&attach_overflow_json(surface))
+            .expect("start the test attach stream");
+        self.attach_surface(client, surface, stream).expect("attach the test stream");
+        client
+    }
+}
+
 fn attach_overflow_json(surface: SurfaceId) -> Value {
     json!({
         "event": "overflow",
@@ -15220,18 +15238,18 @@ mod tests {
     /// The socket answers `identify` as soon as it is bound, and the owner
     /// started its reaper only later: a client that identified in between
     /// saw an owner without a reaper (restart_host_leak.rs:87 on macOS,
-    /// main #39586). An owner that announced its reaper lists the capability
-    /// from the start; a stopped reaper ends the announcement.
+    /// main #39586). A reaper held from before the bind lists the capability
+    /// from the start; a stopped reaper ends it.
     #[test]
-    fn terminal_reap_identify_lists_an_announced_reaper_before_it_starts() {
+    fn terminal_reap_identify_lists_a_held_reaper_before_it_is_released() {
         let mux = test_mux();
-        mux.announce_terminal_reaper();
+        let held = crate::prepare_terminal_reaper(&mux).unwrap();
         assert!(
             identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
             "an owner that starts its reaper once bound answered identify without \
              terminal-reaper-active-v1 before the reaper thread ran"
         );
-        let reaper = crate::start_terminal_reaper(&mux).unwrap();
+        let reaper = held.release();
         assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
         reaper.stop();
         assert!(

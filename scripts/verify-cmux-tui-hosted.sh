@@ -363,10 +363,12 @@ cancel_on_interrupt=true
 # the dispatch, and a run read sooner is titled only "cmux-tui".
 #
 # GitHub can answer 404 or 500 for a few seconds after it creates a run (run
-# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so a
-# failed read is not a failure and is not retried here: the script names the
-# run, gives the wait to glaeda-gh wait run (the single poller), and checks the
-# revision again before it accepts the result or an artifact.
+# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so such a
+# read is not a failure and is not retried here: the script names the run,
+# gives the wait to glaeda-gh wait run (the single poller), and checks the
+# revision again before it accepts the result or an artifact. A network drop
+# is waited out the same way. Any other error (401, 403, a broken gh) does
+# not heal by waiting: it exits 1 at once.
 run_identity_confirmed=false
 check_run_identity() {
   local identity
@@ -388,8 +390,18 @@ check_run_identity || identity_status=$?
 if [[ $identity_status -eq 1 ]]; then
   exit 1
 elif [[ $identity_status -eq 2 ]]; then
+  identity_error="$(tr '\n' ' ' < "$temp_dir/identity.err")"
+  # Waited out: 404 or 5xx (GitHub has not shown the new run yet) and a
+  # network drop with no HTTP code. Exit at once: any other HTTP error (401,
+  # 403) and a gh that fails without a network error (a broken gh).
+  if ! grep -Eqi 'HTTP (404|5[0-9][0-9])|error connecting to|connection (reset|refused)|timed? ?out|i/o timeout|no such host|TLS handshake|unexpected EOF' <<<"$identity_error" || \
+      grep -Eq 'HTTP (40[0-35-9]|4[1-9][0-9])' <<<"$identity_error"; then
+    printf 'error: could not read run %s that the dispatch created (%s); it is not cancelled: %s\n' \
+      "$run_id" "$identity_error" "$run_url" >&2
+    exit 1
+  fi
   printf 'note: GitHub created run %s but could not show it yet (%s); waiting on it, its revision is checked before the result counts\n' \
-    "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" >&2
+    "$run_id" "$identity_error" >&2
 fi
 
 echo "Run: $run_url"
@@ -584,7 +596,12 @@ if [[ "$run_finished" != true ]]; then
   fi
   echo "Hosted verification is still running (run ${run_status:-still running}) after the wait of ${timeout_seconds}s: $run_url" >&2
   echo "still running, wait with glaeda-gh wait run $REPO/$run_id" >&2
-  echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  if [[ "$run_identity_confirmed" == true ]]; then
+    echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  else
+    # Its first read failed, so no artifact of it may be used until its revision is read.
+    echo "The run's revision is not confirmed (its first read failed). When it is done, check it with: gh run view --repo $REPO $run_id --json headSha,headBranch,event; it must be $commit on $remote_branch (workflow_dispatch) before its result or artifacts count." >&2
+  fi
   exit 3
 fi
 cancel_on_interrupt=false

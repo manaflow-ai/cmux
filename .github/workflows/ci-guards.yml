@@ -230,6 +230,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the classic deploy guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_classic_deploy_guard.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -1317,6 +1321,10 @@ jobs:
       - name: Validate iOS upload batching
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_batching.py
+
+      - name: Validate failed gh api reads never become workflow values
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_gh_api_error_capture.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}

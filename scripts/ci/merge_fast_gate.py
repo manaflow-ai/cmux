@@ -30,7 +30,10 @@ When the --timeout budget runs out it prints `waited=<seconds>` and a
 `waiting=<name> (<state>)` line for each lane not done, so the caller's summary
 names them (2026-10-20: a wait that ran out with a lane still QUEUED read
 "nothing reported; waited 0m00s"). A rate-limited read refuses at once with the
-reset time instead of polling on.
+reset time instead of polling on. A read that timed out, or failed with a 5xx or network
+error, is retried with backoff (from --interval, doubling to 5 minutes) inside the --timeout
+budget; when the budget ends that way, the refusal says the reads kept failing (#40271,
+2026-11-10: one slow read refused a merge after 90 minutes of waiting).
 Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr);
 3: GitHub rate-limited the read (the reset time on stderr).
 """
@@ -89,6 +92,17 @@ class RateLimited(Refused):
     pass
 
 
+class ReadFailed(Refused):
+    """A pull request read that timed out or hit a transient GitHub or network error: run() retries it."""
+
+
+# gh's stderr for a GitHub 5xx or a dropped connection: the next read can succeed.
+TRANSIENT = re.compile(r"HTTP 5\d\d|bad gateway|service unavailable|gateway time-?out|timed? ?out|"
+                       r"connection (reset|refused|closed)|error connecting|unexpected EOF|TLS handshake|"
+                       r"temporary failure|something went wrong", re.I)
+MAX_BACKOFF = 300
+
+
 def _load_rate_limit():
     spec = importlib.util.spec_from_file_location("_merge_fast_gate_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
     module = importlib.util.module_from_spec(spec)
@@ -125,14 +139,19 @@ def gh_json(*args: str) -> dict:
     try:
         out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired:
-        raise Refused("reading the pull request took over 60s") from None
+        raise ReadFailed("reading the pull request took over 60s") from None
     if out.returncode != 0:
         if _rate.is_rate_limited(out.stderr):
             # Every later poll would fail the same way: refuse now and say when the quota resets.
             raise RateLimited(f"GitHub rate-limited the pull request read ({out.stderr.strip()[:200]}); "
                               + _rate.describe(read_limits(), after_limit=True))
+        if TRANSIENT.search(out.stderr):
+            raise ReadFailed(f"cannot read the pull request ({out.stderr.strip()[:200]})")
         raise Refused(f"cannot read the pull request ({out.stderr.strip()[:200]})")
-    return json.loads(out.stdout)
+    try:
+        return json.loads(out.stdout)
+    except json.JSONDecodeError:
+        raise ReadFailed(f"the pull request read returned no JSON ({out.stdout.strip()[:100]!r})") from None
 
 
 def canonical(name: str) -> str:
@@ -150,7 +169,11 @@ def canonical(name: str) -> str:
 def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
     """name -> (status, conclusion), upper case. The rollup is not ordered by time, so of
     several CheckRuns of one name (a rerun) the latest startedAt wins, then completedAt,
-    then list order; one not started yet (no startedAt, not completed) counts as newest."""
+    then list order; one not started yet (no startedAt, not completed) counts as newest.
+    A completed skipped run never replaces an older one of the same name: a skip is no verdict.
+    On 2026-11-09 a same-tree dispatch of cmux-next.yml on #39027's branch posted newer skipped
+    runs of every job it did not run, and the skipped "cmux-next checks" hid the older red. A
+    name with only skipped runs stays skipped."""
     checks: dict[str, tuple[str, str]] = {}
     newest: dict[str, tuple] = {}
     for index, item in enumerate(rollup):
@@ -161,35 +184,52 @@ def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
             continue
         name = canonical(item.get("name", ""))
         status = (item.get("status") or "").upper()
+        conclusion = (item.get("conclusion") or "").upper()
+        skipped = status == "COMPLETED" and conclusion == "SKIPPED"
         started = item.get("startedAt") or ("￿" if status != "COMPLETED" else "")
-        key = (started, item.get("completedAt") or "", index)
+        # A skipped run ranks below any run with a verdict or still going, whatever its time.
+        key = (not skipped, started, item.get("completedAt") or "", index)
         if name in newest and newest[name] > key:
             continue
         newest[name] = key
-        checks[name] = (status, (item.get("conclusion") or "").upper())
+        checks[name] = (status, conclusion)
     return checks
 
 
+def cmux_next_cancelled(rollup: list[dict]) -> bool:
+    """Whether a check of the cmux-next workflow run is cancelled (its newest run per name). A check that names
+    another workflow does not count; one that names none (an older gh) counts, as before."""
+    ours = [item for item in rollup if item.get("workflowName") in (None, "", NEXT_WORKFLOW_NAME)]
+    return any(conclusion == "CANCELLED" for _, conclusion in latest(ours).values())
+
+
+# The `name:` of .github/workflows/cmux-next.yml: the rollup's workflowName of its check runs.
+NEXT_WORKFLOW_NAME = "cmux-next"
 # A change to these files changes the route itself, so its own route cannot excuse a skip.
 ROUTE_FILES = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/cmux-next/fast-tier.json")
 
 
-def routed_skip(checks: dict[str, tuple[str, str]], files: list[str]) -> bool:
+def routed_skip(checks: dict[str, tuple[str, str]], files: list[str], next_cancelled: bool | None = None) -> bool:
     """Whether a skipped Mac fast tier was path routing's choice: path routing passed, its cargo half
     ran (any state but skipped or cancelled), which needs push-head-preflight current, the only other
-    reason the Mac tier skips, and no check on the head was cancelled (a cancelled run skips the Mac
-    tier too). Never for a change to the route itself: the PR's own route would excuse its own skip."""
+    reason the Mac tier skips, and no check of the cmux-next run was cancelled (a cancelled run skips
+    the Mac tier too; next_cancelled, from the rollup's workflow names, else any cancelled check on the
+    head counts). #39706 (2026-11-09): a cancelled "publish to R2" of cmux-tui artifacts refused a routed
+    skip. Never for a change to the route itself: the PR's own route would excuse its own skip."""
     if any(path in ROUTE_FILES for path in files):
         return False
     if checks.get(ROUTING, ("", ""))[1] != "SUCCESS":
         return False
-    if any(conclusion == "CANCELLED" for _, conclusion in checks.values()):
+    if next_cancelled is None:
+        next_cancelled = any(conclusion == "CANCELLED" for _, conclusion in checks.values())
+    if next_cancelled:
         return False
     cargo = checks.get(FAST_TIER_CARGO)
     return cargo is not None and cargo[1] != "SKIPPED"
 
 
-def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next: bool) -> tuple[list[str], list[str], list[str]]:
+def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next: bool,
+             next_cancelled: bool | None = None) -> tuple[list[str], list[str], list[str]]:
     """(fast lanes to wait for, fast lanes seen, completed gating reds). touches_next: the
     change is inside cmux-next.yml's pull_request paths, so a cmux-next run is coming."""
     waiting, seen, reds = [], [], []
@@ -218,7 +258,7 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
                 # (path_route fast_tier=false, e.g. a cmux-tui Rust change, PR #38743). The
                 # cargo half has the same conditions minus the path ones, so a cargo half
                 # that was not skipped proves the preflight was current: the route skipped it.
-                if name == FAST_TIER and touches_next and not routed_skip(checks, files):
+                if name == FAST_TIER and touches_next and not routed_skip(checks, files, next_cancelled):
                     raise Refused(f"'{name}' was skipped on the exact head: no verdict to waive, "
                                   "and --override cannot bypass that; rerun it")
                 continue
@@ -310,15 +350,28 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
     """files: the caller's full changed-file list; `gh pr view --json files` stops at 100."""
     read = read or gh_json
     start = clock()
+    failed, backoff = 0, interval
     while True:
-        pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
+        try:
+            pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
+        except ReadFailed as error:
+            failed += 1
+            waited = clock() - start
+            if waited >= timeout:
+                raise WaitRanOut(f"the --wait budget of {int(timeout)}s ran out after {int(waited)}s: {failed} "
+                                 f"reads timed out or failed, the last: {error}", waited, []) from None
+            sleep(min(backoff, timeout - waited))
+            backoff = min(backoff * 2, MAX_BACKOFF)
+            continue
+        backoff = interval
         if pr.get("headRefOid") != sha:
             raise Refused(f"the head moved to {pr.get('headRefOid')} while waiting on {sha}")
         if base is not None and pr.get("baseRefName") != base:
             raise Refused(f"the base changed to {pr.get('baseRefName')} (from {base}) while waiting on {sha}")
         changed = files if files is not None else [f.get("path", "") for f in pr.get("files") or []]
-        checks = latest(pr.get("statusCheckRollup") or [])
-        waiting, seen, reds = evaluate(checks, changed, touches_next)
+        rollup = pr.get("statusCheckRollup") or []
+        checks = latest(rollup)
+        waiting, seen, reds = evaluate(checks, changed, touches_next, cmux_next_cancelled(rollup))
         if not waiting:
             return clock() - start, seen, reds
         if clock() - start >= timeout:

@@ -979,6 +979,10 @@ path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_api_error_capture.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_upload_batching.py"
 lane = "linux-guard"
 
@@ -2243,6 +2247,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_classic_api_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_classic_deploy_guard.py"
 lane = "linux-guard"
 
 [[test]]
