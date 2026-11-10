@@ -17,7 +17,7 @@ struct RemoteText: Sendable {
         let file = "CmuxRemote_CmuxRemoteScreenSharing.bundle"
         let main = Bundle.main
         let places = [main.resourceURL, main.bundleURL, main.executableURL?.deletingLastPathComponent()]
-            + Bundle.allBundles.map(\.bundleURL.deletingLastPathComponent())
+            + Bundle.allBundles.map { $0.bundleURL.deletingLastPathComponent() }
         for place in places.compactMap({ $0 }) {
             if let bundle = Bundle(url: place.appendingPathComponent(file)) { return bundle }
         }
