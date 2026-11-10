@@ -3589,8 +3589,8 @@ jobs:
             echo "::error title=cmux-next fast tier::a Swift suite failed on the build fleet; its log is in cmux-next fast tier (build fleet)."
             exit 1
           fi
-          echo "::error title=cmux-next fast tier: no verdict::no verdict: cmux-next fast tier: the build fleet gave no verdict (fast-tier-fleet $RESULT, verdict '${VERDICT:-none}'), and no verdict is never a pass. Re-run the run once a Mac or the fleet is free."
-          exit 1
+          echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
+          exit 3
 
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -7001,11 +7001,7 @@ jobs:
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
-              # A compile that failed carries its own red; one that judged nothing (cancelled, abandoned) leaves
-              # this gate with no verdict, never a pass (scripts/ci/needs_verdict.py).
-              if [[ "$COMPILE" != failure ]]; then
-                echo "::error::no verdict: cmux-next crash ends the app: cmux-scheme-compile ${COMPILE:-none}; nothing it summarizes was judged: re-run the run"; exit 3
-              fi
+              [[ $COMPILE == failure ]] || { echo "::error::no verdict: crash gate: compile ${COMPILE:-none}"; exit 3; }
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
 
