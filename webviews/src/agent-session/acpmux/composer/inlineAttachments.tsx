@@ -67,6 +67,16 @@ export function useInlineAttachments(options: Options) {
   const removed = useRef(new Map<string, ComposerAttachment>());
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
+  /// The placed placeholders a committed render has drawn as loading since they were placed. Only
+  /// these can have ended: one placed in the task of its paste is in no render's `pending` yet, so
+  /// a late effect of an earlier render (the last chip's arrival, run after the next paste) never
+  /// takes it for one that became no chip and removes its node (composer-attach-no-jump: a second
+  /// paste right after the first landed in the strip).
+  const drawnLoading = useRef(new Set<string>());
+  const markPlaced = (id: string) => {
+    placed.current.add(id);
+    drawnLoading.current.delete(id);
+  };
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
   /// Attachments that stay in the strip (a chip with no place kept as a file, pastedChips.ts
@@ -113,11 +123,19 @@ export function useInlineAttachments(options: Options) {
   // A placeholder that ended as no chip of its id (an image that went as a link to its file) leaves
   // the text; one that became its chip is the chip's.
   useEffect(() => {
-    const { attachments, pending, field } = live.current;
+    const { field } = live.current;
+    // This render's own lists: the effect may run after a later paste placed a new placeholder.
+    const { pending, attachments } = options;
     for (const id of placed.current) {
-      if (pending.some((chip) => chip.id === id)) continue;
+      if (pending.some((chip) => chip.id === id)) {
+        drawnLoading.current.add(id);
+        continue;
+      }
+      const chip = attachments.some((attachment) => attachment.id === id);
+      if (!chip && !drawnLoading.current.has(id)) continue;
       placed.current.delete(id);
-      if (!attachments.some((attachment) => attachment.id === id)) field.current?.removeInline(id);
+      drawnLoading.current.delete(id);
+      if (!chip) field.current?.removeInline(id);
     }
   }, [options.pending, options.attachments]);
 
@@ -166,7 +184,7 @@ export function useInlineAttachments(options: Options) {
         for (const id of ids) deferred.current.add(id);
         return;
       }
-      for (const id of ids) placed.current.add(id);
+      for (const id of ids) markPlaced(id);
       // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
       if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
     },
@@ -192,7 +210,7 @@ export function useInlineAttachments(options: Options) {
         if (waiting.includes(id) || !pending.some((chip) => chip.id === id)) deferred.current.delete(id);
       const ids = [...fresh.map((chip) => chip.id), ...waiting];
       if (!ids.length) return;
-      for (const id of waiting) placed.current.add(id);
+      for (const id of waiting) markPlaced(id);
       if (!field.current?.insertInline(ids)) for (const id of waiting) placed.current.delete(id);
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
@@ -222,7 +240,7 @@ export function useInlineAttachments(options: Options) {
       // file is not kept leaves the text, never an empty atom.
       for (const id of came) {
         if (!cancelled.current.delete(id) || sourceFor(id)) continue;
-        if (live.current.revive(id)) placed.current.add(id);
+        if (live.current.revive(id)) markPlaced(id);
         else queueMicrotask(() => live.current.field.current?.removeInline(id));
       }
       for (const attachment of attachmentsRef.current) if (gone.has(attachment.id)) keep(attachment);
