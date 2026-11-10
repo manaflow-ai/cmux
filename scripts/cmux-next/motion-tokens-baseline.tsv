@@ -63,8 +63,6 @@ colour	webviews/src/pages/group-editor/fixtures.ts	10
 colour	webviews/src/pages/home-chat-colors/host.ts	3
 colour	webviews/src/pages/home-messages/transcript/colors.ts	1
 colour	webviews/src/pages/home-messages/transcript/transcript.css	4
-colour	webviews/src/pages/home-messages/viewer/pictureModel.ts	1
-colour	webviews/src/pages/home-messages/viewer/viewer.css	9
 colour	webviews/src/pages/keybindings/styles.css	2
 colour	webviews/src/pages/markdown/diagrams.ts	4
 colour	webviews/src/pages/markdown/markdownFind.ts	3

@@ -49,7 +49,11 @@ extension HomeStore {
     func restoreCache() {
         guard !cacheRestored else { return }
         cacheRestored = true
-        guard let snapshot = cache?.load() else { return }
+        guard let loaded = cache?.load() else { return }
+        // A cache the React Messages page wrote keeps its sends and staged files in its own
+        // fields: they move into the native ones now, and are written back at once.
+        let (snapshot, migrated) = HomeWebCacheMigration.migrate(loaded, blobCache: blobCacheDirectory)
+        defer { if migrated { viewCache.scheduleWrite() } }
         viewCache.restore(snapshot) {
             mirror.seed(snapshot)
             seeded = Set(mirror.conversations.keys)

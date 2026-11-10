@@ -66,6 +66,8 @@ final class HomeHostView: PaneMotionFollowingView {
     private var isWorking = false
     /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
     lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
+    /// What this Home's stop button runs on it; tests watch it.
+    var stopChief: @MainActor (HomeHostView) -> Void = { HomeChiefActions.stop(shown: $0) }
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
     /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
