@@ -92,7 +92,7 @@ const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.
 const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their ids";
-const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
+const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
@@ -105,7 +105,7 @@ Starts an agent chat, right here unless --on names another target:
   --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
   --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
-  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
+  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm ls`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
   CMUX_ON=TARGET names the target when --on is absent.
@@ -433,7 +433,7 @@ where
         if vm == "new" {
             return Ok(Route::Cloud(Machine::New));
         }
-        let vm = vm.strip_prefix("machine:").unwrap_or(vm);
+        let vm = super::vm_words::bare_id(vm);
         let listed = (reads.cloud_machines)()?;
         // Signed out, the app lists no VMs: say to sign in, not that the VM is unknown.
         if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
@@ -542,7 +542,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
             return Err(retryable(refusal(
                 "chat_target.vm_starting",
                 "your Cloud VM is still being made".to_owned(),
-                "run this command again once `cmux vm list-machines` lists it",
+                "run this command again once `cmux vm ls` lists it",
                 json!({}),
             )));
         }
@@ -560,7 +560,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     Err(refusal(
         "chat_target.which_vm",
         format!("you have {} Cloud VMs: {}", usable.len(), names.join(", ")),
-        "name one with --on vm:NAME (`cmux vm list-machines`), or use --on vm:new",
+        "name one with --on vm:NAME (`cmux vm ls`), or use --on vm:new",
         json!({"names": names}),
     ))
 }
