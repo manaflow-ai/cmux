@@ -1277,7 +1277,7 @@ fn a_path_outside_the_transfer_folder_or_not_a_private_file_is_refused_before_an
     refused("write", outside.clone(), Some(&dir));
     refused("write", dir.join("..").join("secret"), Some(&dir));
     refused("write", nested.join("f"), Some(&dir));
-    refused("write", nested.clone(), Some(&dir));
+    refused("write", nested, Some(&dir));
     refused("write", open, Some(&dir));
     refused("write", linked, Some(&dir));
     refused("write", fifo, Some(&dir));
@@ -1286,7 +1286,7 @@ fn a_path_outside_the_transfer_folder_or_not_a_private_file_is_refused_before_an
     refused("read", dir.join("..").join("new"), Some(&dir));
     refused("stat", dir.join("x"), Some(&dir));
     refused("exec", dir.join("x"), Some(&dir));
-    refused("write", outside.clone(), None);
+    refused("write", outside, None);
     // A folder open to others is no private folder.
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     let ok_file = dir.join("fine");

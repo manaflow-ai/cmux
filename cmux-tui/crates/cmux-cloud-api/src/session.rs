@@ -112,7 +112,7 @@ pub async fn mint_session(
         .route(machine, "/client-session")
         .map_err(|foreign| refused(0, "", foreign.to_string()))?;
     // Past the call's deadline (`crate::perform_by`) no mint is sent.
-    let timeout = crate::within(MINT_TIMEOUT, std::time::Duration::ZERO)
+    let timeout = crate::within(MINT_TIMEOUT, Duration::ZERO)
         .ok_or_else(|| refused(0, "", "the call reached its deadline".into()))?;
     let mut request = client
         .post(url)

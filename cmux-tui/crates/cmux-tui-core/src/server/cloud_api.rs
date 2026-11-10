@@ -250,10 +250,10 @@ mod calls {
                 match next {
                     Some(by) => {
                         let wait = by.saturating_duration_since(Instant::now());
-                        let _ = self.changed.wait_timeout(state, wait);
+                        let _woken = self.changed.wait_timeout(state, wait);
                     }
                     None => {
-                        let _ = self.changed.wait(state);
+                        let _woken = self.changed.wait(state);
                     }
                 }
             }
@@ -395,12 +395,15 @@ mod calls {
         fields.get(name).and_then(Value::as_str).map(str::to_owned)
     }
 
+    /// A parsed call: the library's request, its (empty) key and its caller's `deadline_ms`.
+    type Parsed = (Request, Zeroizing<Vec<u8>>, Option<u64>);
+
     /// The library's request and an empty key (no key comes through the daemon). Errors never
     /// echo a field's value.
     pub(super) fn parse(
         operation: ResourceOperation,
         fields: &mut Map<String, Value>,
-    ) -> Result<(Request, Zeroizing<Vec<u8>>, Option<u64>), ResourceError> {
+    ) -> Result<Parsed, ResourceError> {
         // The person key never goes through the daemon: the app streams it to the Worker itself
         // (review of #40104, F3). A key here is refused, and its text wiped.
         if let Some(key) = fields.remove("key_base64") {
