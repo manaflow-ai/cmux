@@ -185,15 +185,29 @@ fn an_expect_agent_send_waits_for_a_failed_echo_after_the_replay() {
         }
     }
     let sent = handle_command(&mux, client, reply(surface.id), &writer);
-    mux.fail_agent_report_echoes_for_test(0);
     assert!(sent.is_err(), "a send expecting the session went into the agent its report made busy");
+    // The owner appends the failed echo again after its backoff.
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    wait_for_the_echo(&mux, &terminal);
+    mux.fail_agent_report_echoes_for_test(0);
     assert!(!mux.agent_roster_settling(), "the replay reconciled after the echo");
     assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("working"));
     mux.shutdown();
 }
 
+/// Settles the roster until `terminal`'s direct report is folded, within 20 s.
+fn wait_for_the_echo(mux: &Arc<Mux>, terminal: &crate::TerminalPublicId) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while mux.agent_report_unsettled(terminal) && Instant::now() < deadline {
+        assert!(mux.settle_agent_roster_for_test());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!mux.agent_report_unsettled(terminal), "the echo was folded");
+}
+
 /// The same echo with no replay: until it is in the journal, the roster holds the agent's
-/// older `idle`, so the terminal's guarded sends are refused, and the owner appends it again.
+/// older `idle`, so the terminal's guarded sends are refused, and the owner appends it again
+/// (two failed appends, within its bound).
 #[cfg(unix)]
 #[test]
 fn an_expect_agent_send_is_refused_while_a_direct_reports_echo_is_not_in_the_journal() {
@@ -204,7 +218,7 @@ fn an_expect_agent_send_is_refused_while_a_direct_reports_echo_is_not_in_the_jou
     assert!(mux.settle_agent_roster_for_test());
     let writer = test_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    mux.fail_agent_report_echoes_for_test(u32::MAX);
+    mux.fail_agent_report_echoes_for_test(2);
     mux.report_agent(
         surface.id,
         crate::AgentState::Working,
@@ -212,16 +226,13 @@ fn an_expect_agent_send_is_refused_while_a_direct_reports_echo_is_not_in_the_jou
         Some("replay-session".into()),
     )
     .unwrap();
-    assert!(mux.settle_agent_roster_for_test());
-    assert!(mux.settle_agent_roster_for_test());
     let sent = handle_command(&mux, client, reply(surface.id), &writer);
     let roster = mux.agent_roster_state_now_for_test(&terminal_id);
-    mux.fail_agent_report_echoes_for_test(0);
     assert_eq!(roster.as_deref(), Some("idle"), "the echo is not in the journal");
     assert!(sent.is_err(), "a send expecting the session went into the agent its report made busy");
 
-    assert!(mux.settle_agent_roster_for_test());
-    assert!(mux.settle_agent_roster_for_test());
+    wait_for_the_echo(&mux, surface.terminal_public_id().unwrap());
+    mux.fail_agent_report_echoes_for_test(0);
     assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("working"));
     let after = handle_command(&mux, client, reply(surface.id), &writer)
         .expect_err("working once the echo is folded");

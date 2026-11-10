@@ -456,13 +456,13 @@ impl Mux {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                let echo = ReportEcho {
-                    terminal_id: agent.terminal_id.clone(),
-                    state: agent.state,
-                    source: agent.source,
-                    session: agent.session.clone(),
-                    updated_at_ms: agent.updated_at_ms,
-                };
+                let echo = ReportEcho::new(
+                    agent.terminal_id.clone(),
+                    agent.state,
+                    agent.source,
+                    agent.session.clone(),
+                    agent.updated_at_ms,
+                );
                 if let Some(number) = echo_number {
                     self.write_report_echo(number, echo);
                 }
