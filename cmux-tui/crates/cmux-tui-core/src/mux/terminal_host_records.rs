@@ -1,11 +1,13 @@
-//! Terminal host records: terminating discovered hosts, acknowledging exits, and scheduled host record cleanup.
+//! Terminal host records: terminating discovered hosts, acknowledging exits, and host record cleanup.
 
 use super::*;
 
 /// Terminate every host record under `root` for one terminal and
-/// acknowledge its exit sidecar.
+/// acknowledge its exit sidecar. A host that does not end at once is left
+/// to `closes`' record cleanup, which the owner's shutdown waits for.
 #[cfg(any(unix, windows))]
 pub(super) fn terminate_discovered_terminal_host_in(
+    closes: &Arc<host_close::TerminalHostCloses>,
     root: &Path,
     terminal_id: &str,
     incarnation: Option<&str>,
@@ -18,7 +20,7 @@ pub(super) fn terminate_discovered_terminal_host_in(
             && incarnation.is_none_or(|expected| record.incarnation == expected)
             && !terminate_host_record(record.clone(), path.clone())
         {
-            schedule_terminal_host_record_cleanup(record, path);
+            closes.schedule_record_cleanup(record, path);
         }
     }
     pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
@@ -74,41 +76,6 @@ pub(super) fn acknowledge_terminal_exit_sidecar(
         Ok(true) => true,
         Ok(false) => !exit_path.exists(),
         Err(_) => false,
-    }
-}
-
-#[cfg(any(unix, windows))]
-pub(super) fn schedule_terminal_host_record_cleanup(
-    record: crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: std::path::PathBuf,
-) {
-    let fallback_record = record.clone();
-    let fallback_path = record_path.clone();
-    let name = format!("terminal-clean-{}", record.terminal_id);
-    if std::thread::Builder::new()
-        .name(name)
-        .spawn(move || retry_terminal_host_record_cleanup(record, record_path))
-        .is_err()
-    {
-        // Thread exhaustion cannot turn a durable close into a permanent
-        // orphan. The request may remain blocked, but the exact host keeps
-        // being reconciled until it accepts termination or proves itself dead.
-        retry_terminal_host_record_cleanup(fallback_record, fallback_path);
-    }
-}
-
-#[cfg(any(unix, windows))]
-pub(super) fn retry_terminal_host_record_cleanup(
-    record: crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: std::path::PathBuf,
-) {
-    let mut delay = Duration::from_millis(25);
-    loop {
-        std::thread::sleep(delay);
-        if cleanup_terminal_host_record(&record, &record_path) {
-            return;
-        }
-        delay = (delay * 2).min(Duration::from_secs(5));
     }
 }
 

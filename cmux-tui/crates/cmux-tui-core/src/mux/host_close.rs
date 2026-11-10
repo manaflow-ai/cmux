@@ -45,13 +45,19 @@ struct HostCloseState {
     /// Steps (signals and finished closes) since start; a waiter measures
     /// progress with it.
     steps: u64,
+    /// The owner shuts down: a record cleanup makes one last attempt and
+    /// then stops.
+    ending: bool,
 }
 
-/// Shared queue of hosts that were asked to exit.
+/// Shared queue of hosts that were asked to exit, and the record cleanups
+/// that retry a host that did not end.
 #[derive(Default)]
 pub(crate) struct TerminalHostCloses {
     state: Mutex<HostCloseState>,
     idle: Condvar,
+    /// Wakes record cleanups from their backoff when the owner shuts down.
+    cleanup_wake: Condvar,
 }
 
 impl TerminalHostCloses {
@@ -96,7 +102,7 @@ impl TerminalHostCloses {
                     }
                 }
             };
-            let close = signal_host_close(close);
+            let close = signal_host_close(&self, close);
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.steps = state.steps.wrapping_add(1);
             self.idle.notify_all();
@@ -128,7 +134,7 @@ impl TerminalHostCloses {
                         state.wait_queue.pop_back()
                     };
                     if let Some(close) = close {
-                        finish_host_close(close);
+                        finish_host_close(&self, close);
                         self.complete();
                     }
                 }
@@ -137,6 +143,76 @@ impl TerminalHostCloses {
             state.pending -= 1;
             self.idle.notify_all();
         }
+    }
+
+    /// Retry the end of a host that a close could not end, on its own
+    /// thread, until it ends or its record proves it dead. Each retry counts
+    /// as a pending close, so the owner's shutdown wakes it for one last
+    /// attempt and waits for it ([`Self::wait_idle`]): a server stop right
+    /// after a close no longer drops the close's Terminate with a detached
+    /// thread.
+    #[cfg(any(unix, windows))]
+    pub(super) fn schedule_record_cleanup(
+        self: &Arc<Self>,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+    ) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).pending += 1;
+        let fallback = (record.clone(), record_path.clone());
+        let closes = self.clone();
+        if std::thread::Builder::new()
+            .name(format!("terminal-clean-{}", record.terminal_id))
+            .spawn(move || closes.retry_record_cleanup(record, record_path))
+            .is_err()
+        {
+            // Thread exhaustion cannot turn a durable close into a permanent
+            // orphan. The request may remain blocked, but the exact host keeps
+            // being reconciled until it accepts termination or proves itself
+            // dead.
+            self.retry_record_cleanup(fallback.0, fallback.1);
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    fn retry_record_cleanup(
+        &self,
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+    ) {
+        let mut delay = Duration::from_millis(25);
+        loop {
+            // A bounded backoff between attempts; the owner's shutdown cuts it
+            // short (begin_shutdown).
+            let ending = {
+                let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                let (state, _) = self
+                    .cleanup_wake
+                    .wait_timeout_while(state, delay, |state| !state.ending)
+                    .unwrap_or_else(PoisonError::into_inner);
+                state.ending
+            };
+            if cleanup_terminal_host_record(&record, &record_path) {
+                break;
+            }
+            if ending {
+                eprintln!(
+                    "cmux-tui: terminal {} host {} did not end before this owner stopped; \
+                     its record stays at {} for the next owner",
+                    record.terminal_id,
+                    record.host_pid,
+                    record_path.display()
+                );
+                break;
+            }
+            delay = (delay * 2).min(Duration::from_secs(5));
+        }
+        self.complete();
+    }
+
+    /// The owner shuts down: each record cleanup makes its last attempt now.
+    pub(crate) fn begin_shutdown(&self) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).ending = true;
+        self.cleanup_wake.notify_all();
     }
 
     fn complete(&self) {
@@ -158,7 +234,7 @@ impl TerminalHostCloses {
                     }
                 }
             };
-            finish_host_close(close);
+            finish_host_close(&self, close);
             self.complete();
         }
     }
@@ -195,7 +271,10 @@ impl TerminalHostCloses {
 /// Ask one queued host to exit. Returns the close to await, or `None` when a
 /// local runtime was killed inline.
 #[cfg(any(unix, windows))]
-fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
+fn signal_host_close(
+    closes: &Arc<TerminalHostCloses>,
+    close: PendingHostClose,
+) -> Option<PendingHostClose> {
     let PendingHostClose { runtime, identity, host_root, .. } = close;
     let termination = match runtime.begin_host_termination() {
         Ok(Some(termination)) => Some(termination),
@@ -203,6 +282,7 @@ fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
             runtime.kill();
             if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
                 terminate_discovered_terminal_host_in(
+                    closes,
                     root,
                     &identity.terminal_id,
                     Some(&identity.incarnation),
@@ -220,6 +300,7 @@ fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
             runtime.kill();
             if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
                 terminate_discovered_terminal_host_in(
+                    closes,
                     root,
                     &identity.terminal_id,
                     Some(&identity.incarnation),
@@ -238,7 +319,7 @@ fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
 }
 
 #[cfg(any(unix, windows))]
-fn finish_host_close(close: PendingHostClose) {
+fn finish_host_close(closes: &Arc<TerminalHostCloses>, close: PendingHostClose) {
     let PendingHostClose { runtime, termination, identity, host_root } = close;
     let Some((termination, deadline)) = termination else { return };
     let acknowledged = match runtime.wait_for_host_exit(termination, deadline) {
@@ -256,6 +337,7 @@ fn finish_host_close(close: PendingHostClose) {
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
         terminate_discovered_terminal_host_in(
+            closes,
             &root,
             &identity.terminal_id,
             Some(&identity.incarnation),
