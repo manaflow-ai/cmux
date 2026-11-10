@@ -38,6 +38,7 @@ import os
 import re
 import secrets as random
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -694,6 +695,9 @@ def main(argv=None) -> int:
     root = Path(tempfile.mkdtemp(prefix="cmux-matrix-"))
     canary = f"cmxcanary{random.token_hex(10)}"
     matrix = Matrix(args)
+    # A cancelled CI job sends SIGTERM, which skips `finally`: turn it into SystemExit so quit() still
+    # resets the Claude-login consent and quits the app, and the machines are swept.
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
     report = {"tag": args.tag, "agents": agents, "cells": [], "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     try:
         problem = matrix.launch()
