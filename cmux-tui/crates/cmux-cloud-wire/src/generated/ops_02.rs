@@ -494,6 +494,47 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The team board in one read: `machines`, `usage` and `audit` are exactly what GET /v1/machines, GET /v1/machines/usage (the last 30 days) and GET /v1/machines/audit (the newest 50 rows) answer the caller (TeamMachine[], MachineUsage, MachineAuditRow[]); `members` is the first 200 of the team's members by user id with their display names (team.members.list), or null when the caller may not read them; `self` is the caller's user id. The same access as those reads: a member of the team, or its billing role.
+    CloudMachineBoardOp {
+        name: "cloud.machine.board",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineBoardParams,
+        result: CloudMachineBoardResult,
+        error: CloudMachineBoardError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineBoardParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineBoardResult {
+    pub machines: Vec<Value>,
+    pub usage: Value,
+    pub audit: Vec<Value>,
+    pub members: Option<Vec<BoardMember>>,
+    #[serde(rename = "self")]
+    pub self_: UserId,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.board declares.
+    CloudMachineBoardError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).
     CloudMachineConnectInfoOp {
         name: "cloud.machine.connect_info",
@@ -854,42 +895,4 @@ pub struct CloudMachineListResult {
     pub machines: Vec<CloudMachine>,
     pub next_cursor: Option<String>,
     pub revision: Revision,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.list declares.
-    CloudMachineListError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
-    CloudMachinePauseOp {
-        name: "cloud.machine.pause",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: CloudMachinePauseParams,
-        result: CloudMachinePauseResult,
-        error: CloudMachinePauseError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachinePauseParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachinePauseResult {
-    pub machine: CloudMachine,
 }

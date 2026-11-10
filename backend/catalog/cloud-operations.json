@@ -371,6 +371,25 @@
       },
       "description": "A stored avatar: its SHA-256, its media type (from the bytes) and its size."
     },
+    "BoardMember": {
+      "kind": "object",
+      "fields": {
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
     "Body": {
       "kind": "union",
       "variants": [
@@ -27505,6 +27524,169 @@
               "idle_policy",
               "error",
               "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.machine.board": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "machines": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "json"
+              }
+            }
+          },
+          "usage": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "audit": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "json"
+              }
+            }
+          },
+          "members": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "array",
+                "items": {
+                  "kind": "ref",
+                  "name": "BoardMember"
+                }
+              }
+            }
+          },
+          "self": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud machine board",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "The team board in one read: `machines`, `usage` and `audit` are exactly what GET /v1/machines, GET /v1/machines/usage (the last 30 days) and GET /v1/machines/audit (the newest 50 rows) answer the caller (TeamMachine[], MachineUsage, MachineAuditRow[]); `members` is the first 200 of the team's members by user id with their display names (team.members.list), or null when the caller may not read them; `self` is the caller's user id. The same access as those reads: a member of the team, or its billing role.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machines": {
+            "type": "array"
+          },
+          "usage": {},
+          "audit": {
+            "type": "array"
+          },
+          "members": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/BoardMember"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "self": {
+            "$ref": "#/$defs/UserId"
+          }
+        },
+        "required": [
+          "machines",
+          "usage",
+          "audit",
+          "members",
+          "self"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "BoardMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "user"
             ],
             "additionalProperties": true
           }

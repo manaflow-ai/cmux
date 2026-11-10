@@ -512,8 +512,37 @@ export const CloudMigrationStart = cloudMutation(
   true
 )
 
+/**
+ * The team board in one read (cmux-platform src/server/machines/Board.ts). A cloud:CloudDO op only so that the
+ * forwarder (platform-forward.ts) and the app host's relay (`cloud.*`) send it to the platform, which answers it from
+ * the team's machine records, never from CloudDO. `machines`, `usage` and `audit` are the platform's REST answers
+ * GET /v1/machines, /v1/machines/usage and /v1/machines/audit (TeamMachine[], MachineUsage, MachineAuditRow[];
+ * cmux-tui/crates/cmux-cloud-client/openapi.json), untouched.
+ */
+export const BoardMember = Schema.Struct({
+  user: UserId,
+  /** The member's display name in the team directory. */
+  name: Schema.optionalKey(Schema.String)
+}).annotate({ identifier: "BoardMember" })
+
+export const CloudMachineBoard = cloudRead(
+  "cloud.machine.board",
+  Schema.Struct({}),
+  Schema.Struct({
+    machines: Schema.Array(Schema.Unknown),
+    usage: Schema.Unknown,
+    audit: Schema.Array(Schema.Unknown),
+    members: Schema.NullOr(Schema.Array(BoardMember)),
+    self: UserId
+  }),
+  [],
+  "The team board in one read: `machines`, `usage` and `audit` are exactly what GET /v1/machines, GET /v1/machines/usage (the last 30 days) and GET /v1/machines/audit (the newest 50 rows) answer the caller (TeamMachine[], MachineUsage, MachineAuditRow[]); `members` is the first 200 of the team's members by user id with their display names (team.members.list), or null when the caller may not read them; `self` is the caller's user id. The same access as those reads: a member of the team, or its billing role.",
+  "cloud machine board"
+)
+
 export const cloudMachineOps = [
   CloudMachineList,
+  CloudMachineBoard,
   CloudMachineGet,
   CloudMachineCreate,
   CloudMachineRename,
