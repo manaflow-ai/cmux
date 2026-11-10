@@ -80,16 +80,6 @@ function chipElement(title: string, kind: string, href: string, icon: string | u
   return chip;
 }
 
-/// An empty image before the chip's front, as CodeMirror's widget buffer: WebKit draws no caret
-/// before an element that takes no input at a line's start, so the caret there stands after this.
-function caretBuffer(): HTMLElement {
-  const buffer = document.createElement("img");
-  buffer.className = "acpmux-caret-buffer";
-  buffer.alt = "";
-  buffer.setAttribute("aria-hidden", "true");
-  return buffer;
-}
-
 /// The chip's front: the kind's icon on its ::before (markdownField.css), as the sent chip draws it.
 /// A box of its own before the link's characters, so the caret before the chip stands beside a drawn
 /// element in WebKit too, never against the hidden text alone (at a line's start WebKit drew none).
@@ -135,8 +125,6 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
       const title = titles.label(info);
       const icon = titles.icon?.(info);
       decorations.push(
-        // Before the position before the link (side -1): the caret there stands after it.
-        Decoration.widget(link.from, caretBuffer, { side: -1, key: "caret-buffer", raw: true }),
         // After the position before the link (side 1): the caret there stands before the chip.
         Decoration.widget(link.from, () => chipStart(icon), { side: 1, key: `start\n${icon ?? ""}` }),
         Decoration.inline(link.from, link.to, { class: TITLED_LINK_CLASS }),
