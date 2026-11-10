@@ -31,14 +31,13 @@ extension WindowController {
             self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
+        sidebar.container.sidebarView.healthIndicator = services.healthFeeds.makeIndicator { [weak self] in self?.window } // app health's footer line
         root.sidebarFloat.isAllowed = { [weak self] in self.map { $0.state.page != .home && !$0.root.presentsPage } ?? false }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in ObservationStream({ model.isHidden }) {
                 guard let self else { return }
-                if hidden { services.hoverCards.suppress(.sidebarHide) }
-                else { services.hoverCards.unsuppress(.sidebarHide) }
-                if hidden { services.hoverCards.dismiss(.action) }
+                if hidden { services.hoverCards.suppress(.sidebarHide); services.hoverCards.dismiss(.action) } else { services.hoverCards.unsuppress(.sidebarHide) }
                 root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
                 root.sidebarHidden = hidden
                 root.layoutSubtreeIfNeeded()
