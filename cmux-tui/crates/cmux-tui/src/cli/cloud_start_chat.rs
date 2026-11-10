@@ -119,6 +119,8 @@ pub(super) struct Request {
     /// `--make-room`: at a machine cap, free the machine the refusal offers (cap.rs [`cap::room`])
     /// and start again once.
     pub make_room: bool,
+    /// `--allow-large`: copy `from_folder` even past the copy's limits (link/sync_cli/size_cap.rs).
+    pub allow_large: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -149,7 +151,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             return Some(0);
         }
         Ok(Parsed::Run(request)) => request,
+        // A folder refused for what it is: its reason and what to do, not the whole help.
         Err(error) => {
+            if let Some(code) = folder_refused(&error, global.output) {
+                return Some(code);
+            }
             return Some(super::app::failure(
                 "usage.invalid",
                 &format!("cmux: {}\n{}", error.0, super::cloud_help::START_CHAT_USAGE),
@@ -161,9 +167,39 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(start(&global, &request))
 }
 
+/// A `--from-folder` refused for what the folder is (home, a key folder, gone), printed as its
+/// reason and what to do with [`folder::REFUSED_CODE`], never with the whole help; exit 2. None
+/// for any other usage error.
+pub(super) fn folder_refused(error: &UsageError, output: OutputMode) -> Option<i32> {
+    let reason = folder::refusal(error)?;
+    Some(super::app::failure(folder::REFUSED_CODE, &format!("cmux: {reason}"), output, 2))
+}
+
 /// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
 /// and `cmux chat --on vm:…` (chat_start.rs) are the same run.
 pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
+    // `--allow-large`: the copy of this folder sends it whole, whichever surface runs it.
+    if request.allow_large
+        && let Some(dir) = &request.from_folder
+        && let Err(error) = crate::link::sync_cli::size_cap::allow(std::path::Path::new(dir))
+    {
+        let message = format!("cmux: {error:#}");
+        return super::app::failure(folder::REFUSED_CODE, &message, global.output, 2);
+    }
+    // A folder too big to copy is refused before any machine is made for it.
+    if let Some(dir) = &request.from_folder
+        && !request.allow_large
+        && let Err(large) = crate::link::sync_cli::size_cap::check_plain(std::path::Path::new(dir))
+    {
+        let hint = crate::link::sync_cli::size_cap::OVERRIDE_HINT;
+        let message = format!("cmux: {large}{hint}");
+        return super::app::failure(
+            crate::link::sync_cli::size_cap::CODE,
+            &message,
+            global.output,
+            2,
+        );
+    }
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
     let outcome = run(&mut runner, request);
     report(&outcome, global.output)
@@ -190,6 +226,7 @@ pub(super) fn send_existing(
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
         make_room: false,
+        allow_large: false,
     };
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -321,6 +358,7 @@ pub(super) fn parse(
     let mut target = None;
     let mut wait = false;
     let mut make_room = false;
+    let mut allow_large = false;
     let mut timeout = DEFAULT_TIMEOUT;
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
     let mut literal = false;
@@ -356,6 +394,7 @@ pub(super) fn parse(
             }
             "--wait" => wait = true,
             "--make-room" => make_room = true,
+            "--allow-large" => allow_large = true,
             "--no-wait" => wait = false,
             // `-- TEXT`: the prompt, read as text even when it starts with `-`.
             "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
@@ -437,6 +476,7 @@ pub(super) fn parse(
         wait,
         timeout,
         make_room,
+        allow_large,
     }))
 }
 

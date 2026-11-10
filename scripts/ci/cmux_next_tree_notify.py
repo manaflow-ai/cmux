@@ -66,12 +66,15 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
 from typing import Callable, Protocol
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - every call's transport: nothing is sent past its bound
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ISO_TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -110,48 +113,14 @@ class Api(Protocol):
 REQUEST_TIMEOUT_S = 30
 
 
-class RequestTimeout(TimeoutError):
-    """A call that did not finish within its whole-request bound. Its socket may still be open on the
-    abandoned worker thread, so a write (a dispatch, a cancel) may have reached GitHub, or may yet: the
-    caller treats it as unknown, never as done and never as refused."""
-
-
-def urlopen_within(request: urllib.request.Request, bound: float) -> tuple[int, bytes, dict[str, str]]:
-    """One HTTP call bounded as a whole: name lookup, connect, TLS, the status line, every header and the
-    body end within BOUND seconds on one monotonic clock, or RequestTimeout. urlopen's own timeout bounds
-    each socket wait, not the call: a server that sends a byte every few seconds holds it as long as it
-    likes (Codex review of #40530: a 204 after 0.293 s with a 0.1 s timeout). So the call runs on a
-    daemon thread joined with BOUND; its socket timeout is BOUND too, so an abandoned call ends soon after.
-    An HTTP error status is an answer, returned as (status, body, headers) like a success."""
-    outcome: list = []
-
-    def call() -> None:
-        try:
-            try:
-                # Read at call time: tests replace urllib.request.urlopen.
-                response = urllib.request.urlopen(request, timeout=bound)
-            except urllib.error.HTTPError as error:
-                response = error
-            with response:
-                outcome.append((response.status, response.read(),
-                                {k.lower(): v for k, v in (response.headers or {}).items()}))
-        except BaseException as error:  # handed to the caller's thread
-            outcome.append(error)
-
-    started = time.monotonic()
-    worker = threading.Thread(target=call, name="github-request", daemon=True)
-    worker.start()
-    worker.join(bound)
-    if worker.is_alive() or not outcome:
-        raise RequestTimeout(f"{request.get_method()} {request.full_url}: no full answer within {bound:g} s "
-                             f"({time.monotonic() - started:.1f} s)")
-    if isinstance(outcome[0], BaseException):
-        raise outcome[0]
-    return outcome[0]
+# A call that did not finish within its bound (deadline_http.RequestTimeout). It ran on the caller's
+# thread and stopped at its bound, so nothing was sent after it; a write sent before it (a dispatch, a
+# cancel) may have reached GitHub, so the caller treats it as unknown, never as done and never as refused.
+RequestTimeout = deadline_http.RequestTimeout
 
 
 class GitHub:
-    # Every call's whole-request bound (urlopen_within); a test sets a fraction of a second.
+    # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
     timeout: float = REQUEST_TIMEOUT_S
 
     def __init__(self, token: str, api_url: str = "https://api.github.com"):
@@ -168,7 +137,7 @@ class GitHub:
         # Unredirected: an artifact download redirects to blob storage, which
         # must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        return urlopen_within(request, self.timeout)
+        return deadline_http.request(request, self.timeout)
 
     def _request(self, method: str, url: str, body: dict | None = None):
         status, payload, _ = self._send(method, url, body)
@@ -198,7 +167,7 @@ def fetch_completion(key: str) -> object | None:
     # The query string bypasses a cached 404 at the CDN edge.
     url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
     try:
-        status, payload, _ = urlopen_within(urllib.request.Request(url), REQUEST_TIMEOUT_S)
+        status, payload, _ = deadline_http.request(url, REQUEST_TIMEOUT_S)
         return json.loads(payload) if status == 200 else None
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
