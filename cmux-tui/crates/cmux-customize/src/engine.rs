@@ -28,6 +28,10 @@ impl Customize {
         Roots::from_env().map(Customize::open).ok_or(Error::NoHome)
     }
 
+    pub(crate) fn store(&self) -> &Store {
+        &self.store
+    }
+
     pub fn roots(&self) -> &Roots {
         &self.roots
     }
@@ -120,6 +124,17 @@ impl Customize {
     /// made outside a draft are recorded first, as their own generation.
     pub fn begin(&self, ask: &str, origin: &str, now_ms: u64) -> Result<Begun, Error> {
         let _lock = self.store.lock()?;
+        self.begin_locked(ask, origin, now_ms)
+    }
+
+    /// [`Customize::begin`] for a caller that holds the store's lock and
+    /// goes on to write under it (a profile import).
+    pub(crate) fn begin_locked(
+        &self,
+        ask: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Begun, Error> {
         let mut index = self.store.index()?;
         let existing = self.store.draft()?;
         let (mut baseline, mut by_hand) = (None, None);
@@ -339,16 +354,25 @@ impl Customize {
         // Every object the restore needs is read and checked before one live
         // file changes: a damaged store refuses whole.
         let mut wanted = BTreeMap::new();
-        let Scan { tree: live, skipped, .. } = tree::scan(&self.roots)?;
-        // A live file the scan left out (it grew past the size limit) has no
-        // copy anywhere: writing the older one over it would lose it for good.
-        let in_the_way: Vec<_> =
-            skipped.into_iter().filter(|file| target_tree.contains_key(&file.path)).collect();
+        let Scan { tree: live, .. } = tree::scan(&self.roots)?;
+        // The executable bit counts: a script whose only change is its mode
+        // is written again, so the restore leaves nothing dirty.
+        let differs = |path: &String, entry: &tree::Entry| {
+            live.get(path).is_none_or(|now| now.sha != entry.sha || now.exec != entry.exec)
+        };
+        // Something on disk that no generation holds (a file grown past the
+        // size limit, a folder swapped for a link into a dotfiles repo) has
+        // no copy anywhere: writing over it would lose it for good.
+        let in_the_way: Vec<_> = target_tree
+            .iter()
+            .filter(|(path, entry)| differs(path, entry))
+            .filter_map(|(path, _)| tree::in_the_way(&self.roots, path, &live))
+            .collect();
         if !in_the_way.is_empty() {
             return Err(Error::Untracked(in_the_way));
         }
         for (path, entry) in &target_tree {
-            if live.get(path).map(|entry| &entry.sha) != Some(&entry.sha) {
+            if differs(path, entry) {
                 wanted.insert(path.clone(), (self.store.object(&entry.sha)?, entry.exec));
             }
         }

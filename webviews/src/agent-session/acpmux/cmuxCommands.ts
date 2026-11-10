@@ -296,8 +296,9 @@ export function cmuxCommandRefusal(
     inCloud?: boolean;
     /// This pane can open New Cloud Chat for a started chat's `--on cloud` (not Quick Chat).
     cloudStart?: boolean;
-    /// No chat has started and Cloud or Sandboxed is picked for it: there is no chat to read a
-    /// host from yet, and the one this prompt starts will not run on this machine's own files.
+    /// No chat has started and Cloud or Sandboxed is picked for it (there is no chat to read a host
+    /// from yet), or the chat runs on another machine of the person's: either way the prompt
+    /// would not act on this machine's own files.
     startsElsewhere?: boolean;
   },
 ): StringKey | undefined {

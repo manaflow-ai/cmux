@@ -51,6 +51,9 @@ describe("/customize", () => {
       expect(newChatRunsElsewhere(pick)).toBe(true);
     // A started chat answers by its own host (`inCloud`), whatever the picker last showed.
     expect(newChatRunsElsewhere({ started: true, mode: "cloud" })).toBe(false);
+    // One on another machine of the person's is that machine's cmux, not this one's.
+    expect(newChatRunsElsewhere({ started: true, peer: true })).toBe(true);
+    expect(newChatRunsElsewhere({ started: true, peer: false })).toBe(false);
   });
 
   test("only a whole /customize message is taken", () => {
