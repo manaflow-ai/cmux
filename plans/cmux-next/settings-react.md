@@ -273,6 +273,9 @@ these from the daemon first:
    `CMUX_NEXT_CONFIG_FILE` when it started) and outlives the app, so the app cannot tell today that
    both use one file. A write sent to an owner of another file changes the wrong file, and the app
    never sees it.
+   Decided (2026-11-10), for the next PR: the app passes its config path to the daemon at launch,
+   and the daemon reports its owner's path in `settings.snapshot`, so an app that joins a daemon
+   that already runs sees a mismatch and does not send its writes to the wrong file.
 2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
    owner's `settings.set`: a renamed row's old key goes with the write, the window background's
    opacity and material change together, a built-in density ends the custom one.

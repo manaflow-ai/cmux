@@ -11,7 +11,7 @@ import os
 /// The daemon writes the same file (`settings.set`, `settings.reset`). Every write here holds the
 /// daemon's lock (``SettingsFileLock``) from its read of the file to its publish, so a daemon
 /// write and a write here never replace each other's edit. A write suspends while it waits for
-/// the lock (never a thread of the caller's), and throws ``SettingsFileLock/Busy`` when another
+/// the lock (never a thread of the caller's), and throws ``SettingsFileBusy`` when another
 /// writer keeps the lock too long. Other calls of this actor may run during that wait; each write
 /// reads the file only after it has the lock.
 public actor CmuxConfigFile {
