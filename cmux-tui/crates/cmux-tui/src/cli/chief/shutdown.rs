@@ -162,6 +162,7 @@ fn stop_daemon(global: &GlobalArgs, home: &ChiefHome) -> i32 {
         action: crate::cli::lifecycle::ServerAction::Stop {
             force: false,
             end_terminals: true,
+            purge: false,
             restore_wait: crate::local_owner::RESTORE_DEADLINE,
         },
         session: None,

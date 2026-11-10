@@ -88,20 +88,7 @@ pub(in crate::cli) fn run_session_reset_state(
     }
     match resetter.reset(&plan.session, plan.confirm_reset.as_deref()) {
         Ok(reset) => {
-            // The session has no saved state left, so no owner will ever send
-            // its queued agent hook events: drop and count them. A queue that
-            // cannot be dropped is reported, and waits for a session of the
-            // same name.
-            let hook_queue = cmux_tui_core::server::try_default_socket_path(&plan.session)
-                .map_err(|error| error.to_string())
-                .and_then(|socket| {
-                    cmux_tui_core::diagnostics::drop_session_hook_queues(&socket)
-                        .map_err(|error| error.to_string())
-                });
-            let (hook_queue_key, hook_queue_value) = match hook_queue {
-                Ok(dropped) => ("dropped_hook_events", json!(dropped)),
-                Err(error) => ("hook_queue_error", json!(error)),
-            };
+            let (hook_queue_key, hook_queue_value) = drop_hook_queue(&plan.session);
             let mut result = serde_json::Map::new();
             result.insert("session".to_owned(), json!(plan.session));
             result.insert("removed_session_state".to_owned(), json!(reset.removed_session_state));
@@ -165,6 +152,81 @@ pub(in crate::cli) fn end_stopped_terminal_state(
     fields.insert("removed_terminal_state".to_owned(), json!(ended.is_ok()));
     if let Err(code) = ended {
         fields.insert("terminal_state_error".to_owned(), json!(code));
+    }
+    fields
+}
+
+/// The session has no saved state left, so no owner will ever send its
+/// queued agent hook events: drops and counts them. A queue that cannot be
+/// dropped is reported, and waits for a session of the same name. Returns
+/// the result field: `dropped_hook_events` or `hook_queue_error`.
+fn drop_hook_queue(session: &str) -> (&'static str, serde_json::Value) {
+    let hook_queue = cmux_tui_core::server::try_default_socket_path(session)
+        .map_err(|error| error.to_string())
+        .and_then(|socket| {
+            cmux_tui_core::diagnostics::drop_session_hook_queues(&socket)
+                .map_err(|error| error.to_string())
+        });
+    match hook_queue {
+        Ok(dropped) => ("dropped_hook_events", json!(dropped)),
+        Err(error) => ("hook_queue_error", json!(error)),
+    }
+}
+
+/// `daemon stop --purge` (W6-E, bench round 5 A8): removes the stopped
+/// session's whole folder and its terminal-host records, as `session <name>
+/// reset-state --force` does with its preview's confirmation token, and
+/// drops its queued hook events. With `wait`, it first waits (until then,
+/// with a blocking lock call) for the stopping owner to release the
+/// session's locks; without, a session that another owner runs is refused
+/// at once. The state root is the one the owner named (`session_dir`'s
+/// parent), else this process's. Another session's folder is never
+/// touched. Returns the stop result's fields: `removed_session_state`
+/// (true once none is left), `removed_terminal_hosts`, the hook queue
+/// field, and on failure `session_state_error` (a `session.reset_state.*`
+/// code).
+pub(in crate::cli) fn purge_stopped_session_state(
+    session: Option<&str>,
+    session_dir: Option<&std::path::Path>,
+    wait: Option<std::time::Instant>,
+) -> serde_json::Map<String, serde_json::Value> {
+    use cmux_tui_core::PersistentSessionStateResetter as Resetter;
+    let mut fields = serde_json::Map::new();
+    let purged = session.ok_or("session.reset_state.no_session").and_then(|session| {
+        let resetter = match session_dir {
+            Some(dir) => dir
+                .parent()
+                .map(|root| Resetter::new(root.to_path_buf()))
+                .filter(|resetter| {
+                    resetter.session_dir(session)
+                        == cmux_tui_core::platform::normalize_filesystem_path(dir.to_path_buf())
+                })
+                .ok_or("session.reset_state.invalid_state_path"),
+            None => cmux_tui_core::platform::workspace_state_dir()
+                .map(Resetter::new)
+                .ok_or("session.reset_state.no_state_root"),
+        }?;
+        let purge = || -> anyhow::Result<_> {
+            if let Some(deadline) = wait {
+                resetter.end_terminal_state(session, deadline)?;
+            }
+            let preview = resetter.preview(session)?;
+            resetter.reset(session, Some(&preview.confirm_reset))
+        };
+        let reset = purge().map_err(|error| reset_failure_advice(&error).code)?;
+        Ok((session, reset))
+    });
+    match purged {
+        Ok((session, reset)) => {
+            fields.insert("removed_session_state".to_owned(), json!(true));
+            fields.insert("removed_terminal_hosts".to_owned(), json!(reset.removed_terminal_hosts));
+            let (key, value) = drop_hook_queue(session);
+            fields.insert(key.to_owned(), value);
+        }
+        Err(code) => {
+            fields.insert("removed_session_state".to_owned(), json!(false));
+            fields.insert("session_state_error".to_owned(), json!(code));
+        }
     }
     fields
 }
