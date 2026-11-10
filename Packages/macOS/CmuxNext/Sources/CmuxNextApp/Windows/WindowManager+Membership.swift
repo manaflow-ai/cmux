@@ -69,7 +69,7 @@ extension WindowManager {
     func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:]) {
         let machines = services.machines
         let home = machines.local.store
-        for window in registry.value.windows {
+        for window in registry.repairs() {
             let state = state(for: window.id)
             let room = state.profileID
             // Its room was deleted (here or by another client); cached rooms can lag.

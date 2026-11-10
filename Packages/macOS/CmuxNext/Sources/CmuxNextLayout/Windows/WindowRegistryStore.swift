@@ -58,6 +58,31 @@ public final class WindowRegistryStore {
     /// Workspaces window `id` lists, in order.
     public func members(of id: String) -> [String] { value.window(id)?.workspaceIDs ?? provisional[id] ?? [] }
 
+    /// What closes read of this registry since the last `takeCloseWork()` (`WorkspaceCloseWork`).
+    @ObservationIgnored public private(set) var closeWork = WorkspaceCloseWork()
+
+    /// The counts since the last call; counts from zero again.
+    public func takeCloseWork() -> WorkspaceCloseWork {
+        defer { closeWork = WorkspaceCloseWork() }
+        return closeWork
+    }
+
+    /// The windows a selection repair visits, counted in `closeWork`.
+    public func repairs() -> [WindowRegistry.Window] {
+        let windows = value.windows
+        closeWork.repairedWindows += windows.count
+        closeWork.repairedIDs += windows.reduce(0) { $0 + $1.workspaceIDs.count }
+        return windows
+    }
+
+    /// The workspaces window `id` lists, as a set, for its `showWorkspace` (one run, counted in `closeWork`).
+    public func shownMembers(of id: String) -> Set<String> {
+        let listed = Set(members(of: id))
+        closeWork.showCalls += 1
+        closeWork.shownIDs += listed.count
+        return listed
+    }
+
     /// Writes each workspace's window kind: O(listed workspaces); only the entries that changed notify.
     private func refreshIncognitoAnswers() {
         var answers: [String: Bool] = [:]
