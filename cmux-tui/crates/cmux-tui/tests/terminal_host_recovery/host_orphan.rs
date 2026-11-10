@@ -67,8 +67,9 @@ fn kill_daemon(harness: &mut RecoveryHarness) {
 }
 
 /// cx-t2sqm D1 (Lawrence 2026-10-14): quitting or updating cmux never ends a
-/// terminal. A normal install's host (here an RC bundle) has no orphan
-/// grace at all; a tagged DEV build's host keeps the 10 min grace. The host
+/// terminal. A normal install's host (here an RC bundle) has no build
+/// orphan grace (it ends only after a week no cmux served it,
+/// `ABANDONED_HOST_GRACE`); a tagged DEV build's host keeps the 10 min grace. The host
 /// records the grace it runs with, and a normal install's host outlives its
 /// killed daemon and is adopted by the next one.
 #[test]

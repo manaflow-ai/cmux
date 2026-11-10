@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -219,6 +220,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
@@ -288,6 +290,7 @@ pub(super) fn advertised_capabilities(
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
+        TERMINAL_PUBLIC_IDS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
@@ -301,6 +304,8 @@ pub(super) fn advertised_capabilities(
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        TERMINAL_TAIL_PIN_CAPABILITY,
+        TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
         TERMINAL_LAST_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
@@ -469,6 +474,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::shell_runs::CAPABILITY);
     capabilities
 }
 
@@ -505,5 +512,6 @@ mod tests {
         }
         assert!(listed.windows(2).all(|pair| pair[0] < pair[1]), "sorted and unique: {listed:?}");
         assert!(!listed.contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY), "runtime-only");
+        assert!(listed.contains(&TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY), "static");
     }
 }

@@ -41,9 +41,18 @@ CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD: the hourly production Cloud ch
 key belongs to that project; each target names the one project it may touch. The run also prints the account's
 Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#7076).
 
+`--target production-team` makes a second production account (cmux-cloud-capture-prod-team@manaflow.dev) the same
+way, sealed to cmuxterm-hq's cloud-capture environment as CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL and _PASSWORD: the
+probe's shared-team row (cmuxterm-hq cloud-chat-replies-production-team), which joins a shared team through the
+platform's own invitation API with its own session. The probe account above must stay in no shared team.
+
 `--target journey-production` does the same for the production Cloud journey's own account
 (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml journey-production).
+
+`--target platform-staging` and `--target platform-production` make cmux-platform's own journey accounts (staging and
+production projects), sealed to manaflow-ai/cmux-platform's repository secrets (no environment: its ci.yml job has
+none) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*, which its deploy journeys read.
 
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
@@ -110,12 +119,20 @@ TARGETS = {
                             "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD",
                             profile_image_url="https://cmux.com/icon.png"),
     # The hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production): the shipped
-    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`. The only target in the production project.
+    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`, in its personal scope.
     "production": Target("cmux-cloud-capture-prod@manaflow.dev", "cmux cloud probe (production)",
                          "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
                          "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
                          "CLOUD_PROBE_PRODUCTION_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_STACK_PASSWORD",
                          project=PRODUCTION_PROJECT_ID),
+    # The production probe's shared-team row (cmuxterm-hq synthetic-probes.yml app-chat-production,
+    # cloud-chat-replies-production-team): a second production account that joins a shared team, since the probe
+    # account above must stay in none. Sealed beside it in cmuxterm-hq cloud-capture under its own names.
+    "production-team": Target("cmux-cloud-capture-prod-team@manaflow.dev", "cmux cloud probe (production, team)",
+                              "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
+                              "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                              "CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD",
+                              project=PRODUCTION_PROJECT_ID),
     # The production Cloud journey (cloud-journey-prod.yml hourly, backend.yml journey-production): both run in this
     # repository's cmux-next-cloud-journey environment and read the production pair as CMUX_DOGFOOD_STACK_*, which
     # shadows the repository's dev pair (production refuses that one with EMAIL_PASSWORD_MISMATCH). Its own
@@ -125,6 +142,19 @@ TARGETS = {
                                  "phe+RfKRmKGeO9B3rCULM4jdTzJX8aS7LbvGrIoTFWM=",
                                  "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD",
                                  project=PRODUCTION_PROJECT_ID),
+    # cmux-platform's deploys (its ci.yml job `ci`, no environment) journey after "Deploy staging" and "Deploy
+    # production" and read these from that repository's own Actions secrets (environment None). Their own accounts:
+    # rotating cmux's journey accounts would sign out the copies in cmux (cmuxterm-hq#8293, goal cloud-deploy-checked).
+    "platform-staging": Target("cmux-cloud-capture-platform@manaflow.dev", "cmux cloud journey (cmux-platform)",
+                               "manaflow-ai/cmux-platform", None, "3380204578043523366",
+                               "EzR9/8XfEWpKYAO5ulRMqEaTWp1BuVXmv7i36gCaCwA=",
+                               "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+    "platform-production": Target("cmux-cloud-capture-platform-prod@manaflow.dev",
+                                  "cmux cloud journey (cmux-platform, production)",
+                                  "manaflow-ai/cmux-platform", None, "3380204578043523366",
+                                  "EzR9/8XfEWpKYAO5ulRMqEaTWp1BuVXmv7i36gCaCwA=",
+                                  "CMUX_JOURNEY_PROD_STACK_EMAIL", "CMUX_JOURNEY_PROD_STACK_PASSWORD",
+                                  project=PRODUCTION_PROJECT_ID),
 }
 CAPTURE = TARGETS["capture"]
 EMAIL = CAPTURE.email
@@ -283,7 +313,7 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
     sealed_secrets.write_bundle(out, bundle)
     where = "production" if target.project == PRODUCTION_PROJECT_ID else "staging"
     log(f"{action} the {where} test account {email}, Stack user id {user['id']} (plan {PLAN}); sealed "
-        f"{target.email_secret} and {target.password_secret} to {target.repo} environment {target.environment} "
+        f"{target.email_secret} and {target.password_secret} to {sealed_secrets.where(bundle)[1]} "
         f"(key_id {key_id})")
     return action
 

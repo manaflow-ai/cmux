@@ -7,8 +7,9 @@
 //! (cloud_start_chat.rs), and reuses what the machine already has:
 //!
 //! 1. The folder. `DIR` must be a folder there (`~` is the machine user's home). `--repo` is the
-//!    chat's Add repository (`cmux cloud repo add`, cmux-tui-core `cloud_repos`): the machine
-//!    clones it into `~/chats/SESSION/NAME` with the GitHub access it already has, and says
+//!    chat's Add repository (`cmux cloud repo add` against the machine's own daemon, session
+//!    `cloud`; cmux-tui-core `cloud_repos`): the machine clones it into `~/chats/SESSION/NAME`
+//!    with the GitHub access it already has, and says
 //!    `repo.needs_github` when it has none. A clone outlasts one `cloud exec`, so it runs in the
 //!    background on the machine and each later exec asks whether it ended.
 //! 2. The chat. `acp session fork SESSION --cwd FOLDER` on the machine: a new session with the
@@ -55,6 +56,7 @@ const TAKES_VALUE: &[&str] = &["--on", "--repo", "--ref", "--timeout"];
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 /// The pause between two asks whether the machine's clone ended.
+// timeout: not a deadline, the pause between two polls; the clone itself is bounded by --timeout.
 const POLL_PAUSE: Duration = Duration::from_secs(3);
 
 /// Where the chat goes.
@@ -285,14 +287,11 @@ fn clone(
     timeout: Duration,
 ) -> Result<Value, Value> {
     let job = job_file(session, repo, reference);
-    let mut add = format!(
-        "\"$1\" cloud repo add --session {} --repo {}",
-        shell_quote(session),
-        shell_quote(repo)
-    );
-    if let Some(reference) = reference {
-        add.push_str(&format!(" --ref {}", shell_quote(reference)));
-    }
+    let words = guest_repo_add(session, repo, reference);
+    let add = std::iter::once("\"$1\"".to_owned())
+        .chain(words.iter().map(|word| shell_quote(word)))
+        .collect::<Vec<_>>()
+        .join(" ");
     let body = format!("{add} > \"$2.tmp\" 2>&1; mv -f \"$2.tmp\" \"$2\"; rm -f \"$2.pid\"");
     // One clone at a time for this chat and repository: a run again while it clones asks after it.
     let start = format!(
@@ -339,6 +338,23 @@ fn clone(
         }
         runner.pause(POLL_PAUSE);
     }
+}
+
+/// The session of the machine's own daemon, which owns Add repository (cmux-tui-core
+/// `cloud_repos`): the image starts `cmux-tui server start --session cloud`, and the guest's `cmux`
+/// shim runs `cmux-tui --session cloud`. A bare `cmux-tui` reaches session `main`, which no Cloud
+/// machine runs, and its `cloud repo add` answers `repo.unavailable`.
+pub(super) const GUEST_DAEMON_SESSION: &str = "cloud";
+
+/// The words after the machine's `cmux-tui` for Add repository of `repo` in chat `session`.
+pub(super) fn guest_repo_add(session: &str, repo: &str, reference: Option<&str>) -> Vec<String> {
+    let mut words =
+        vec!["--session", GUEST_DAEMON_SESSION, "cloud", "repo", "add", "--session", session];
+    words.extend(["--repo", repo]);
+    if let Some(reference) = reference {
+        words.extend(["--ref", reference]);
+    }
+    words.into_iter().map(str::to_owned).collect()
 }
 
 /// The machine's file for one clone: the chat, the repository and the ref, as one safe name.

@@ -1489,9 +1489,11 @@ test("three chips: nothing is required to start, and the machine chip shows only
     [...strip.querySelectorAll(".acpmux-location-button")].map((button) => button.getAttribute("aria-label")),
   ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.thisMac")}`]);
   expect(machineButton()).toBeUndefined();
-  // "Choose project" is dimmed while empty, and a chat starts with it empty on This Mac (Leo: "and
-  // you can also just start with nothing").
-  expect(strip.querySelector(".acpmux-location-label[data-dim]")?.textContent).toBe(t("composer.chooseFolder"));
+  // Empty, the folder chip reads No folder as a settled choice, never a dimmed prompt, and a chat
+  // starts with it on This Mac (Leo: "and you can also just start with nothing"; 2026-11-09: "this
+  // no folder selected should be, like, good as well").
+  expect(strip.querySelector(".acpmux-location-label")?.textContent).toBe(t("project.noFolder"));
+  expect(strip.querySelector("[data-dim]")).toBeNull();
   // With no other machine, Remote is Add Machine….
   await pickAnother();
   expect(calls).toEqual([["connect", "addMachine"]]);

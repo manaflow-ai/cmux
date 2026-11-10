@@ -237,6 +237,8 @@ struct AgentPaneHandOff {
             // the source of truth for the one live reservation; page state is only a hand-off hint.
             return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         }
+        // A Send without the reservation: one still out is this pane's to release as it answers.
+        if start.reservationKey == nil { model.dropCloudReservation() }
         var start = start
         (start.carriedFiles, start.stagedFiles) = await model.cloudCarriedFiles(start.attachments)
         guard AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles, staged: start.stagedFiles) != nil else {
