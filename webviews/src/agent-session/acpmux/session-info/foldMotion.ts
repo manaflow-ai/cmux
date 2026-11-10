@@ -55,14 +55,26 @@ function scrolledList(box: HTMLElement): HTMLElement | undefined {
 /// fold's last frame, which moved the rows left by it at once. Instead the list scrolls to its top
 /// now and its first row starts drawn up by that much (a negative margin, the same pixels on this
 /// frame) and moves down to its place on the fold's own clock and curve. The motion, or undefined.
-function scrollBack(box: HTMLElement, timing: KeyframeAnimationOptions): Animation | undefined {
+type ScrollBack = { animation: Animation; list: HTMLElement; lead: HTMLElement; margin: number };
+function scrollBack(box: HTMLElement, timing: KeyframeAnimationOptions): ScrollBack | undefined {
   const list = scrolledList(box);
   const lead = list?.firstElementChild;
   if (!list || !(lead instanceof HTMLElement)) return undefined;
   const scrolled = list.scrollTop;
   list.scrollTop = 0;
   const margin = Number.parseFloat(lead.ownerDocument.defaultView?.getComputedStyle(lead).marginTop ?? "") || 0;
-  return lead.animate([{ marginTop: `${margin - scrolled}px` }, { marginTop: `${margin}px` }], timing);
+  const animation = lead.animate([{ marginTop: `${margin - scrolled}px` }, { marginTop: `${margin}px` }], timing);
+  return { animation, list, lead, margin };
+}
+
+/// Ends a scroll back: what its margin still holds goes back into the list's scroll, so a close turned
+/// back midway (a reopen, a reveal) leaves the rows where they are drawn. Done, it holds nothing.
+function endScrollBack(back: ScrollBack | undefined): void {
+  if (!back) return;
+  const drawn = Number.parseFloat(back.lead.ownerDocument.defaultView?.getComputedStyle(back.lead).marginTop ?? "");
+  back.animation.cancel();
+  const left = Number.isFinite(drawn) ? back.margin - drawn : 0;
+  if (left > 0.5) back.list.scrollTop += left;
 }
 
 export interface FoldMotion<E extends HTMLElement> {
@@ -95,7 +107,7 @@ export function useFoldMotion<E extends HTMLElement>(
   const from = useRef<number | undefined>(undefined);
   const run = useRef<Animation | undefined>(undefined);
   /// A close's scroll back to the list's top (`scrollBack`), which ends with the fold.
-  const back = useRef<Animation | undefined>(undefined);
+  const back = useRef<ScrollBack | undefined>(undefined);
   const [held, setHeld] = useState(false);
   const measureClosed = useRef(closedHeight);
   measureClosed.current = closedHeight;
@@ -121,7 +133,7 @@ export function useFoldMotion<E extends HTMLElement>(
     const before = run.current;
     run.current = undefined;
     before?.cancel();
-    back.current?.cancel();
+    endScrollBack(back.current);
     back.current = undefined;
     if (!box) return;
     if (start === undefined) {
@@ -170,7 +182,7 @@ export function useFoldMotion<E extends HTMLElement>(
     const fold = run.current;
     run.current = undefined;
     fold?.cancel();
-    back.current?.cancel();
+    endScrollBack(back.current);
     back.current = undefined;
     const box = ref.current;
     if (box) delete box.dataset.folding;
@@ -181,7 +193,7 @@ export function useFoldMotion<E extends HTMLElement>(
       const fold = run.current;
       run.current = undefined;
       fold?.cancel();
-      back.current?.cancel();
+      back.current?.animation.cancel();
     },
     [],
   );
