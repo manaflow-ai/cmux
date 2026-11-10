@@ -130,6 +130,37 @@ struct TaskManagerPageTests {
         #expect(provider.model == nil && !model.isRunning, "the last page closed: sampling stops")
     }
 
+    /// Two windows' pages: a `select` from either reaches both streams with the one selection the
+    /// provider holds, so a page never shows a row other than the one Kill Process and the CLI end.
+    @Test func selectBroadcastsTheOneSelectionToEveryOpenPage() async throws {
+        let hub = Hub()
+        let provider = hub.pages
+        let context = PageCallContext(page: PageDescriptor.taskManager.id)
+        var first: [JSONValue] = []
+        var second: [JSONValue] = []
+        let one = try await provider.subscribe(TaskManagerPages.prefix + "snapshot", filter: [:], context: context) { first.append($0) }
+        let two = try await provider.subscribe(TaskManagerPages.prefix + "snapshot", filter: [:], context: context) { second.append($0) }
+        defer { one.cancel(); two.cancel() }
+        #expect(first.last?["selected"] == .null && second.last?["selected"] == .null, "nothing selected yet")
+        let model = provider.open()
+        defer { provider.close() }
+        await model.refresh()
+        let other = ProcessKey(pid: 300)
+        func select(_ key: ProcessKey) async throws {
+            _ = try await provider.call(TaskManagerPages.prefix + "select", params: ["ids": [.string(key.description)]], context: context)
+        }
+        try await select(TaskManagerSnapshotTests.shell)
+        try await select(other)
+        let before = (first.count, second.count)
+        try await select(TaskManagerSnapshotTests.shell)
+        #expect(first.count > before.0 && second.count > before.1, "the select reaches each page, not only the one that sent it")
+        #expect(first.last?["selected"]?.stringValue == TaskManagerSnapshotTests.shell.description)
+        #expect(second.last?["selected"]?.stringValue == TaskManagerSnapshotTests.shell.description)
+        #expect(provider.process(nil) == TaskManagerSnapshotTests.shell, "kill-process with no pid takes what both pages show")
+        await model.refresh()
+        #expect(second.last?["selected"]?.stringValue == TaskManagerSnapshotTests.shell.description, "a sample keeps it")
+    }
+
     @Test func thePageIsShippedAndAdmitsOnlyItsNamespace() {
         #expect(FirstPartyPageSchemes.descriptors.contains(.taskManager))
         #expect(PageDescriptor.taskManager.admits("cmux.task_manager.kill"))

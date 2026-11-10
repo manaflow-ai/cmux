@@ -26,6 +26,8 @@ export class TaskManagerStore {
   private state: TaskManagerState;
   private listeners = new Set<() => void>();
   private unsubscribe?: () => void;
+  /** The selection the app holds, as last heard (a snapshot's `selected`) or last told. */
+  private hostSelected: string | null;
 
   constructor(
     private readonly client: PageClient | null,
@@ -40,6 +42,7 @@ export class TaskManagerStore {
       selected: keptSelection(initial.selected ?? null, snapshot.rows),
       unavailable: client === null,
     };
+    this.hostSelected = this.state.selected;
   }
 
   subscribe = (listener: () => void) => {
@@ -62,10 +65,16 @@ export class TaskManagerStore {
     this.unsubscribe = undefined;
   }
 
-  /** A new sample replaces the rows; the selection stays while its process is listed. */
+  /**
+   * A new snapshot replaces the rows. The app's `selected` is the one selection every page shows
+   * (another window's click moves it here too); a host without it leaves the page's own, kept
+   * while its process is listed.
+   */
   replace(snapshot: TaskManagerSnapshot) {
-    const selected = keptSelection(this.state.selected, snapshot.rows);
-    const lost = selected !== this.state.selected;
+    const authoritative = snapshot.selected !== undefined;
+    const selected = keptSelection(authoritative ? (snapshot.selected ?? null) : this.state.selected, snapshot.rows);
+    const lost = !authoritative && selected !== this.state.selected;
+    if (authoritative) this.hostSelected = selected;
     this.set({ ...this.state, snapshot, rows: sortRows(snapshot.rows, this.state.order), selected });
     if (lost) this.tellSelection();
   }
@@ -76,11 +85,15 @@ export class TaskManagerStore {
     this.set({ ...this.state, order, rows: sortRows(this.state.snapshot.rows, order) });
   }
 
-  /** Selects one row (or none); the app learns it for `cmux app kill-process` with no pid. */
+  /**
+   * Selects one row (or none); the app learns it for `cmux app kill-process` with no pid. It is
+   * sent whenever it differs from the app's selection, even if this page already shows it, so a
+   * row another window selected since never stays the app's while this page shows its own.
+   */
   select(id: string | null) {
     const selected = keptSelection(id, this.state.snapshot.rows);
-    if (selected === this.state.selected) return;
-    this.set({ ...this.state, selected });
+    if (selected === this.hostSelected && selected === this.state.selected) return;
+    if (selected !== this.state.selected) this.set({ ...this.state, selected });
     this.tellSelection();
   }
 
@@ -96,6 +109,7 @@ export class TaskManagerStore {
   }
 
   private tellSelection() {
+    this.hostSelected = this.state.selected;
     const ids = this.state.selected === null ? [] : [this.state.selected];
     void this.client?.call(TaskManagerOps.select, { ids }).catch(() => {});
   }

@@ -4,7 +4,7 @@
 export const TaskManagerOps = {
   /** Stream: one `TaskManagerSnapshot` at once, then one per sample (about once a second). */
   snapshot: "cmux.task_manager.snapshot",
-  /** `{ids}`: the selected rows, for `cmux app kill-process` with no pid. */
+  /** `{ids}`: the selected rows, for `cmux app kill-process` with no pid; every page then gets a snapshot with it. */
   select: "cmux.task_manager.select",
   /** `{id}`: Kill Process for one row; the host runs it only on a click, key or menu choice. */
   kill: "cmux.task_manager.kill",
@@ -38,6 +38,12 @@ export interface TaskManagerSnapshot {
   rows: TaskManagerRow[];
   /** The footer's numbers ("CPU 2.3% · Memory 145.2 MB"). */
   total: string;
+  /**
+   * The app's one selected row (every open page's), else null. The app sends it with each sample and
+   * after every `select` from any page; Kill Process and `cmux app kill-process` act on it.
+   * Absent from a host that does not hold the selection (the page then keeps its own).
+   */
+  selected?: string | null;
 }
 
 export type SortKey = "task" | "name" | "pid" | "cpu" | "memory";

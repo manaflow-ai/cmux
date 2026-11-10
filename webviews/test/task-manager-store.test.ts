@@ -1,7 +1,8 @@
 // The Task Manager page's store and model (webviews/src/pages/task-manager): a header click sorts
 // (again flips it, equal rows keep the app's order, no CPU sorts as zero), one row is selected and
 // the app hears it, a new sample replaces the rows and keeps the selection only while its process
-// is listed, and Kill Process calls the app only from a real gesture on a row the policy allows.
+// is listed (or follows the app's one selection, shared by every page), and Kill Process calls the
+// app only from a real gesture on a row the policy allows.
 import { expect, test } from "bun:test";
 import { killableRow, nextOrder, pidText, sortRows, steppedSelection } from "../src/pages/task-manager/model";
 import {
@@ -138,4 +139,48 @@ test("without a host the page says so and kills nothing", () => {
   const store = new TaskManagerStore(null, { snapshot: normalSnapshot(), selected: "local:734" });
   expect(store.getState().unavailable).toBe(true);
   expect(store.kill({ isTrusted: true })).toBe(false);
+});
+
+test("two pages share the app's one selection: a click on a row already shown still moves the app", async () => {
+  const host = new MockTaskManagerProvider(normalSnapshot(), { sharedSelection: true });
+  const first = new TaskManagerStore(host);
+  const second = new TaskManagerStore(host);
+  await first.start();
+  await second.start();
+  first.select("local:733");
+  await Promise.resolve();
+  second.select("local:734");
+  await Promise.resolve();
+  expect(host.selected).toBe("local:734");
+  expect(first.getState().selected).toBe("local:734");
+  host.calls.length = 0;
+  first.select("local:733");
+  await Promise.resolve();
+  expect(host.calls).toEqual([{ op: TaskManagerOps.select, params: { ids: ["local:733"] } }]);
+  expect(host.selected).toBe("local:733");
+  expect(first.getState().selected).toBe("local:733");
+  expect(second.getState().selected).toBe("local:733");
+  // Kill Process acts on what both pages show.
+  host.calls.length = 0;
+  expect(second.kill({ isTrusted: true })).toBe(true);
+  expect(host.calls).toEqual([{ op: TaskManagerOps.kill, params: { id: "local:733" } }]);
+});
+
+test("a selection broadcast updates a page that did not click; a click that differs from it is sent", () => {
+  const host = new MockTaskManagerProvider();
+  const store = new TaskManagerStore(host, { snapshot: normalSnapshot() });
+  store.select("local:733");
+  // The app broadcasts another window's selection: this page follows it without telling the app.
+  host.calls.length = 0;
+  store.replace({ ...normalSnapshot(), selected: "local:734" });
+  expect(store.getState().selected).toBe("local:734");
+  expect(host.calls).toEqual([]);
+  // Clicking the row that page showed before now differs from the app's: it is sent.
+  store.select("local:733");
+  expect(host.calls).toEqual([{ op: TaskManagerOps.select, params: { ids: ["local:733"] } }]);
+  // A broadcast of none clears it; an unlisted id selects nothing.
+  store.replace({ ...normalSnapshot(), selected: null });
+  expect(store.getState().selected).toBeNull();
+  store.replace({ ...normalSnapshot(), selected: "local:99999" });
+  expect(store.getState().selected).toBeNull();
 });

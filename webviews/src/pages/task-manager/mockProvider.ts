@@ -1,6 +1,8 @@
 // l10n-allow-file: mock host fixtures (sample processes), not shipped UI.
-// An in-memory Task Manager host for the browser dev loop (`/task-manager/?mock`) and the gallery:
-// one fixed snapshot on the `snapshot` stream, and the calls recorded.
+// An in-memory Task Manager host for the browser dev loop (`/task-manager/?mock`), the gallery and
+// tests: one fixed snapshot on the `snapshot` stream, and the calls recorded. With `sharedSelection`
+// it holds the one selection as the app does: every page subscribed to it gets a snapshot with
+// `selected` at once and after each `select`.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { TaskManagerOps, type TaskManagerRow, type TaskManagerSnapshot } from "./types";
 
@@ -89,19 +91,42 @@ export function longNamesSnapshot(): TaskManagerSnapshot {
 
 export class MockTaskManagerProvider implements PageClient {
   readonly calls: { op: string; params: unknown }[] = [];
+  /** The host's selection (`sharedSelection` only): what every page is sent. */
+  selected: string | null = null;
+  private readonly pages = new Set<(data: TaskManagerSnapshot) => void>();
 
-  constructor(private readonly snapshot: TaskManagerSnapshot = normalSnapshot()) {}
+  constructor(
+    private readonly snapshot: TaskManagerSnapshot = normalSnapshot(),
+    private readonly options: { sharedSelection?: boolean } = {},
+  ) {}
 
   async call<R>(op: string, params: unknown): Promise<R> {
     if (op !== TaskManagerOps.select && op !== TaskManagerOps.kill) throw pageError("cmux.protocol.unknown_op", op);
     this.calls.push({ op, params });
+    if (op === TaskManagerOps.select && this.options.sharedSelection) {
+      const ids = (params as { ids: string[] }).ids;
+      this.selected = ids.length === 1 && this.snapshot.rows.some((entry) => entry.id === ids[0]) ? ids[0] : null;
+      this.broadcast();
+    }
     return {} as R;
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (stream !== TaskManagerOps.snapshot) throw pageError("cmux.protocol.unknown_op", stream);
-    onEvent(this.snapshot as E, 0);
-    return () => {};
+    const page = (data: TaskManagerSnapshot) => onEvent(data as E, 0);
+    this.pages.add(page);
+    page(this.current());
+    return () => void this.pages.delete(page);
+  }
+
+  /** Sends every subscribed page what the host holds now. */
+  broadcast() {
+    const snapshot = this.current();
+    for (const page of this.pages) page(snapshot);
+  }
+
+  private current(): TaskManagerSnapshot {
+    return this.options.sharedSelection ? { ...this.snapshot, selected: this.selected } : this.snapshot;
   }
 
   handle(_op: string, _handler: PageHandler): () => void {

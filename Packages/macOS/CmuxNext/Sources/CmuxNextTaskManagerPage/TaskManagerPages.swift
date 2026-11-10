@@ -14,8 +14,10 @@ public extension PageDescriptor {
 /// ``open()`` to ``close()``), Kill Process's rule over it, and every open page's
 /// `cmux.task_manager.*` (the App routes each page's namespace here):
 ///
-/// - stream `snapshot`: ``payload(_:revision:policy:)`` at once, then after every sample;
-/// - `select {ids}`: the selected rows (``ProcessKey`` text), for `cmux app kill-process` with no pid;
+/// - stream `snapshot`: ``payload(_:revision:policy:selected:)`` at once, then after every sample and
+///   every `select`, so each open page shows the one selection this provider holds;
+/// - `select {ids}`: the selected rows (``ProcessKey`` text), for `cmux app kill-process` with no pid.
+///   Every open page hears the new selection, so Kill Process and the CLI end what every page shows;
 /// - `kill {id}`: Kill Process for one row, only on the person's own click, key or menu choice in the
 ///   page (a gesture no earlier kill spent). It runs `kill`, the App's `taskManager.killProcess`,
 ///   which checks ``TaskManagerKillPolicy`` and asks first, as the palette and the CLI do.
@@ -101,15 +103,19 @@ public final class TaskManagerPages: PageProvider {
 
     /// What a page shows now.
     public var payload: JSONValue {
-        Self.payload(model?.snapshot ?? .empty, revision: model?.sampleCount ?? 0, policy: killPolicy)
+        Self.payload(model?.snapshot ?? .empty, revision: model?.sampleCount ?? 0, policy: killPolicy,
+                     selected: model?.selectedRow?.id)
     }
 
-    /// The `snapshot` event of `snapshot`: `{revision, rows, total}`. A row is `{id, host, pid, task,
+    /// The `snapshot` event of `snapshot`: `{revision, rows, total, selected}`. A row is `{id, host, pid, task,
     /// name, cpu, cpuText, memoryBytes, memoryText, refusal}`; `id` is ``ProcessKey`` text
     /// (`local:4242`), `cpu` null until a second sample, and `refusal` the reason the policy will
     /// not end the row's process (``TaskManagerKillPolicy/listedRefusal(for:)``), else null, so the
     /// page greys out Kill Process. `total` is the footer's numbers (`CPU 2.3% · Memory 145.2 MB`).
-    public static func payload(_ snapshot: TaskManagerSnapshot, revision: Int, policy: TaskManagerKillPolicy) -> JSONValue {
+    /// `selected` is the one selected row's id (``TaskManagerModel/selectedRow``), else null: the
+    /// selection every page shows and Kill Process and `cmux app kill-process` act on.
+    public static func payload(_ snapshot: TaskManagerSnapshot, revision: Int, policy: TaskManagerKillPolicy,
+                               selected: ProcessKey? = nil) -> JSONValue {
         let rows: [JSONValue] = snapshot.rows.map { row in
             .object([
                 "id": .string(row.id.description),
@@ -124,7 +130,12 @@ public final class TaskManagerPages: PageProvider {
                 "refusal": policy.listedRefusal(for: row.id).map { JSONValue.string($0.message) } ?? .null,
             ])
         }
-        return .object(["revision": JSONValue(revision), "rows": .array(rows), "total": .string(ResourceFormat.line(snapshot.total))])
+        return .object([
+            "revision": JSONValue(revision),
+            "rows": .array(rows),
+            "total": .string(ResourceFormat.line(snapshot.total)),
+            "selected": selected.map { JSONValue.string($0.description) } ?? .null,
+        ])
     }
 
     private func publish() {
@@ -140,6 +151,7 @@ public final class TaskManagerPages: PageProvider {
             if let model {
                 let listed = Set(model.snapshot.rows.map(\.id))
                 model.selection = Set(ids.compactMap(\.stringValue).compactMap(ProcessKey.init(parsing:))).intersection(listed)
+                publish()
             }
             return .object([:])
         case Self.prefix + "kill":
