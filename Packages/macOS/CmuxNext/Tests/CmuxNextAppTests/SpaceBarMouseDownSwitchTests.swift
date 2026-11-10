@@ -81,6 +81,48 @@ import Testing
         #expect(bar.order == Self.keys)
     }
 
+    // MARK: Press, then a tear-off
+
+    /// A dot dragged out of the window opens its space in a new window, which takes the space's workspaces that
+    /// no window showing the space lists (Open Space in New Window). The press showed the space in this window,
+    /// so the tear-off first gives this window back the space it showed before the press: the new window takes
+    /// the space's workspaces and this window keeps its own space, as a tear-off left it before a press switched.
+    @Test func aDotTornOffGivesTheWindowBackTheSpaceItShowedBeforeThePress() {
+        let bar = ProfileBarDotTearOffTests.Bar()
+        defer { bar.window.closeAfterTest() }
+        let keys = ProfileBarDotTearOffTests.keys, start = bar.center(1)
+        bar.view.mouseDown(with: bar.event(.leftMouseDown, start))
+        #expect(bar.model.activeProfileID == keys[1], "the press did not show the space")
+        for point in [NSPoint(x: start.x + 6, y: start.y), NSPoint(x: start.x + 20, y: start.y + 120), NSPoint(x: start.x + 40, y: start.y + 300)] {
+            bar.view.mouseDragged(with: bar.event(.leftMouseDragged, point))
+        }
+        #expect(bar.model.activeProfileID == keys[1], "the space left the window before the drop")
+        bar.view.mouseUp(with: bar.event(.leftMouseUp, NSPoint(x: start.x + 40, y: start.y + 300)))
+        #expect(bar.intents == [.switchProfile(keys[1]), .switchProfile(keys[0]), .openProfileInNewWindow(keys[1])],
+                "the window still shows the torn-off space when its new window opens: \(bar.intents)")
+        #expect(bar.model.activeProfileID == keys[0], "the window did not go back to the space it showed before the press")
+    }
+
+    /// The current space's dot torn off: the press switched nothing, so there is nothing to give back.
+    @Test func theCurrentSpacesDotTornOffSwitchesNothing() {
+        let bar = ProfileBarDotTearOffTests.Bar()
+        defer { bar.window.closeAfterTest() }
+        let keys = ProfileBarDotTearOffTests.keys, start = bar.center(0)
+        bar.drag(0, through: [NSPoint(x: start.x + 6, y: start.y), NSPoint(x: start.x + 20, y: start.y + 120), NSPoint(x: start.x + 40, y: start.y + 300)])
+        #expect(bar.intents == [.openProfileInNewWindow(keys[0])], "\(bar.intents)")
+        #expect(bar.model.activeProfileID == keys[0])
+    }
+
+    /// A press that switched and then dropped its dot on the band (a reorder) gives nothing back.
+    @Test func aReorderAfterThePressKeepsThePressesSpace() {
+        let bar = ProfileBarDotTearOffTests.Bar()
+        defer { bar.window.closeAfterTest() }
+        let keys = ProfileBarDotTearOffTests.keys, start = bar.center(2), first = bar.center(0)
+        bar.drag(2, through: [NSPoint(x: start.x - 6, y: first.y), NSPoint(x: first.x - 40, y: first.y)])
+        #expect(Self.switches(bar.intents) == [.switchProfile(keys[2])], "\(bar.intents)")
+        #expect(bar.opens.isEmpty && bar.model.activeProfileID == keys[2])
+    }
+
     // MARK: What still waits for the release
 
     /// As the app does: the space shows in the turn of the intent.
