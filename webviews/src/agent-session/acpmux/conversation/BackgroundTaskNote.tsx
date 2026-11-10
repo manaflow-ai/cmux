@@ -49,7 +49,9 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   // A click waiting on the read: its stop. A second click while it waits takes it back.
   const holding = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => holding.current?.(), []);
-  const onToggle = () => {
+  const onToggle = (event: MouseEvent) => {
+    // A drag or a selection on the line is not a click (deliberateClick), held or not.
+    if (!fold.deliberate(event)) return;
     if (holding.current) {
       holding.current();
       return;

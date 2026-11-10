@@ -21,6 +21,8 @@ export type BackgroundTaskOutput = {
   running?: boolean;
   /// acpmux keeps no output for this process (a Codex one): nothing to show is not "nothing printed".
   unavailable?: boolean;
+  /// The read failed (the daemon did not answer): nothing is known yet, so an open reads again.
+  unread?: boolean;
 };
 
 /// The bounded view shown in an expanded tray row. Keeping this at the render edge means a
@@ -110,9 +112,8 @@ export async function readBackgroundTaskOutput(
 /// Reads of finished tasks, per registry source and chat: a note's output is final once its task
 /// ended, so one read serves every open, remount and scroll back. The newest READS_KEPT are kept
 /// (memory stays flat however long the chat); a read that failed, or found the process still
-/// running (its end not written yet), is dropped once answered so the next ask reads again: a
-/// still-running answer leaves the note unsettled, so its click asks; a mounted note that saw a
-/// failure opens with what it has and reads again when it is drawn anew.
+/// running (its end not written yet), is dropped once answered so the next ask reads again; either
+/// answer leaves the note unsettled, so its click asks again.
 const READS_KEPT = 128;
 type Read = { promise: Promise<BackgroundTaskOutput>; output?: BackgroundTaskOutput };
 const reads = new WeakMap<BackgroundTaskOutputSource, Map<string, Read>>();
@@ -148,7 +149,7 @@ export function prefetchBackgroundTaskOutput(
       },
       () => {
         if (kept.get(key) === read) kept.delete(key);
-        return (read.output = {});
+        return (read.output = { unread: true });
       },
     ),
   };
@@ -200,9 +201,13 @@ export function useBackgroundTaskOutput(toolCallId: string, wanted: boolean): Ba
     const timer = setTimeout(request, BACKGROUND_PREFETCH_DELAY_MS);
     return () => clearTimeout(timer);
   }, [wanted, missing, request]);
-  // A read that found the process still running (the harness said it ended before the registry
-  // wrote its exit) is not final: a click reads again rather than opening the partial output.
-  return { output: output ?? {}, settled: !key || (output !== undefined && !output.running), request };
+  // A read that failed, or found the process still running (the harness said it ended before the
+  // registry wrote its exit), is not final: a click reads again rather than opening what it has.
+  return {
+    output: output ?? {},
+    settled: !key || (output !== undefined && !output.running && !output.unread),
+    request,
+  };
 }
 
 /// A tray row's live tail. The caller's `open` is the stop predicate: the effect also stops its

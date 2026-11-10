@@ -469,7 +469,7 @@ test("a finished task is read once; a read that failed or found it running is re
   expect(lists).toEqual(["running", "exited"]);
   // A failed read answers empty and is not kept.
   fail = true;
-  expect(await prefetchBackgroundTaskOutput(reader, "other")).toEqual({});
+  expect(await prefetchBackgroundTaskOutput(reader, "other")).toEqual({ unread: true });
   fail = false;
   await prefetchBackgroundTaskOutput(reader, "other");
   expect(lists).toEqual(["running", "exited", "exited", "exited"]);
@@ -502,6 +502,54 @@ test("a click after a read-ahead that found the task still running reads again a
   await click(container.querySelector("button.cv-bgtask")!);
   await settle();
   expect(container.querySelector(".cv-shell__output")!.textContent).toContain("all done");
+});
+
+test("a click after a read-ahead that failed reads again and opens the output", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  let away = true;
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s-away",
+    source: {
+      listProcesses: async () => {
+        if (away) throw new Error("daemon away");
+        return {
+          processes: [{ id: "s-away/p", toolCallId: "bg-away", harness: "claude", state: "exited", exitCode: 0 }],
+        };
+      },
+      tailProcess: async () => ({ data: bytes("back again\n"), fromByte: 0 }),
+    },
+  };
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-away", command: "make", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  await act(async () => (container.querySelector("button.cv-bgtask") as HTMLElement).focus());
+  await settle();
+  away = false;
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.querySelector(".cv-shell__output")!.textContent).toContain("back again");
+});
+
+test("a drag across the note's line does not open it", async () => {
+  const { reader } = registry([]);
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-drag", command: "make", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  const line = container.querySelector("button.cv-bgtask")!;
+  await settle();
+  await act(async () => {
+    line.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+    line.dispatchEvent(
+      new window.MouseEvent("click", { bubbles: true, button: 0, detail: 1, clientX: 30, clientY: 10 }),
+    );
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await settle();
+  expect(line.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("a live tail keeps the last lines and removes terminal control escapes", () => {
