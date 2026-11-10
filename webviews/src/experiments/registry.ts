@@ -5,7 +5,6 @@ import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/change
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
-import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
@@ -105,7 +104,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapHeight,
   threadMinimapGutter,
   threadMinimapRestTick,
-  newTabHeadline,
   newTabComposerTrailingGap,
   newTabIconColumn,
   threadMinimapLit,

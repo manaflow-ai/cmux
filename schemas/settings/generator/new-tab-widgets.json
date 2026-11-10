@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/new-tab-widgets.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift",
-  "type": "NewTabWidgetSettingsSchema",
-  "lists": {
-    "newTabWidgets": ["descriptors", "NewTabWidgetSettings"]
-  }
-}

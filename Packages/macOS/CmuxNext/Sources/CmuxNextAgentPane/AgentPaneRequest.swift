@@ -79,8 +79,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
-    /// ``AgentPaneNewTabEdit``.
+    /// The new tab page's style switch (`newTab.setTemplate`): ``AgentPaneNewTabEdit``.
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)

@@ -366,7 +366,6 @@ test("enabled recent chats show placeholders until the first session list settle
       snapshot={noChat(list)}
       omnibar={EMPTY_OMNIBAR}
       template="threads"
-      pageWidgets={new Set(["chats"])}
       chatsPending={pending}
       lastAgent="claude"
       onAsk={noop}

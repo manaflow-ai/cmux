@@ -334,8 +334,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "newTab.editWidgets":
-            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "readAloud.speak", "readAloud.stop":
             self = AgentPaneReadAloud.Command(method: method, params: params).map(AgentPaneRequest.readAloud) ?? .unsupported(method)
         case "nowPlaying.command":

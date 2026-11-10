@@ -89,7 +89,6 @@ import {
   carriedAnchor,
   keepAdoptedTail,
   useSessionAdoption,
-  useNewTabWeather,
   type SessionAdoption,
   withHandshakeNewTab,
 } from "./newtab/adoption";
@@ -103,7 +102,6 @@ import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -4273,7 +4271,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
   const newTabRetainsDraft = useRef(false);
   useNewTabPlaces(setNewTab);
-  useNewTabWeather(setNewTab);
   // Whether the page knows it is a New Tab page or a chat: the host's context came with the
   // document (WebKit), or its `newTab.context` answer did, either way. A Chromium page gets none
   // with the document, and its window shows over the pane before the host's alpha can hide it:
@@ -12258,17 +12255,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
-            // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
-            // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
-            // other styles (newtab/PageDots.tsx); a pick shows in place at once.
+            // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
+            // composer's look), then on every layout but Minimal the page's other styles
+            // (newtab/PageDots.tsx); a pick shows in place at once.
             <PageDots
               template={shownTemplate(newTab)}
-              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
-              actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
-              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -12380,18 +12373,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
                   template={screenTemplate(shownTemplate(newTab))}
-                  {...(newTab.widgets ? { widgets: true } : {})}
-                  pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
-                  {...(newTab.headlineOff ? { headlineOff: true } : {})}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  {...(newTab.weather ? { weather: newTab.weather } : {})}
-                  onEditWidgets={(edit) =>
-                    editNewTabWidgets(edit, {
-                      callNative,
-                      show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
-                    })
-                  }
                   snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}

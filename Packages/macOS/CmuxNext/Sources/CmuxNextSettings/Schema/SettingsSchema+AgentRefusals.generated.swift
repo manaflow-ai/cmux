@@ -44,8 +44,6 @@ extension SettingsSchema {
         "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network, "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
-        // The weather widget asks Open-Meteo (and names a city) only once the person turns it on.
-        "tabs.newTabWidgets.weather": .network, "tabs.newTabWidgets.weatherCity": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
         // On, merely opening attacker-authored Markdown contacts its web image hosts.

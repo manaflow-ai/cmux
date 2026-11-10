@@ -366,17 +366,6 @@
         "sidebar.nowPlaying.enabled",
         "tabs.newTabNowPlaying",
         "media.pictureInPicture.enabled",
-        "tabs.newTabWidgets.greeting",
-        "tabs.newTabWidgets.projects",
-        "tabs.newTabWidgets.actions",
-        "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.styleDots",
-        "tabs.newTabWidgets.order",
-        "tabs.newTabWidgets.machines",
-        "tabs.newTabWidgets.clock",
-        "tabs.newTabWidgets.timer",
-        "tabs.newTabWidgets.warmGreeting",
-        "tabs.newTabWidgets.quote",
         "sidebar.showProjects",
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
@@ -1066,14 +1055,6 @@
         "feed.github.enabled",
         "feed.github.pollIntervalSeconds",
         "browser.remoteLocalhost"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "The weather widget asks Open-Meteo (and names a city) only once the person turns it on.",
-      "keys": [
-        "tabs.newTabWidgets.weather",
-        "tabs.newTabWidgets.weatherCity"
       ]
     },
     {
