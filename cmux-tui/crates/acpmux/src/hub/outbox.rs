@@ -273,11 +273,13 @@ impl Outbox {
     /// daemon's shutdown (`hub/shutdown.rs` `flush`), for whichever daemon starts next, an older
     /// one too.
     pub fn compact(&self) {
+        // The path lock is never held while the disk lock is taken, nor taken under it.
+        if self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
         {
             let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
-            if self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none()
-                || (disk.journal == 0 && !disk.snapshot_next)
-            {
+            if disk.journal == 0 && !disk.snapshot_next {
                 return;
             }
             disk.snapshot_next = true;
@@ -400,8 +402,8 @@ impl Outbox {
         let change = book.changed();
         drop(book);
         self.save(change);
-        self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none()
-            || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
+        let in_memory = self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none();
+        in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
     }
 
     pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
@@ -520,8 +522,14 @@ impl Outbox {
                         let written = f.write_all(&lines).and_then(|()| f.sync_data());
                         if written.is_err() {
                             // A failed change is not kept (an add is taken out): its whole line
-                            // must not stay to be read after a restart.
-                            let _ = f.set_len(start).and_then(|()| f.sync_data());
+                            // must not stay to be read after a restart. An append-only handle
+                            // cannot truncate on Windows, so through its own write handle. Should
+                            // that fail too, the next write is a snapshot (`snapshot_next`),
+                            // which resets the journal.
+                            let _ = std::fs::OpenOptions::new()
+                                .write(true)
+                                .open(&journal)
+                                .and_then(|w| w.set_len(start).and_then(|()| w.sync_data()));
                         }
                         Ok(written?)
                     });
@@ -640,7 +648,22 @@ struct Saved {
 /// be read starts empty (and is replaced); a journal that names another snapshot is not read; a
 /// journal line that cannot be read (a torn append) is skipped.
 fn read_saved(path: &Path) -> Saved {
-    let bytes = std::fs::read(path).unwrap_or_default();
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            // Set aside: a journal started against "no snapshot" must never sit beside it, or a
+            // later read that works would ignore that journal's accepted changes.
+            let aside = path.with_extension("json.unreadable");
+            let moved = std::fs::rename(path, &aside);
+            tracing::error!(
+                "outbox: {} cannot be read ({e}); starting empty, set aside at {} ({moved:?})",
+                path.display(),
+                aside.display()
+            );
+            Vec::new()
+        }
+    };
     let mut deliveries: BTreeMap<String, Delivery> = if bytes.is_empty() {
         BTreeMap::new()
     } else {
@@ -1162,10 +1185,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A torn tail left at open stays fenced off when the open's snapshot fails (a full disk):
+    /// A torn tail stays fenced off when the snapshot meant to replace it fails (a full disk):
     /// the next change's line starts after a newline and is read after a restart.
     #[test]
-    fn a_torn_tail_and_a_failed_snapshot_at_open_lose_no_later_change() {
+    fn a_torn_tail_and_a_failed_snapshot_lose_no_later_change() {
         let (dir, path) = temp_outbox();
         let outbox = Outbox::default();
         outbox.open(&path);
@@ -1174,18 +1197,35 @@ mod tests {
         let mut torn = std::fs::read(&journal).unwrap();
         torn.extend_from_slice(br#"{"id":"d-9","tar"#);
         std::fs::write(&journal, torn).unwrap();
-        // The open's snapshot fails: a folder that is not empty is in its place.
-        std::fs::remove_file(&path).ok();
-        let header = read_saved(&path).header;
-        assert!(std::fs::read(&journal).unwrap().starts_with(&header));
+        {
+            let mut disk = outbox.disk.lock().unwrap();
+            disk.torn = true;
+            disk.snapshot_next = true;
+        }
+        // The snapshot fails: a folder that is not empty is in its place.
         std::fs::create_dir_all(path.join("occupied")).unwrap();
+        outbox.compact();
+        assert!(outbox.disk.lock().unwrap().torn, "the fence outlives a failed snapshot");
+        outbox.add(delivery(1)).unwrap();
+        std::fs::remove_dir_all(&path).unwrap();
+        let restarted = Outbox::default();
+        let ids: Vec<String> = restarted.open(&path).into_iter().map(|d| d.id).collect();
+        assert_eq!(ids, ["d-0", "d-1"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A snapshot that cannot be read at open is set aside, so a journal started against no
+    /// snapshot never sits beside it to be ignored once it reads again.
+    #[test]
+    fn an_unreadable_snapshot_is_set_aside() {
+        let (dir, path) = temp_outbox();
+        std::fs::create_dir_all(path.join("unreadable")).unwrap();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0)).unwrap();
+        assert!(path.with_extension("json.unreadable").exists());
         let restarted = Outbox::default();
         assert_eq!(restarted.open(&path).len(), 1);
-        restarted.add(delivery(1)).unwrap();
-        std::fs::remove_dir_all(&path).unwrap();
-        let again = Outbox::default();
-        let ids: Vec<String> = again.open(&path).into_iter().map(|d| d.id).collect();
-        assert_eq!(ids, ["d-0", "d-1"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
