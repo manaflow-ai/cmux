@@ -84,6 +84,7 @@ def parse_args(argv=None):
     parser.add_argument("--monorepo", default="https://github.com/manaflow-ai/cmux.git",
                         help="the big monorepo: a git URL cloned at depth 1, or a local checkout cloned from")
     parser.add_argument("--monorepo-ref", default="", help="the branch to clone (a mirror's HEAD may name none)")
+    parser.add_argument("--submodule-url", default="https://github.com/octocat/Hello-World.git")
     parser.add_argument("--big-files", type=int, default=20000, help="files in the big non-Git folder")
     parser.add_argument("--parallel", type=int, default=3, help="most machines at once")
     parser.add_argument("--timeout", type=int, default=900, help="seconds one start-chat may wait")
@@ -155,12 +156,12 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         small_repo(path)
         git(path, "remote", "add", "origin", "https://github.com/manaflow-ai/cmuxterm-hq.git")
     elif kind == "submodules":
-        child = root / "submodule-child"
-        small_repo(child)
+        # A public GitHub submodule, as a real project has: the machine fetches it itself (a file://
+        # submodule only this Mac can reach is not a workspace anyone moves to Cloud).
         path.mkdir(parents=True)
         git(path, "init", "-q")
         write(path / "top.txt", "top\n")
-        git(path, "submodule", "add", "-q", child.as_uri(), "vendor/child")
+        git(path, "submodule", "add", "-q", "--depth", "1", args.submodule_url, "vendor/child")
         git(path, "add", "-A")
         git(path, "commit", "-qm", "with a submodule")
     elif kind == "lfs":
