@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { apply, rollback, status, verify } from "./apply.ts"
+import { apply, attemptFor, rollback, status, verify } from "./apply.ts"
 import { httpPlatform } from "./clients.ts"
 import { migrationIdFor, personalTeamIdFor, sharedTeamIdFor, userIdFor } from "./ids.ts"
 import { Ledger } from "./ledger.ts"
@@ -612,5 +612,109 @@ describe("apply, kill, re-run, verify, rollback, fresh", () => {
     await expect(apply(plan, new Ledger(path), { platform: httpPlatform("http://127.0.0.1:9", "k") })).rejects.toThrow(
       /belongs to migration mig_other/,
     )
+  })
+})
+
+// F1: ledgers the earlier two-step CLI wrote (a `vm_api_import` step before `platform_import`, the platform result
+// as `{machine: {id}}`) must stay readable and recoverable: status shows them, rollback deletes the VM API snapshot
+// that CLI made through the VM API client (or lists it for manual cleanup), verify reads them, an unknown step is
+// ignored. fixtures/base-cli-ledger.jsonl is that CLI's format.
+describe("a ledger written by the earlier CLI (vm_api_import)", () => {
+  const BASE_LEDGER = join(DIR, "fixtures/base-cli-ledger.jsonl")
+  const copy = (name: string) => {
+    const p = join(tmp, name)
+    writeFileSync(p, readFileSync(BASE_LEDGER, "utf8"))
+    return p
+  }
+  const LEGACY_KEY = "team_legacy|mig_legacy|vm-1"
+
+  test("status shows both steps, the snapshot and the machine, and ignores an unknown step, without a crash", async () => {
+    const rows = status(new Ledger(copy("legacy-status.jsonl")))
+    expect(rows).toEqual([
+      {
+        classic_vm_id: "vm-1",
+        attempt: "mig_legacy",
+        platform_import: "done",
+        vm_api_import: "done",
+        snapshot: "snap_1",
+        machine: "mach_1",
+        ignored_steps: ["mystery_step"],
+        overall: "done",
+      },
+      { classic_vm_id: "vm-2", attempt: "mig_legacy", platform_import: "in_flight", vm_api_import: "done", snapshot: "snap_2", overall: "in_flight" },
+      { classic_vm_id: "vm-3", attempt: "mig_legacy", platform_import: "pending", vm_api_import: "in_flight", overall: "in_flight" },
+      { classic_vm_id: "vm-4", attempt: "mig_legacy", platform_import: "pending", vm_api_import: "failed", overall: "failed" },
+    ])
+    const cli = await run(["status", "--ledger", copy("legacy-status-cli.jsonl")])
+    expect(cli.code).toBe(0)
+    expect(cli.stdout).toContain("vm_api_import=done snap_1 platform_import=done mach_1 (ignored unknown steps: mystery_step)")
+  })
+
+  test("verify, then rollback deletes the machines and the VM API snapshots; the unanswered import is manual cleanup", async () => {
+    const next = fakePlatform()
+    const deleted: string[] = []
+    try {
+      next.machines.set(LEGACY_KEY, "mach_1")
+      const ledger = new Ledger(copy("legacy-rollback.jsonl"))
+      const deps = {
+        platform: httpPlatform(next.origin, "internal"),
+        legacyVmApi: { deleteSnapshot: async (id: string) => void deleted.push(id) },
+      }
+      const v = await verify(ledger, deps)
+      expect(v.ok).toBe(true)
+      expect(v.rows).toEqual([expect.objectContaining({ classic_vm_id: "vm-1", expect: "present", found: "mach_1" })])
+
+      const r = await rollback(ledger, deps)
+      expect(r.failed).toEqual([])
+      expect(deleted).toEqual(["snap_2", "snap_1"])
+      expect(next.machines.size).toBe(0)
+      expect(r.manual_cleanup).toEqual([expect.objectContaining({ classic_vm_id: "vm-3", migration_id: "mig_legacy", vm_api_snapshot_id: null })])
+      expect(Object.fromEntries(status(ledger).map((x) => [x.classic_vm_id, x.overall]))).toEqual({
+        "vm-1": "rolled_back",
+        "vm-2": "rolled_back",
+        "vm-3": "rollback_incomplete",
+        "vm-4": "rolled_back",
+      })
+      expect((await verify(ledger, deps)).ok).toBe(true)
+      // A second rollback sends nothing and still names what needs a person.
+      const again = await rollback(ledger, deps)
+      expect(again.sent).toBe(0)
+      expect(again.manual_cleanup.map((m) => m.classic_vm_id)).toEqual(["vm-3"])
+      expect(deleted).toEqual(["snap_2", "snap_1"])
+    } finally {
+      next.stop()
+    }
+  })
+
+  test("without a VM API client the snapshots are reported for manual cleanup with their ids; the CLI exits 1", async () => {
+    const next = fakePlatform()
+    try {
+      next.machines.set(LEGACY_KEY, "mach_1")
+      const r = await rollback(new Ledger(copy("legacy-nokey.jsonl")), { platform: httpPlatform(next.origin, "internal") })
+      expect(r.failed).toEqual([])
+      expect(r.manual_cleanup.map((m) => [m.classic_vm_id, m.vm_api_snapshot_id])).toEqual([
+        ["vm-3", null],
+        ["vm-2", "snap_2"],
+        ["vm-1", "snap_1"],
+      ])
+      next.machines.set(LEGACY_KEY, "mach_1")
+      const cli = await run(["rollback", "--ledger", copy("legacy-nokey-cli.jsonl")], {
+        CMUX_PLATFORM_ORIGIN: next.origin,
+        INTERNAL_TOKEN: "internal",
+      })
+      expect(cli.code).toBe(1)
+      expect(cli.stdout).toContain("MANUAL CLEANUP vm-1 (mig_legacy) VM API snapshot snap_1")
+      expect(cli.stderr).not.toContain("Cannot set properties")
+      const v = await run(["verify", "--ledger", copy("legacy-verify-cli.jsonl")], { CMUX_PLATFORM_ORIGIN: next.origin, INTERNAL_TOKEN: "internal" })
+      expect(v.stderr).not.toContain("Cannot set properties")
+      expect(v.stdout).toContain("vm-1")
+    } finally {
+      next.stop()
+    }
+  })
+
+  test("--fresh is refused while an earlier-CLI VM is not rolled back", async () => {
+    const plan = { migration_id: "mig_legacy", entries: [], counts: {} } as unknown as Plan
+    expect(() => attemptFor(plan, new Ledger(copy("legacy-fresh.jsonl")), true)).toThrow(/not rolled back/)
   })
 })

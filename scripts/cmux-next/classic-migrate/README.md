@@ -87,6 +87,15 @@ The direct VM API import step (`POST {VM_API}/v1/imports/classic-vm-snapshots`, 
 `vm_api_snapshot_id`) is gone: the platform calls that route itself, and its rollback deletes those imports, so a
 second path only added a step to fail and a tenant to resolve.
 
+**Ledgers of the earlier CLI.** A ledger that CLI wrote holds `vm_api_import` lines (and platform requests with
+`vm_api_snapshot_id`). It stays readable: `status` shows both steps and the VM API snapshot id, `verify` reads it, and
+`rollback` deletes the machine through the platform, then the VM API snapshot that CLI made itself through
+`DELETE {VM_API}/v1/imports/classic-vm-snapshots/{id}` when `CMUX_VM_API_ORIGIN` (or `--vm-api`) and
+`CMUX_VM_IMPORT_KEY` are set. Without them, or when the import never answered with its id, rollback prints
+`MANUAL CLEANUP` with the classic VM, the migration id and the snapshot id, and exits 1. `apply` never re-sends such
+a VM (roll back, then `apply --fresh`). A line with a step name the CLI does not know is ignored and listed in
+`status`.
+
 ## 3. `verify`, `rollback`, `status`
 
 `verify --ledger FILE` reads `GET {PLATFORM}/internal/v1/migrations/classic/machines?team=&migration_id=` for each
@@ -112,12 +121,18 @@ while the current attempt still has anything not rolled back, so two copies of o
 
 `.github/workflows/classic-migration-staging.yml` (manual dispatch, environment `cloud-vm-staging`) runs
 `staging-proof.ts`: SETUP makes a throwaway smoke user and a two-member team with one classic VM each through
-classic staging's own API and writes a nonce on each; DRY RUN runs `plan --user` and `plan --team` against classic
+classic staging's own API and writes a nonce on each. Every classic request sends its VM's account scope
+(`X-Cmux-Team-Id`: the owner's personal Stack team, made and marked personal when Stack made none, or the shared
+team), and each create is recorded with its Idempotency-Key before it is sent; DRY RUN runs `plan --user` and `plan --team` against classic
 staging Postgres (read only, `CLASSIC_DB_HOST_ALLOW`) and requires each VM as `copy`, nothing `needs-decision`;
 MIGRATE runs `apply`, `verify`, reads the nonce back on each NEXT machine as the smoke user, and requires a second
 `apply` to send nothing; ROLLBACK runs `rollback`, `verify` (none), a second `rollback` (nothing sent) and reads the
 nonce on classic again; TEARDOWN always deletes the classic VMs, the team and the users, rolling NEXT back first if
-MIGRATE or ROLLBACK did not finish (a second, `always()` step repeats it from the state file). Without
+MIGRATE or ROLLBACK did not finish (a second, `always()` step repeats it from the state file, running the rescue
+rollback and the classic teardown both and reporting their failures together). Teardown first resolves an unanswered
+create (classic can answer 503 `vm_operation_in_progress` and go on): the VM with its display name in its scope's
+list, else the same request replayed with the same Idempotency-Key. A 404 on DELETE counts as gone only under the
+VM's own scope; a team is deleted only once no VM under it is left, and the owner is kept while any VM or create is. Without
 `PLATFORM_STAGING_INTERNAL_TOKEN` MIGRATE and ROLLBACK are reported not-run and the run passes with a notice. The
 job summary has each step's seconds and result; the artifact has `proof.json` and the ledgers.
 

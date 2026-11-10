@@ -1,8 +1,8 @@
 import {
   CLASSIC_REF,
   HttpError,
+  type LegacyVmApi,
   type PlatformImportRequest,
-  type PlatformImportResult,
   type PlatformImports,
 } from "./clients.ts"
 import { attemptId, attemptNumber, baseMigrationId, Ledger, type StepState, type VmState } from "./ledger.ts"
@@ -16,6 +16,8 @@ import { copiesOf, type Plan } from "./plan.ts"
 
 export interface Deps {
   platform: PlatformImports
+  /** Only for ledgers of the earlier CLI: deletes the VM API imports it made itself (`vm_api_import`). */
+  legacyVmApi?: LegacyVmApi
   log?: (line: string) => void
 }
 
@@ -44,9 +46,26 @@ const blankVm = (id: string): VmState => ({
 })
 
 const ROLLED = ["rolling_back", "rollback_failed", "rolled_back"]
-const rolledBack = (vm: VmState) => ROLLED.includes(vm.steps.platform_import.status)
+const rolledBack = (vm: VmState) =>
+  ROLLED.includes(vm.steps.platform_import.status) || ROLLED.includes(vm.steps.vm_api_import?.status ?? "pending")
 /** Something this attempt sent may exist in NEXT. */
-const touched = (s: StepState) => s.status !== "pending" && s.status !== "rolled_back" && s.request !== undefined
+const touched = (s: StepState | undefined) =>
+  s !== undefined && s.status !== "pending" && s.status !== "rolled_back" && s.request !== undefined
+/** Any step of the VM that may have left something in NEXT. */
+const vmTouched = (vm: VmState) => touched(vm.steps.platform_import) || touched(vm.steps.vm_api_import)
+/**
+ * Written by the earlier two-step CLI: a `vm_api_import` step, or a platform request carrying its snapshot id. Such a
+ * VM is shown and rolled back, but never re-sent: the recorded request is the old route shape.
+ */
+const legacy = (vm: VmState) =>
+  vm.steps.vm_api_import !== undefined ||
+  (vm.steps.platform_import.request as { vm_api_snapshot_id?: unknown } | undefined)?.vm_api_snapshot_id !== undefined
+/** The machine id of a platform result: a string now, `{id}` in the earlier CLI's ledgers. */
+const machineOf = (result: unknown): string | null => {
+  const m = (result as { machine?: unknown } | undefined)?.machine
+  if (typeof m === "string") return m
+  return m !== null && typeof m === "object" && typeof (m as { id?: unknown }).id === "string" ? (m as { id: string }).id : null
+}
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const httpStatus = (e: unknown) => (e instanceof HttpError ? { http_status: e.status } : {})
@@ -56,7 +75,7 @@ export const attemptFor = (plan: Plan, ledger: Ledger, fresh: boolean): string =
   const current = ledger.migrationId()
   if (!fresh) return current ?? plan.migration_id
   if (current === undefined) return plan.migration_id
-  const live = [...ledger.state(current).values()].filter((vm) => touched(vm.steps.platform_import))
+  const live = [...ledger.state(current).values()].filter(vmTouched)
   if (live.length > 0)
     throw new Error(
       `--fresh: attempt ${current} still has ${live.length} VM(s) not rolled back (${live.map((v) => v.classic_vm_id).join(", ")}); run rollback first`,
@@ -85,6 +104,12 @@ export const apply = async (plan: Plan, ledger: Ledger, deps: Deps, opts: ApplyO
       continue
     }
     const s = vm.steps.platform_import
+    if (legacy(vm) && s.status !== "done") {
+      const why = "written by the earlier two-step CLI (vm_api_import) and not finished; run rollback, then apply --fresh"
+      report.skipped.push({ classic_vm_id: c.classic_vm_id, why })
+      log(`skip ${c.classic_vm_id}: ${why}`)
+      continue
+    }
     if (opts.dryRun) {
       report.would.push({
         classic_vm_id: c.classic_vm_id,
@@ -133,6 +158,8 @@ export const apply = async (plan: Plan, ledger: Ledger, deps: Deps, opts: ApplyO
 export interface RollbackReport {
   rolled_back: { classic_vm_id: string; status: string }[]
   failed: { classic_vm_id: string; error: string }[]
+  /** Earlier-CLI VM API imports this run could not delete itself (no VM API client, or the id is unknown). */
+  manual_cleanup: { classic_vm_id: string; migration_id: string; vm_api_snapshot_id: string | null; why: string }[]
   /** Requests sent (a second rollback sends none). */
   sent: number
 }
@@ -146,36 +173,89 @@ export interface RollbackReport {
 export const rollback = async (ledger: Ledger, deps: Deps): Promise<RollbackReport> => {
   const log = deps.log ?? (() => {})
   const mig = ledger.migrationId()
-  const report: RollbackReport = { rolled_back: [], failed: [], sent: 0 }
+  const report: RollbackReport = { rolled_back: [], failed: [], manual_cleanup: [], sent: 0 }
   if (mig === undefined) return report
   const vms = [...ledger.state(mig).values()].sort((a, b) => b.first - a.first)
   for (const vm of vms) {
     const id = vm.classic_vm_id
     const s = vm.steps.platform_import
-    if (!touched(s)) continue
-    const req = s.request as PlatformImportRequest
-    const line = { migration_id: mig, classic_vm_id: id, step: "platform_import" as const }
-    ledger.append({ ...line, event: "rollback_started" })
-    report.sent++
-    try {
-      const status = await deps.platform.deleteMachine({ team: req.team, migration_id: req.migration_id, classic_vm_id: id })
-      ledger.append({ ...line, event: "rolled_back", note: status })
-      report.rolled_back.push({ classic_vm_id: id, status })
-      log(`rolled back ${id} (${status})`)
-    } catch (e) {
-      ledger.append({ ...line, event: "rollback_failed", error: errText(e) })
-      report.failed.push({ classic_vm_id: id, error: errText(e) })
-      log(`rollback failed ${id}: ${errText(e)}`)
+    if (touched(s)) {
+      const req = s.request as PlatformImportRequest
+      const line = { migration_id: mig, classic_vm_id: id, step: "platform_import" as const }
+      ledger.append({ ...line, event: "rollback_started" })
+      report.sent++
+      try {
+        const status = await deps.platform.deleteMachine({ team: req.team, migration_id: req.migration_id, classic_vm_id: id })
+        ledger.append({ ...line, event: "rolled_back", note: status })
+        report.rolled_back.push({ classic_vm_id: id, status })
+        log(`rolled back ${id} (${status})`)
+      } catch (e) {
+        ledger.append({ ...line, event: "rollback_failed", error: errText(e) })
+        report.failed.push({ classic_vm_id: id, error: errText(e) })
+        log(`rollback failed ${id}: ${errText(e)}`)
+        // Keep an earlier-CLI VM API snapshot: the machine may still be made from it.
+        continue
+      }
     }
+    await rollbackLegacyImport(ledger, mig, vm, deps, report)
   }
   return report
+}
+
+/**
+ * The earlier CLI's own VM API import (`vm_api_import`), after its machine is gone: deleted through the VM API
+ * client when there is one; otherwise, or when the import never answered with its id, recorded as rollback_failed
+ * and listed for manual cleanup with what identifies it. A refused import made nothing.
+ */
+const rollbackLegacyImport = async (ledger: Ledger, mig: string, vm: VmState, deps: Deps, report: RollbackReport) => {
+  const log = deps.log ?? (() => {})
+  const v = vm.steps.vm_api_import
+  if (!touched(v)) return
+  const id = vm.classic_vm_id
+  const line = { migration_id: mig, classic_vm_id: id, step: "vm_api_import" as const }
+  const snapId = (v!.result as { id?: unknown } | undefined)?.id
+  if (typeof snapId !== "string") {
+    if (v!.status === "failed" && v!.http_status !== undefined && new HttpError(v!.http_status, "", "").permanent) {
+      ledger.append({ ...line, event: "rolled_back", note: `import was refused (HTTP ${v!.http_status}); nothing was created` })
+      report.rolled_back.push({ classic_vm_id: id, status: "absent" })
+      return
+    }
+    const why = "the VM API import never answered with its id; find it in the VM API by (migration_id, classic_vm_id) and delete it"
+    ledger.append({ ...line, event: "rollback_failed", error: `needs manual cleanup: ${why}` })
+    report.manual_cleanup.push({ classic_vm_id: id, migration_id: mig, vm_api_snapshot_id: null, why })
+    log(`manual cleanup ${id}: ${why}`)
+    return
+  }
+  if (!deps.legacyVmApi) {
+    const why = "no VM API client (set CMUX_VM_API_ORIGIN and CMUX_VM_IMPORT_KEY to delete it here)"
+    ledger.append({ ...line, event: "rollback_failed", error: `needs manual cleanup: VM API snapshot ${snapId}: ${why}` })
+    report.manual_cleanup.push({ classic_vm_id: id, migration_id: mig, vm_api_snapshot_id: snapId, why })
+    log(`manual cleanup ${id}: VM API snapshot ${snapId}: ${why}`)
+    return
+  }
+  ledger.append({ ...line, event: "rollback_started" })
+  report.sent++
+  try {
+    await deps.legacyVmApi.deleteSnapshot(snapId)
+    ledger.append({ ...line, event: "rolled_back", note: snapId })
+    report.rolled_back.push({ classic_vm_id: id, status: `deleted VM API snapshot ${snapId}` })
+    log(`rolled back ${id} VM API snapshot ${snapId}`)
+  } catch (e) {
+    ledger.append({ ...line, event: "rollback_failed", error: errText(e) })
+    report.failed.push({ classic_vm_id: id, error: errText(e) })
+    log(`rollback failed ${id} VM API snapshot ${snapId}: ${errText(e)}`)
+  }
 }
 
 export interface StatusRow {
   classic_vm_id: string
   attempt: string
   platform_import: string
+  /** Only for ledgers of the earlier CLI. */
+  vm_api_import?: string
+  snapshot?: string
   machine?: string
+  ignored_steps?: string[]
   overall: "done" | "pending" | "in_flight" | "failed" | "rolled_back" | "rollback_incomplete"
 }
 
@@ -185,15 +265,35 @@ export const status = (ledger: Ledger, plan?: Plan): StatusRow[] => {
   const states = ledger.state(attempt)
   const ids = new Set([...states.keys(), ...(plan ? copiesOf(plan).map((c) => c.classic_vm_id) : [])])
   return [...ids].sort().map((id) => {
-    const s = (states.get(id) ?? blankVm(id)).steps.platform_import
-    const overall: StatusRow["overall"] =
-      s.status === "rolling_back" || s.status === "rollback_failed"
-        ? "rollback_incomplete"
-        : s.status === "rolled_back"
+    const vm = states.get(id) ?? blankVm(id)
+    const s = vm.steps.platform_import
+    const v = vm.steps.vm_api_import
+    const all = v ? [v.status, s.status] : [s.status]
+    const overall: StatusRow["overall"] = all.some((x) => x === "rolling_back" || x === "rollback_failed")
+      ? "rollback_incomplete"
+      : all.includes("rolled_back")
+        ? all.every((x) => x === "rolled_back" || x === "pending")
           ? "rolled_back"
-          : s.status
-    const machine = (s.result as PlatformImportResult | undefined)?.machine
-    return { classic_vm_id: id, attempt, platform_import: s.status, ...(machine ? { machine } : {}), overall }
+          : "rollback_incomplete"
+        : all.every((x) => x === "done")
+          ? "done"
+          : all.includes("failed")
+            ? "failed"
+            : all.includes("in_flight")
+              ? "in_flight"
+              : "pending"
+    const machine = machineOf(s.result)
+    const snapshot = (v?.result as { id?: unknown } | undefined)?.id
+    return {
+      classic_vm_id: id,
+      attempt,
+      platform_import: s.status,
+      ...(v ? { vm_api_import: v.status } : {}),
+      ...(typeof snapshot === "string" ? { snapshot } : {}),
+      ...(machine ? { machine } : {}),
+      ...(vm.ignored ? { ignored_steps: vm.ignored } : {}),
+      overall,
+    }
   })
 }
 
@@ -239,7 +339,7 @@ export const verify = async (ledger: Ledger, deps: Deps): Promise<VerifyReport> 
       byVm.delete(vm.classic_vm_id)
       const found = item?.machine && live(item.machine) ? item.machine.id : null
       if (attempt === current && s.status === "done") {
-        const want = (s.result as PlatformImportResult | undefined)?.machine ?? null
+        const want = machineOf(s.result)
         const ok = found !== null && (want === null || found === want)
         rows.push({
           attempt,

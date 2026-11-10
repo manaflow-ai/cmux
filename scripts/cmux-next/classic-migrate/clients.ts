@@ -141,3 +141,23 @@ export const httpPlatform = (origin: string, token: string, fetchFn: Fetch = fet
     },
   }
 }
+
+/**
+ * The VM API's classic snapshot imports, for ledgers written by the earlier CLI only: that CLI made a VM API import
+ * itself (`vm_api_import` step) before calling the platform, so rolling such a ledger back deletes that import here.
+ * New runs never call the VM API. Service key CMUX_VM_IMPORT_KEY.
+ */
+export interface LegacyVmApi {
+  /** Resolves when the snapshot is gone, including when it was never there (404). */
+  deleteSnapshot(snapshotId: string): Promise<void>
+}
+
+export const httpLegacyVmApi = (origin: string, key: string, fetchFn: Fetch = fetch): LegacyVmApi => {
+  const base = `${origin.replace(/\/+$/, "")}/v1/imports/classic-vm-snapshots`
+  return {
+    deleteSnapshot: async (id) => {
+      const r = await call(fetchFn, "vm api delete", `${base}/${encodeURIComponent(id)}`, key, "DELETE")
+      if (!r.ok && r.status !== 404) throw new HttpError(r.status, r.text, r.what)
+    },
+  }
+}

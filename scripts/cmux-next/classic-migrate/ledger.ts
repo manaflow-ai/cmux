@@ -6,8 +6,12 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs"
 // started, and both re-send the same idempotent request).
 
 // One step per classic VM: the platform route makes the VM API import, the snapshot row and the machine.
-export type Step = "platform_import"
+// `vm_api_import` is the earlier CLI's first step (it called the VM API itself, then the platform with the snapshot
+// id). New runs never write it; ledgers written by that CLI are still read, shown and rolled back. Any other step
+// name is kept out of the state (listed in `ignored`) so an unknown line never breaks status or rollback.
+export type Step = "platform_import" | "vm_api_import"
 export const STEPS: readonly Step[] = ["platform_import"]
+const KNOWN_STEPS: readonly string[] = ["platform_import", "vm_api_import"]
 
 export type LedgerEvent = "started" | "done" | "failed" | "rollback_started" | "rolled_back" | "rollback_failed"
 
@@ -45,7 +49,9 @@ export interface VmState {
   classic_vm_id: string
   /** Index of the VM's first ledger line: rollback undoes VMs in reverse of this order. */
   first: number
-  steps: Record<Step, StepState>
+  steps: { platform_import: StepState; vm_api_import?: StepState }
+  /** Step names in the ledger this CLI does not know; their lines are not applied. */
+  ignored?: string[]
 }
 
 export class Ledger {
@@ -95,7 +101,7 @@ export class Ledger {
   state(attempt = this.migrationId()): Map<string, VmState> {
     const vms = new Map<string, VmState>()
     this.read().forEach((l, i) => {
-      if (l.migration_id !== attempt) return
+      if (l === null || typeof l !== "object" || l.migration_id !== attempt || typeof l.classic_vm_id !== "string") return
       let vm = vms.get(l.classic_vm_id)
       if (!vm) {
         vm = {
@@ -105,7 +111,13 @@ export class Ledger {
         }
         vms.set(l.classic_vm_id, vm)
       }
-      const s = vm.steps[l.step]
+      if (!KNOWN_STEPS.includes(l.step)) {
+        const name = String(l.step)
+        vm.ignored ??= []
+        if (!vm.ignored.includes(name)) vm.ignored.push(name)
+        return
+      }
+      const s = l.step === "vm_api_import" ? (vm.steps.vm_api_import ??= { status: "pending" }) : vm.steps.platform_import
       switch (l.event) {
         case "started":
           s.status = "in_flight"

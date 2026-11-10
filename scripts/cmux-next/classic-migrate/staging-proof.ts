@@ -145,10 +145,34 @@ export const checkDryRun = (plan: Plan, providerVmIds: string[]): string[] => {
 export interface ProofState {
   tag: string
   users: { id: string; email: string; role: "owner" | "member"; gone?: true }[]
+  /** The shared Stack team (two members, team plan). */
   team: { id: string; gone?: true } | null
-  vms: { id: string; kind: "personal" | "team"; nonce: string; gone?: true }[]
+  /**
+   * The owner's personal Stack team: the personal VM's account scope. `created` when the proof made it (the user had
+   * no team), so teardown deletes it; one Stack made on its own is left to the user's deletion.
+   */
+  personalTeam?: { id: string; created: boolean; gone?: true } | null
+  /** `scope`: the X-Cmux-Team-Id classic bills and owns the VM under; every request for the VM sends it. */
+  vms: { id: string; kind: "personal" | "team"; nonce: string; scope?: string; gone?: true }[]
+  /**
+   * Each classic create, written before its request: classic can answer 503 vm_operation_in_progress while the
+   * create goes on, so teardown finds what an unanswered create made (by its display name, then by replaying the
+   * same Idempotency-Key) before it deletes the owner. `resolved`: the VM id, or `none: <why>`.
+   */
+  creates?: CreateIntent[]
   ledgers: string[]
 }
+
+export interface CreateIntent {
+  kind: "personal" | "team"
+  key: string
+  scope: string
+  body: { provider: string; displayName: string }
+  resolved?: string
+}
+
+/** The header classic reads a request's account scope from (web services/vms/routeHelpers.ts). */
+export const SCOPE_HEADER = "x-cmux-team-id"
 
 export type Http = (
   method: string,
@@ -192,45 +216,105 @@ export const classicSession = async (http: Http, ep: Endpoints, keys: StackKeys,
   }
 }
 
+const scoped = (headers: Record<string, string>, scope: string | undefined) =>
+  scope ? { ...headers, [SCOPE_HEADER]: scope } : headers
+
 /**
- * Deletes what `state` records, idempotently: classic VMs (as their owner), then the team, then the users. A 404
- * counts as gone. When a VM cannot be deleted, its owner is kept for the classic sweep and this throws.
+ * Finds what an unanswered classic create made: a VM with its display name in its scope's list, else the answer to
+ * the same request replayed with the same Idempotency-Key (classic reuses the key: the VM it made, 409/503 while it
+ * runs, 500 vm_create_failed when it failed). Returns the VM id, `none: <why>` when nothing was made, or null when
+ * the outcome is still unknown.
+ */
+export const resolveCreate = async (
+  c: CreateIntent,
+  deps: { http: Http; ep: Endpoints; headers: Record<string, string>; waitMs: number; sleep?: (ms: number) => Promise<void> },
+): Promise<string | null> => {
+  const { http, ep, waitMs } = deps
+  const headers = scoped(deps.headers, c.scope)
+  const pause = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  const failed = (e: unknown) => ({ status: 0, body: { error: message(e) } as any })
+  const t0 = Date.now()
+  for (;;) {
+    const l = await http("GET", `${ep.classic}/api/vm`, undefined, headers, 60_000).catch(failed)
+    const found = l.status === 200 && Array.isArray(l.body?.vms)
+      ? (l.body.vms as { id?: unknown; displayName?: unknown }[]).find((v) => v.displayName === c.body.displayName)
+      : undefined
+    if (found && typeof found.id === "string") return found.id
+    const r = await http("POST", `${ep.classic}/api/vm`, c.body, { ...headers, "idempotency-key": c.key }, 180_000).catch(failed)
+    if (r.status === 200 && typeof r.body?.id === "string") return r.body.id as string
+    if (r.status === 500 && r.body?.error === "vm_create_failed") return "none: classic recorded the create as failed"
+    if (r.status === 400 || r.status === 422) return `none: classic refused the create (HTTP ${r.status})`
+    if (Date.now() - t0 >= waitMs) return null
+    await pause(10_000)
+  }
+}
+
+/**
+ * Deletes what `state` records, idempotently: first it resolves every unanswered classic create into a VM (or
+ * none), then deletes the classic VMs (as their owner, each under its own account scope), then each team once no
+ * VM of its scope is left, then the users. A 404 counts as gone only under the VM's own scope: under another one
+ * classic filters the VM out. When a VM cannot be deleted or a create stays unresolved, its owner and its team are
+ * kept for a retry or the classic sweep, and this throws.
  */
 export const teardownState = async (
   state: ProofState,
-  deps: { http: Http; ep: Endpoints; keys: StackKeys; save: (s: ProofState) => void },
+  deps: { http: Http; ep: Endpoints; keys: StackKeys; save: (s: ProofState) => void; createWaitMs?: number; sleep?: (ms: number) => Promise<void> },
 ): Promise<string> => {
   const { http, ep, keys, save } = deps
   const left: string[] = []
   const owner = state.users.find((u) => u.role === "owner")
-  const vms = state.vms.filter((v) => !v.gone)
-  if (vms.length > 0 && owner) {
+  const pending = () => (state.creates ?? []).filter((c) => c.resolved === undefined)
+  if ((pending().length > 0 || state.vms.some((v) => !v.gone)) && owner) {
     let headers: Record<string, string> | null = null
     try {
       headers = await classicSession(http, ep, keys, owner.id)
     } catch (e) {
       left.push(`classic session: ${message(e)}`)
     }
-    for (const vm of vms) {
+    for (const c of pending()) {
+      if (!headers) break
+      const got = await resolveCreate(c, { http, ep, headers, waitMs: deps.createWaitMs ?? 6 * 60_000, ...(deps.sleep ? { sleep: deps.sleep } : {}) })
+      if (got === null) continue
+      c.resolved = got
+      if (!got.startsWith("none:") && !state.vms.some((v) => v.id === got))
+        state.vms.push({ id: got, kind: c.kind, nonce: "", scope: c.scope })
+      save(state)
+    }
+    for (const c of pending()) left.push(`classic create ${c.kind} (Idempotency-Key ${c.key}) unresolved`)
+    for (const vm of state.vms.filter((v) => !v.gone)) {
       if (!headers) {
         left.push(`classic VM ${vm.id}`)
         continue
       }
-      const r = await http("DELETE", `${ep.classic}/api/vm/${encodeURIComponent(vm.id)}`, undefined, headers, 60_000).catch(
+      const r = await http("DELETE", `${ep.classic}/api/vm/${encodeURIComponent(vm.id)}`, undefined, scoped(headers, vm.scope), 60_000).catch(
         (e: unknown) => ({ status: 0, body: { error: message(e) } }),
       )
-      if (r.status === 200 || r.status === 404) vm.gone = true
+      if (r.status === 200 || (r.status === 404 && vm.scope)) vm.gone = true
+      else if (r.status === 404) left.push(`classic VM ${vm.id} (HTTP 404 with no recorded scope: not confirmed gone)`)
       else left.push(`classic VM ${vm.id} (HTTP ${r.status})`)
       save(state)
     }
   }
-  if (state.team && !state.team.gone) {
-    const r = await http("DELETE", `${ep.stackApi}/api/v1/teams/${state.team.id}`, undefined, stackServerHeaders(keys))
-    if (r.status === 200 || r.status === 404) state.team.gone = true
-    else left.push(`team ${state.team.id} (HTTP ${r.status})`)
+  // A VM with no recorded scope may be under any team, and an unresolved create under its own: keep those teams.
+  const unscopedLeft = state.vms.some((v) => !v.gone && !v.scope)
+  const scopeBusy = (team: string) =>
+    unscopedLeft || state.vms.some((v) => !v.gone && v.scope === team) || pending().some((c) => c.scope === team)
+  const teams = [
+    ...(state.team ? [{ t: state.team, what: "team" }] : []),
+    ...(state.personalTeam?.created ? [{ t: state.personalTeam, what: "personal team" }] : []),
+  ]
+  for (const { t, what } of teams) {
+    if (t.gone) continue
+    if (scopeBusy(t.id)) {
+      left.push(`${what} ${t.id} kept (a classic VM under it is not confirmed gone)`)
+      continue
+    }
+    const r = await http("DELETE", `${ep.stackApi}/api/v1/teams/${t.id}`, undefined, stackServerHeaders(keys))
+    if (r.status === 200 || r.status === 404) t.gone = true
+    else left.push(`${what} ${t.id} (HTTP ${r.status})`)
     save(state)
   }
-  const vmLeft = state.vms.some((v) => !v.gone)
+  const vmLeft = state.vms.some((v) => !v.gone) || pending().length > 0
   for (const u of state.users) {
     if (u.gone) continue
     if (u.role === "owner" && vmLeft) {
@@ -243,7 +327,28 @@ export const teardownState = async (
     save(state)
   }
   if (left.length > 0) throw new Error(`left behind: ${left.join(", ")}`)
-  return `deleted ${state.vms.length} classic VM(s), ${state.team ? 1 : 0} team, ${state.users.length} user(s)`
+  return `deleted ${state.vms.length} classic VM(s), ${teams.length} team(s), ${state.users.length} user(s)`
+}
+
+/**
+ * `--teardown-only`: the rescue rollback of NEXT (when asked), then the classic teardown, always both; the failures
+ * of both are reported together.
+ */
+export const teardownOnly = async (ops: Pick<ProofOps, "rescueRollback" | "teardown">, rescue: boolean) => {
+  const notes: string[] = []
+  const failures: string[] = []
+  if (rescue)
+    try {
+      notes.push(`rescue rollback: ${await ops.rescueRollback()}`)
+    } catch (e) {
+      failures.push(`rescue rollback: ${message(e)}`)
+    }
+  try {
+    notes.push(await ops.teardown())
+  } catch (e) {
+    failures.push(`teardown: ${message(e)}`)
+  }
+  return { ok: failures.length === 0, notes, failures }
 }
 
 // ------------------------------------------------------------------------------------------------------------
@@ -352,39 +457,57 @@ const stagingOps = (cfg: Config, state: ProofState, save: (s: ProofState) => voi
     return r.body.id as string
   }
 
-  const classicHeaders = () => classicSession(http, cfg.ep, cfg.keys, owner().id)
+  // Every classic request names its VM's account scope: once the paid shared team exists, classic's default billing
+  // team resolution could pick it for a personal-VM request, and then filters the personal VM out (exec fails, DELETE
+  // answers 404 while the VM lives).
+  const classicHeaders = async (scope: string) => ({
+    ...(await classicSession(http, cfg.ep, cfg.keys, owner().id)),
+    [SCOPE_HEADER]: scope,
+  })
 
-  const classicExec = async (id: string, command: string) => {
+  const classicExec = async (v: { id: string; scope?: string }, command: string) => {
+    if (!v.scope) throw new Error(`classic VM ${v.id} has no recorded scope`)
     const r = await http(
       "POST",
-      `${cfg.ep.classic}/api/vm/${encodeURIComponent(id)}/exec`,
+      `${cfg.ep.classic}/api/vm/${encodeURIComponent(v.id)}/exec`,
       { command, timeoutMs: 60_000 },
-      await classicHeaders(),
+      await classicHeaders(v.scope),
       120_000,
     )
-    if (r.status !== 200) throw new Error(`classic exec on ${id}: HTTP ${r.status} ${short(r.body)}`)
+    if (r.status !== 200) throw new Error(`classic exec on ${v.id}: HTTP ${r.status} ${short(r.body)}`)
     return { stdout: String(r.body?.stdout ?? ""), exitCode: Number(r.body?.exitCode ?? r.body?.exit_code ?? -1) }
   }
 
-  const makeVm = async (kind: "personal" | "team", teamId?: string) => {
+  const makeVm = async (kind: "personal" | "team", scope: string) => {
+    // The intent first: an answer lost to a timeout or a 503 vm_operation_in_progress leaves a create teardown resolves.
+    const intent: CreateIntent = {
+      kind,
+      key: `classicmig-${cfg.runTag}${kind}-${state.tag}`,
+      scope,
+      body: { provider: "freestyle", displayName: `classicmig-${state.tag}-${kind}` },
+    }
+    state.creates = [...(state.creates ?? []), intent]
+    save(state)
     const r = await http(
       "POST",
       `${cfg.ep.classic}/api/vm`,
-      { provider: "freestyle", ...(teamId ? { teamId } : {}) },
-      { ...(await classicHeaders()), "idempotency-key": `classicmig-${cfg.runTag}${kind}-${state.tag}` },
+      intent.body,
+      { ...(await classicHeaders(scope)), "idempotency-key": intent.key },
       180_000,
     )
     if (r.status !== 200 || typeof r.body?.id !== "string") throw new Error(`classic create ${kind} VM: HTTP ${r.status} ${short(r.body)}`)
     const nonce = randomBytes(12).toString("hex")
-    state.vms.push({ id: r.body.id, kind, nonce })
+    state.vms.push({ id: r.body.id, kind, nonce, scope })
+    intent.resolved = r.body.id
     save(state)
+    const made = state.vms.at(-1)!
     await until(`classic ${kind} VM ${r.body.id} running`, 6 * 60_000, 5000, async () => {
-      const g = await http("GET", `${cfg.ep.classic}/api/vm/${encodeURIComponent(r.body.id)}`, undefined, await classicHeaders())
+      const g = await http("GET", `${cfg.ep.classic}/api/vm/${encodeURIComponent(r.body.id)}`, undefined, await classicHeaders(scope))
       if (g.status !== 200) throw new Error(`GET HTTP ${g.status}`)
       if (g.body?.status === "failed") throw new Error(`classic VM failed: ${short(g.body)}`)
       return g.body?.status === "running" ? true : null
     })
-    const w = await classicExec(r.body.id, `umask 022; printf %s ${nonce} > ${MARKER} && sync && cat ${MARKER}`)
+    const w = await classicExec(made, `umask 022; printf %s ${nonce} > ${MARKER} && sync && cat ${MARKER}`)
     if (w.stdout.trim() !== nonce) throw new Error(`marker on classic ${kind} VM: read back ${short(w.stdout)}`)
     return r.body.id as string
   }
@@ -433,8 +556,24 @@ const stagingOps = (cfg: Config, state: ProofState, save: (s: ProofState) => voi
     setup: async () => {
       const ownerId = await makeUser("owner", "pro")
       const memberId = await makeUser("member", null)
-      // The personal VM first: with only its own team(s), classic bills and owns it personally.
-      await makeVm("personal")
+      // The personal VM's scope: the owner's personal Stack team (Stack may make one at sign-up), or one made here,
+      // marked personal, that teardown deletes.
+      const own = await stackServer("GET", `/teams?user_id=${encodeURIComponent(ownerId)}`)
+      if (own.status !== 200 || !Array.isArray(own.body?.items)) throw new Error(`list owner teams: HTTP ${own.status} ${short(own.body)}`)
+      if (own.body.items.length > 1) throw new Error(`the new owner already has ${own.body.items.length} teams`)
+      if (own.body.items.length === 1) state.personalTeam = { id: String(own.body.items[0].id), created: false }
+      else {
+        const pt = await stackServer("POST", "/teams", {
+          display_name: `cmux classic migration personal ${state.tag}`,
+          creator_user_id: ownerId,
+          server_metadata: { isPersonal: true },
+        })
+        if ((pt.status !== 200 && pt.status !== 201) || typeof pt.body?.id !== "string")
+          throw new Error(`create personal team: HTTP ${pt.status} ${short(pt.body)}`)
+        state.personalTeam = { id: pt.body.id, created: true }
+      }
+      save(state)
+      await makeVm("personal", state.personalTeam.id)
       const t = await stackServer("POST", "/teams", { display_name: `cmux classic migration ${state.tag}`, creator_user_id: ownerId })
       if ((t.status !== 200 && t.status !== 201) || typeof t.body?.id !== "string") throw new Error(`create team: HTTP ${t.status} ${short(t.body)}`)
       state.team = { id: t.body.id }
@@ -508,7 +647,7 @@ const stagingOps = (cfg: Config, state: ProofState, save: (s: ProofState) => voi
         out.push(`${kind}: rolled back, verify none, second rollback sent 0`)
       }
       for (const v of state.vms) {
-        const r = await classicExec(v.id, `cat ${MARKER}`)
+        const r = await classicExec(v, `cat ${MARKER}`)
         if (r.stdout.trim() !== v.nonce) throw new Error(`classic ${v.kind} VM ${v.id} no longer reads its nonce: ${short(r.stdout)}`)
       }
       out.push(`classic: ${state.vms.length} VM(s) still answer with their nonce`)
@@ -590,9 +729,10 @@ const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<number> => 
     }
     const state = JSON.parse(readFileSync(statePath, "utf8")) as ProofState
     const ops = stagingOps(cfg, state, save)
-    if (cfg.internalToken && state.ledgers.length > 0) console.log(`rescue rollback: ${await ops.rescueRollback()}`)
-    console.log(await ops.teardown())
-    return 0
+    const r = await teardownOnly(ops, cfg.internalToken !== null && state.ledgers.length > 0)
+    for (const n of r.notes) console.log(n)
+    for (const f of r.failures) console.error(`FAILED ${f}`)
+    return r.ok ? 0 : 1
   }
 
   const state: ProofState = { tag: randomBytes(4).toString("hex"), users: [], team: null, vms: [], ledgers: [] }

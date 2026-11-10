@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { apply, rollback, status, verify } from "./apply.ts"
-import { httpPlatform, type PlatformImports } from "./clients.ts"
+import { httpLegacyVmApi, httpPlatform, type PlatformImports } from "./clients.ts"
 import { Ledger } from "./ledger.ts"
 import { buildPlan, renderPlanMarkdown, renderPlanText, type Plan } from "./plan.ts"
 import {
@@ -26,12 +26,13 @@ const USAGE = `usage: bun scripts/cmux-next/classic-migrate/main.ts <command> [o
             [--allow-production-read]
   apply     --plan plan.json --ledger FILE [--only CLASSIC_VM_ID] [--dry-run] [--fresh]
             [--platform ORIGIN] [--json]
-  rollback  --ledger FILE [--platform ORIGIN] [--json]
+  rollback  --ledger FILE [--platform ORIGIN] [--vm-api ORIGIN] [--json]
   verify    --ledger FILE [--platform ORIGIN] [--json]
   status    --ledger FILE [--plan plan.json] [--json]
 
 env: CLASSIC_DATABASE_URL, CLASSIC_DB_HOST_ALLOW (plan --source postgres);
-     CMUX_PLATFORM_ORIGIN, INTERNAL_TOKEN (apply, rollback, verify)
+     CMUX_PLATFORM_ORIGIN, INTERNAL_TOKEN (apply, rollback, verify);
+     CMUX_VM_API_ORIGIN, CMUX_VM_IMPORT_KEY (rollback of a ledger the earlier CLI wrote, optional)
 `
 
 class UsageError extends Error {}
@@ -60,6 +61,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       "dry-run": { type: "boolean" },
       fresh: { type: "boolean" },
       platform: { type: "string" },
+      "vm-api": { type: "string" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
@@ -75,6 +77,12 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       need(env["INTERNAL_TOKEN"], "INTERNAL_TOKEN"),
     ),
   })
+  // Only an earlier-CLI ledger needs it (its own VM API imports); without it those are listed for manual cleanup.
+  const legacyVmApi = () => {
+    const origin = values["vm-api"] ?? env["CMUX_VM_API_ORIGIN"]
+    const key = env["CMUX_VM_IMPORT_KEY"]
+    return origin && key ? { legacyVmApi: httpLegacyVmApi(origin, key) } : {}
+  }
   const printJson = (v: unknown) => process.stdout.write(`${JSON.stringify(v, null, 2)}\n`)
 
   switch (cmd) {
@@ -140,14 +148,18 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       return report.failed.length > 0 ? 1 : 0
     }
     case "rollback": {
-      const report = await rollback(new Ledger(need(values.ledger, "--ledger")), { ...clients(), log })
+      const report = await rollback(new Ledger(need(values.ledger, "--ledger")), { ...clients(), ...legacyVmApi(), log })
       if (values.json) printJson(report)
       else {
         for (const r of report.rolled_back) process.stdout.write(`rolled back ${r.classic_vm_id} (${r.status})\n`)
         for (const f of report.failed) process.stdout.write(`failed ${f.classic_vm_id}: ${f.error}\n`)
-        if (report.sent === 0) process.stdout.write("nothing to roll back\n")
+        for (const m of report.manual_cleanup)
+          process.stdout.write(
+            `MANUAL CLEANUP ${m.classic_vm_id} (${m.migration_id}) VM API snapshot ${m.vm_api_snapshot_id ?? "(id unknown)"}: ${m.why}\n`,
+          )
+        if (report.sent === 0 && report.manual_cleanup.length === 0) process.stdout.write("nothing to roll back\n")
       }
-      return report.failed.length > 0 ? 1 : 0
+      return report.failed.length > 0 || report.manual_cleanup.length > 0 ? 1 : 0
     }
     case "verify": {
       const report = await verify(new Ledger(need(values.ledger, "--ledger")), { ...clients(), log })
@@ -168,7 +180,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       else {
         for (const r of rows)
           process.stdout.write(
-            `${r.overall.padEnd(20)} ${r.classic_vm_id}  ${r.attempt} platform_import=${r.platform_import}${r.machine ? ` ${r.machine}` : ""}\n`,
+            `${r.overall.padEnd(20)} ${r.classic_vm_id}  ${r.attempt}${r.vm_api_import ? ` vm_api_import=${r.vm_api_import}${r.snapshot ? ` ${r.snapshot}` : ""}` : ""} platform_import=${r.platform_import}${r.machine ? ` ${r.machine}` : ""}${r.ignored_steps ? ` (ignored unknown steps: ${r.ignored_steps.join(", ")})` : ""}\n`,
           )
         const by = new Map<string, number>()
         for (const r of rows) by.set(r.overall, (by.get(r.overall) ?? 0) + 1)
