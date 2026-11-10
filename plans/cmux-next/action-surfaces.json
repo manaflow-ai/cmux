@@ -61673,7 +61673,7 @@
     },
     {
       "name" : "bookmarkFolder",
-      "source" : "CmuxNextBookmarks\/UI\/BookmarkFolderMenu.swift"
+      "source" : "CmuxNextBookmarks\/Page\/BookmarksBarPage.swift"
     },
     {
       "name" : "titlebarHistory",
