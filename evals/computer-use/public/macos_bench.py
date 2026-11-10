@@ -81,17 +81,55 @@ def mab_tasks(root: str) -> list[dict]:
     return out
 
 
+# macOSWorld's own guest is an EC2 AMI with seeded files in
+# ~/Benchmark_Backup and App Store apps; tasks that need either cannot run
+# faithfully in a stock VM and are left out. The rest run with the AMI's user
+# path rewritten to the guest's.
+MOW_APP_STORE = ("Pages", "Keynote", "Numbers", "iMovie", "GarageBand", "Xcode", "Final Cut", "Logic")
+
+
 def mow_tasks(root: str) -> list[dict]:
     out = []
     for path in sorted(glob.glob(os.path.join(root, "tasks", "*", "*.json"))):
         t = json.load(open(path))
-        task = t.get("task") or t.get("instruction") or {}
+        blob = json.dumps(t)
+        if "Benchmark_Backup" in blob or t.get("force_ec2") or any(a in blob for a in MOW_APP_STORE):
+            continue
+        task = t.get("task") or {}
         instr = task.get("en") if isinstance(task, dict) else task
         if not instr:
             continue
+        t = json.loads(blob.replace("/Users/ec2-user", f"/Users/{GUEST_USER}"))
         out.append({"suite": "macosworld", "id": f"{os.path.basename(os.path.dirname(path))}/{os.path.basename(path)[:-5]}",
                     "path": path, "instruction": instr, "raw": t})
     return out
+
+
+def mow_setup(task: dict, vm: "VM"):
+    t = task["raw"]
+    pre = t.get("pre_command")
+    if isinstance(pre, dict):
+        pre = pre.get("en")
+    if pre:
+        r = vm.ssh(pre, timeout=300)
+        if r.returncode != 0 and t.get("force_error_free_prep"):
+            raise RuntimeError(f"pre_command failed: {r.stderr[-300:]}")
+    # The benchmark's own settle time, capped: it was sized for EC2 cold starts.
+    time.sleep(min(int(t.get("before_action_delay_seconds", 0) or 0), 10))
+
+
+def mow_check(task: dict, vm: "VM") -> tuple[float, dict]:
+    """macOSWorld's evaluator: the first full-score grading command whose
+    output contains "true" scores; a command that fails to run is an error."""
+    t = task["raw"]
+    time.sleep(min(int(t.get("before_grading_delay_seconds", 0) or 0), 10))
+    for command, value in [c for c in t["grading_command"] if c[1] == 100]:
+        r = vm.ssh(command, timeout=120)
+        if r.returncode != 0 and not r.stdout:
+            return 0.0, {"grading_error": command[:200], "stderr": r.stderr[-200:]}
+        if "true" in r.stdout.lower():
+            return value / 100.0, {"matched": command[:200]}
+    return 0.0, {}
 
 
 # ------------------------------------------------------------------ VM
@@ -214,6 +252,8 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
     try:
         with VM(args.golden, name) as vm:
             env = mab_setup(task, vm, args.mab) if task["suite"] == "macagentbench" else None
+            if task["suite"] == "macosworld":
+                mow_setup(task, vm)
             prompt = f"{SYSTEM}\n\nTask: {task['instruction']}\n"
             pf = os.path.join(adir, "prompt.txt")
             open(pf, "w").write(prompt)
@@ -235,7 +275,8 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
                 env.close_connection()
                 row.update(score=score, success=score >= 1.0, check=detail)
             else:
-                row.update(score=None, success=None, check={"note": "macosworld checker not wired yet"})
+                score, detail = mow_check(task, vm)
+                row.update(score=score, success=score >= 1.0, check=detail)
     except Exception as e:  # infrastructure failure: recorded, never counted as a task failure
         row.update(infra_error=f"{type(e).__name__}: {e}"[:500], score=None, success=None)
     row.update(summarize_events(os.path.join(adir, "events.jsonl")))
