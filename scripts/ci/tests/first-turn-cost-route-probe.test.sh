@@ -39,10 +39,11 @@ open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1])); os.replace(sys.
 s.serve_forever()
 PY
 start() {
-  python3 -I "$work/stub.py" "$work/port-$1" "$1" >/dev/null 2>&1 &
+  python3 -I "$work/stub.py" "$work/port-$1" "$1" >"$work/stub-$1.log" 2>&1 &
   pids+=($!)
-  for _ in $(seq 1 100); do [[ -s "$work/port-$1" ]] && break; sleep 0.1; done
-  [[ -s "$work/port-$1" ]] || { echo "FAIL: the $1 stub did not start" >&2; exit 1; }
+  # 60 s: a cold runner's first python3 can take long (the fallback test allows 10 s).
+  for _ in $(seq 1 600); do [[ -s "$work/port-$1" ]] && break; sleep 0.1; done
+  [[ -s "$work/port-$1" ]] || { echo "FAIL: the $1 stub did not start:" >&2; sed 's/^/    | /' "$work/stub-$1.log" >&2; exit 1; }
 }
 fail() { echo "FAIL: $1; it printed:" >&2; sed 's/^/    | /' <<<"$out" >&2; exit 1; }
 
