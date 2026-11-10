@@ -28,9 +28,10 @@ import Testing
         var cancels = 0
     }
 
-    /// An updater for `identity` with the channel's default (`optIn` nil) or the given
-    /// `updates.downloadAutomatically`; downloads, installs and cancels are counted.
-    static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = nil) -> (UpdaterService, Effects) {
+    /// An updater for `identity` with the given `updates.downloadAutomatically` (off by default:
+    /// these tests are about the asks, which the nightly ring's default skips) or the channel's
+    /// default (`optIn` nil); downloads, installs and cancels are counted.
+    static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = false) -> (UpdaterService, Effects) {
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      defaults: UserDefaults(testSuiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
@@ -48,15 +49,38 @@ import Testing
         return (updater, effects)
     }
 
-    @Test func everyChannelAsksByDefault() {
+    /// Leo 2026-11-10: "the nightly automatically downloads and installs/unpacks and you simply
+    /// click and it restarts with the new version". cmux NEXT's nightly ring (NEXT and the tip app)
+    /// downloads found updates by default; stable, RC, classic NIGHTLY and DEV still ask. No channel
+    /// relaunches by itself: Restart to Update stays the one click.
+    @Test func onlyTheNightlyRingDownloadsByDefault() {
         for track in UpdateTrack.allCases {
-            #expect(!track.downloadsAutomaticallyByDefault, "\(track) downloads and installs by itself by default")
+            #expect(track.downloadsAutomaticallyByDefault == (track == .nightlyNext),
+                    "\(track) downloadsAutomaticallyByDefault is \(track.downloadsAutomaticallyByDefault)")
         }
         for identity in Self.channels {
-            let (updater, _) = Self.make(identity)
-            #expect(!updater.automaticUpdates && !updater.downloadsFoundUpdates,
-                    "\(identity.track) (tip \(identity.isTipBuild)) downloads found updates by default")
+            let (updater, _) = Self.make(identity, optIn: nil)
+            let nightlyRing = identity.track == .nightlyNext
+            #expect(updater.automaticUpdates == nightlyRing && updater.downloadsFoundUpdates == nightlyRing,
+                    "\(identity.track) (tip \(identity.isTipBuild)) downloads found updates by default: \(updater.downloadsFoundUpdates)")
         }
+    }
+
+    /// On the nightly ring's default a found update stages with no click, and nothing relaunches
+    /// until Restart to Update, the one click.
+    @Test func aNightlyStagesByItselfAndRestartToUpdateIsTheOneClick() async throws {
+        let (updater, effects) = Self.make(Self.nightly, optIn: nil)
+        #expect(updater.identity.track == .nightlyNext)
+        updater.debugIndicatorPhase = .checking
+        updater.debugIndicatorPhase = .downloading(.starting)
+        updater.debugIndicatorPhase = .ready(version: "2.0.0")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(updater.availableButton == nil, "the nightly asked before it downloaded")
+        #expect(effects.installs == 0, "the nightly relaunched without a click")
+        let ready = try #require(updater.readyCard, "the staged nightly shows no Restart to Update")
+        #expect(ready.buttonTitle == UpdaterStrings.restartToUpdate && !ready.isInstalling)
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 }, "Restart to Update did not install")
     }
 
     /// Found, nobody asked (a scheduled check, the fast check, a release push): the titlebar's

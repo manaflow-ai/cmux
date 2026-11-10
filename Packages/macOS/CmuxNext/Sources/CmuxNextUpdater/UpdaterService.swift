@@ -31,6 +31,9 @@ public final class UpdaterService {
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
     public private(set) var lastProbe: UpdateProbeResult?
+    /// When the feed last answered a probe (``probe()``), on ``now``: the install click decides at
+    /// once on a read this recent (``StagedUpdateRefresh/clickReadFreshness``).
+    @ObservationIgnored public internal(set) var lastProbeAnsweredAt: Date?
     public private(set) var lastProbeError: String?
     public private(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.
@@ -483,6 +486,7 @@ public final class UpdaterService {
                 let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
+                self?.lastProbeAnsweredAt = self?.now()
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {

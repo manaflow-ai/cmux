@@ -37,7 +37,33 @@ public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable
     }
 }
 
+/// How the Update Ready card lays out its one action, Restart to Update (Leo 2026-11-07, once
+/// updates download by themselves: "we're gonna need a more, probably a more prominent sort of
+/// button or something"; #39682). Three directions for the gallery
+/// (`AARestartToUpdateGalleryTests`); `card` stays the default until one is picked.
+public nonisolated enum SidebarUpdateCardLayout: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// Title and Hide, the version, the Automatic Updates switch, then a full-width Restart to Update.
+    case card
+    /// Title and Hide, then the version beside a Restart to Update sized to its words: two rows.
+    case compact
+    /// Restart to Update alone, full width, the version under it; Hide is on the right-click menu.
+    case button
+
+    public var tunableTitle: String {
+        switch self {
+        case .card: "Card"
+        case .compact: "Compact"
+        case .button: "Button only"
+        }
+    }
+}
+
 nonisolated extension SidebarTunables {
+    public static let updateCardLayout = Tunable<SidebarUpdateCardLayout>.choice(
+        "sidebar.updateCard.layout", .sidebar, "Update card layout",
+        help: "How the Update Ready card lays out Restart to Update (card, compact, button only).",
+        default: .card, code: "SidebarTunables.updateCardLayout")
+
     public static let updateCardButton = Tunable<SidebarUpdateButtonStyle>.choice(
         "sidebar.updateCard.button", .sidebar, "Update card button",
         help: "The fill of the update card's Restart to Update button (UPDATE-CARD prototype).",
@@ -113,6 +139,12 @@ final class SidebarUpdateButton: NSView {
     static var font: NSFont { font(bordered: false) }
     static func font(bordered: Bool) -> NSFont {
         Typography.system(size: Typography.caption.pointSize, weight: bordered ? TypeScale.regular : TypeScale.emphasis)
+    }
+
+    /// The width that fits the label on one line with the button's inset (the compact layout).
+    var fittingWidth: CGFloat {
+        let font = Self.font(bordered: isBordered)
+        return ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width) + 2 * Metrics.space2
     }
 
     func configure(title: String, enabled: Bool, help: String?) {

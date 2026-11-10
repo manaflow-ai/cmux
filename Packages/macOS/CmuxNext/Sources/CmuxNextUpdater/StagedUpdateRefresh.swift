@@ -62,6 +62,15 @@ final class StagedUpdateRefresh {
     let clickTimer: DemandTimer
     /// How long the install click waits for the feed before it installs the staged build.
     static let clickProbeDeadline: Duration = .seconds(3)
+    /// How recent a read of both the feed and the pulled list lets the install click decide at
+    /// once, with no network wait between the click and the relaunch (Leo 2026-11-08: "just you
+    /// click the button and that just simply restarts the app really quickly"). The reads happen
+    /// ahead of the click: when the Update Ready card appears and when cmux becomes active
+    /// (``prefetch(updater:)``), and on the staged update's scheduled probe.
+    static let clickReadFreshness: TimeInterval = 60
+    /// Whether the flow was in Update Ready at the last ``follow(_:updater:)``: the read ahead runs
+    /// once as the card appears, not on every phase sync.
+    private var wasReady = false
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.stagedRefresh", clock: clock)
@@ -92,6 +101,13 @@ final class StagedUpdateRefresh {
             updater.log.append("install click: staged build \(staged) was pulled and this app cannot replace it; not installing it")
             updater.presentUpdateUI?()
             return
+        }
+        if hasFreshRead(updater) {
+            // The feed and the pulled list were read just before the click: they decide it now.
+            clicks += 1
+            pendingClick = PendingClick(install: install, click: clicks, probed: true, listAnswered: true)
+            updater.log.append("install click: the feed and the pulled list were read in the last \(Int(Self.clickReadFreshness)) s; deciding now")
+            return settleClick(answered: true, updater: updater)
         }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         clicks += 1
@@ -187,13 +203,37 @@ final class StagedUpdateRefresh {
         updater.startNewestCheck(.click)
     }
 
-    /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
+    /// Follows the flow's phase: an update waiting arms the next probe and reads ahead for the
+    /// click as its card appears; anything else ends it.
     func follow(_ phase: UpdateIndicatorPhase, updater: UpdaterService) {
         guard case .ready = phase else {
             installing = false
+            wasReady = false
             return timer.cancel()
         }
+        if !wasReady {
+            wasReady = true
+            prefetch(updater: updater)
+        }
         arm(updater)
+    }
+
+    /// Whether the feed answered and every pulled list was read within ``clickReadFreshness``.
+    func hasFreshRead(_ updater: UpdaterService) -> Bool {
+        guard updater.lastProbeError == nil, let feed = updater.lastProbeAnsweredAt,
+              let list = updater.pulledWatch.lastReadAt else { return false }
+        let now = updater.now()
+        return now.timeIntervalSince(feed) <= Self.clickReadFreshness && now.timeIntervalSince(list) <= Self.clickReadFreshness
+    }
+
+    /// Reads the feed and the pulled list ahead of the install click while an update waits on
+    /// Update Ready, unless a fresh read is at hand or a click already took it. Both join a read in
+    /// flight; each has its own request deadline, and nothing repeats until the next call.
+    func prefetch(updater: UpdaterService) {
+        guard case .ready = updater.flow.phase, !installing, pendingClick == nil, updater.disabledReason == nil,
+              !hasFreshRead(updater) else { return }
+        updater.probe()
+        updater.pulledWatch.refresh()
     }
 
     /// The followed ring moved: a probe in flight read the ring before it.

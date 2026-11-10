@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -35,6 +36,13 @@ final class QuitCoordinator {
     var deadline: QuitDeadline
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
+    /// The quit is Restart to Update's relaunch (set when Sparkle commits to it): after the saves,
+    /// the app's acpmux daemon is handed to the new build (``AcpmuxUpdateHandoff``).
+    var relaunchesIntoUpdate = false
+    /// How long the update's quit waits for the acpmux daemon to stop and exit. Inside the keep
+    /// quit's 4 s (`QuitDeadline.keepQuitLimit`): a daemon still running past it is left to the new
+    /// build's version handoff.
+    static let updateHandoffLimit: Duration = .milliseconds(1500)
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
     /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave). The windows
     /// go away before CefShutdown blocks the main thread (2 to 3.4 s under load, cmuxterm-hq#6338),
@@ -146,7 +154,7 @@ final class QuitCoordinator {
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
         let services = services
         return QuitSteps(
-            prepareWindows: { [steps] in
+            prepareWindows: { [weak self, steps] in
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
@@ -169,6 +177,15 @@ final class QuitCoordinator {
                     homeCache: { await services.home.flushCacheForQuit() },
                     cloud: { await services.cloud.prepareForTermination() }
                 ).run(steps)
+                // Restart to Update: the agent daemon goes to the new build with the relaunch, after
+                // the saves (the chat composers' drafts reach it first), so the new build starts
+                // its own daemon instead of meeting the old one.
+                guard self?.relaunchesIntoUpdate == true, !choice.ends else { return }
+                let acpmux = QuitAgents.environment(services)
+                _ = await steps.run("acpmux_update_handoff", limit: Self.updateHandoffLimit) { [logger = self?.logger] in
+                    let outcome = await AcpmuxUpdateHandoff.handOff(acpmux, within: Self.updateHandoffLimit)
+                    logger?.notice("update relaunch: acpmux \(String(describing: outcome), privacy: .public)")
+                }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },

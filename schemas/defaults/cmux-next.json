@@ -1515,6 +1515,7 @@
     "tunable.sidebar.toggleIcon": "panel",
     "tunable.sidebar.updateCard.automaticControl": "switchControl",
     "tunable.sidebar.updateCard.button": "primary",
+    "tunable.sidebar.updateCard.layout": "card",
     "tunable.sidebar.updateCard.simulatePending": false,
     "tunable.sidebar.updatedCard.preview": "shipped",
     "tunable.sidebar.workspaceTitleMotion": "roll",

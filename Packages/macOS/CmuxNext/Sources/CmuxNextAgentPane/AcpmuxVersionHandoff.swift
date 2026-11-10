@@ -250,3 +250,65 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         }
     }
 }
+
+/// Restart to Update hands the app's acpmux daemon to the new build as part of the relaunch, not
+/// after it. The old app stops its daemon during the update's quit (`_acpmux/shutdown`, agents kept:
+/// under agent hosts they detach and keep running, and a daemon with its chats on disk resumes
+/// them), and waits for it to exit, bounded. The new build then finds no daemon and starts its own
+/// bundled one, which adopts the agents: it never meets a daemon of the old build, so nothing waits
+/// on ``AcpmuxVersionHandoff/handOffIfStale(_:environment:)`` at its first chat (2026-11-10: after
+/// an update the daemon kept running the old build when that one-shot handoff timed out; that
+/// handoff now retries, and stays the fallback for a relaunch that did not come through here).
+public nonisolated enum AcpmuxUpdateHandoff {
+    public enum Outcome: Equatable, Sendable {
+        /// No daemon answered on the app's socket.
+        case noDaemon
+        /// The daemon keeps running; the reason says why.
+        case kept(String)
+        /// The daemon accepted the stop and exited.
+        case handedOff
+        /// The stop was not sent, or the daemon did not exit in time; the new build's handoff takes over.
+        case failed(String)
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+
+    /// Whether the update's relaunch stops the daemon `status` describes: never an attached daemon
+    /// (another app's), nor one that would lose its chats (a memory store without agent hosts).
+    static func decide(_ status: AcpmuxStatus, attached: Bool) -> AcpmuxVersionHandoff.Decision {
+        if attached { return .keep("attached to another app's daemon") }
+        guard status.pid != nil else { return .keep("its pid is unknown") }
+        guard AcpmuxVersionHandoff.keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk) else {
+            return .keep("its chats would be lost: a memory store without agent hosts")
+        }
+        return .restart
+    }
+
+    /// Stops the daemon of `environment` for the update's relaunch and waits up to `within` for it
+    /// to exit (the kernel's exit event). Each request has a 1 s deadline.
+    @concurrent public static func handOff(_ environment: AcpmuxEnvironment?, within: Duration) async -> Outcome {
+        guard let environment, FileManager.default.fileExists(atPath: environment.socketPath) else { return .noDaemon }
+        let status: AcpmuxStatus
+        do {
+            status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(1))
+        } catch AcpmuxStatusClient.Failure.unreachable {
+            return .noDaemon
+        } catch {
+            return .failed(String(describing: error))
+        }
+        guard case .restart = decide(status, attached: environment.isAttached), let pid = status.pid else {
+            if case .keep(let why) = decide(status, attached: environment.isAttached) { return .kept(why) }
+            return .kept("its pid is unknown")
+        }
+        logger.notice("update relaunch: handing acpmux \(pid) (build \(status.build ?? "?", privacy: .public)) to the new build")
+        do {
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, deadline: .seconds(1))
+        } catch {
+            return .failed(String(describing: error))
+        }
+        guard await AgentPaneProcessExit(pid: pid).event(within: within) else {
+            return .failed("acpmux \(pid) did not exit within \(within)")
+        }
+        return .handedOff
+    }
+}
