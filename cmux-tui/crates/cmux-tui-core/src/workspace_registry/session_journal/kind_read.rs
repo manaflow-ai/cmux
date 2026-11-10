@@ -220,11 +220,7 @@ fn archived_kinds_after(
     // from the first retained record.
     anyhow::ensure!(
         first.1 <= i64::try_from(sequence.saturating_add(1))?
-            || crate::workspace_registry::output_cleanup::pruned_gap(
-                connection,
-                sequence,
-                u64::try_from(first.1)?
-            )?,
+            || pruned_gap(connection, sequence, u64::try_from(first.1)?)?,
         "journal segments contain a gap before sequence {}",
         first.1
     );

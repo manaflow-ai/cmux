@@ -131,6 +131,25 @@ fn decimal(value: &Value) -> Option<i64> {
     }
 }
 
+/// What an agent row carries beyond its entry (`history-agent-sessions-v1`):
+/// the session's terminal and tab, and its start and end times as decimal
+/// strings. With the entry's own fields this is the whole session, so an app
+/// shows and resumes a session whose journal records retention deleted.
+pub(super) fn agent_session_fields(session: &AgentSession) -> Value {
+    let mut fields = Map::new();
+    if let Some(terminal) = &session.terminal {
+        fields.insert("terminal".into(), Value::String(terminal.clone()));
+    }
+    if let Some(tab) = &session.tab {
+        fields.insert("tab".into(), Value::String(tab.clone()));
+    }
+    fields.insert("started_at_ms".into(), Value::String(session.started_at_ms.max(0).to_string()));
+    if let Some(ended) = session.ended_at_ms {
+        fields.insert("ended_at_ms".into(), Value::String(ended.max(0).to_string()));
+    }
+    Value::Object(fields)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,23 +238,4 @@ mod tests {
         assert_eq!(entry.session_id, None);
         assert_eq!(entry.provider.as_deref(), Some("claude"));
     }
-}
-
-/// What an agent row carries beyond its entry (`history-agent-sessions-v1`):
-/// the session's terminal and tab, and its start and end times as decimal
-/// strings. With the entry's own fields this is the whole session, so an app
-/// shows and resumes a session whose journal records retention deleted.
-pub(super) fn agent_session_fields(session: &AgentSession) -> Value {
-    let mut fields = Map::new();
-    if let Some(terminal) = &session.terminal {
-        fields.insert("terminal".into(), Value::String(terminal.clone()));
-    }
-    if let Some(tab) = &session.tab {
-        fields.insert("tab".into(), Value::String(tab.clone()));
-    }
-    fields.insert("started_at_ms".into(), Value::String(session.started_at_ms.max(0).to_string()));
-    if let Some(ended) = session.ended_at_ms {
-        fields.insert("ended_at_ms".into(), Value::String(ended.max(0).to_string()));
-    }
-    Value::Object(fields)
 }

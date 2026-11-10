@@ -121,7 +121,7 @@ fn step(mux: &Arc<Mux>, agents: &[Agent], index: u64) {
         0 => send(mux, agent, "UserPromptSubmit", json!({ "prompt": format!("step {index}") })),
         1 => send(mux, agent, "Stop", json!({})),
         2 => {
-            let state = if (index / 16) % 2 == 0 {
+            let state = if (index / 16).is_multiple_of(2) {
                 ghostty_vt::ProgramStatusState::Working
             } else {
                 ghostty_vt::ProgramStatusState::Idle
@@ -241,7 +241,9 @@ fn over_bounds(label: &str, measure: &Measure, over: &mut Vec<String>) {
         }
         match measured.bytes {
             Some(bytes) if bytes > TABLE_BYTES_BOUND => {
-                over.push(format!("{label}: {table} uses {bytes} bytes, bound {TABLE_BYTES_BOUND}"))
+                over.push(format!(
+                    "{label}: {table} uses {bytes} bytes, bound {TABLE_BYTES_BOUND}"
+                ));
             }
             Some(_) => {}
             // A SQLite without `dbstat`: the row bounds above still hold.

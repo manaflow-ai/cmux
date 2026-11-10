@@ -1232,7 +1232,7 @@ fn a_journal_subscriber_with_an_old_cursor_gets_cursor_gap() {
     for cycle in 0..24_u64 {
         for index in 0..256_u64 {
             mux.state_project_observe(
-                &crate::workspace_registry::WorkspaceMutation::daemon_local("retention-test"),
+                &WorkspaceMutation::daemon_local("retention-test"),
                 "acpmux",
                 &json!([{
                     "path": "/srv/cmux-retention/alpha",

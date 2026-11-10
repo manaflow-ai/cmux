@@ -330,10 +330,10 @@ fn a_roster_version_bump_after_retention_keeps_an_agent_whose_records_are_delete
     if roster_agent_state(&reopened, &rested).is_none() {
         problems.push("the roster the start serves lost the agent".to_owned());
     }
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while reopened.agent_roster_rebuilding() && std::time::Instant::now() < deadline {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while reopened.agent_roster_rebuilding() && Instant::now() < deadline {
         settled(&reopened);
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!reopened.agent_roster_rebuilding(), "the roster rebuild ends");
     if roster_agent_state(&reopened, &rested).is_none() {
@@ -391,8 +391,7 @@ fn a_history_fold_version_bump_after_retention_keeps_a_session_whose_records_are
         Some(_) => {}
     }
     // The next save is of this build's version and still holds the session.
-    let folded =
-        crate::history_ops::fold_for_retention(&reopened, std::time::Duration::from_secs(30), 1);
+    let folded = crate::history_ops::fold_for_retention(&reopened, Duration::from_secs(30), 1);
     assert!(folded.unwrap(), "the agent history fold reaches the journal head");
     {
         let registry = reopened.workspace_registry.lock().unwrap();
