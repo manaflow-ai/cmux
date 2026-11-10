@@ -59,6 +59,9 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 pub enum NewWorkspacePlacement {
     /// First, below the home workspace's row, above every group.
     Top,
+    /// Right before the session's active workspace, in its group (`Top`
+    /// when there is none, or it is the home workspace).
+    BeforeCurrent,
     /// Right after the session's active workspace, in its group (`Top`
     /// when there is none, or it is the home workspace). The default: a new
     /// workspace goes right next to the one it was made from (Leo 2026-11-06).
@@ -94,11 +97,23 @@ impl NewWorkspacePlacement {
         let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
             return Self::default();
         };
-        match document.pointer("/workspaces/newPlacement").and_then(Value::as_str) {
-            Some("top") => Self::Top,
-            Some("afterCurrent") => Self::AfterCurrent,
-            Some("bottom") => Self::Bottom,
-            _ => Self::default(),
+        document
+            .pointer("/workspaces/newPlacement")
+            .and_then(Value::as_str)
+            .and_then(Self::from_name)
+            .unwrap_or_default()
+    }
+
+    /// The value named `name` (`top`, `beforeCurrent`, `afterCurrent`,
+    /// `bottom`), as the settings file and `create-workspace {placement}`
+    /// spell it; None for a name the app does not know.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "top" => Some(Self::Top),
+            "beforeCurrent" => Some(Self::BeforeCurrent),
+            "afterCurrent" => Some(Self::AfterCurrent),
+            "bottom" => Some(Self::Bottom),
+            _ => None,
         }
     }
 
@@ -362,6 +377,11 @@ mod tests {
             Placement::from_config_text(r#"{"workspaces": {"newPlacement": "afterCurrent"}}"#),
             Placement::AfterCurrent
         );
+        assert_eq!(
+            Placement::from_config_text(r#"{"workspaces": {"newPlacement": "beforeCurrent"}}"#),
+            Placement::BeforeCurrent
+        );
+        assert_eq!(Placement::from_name("beforeCurrent"), Some(Placement::BeforeCurrent));
         assert_eq!(
             Placement::from_config_text(r#"{"workspaces": {"newPlacement": "sideways"}}"#),
             Placement::AfterCurrent

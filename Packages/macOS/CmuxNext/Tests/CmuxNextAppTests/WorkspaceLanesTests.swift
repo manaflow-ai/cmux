@@ -105,4 +105,26 @@ import Testing
         #expect(!lanes.closeNewestCreate(in: "w", listed: { $0 == "first" }))
         #expect(lanes.outstandingCreates(in: "w") == 0)
     }
+
+    /// A close that takes an in-flight create keeps the create outstanding until that close has run: the sidebar's
+    /// close hide (`ClosingWorkspaces.releaseGone`) reads `isOutstanding`, and a release between the create's end and
+    /// its close listed the workspace again for the rest of the close.
+    @Test func aTakenCreateStaysOutstandingUntilItsCloseHasRun() async throws {
+        let lanes = WorkspaceLanes()
+        let body = Gate(), closing = Gate()
+        let closed = Closed()
+        let create = Task { @MainActor in
+            try await lanes.create(Self.key("doomed"), window: "w", close: { key in await closing.wait(); closed.keys.append(key) },
+                                   settle: { { false } }) { await body.wait(); return "doomed" }
+        }
+        while !body.isWaiting { await Task.yield() }
+        #expect(lanes.closeNewestCreate(in: "w", listed: { _ in false }))
+        body.open()
+        while !closing.isWaiting { await Task.yield() }
+        #expect(lanes.isOutstanding("doomed"), "released while its close runs")
+        closing.open()
+        _ = try await create.value
+        #expect(closed.keys == ["doomed"])
+        #expect(!lanes.isOutstanding("doomed"))
+    }
 }

@@ -14,7 +14,7 @@ struct NewWorkspacePlacementDefaultTests {
         #expect(SettingsSchema.descriptor(for: ["workspaces", "newPlacement"])?.defaultValue == .string("afterCurrent"))
     }
 
-    @Test(arguments: [NewWorkspacePlacement.afterCurrent, .bottom, .top])
+    @Test(arguments: [NewWorkspacePlacement.afterCurrent, .beforeCurrent, .bottom, .top])
     func everyPlacementStaysAChoice(_ placement: NewWorkspacePlacement) {
         let root = JSONValue.object(["workspaces": .object(["newPlacement": .string(placement.rawValue)])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])

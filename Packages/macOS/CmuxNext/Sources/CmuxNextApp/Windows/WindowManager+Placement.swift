@@ -70,7 +70,7 @@ extension WindowManager {
         // A placement that waited for its current row was for a workspace the daemon had: once that one is gone (closed,
         // its create undone), nothing will place it.
         for (id, pending) in pendingPlacements where pending.anchorWaitSince != nil && services.machines.workspace(id: id) == nil {
-            pendingPlacements[id] = nil
+            NewWorkspacePlacements.forget(id, windows: self)
         }
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
@@ -83,9 +83,13 @@ extension WindowManager {
             guard let window = pending.window ?? registry.value.owner(of: id) else { continue }
             // A window the registry still lists whose controller a reconcile has not made yet keeps its entry too.
             guard let bridge = controller(for: window)?.sidebar, let daemon = services.machines.daemon(forWorkspace: id) else {
-                if registry.value.window(window) == nil { pendingPlacements[id] = nil }
+                if registry.value.window(window) == nil { NewWorkspacePlacements.forget(id, windows: self) }
                 continue
             }
+            // The daemon placed it beside the window's current workspace (`placedByDaemon`); with that one closed during
+            // the create the daemon could not, so the app resolves its place (the gap it left, `currentGaps`) as before.
+            let named = newPlacements.placedByDaemon.contains(id)
+                && pending.byDefault?.current.map { services.machines.workspace(id: $0) != nil } ?? true
             // One store-backed rows pass per window, with this entry still held (its pending row stays at its slot), and another
             // for one whose current row was placed in this pass (rapid Cmd-N): that row's own row lists only from then.
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted || pending.byDefault?.current.map(placed.contains) == true)
@@ -95,8 +99,10 @@ extension WindowManager {
             var byDefault = pending.byDefault
             // A current row still being made (rapid Cmd-N) is placed first; this one then resolves below its slot.
             if pending.slot == nil, let current = byDefault?.current, current != id, pendingPlacements[current] != nil { continue }
-            // Waits for a current row cold rows omit (not one closed, pinned or not listed here; nor past the limit).
-            if pending.slot == nil, byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
+            // Waits for a current row cold rows omit (not one closed, pinned or not listed here; nor past the limit). A create
+            // this Mac's daemon placed by the window's own rule (`placedByDaemon`) sends no move, so it never waits.
+            if pending.slot == nil, !(daemon.isLocal && named),
+               byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
                 let since = pending.anchorWaitSince ?? .now
                 if services.machines.workspace(id: current) != nil,
                    !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
@@ -110,9 +116,12 @@ extension WindowManager {
                 byDefault?.currentMachine = nil
             }
             pendingPlacements[id] = nil; placed.insert(id) // its move goes to the sidebar now: the next rows pass lists its own row
+            newPlacements.groupAnchors[id] = nil
+            newPlacements.placedByDaemon.remove(id)
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
-            // slot. Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
-            let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+            // slot, and none at all when the create named the window's current workspace (`placedByDaemon`).
+            // Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
+            let fallback = daemon.isLocal ? (named ? nil : byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp))
                 : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
             if let position = pending.slot?.position(moving: [id], section: section, in: sections) ?? fallback?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)

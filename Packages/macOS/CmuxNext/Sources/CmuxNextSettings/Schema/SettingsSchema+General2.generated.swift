@@ -275,11 +275,12 @@ extension GeneralSettingsSchema {
                 help: SettingsText.keyed("settings.workspaces.newPlacement.help", "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
                 kind: .choice([
                     SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(NewWorkspacePlacement.beforeCurrent.rawValue, SettingsText.keyed("settings.choice.beforeCurrentWorkspace", "Before Current Workspace")),
                     SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue, SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
                     SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
                 ]),
                 default: .string(CmuxConfigSnapshot.newWorkspacePlacementDefault.rawValue),
-                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
+                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "before", "above", "below", "sidebar", "placement"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.groupByComputerPath,

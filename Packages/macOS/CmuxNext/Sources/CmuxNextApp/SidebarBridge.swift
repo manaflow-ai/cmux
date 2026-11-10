@@ -163,6 +163,7 @@ final class SidebarBridge {
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
+            ClosingWorkspaces.shared.releaseGone { machines.workspace(id: $0) != nil || WorkspaceLanes.shared.isOutstanding($0) } // a closed row lists again once gone
             let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).

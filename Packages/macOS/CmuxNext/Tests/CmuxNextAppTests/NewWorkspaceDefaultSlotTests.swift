@@ -84,7 +84,7 @@ import Testing
         // Caught up: the row was left out on purpose; the fallback applies.
         #expect(!rule.awaitsCurrentAnchor(section: Self.section, in: sections, catchingUp: false))
         #expect(Self.slot(rule) == .top(anchor: nil))
-        // Listed, Home, another machine, no machine (a band row) or another placement: no wait.
+        // Listed, Home, another machine or no machine (a band row): no wait.
         let listed = NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "a", currentMachine: MachineID.local.rawValue)
         #expect(!listed.awaitsCurrentAnchor(section: Self.section, in: sections, catchingUp: true))
         let home = NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "home", currentMachine: MachineID.local.rawValue)
@@ -93,8 +93,9 @@ import Testing
         #expect(!other.awaitsCurrentAnchor(section: Self.section, in: sections, catchingUp: true))
         let band = NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "late", currentMachine: nil)
         #expect(!band.awaitsCurrentAnchor(section: Self.section, in: sections, catchingUp: true))
+        // Every placement waits: `top` and `bottom` resolve inside the current workspace's group too (NewRowOneSlotTests).
         let top = NewWorkspaceDefaultSlot(placement: .top, current: "late", currentMachine: MachineID.local.rawValue)
-        #expect(!top.awaitsCurrentAnchor(section: Self.section, in: sections, catchingUp: true))
+        #expect(top.awaitsCurrentAnchor(section: Self.section, in: sections, catchingUp: true))
     }
 
     @Test func noSidebarDocumentIsNeverCatchingUp() {

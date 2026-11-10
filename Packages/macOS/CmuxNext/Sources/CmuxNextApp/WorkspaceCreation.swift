@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
@@ -26,10 +27,13 @@ enum WorkspaceCreation {
     /// Creates workspace `key` (named `name`) with its first terminal
     /// (`terminal`) on `connection`, owned by `repair` while it runs: a
     /// failure closes the workspace (its terminals with it) and the repair
-    /// never fills it.
+    /// never fills it. `rule`: the `workspaces.newPlacement` the app places it by,
+    /// which the daemon places it by too (`CreateWorkspaceRequest.current`).
     @MainActor static func create<T>(
         _ key: WorkspaceKey,
         name: String?,
+        placedBy rule: NewWorkspaceDefaultSlot? = nil,
+        ledger: NewWorkspacePlacements.Ledger? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
@@ -37,13 +41,13 @@ enum WorkspaceCreation {
         // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
         // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
         // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
-        try await repair.populating(key) {
+        try await WorkspacePlacementLedger.placing(ledger, rule, key: key, on: connection) { sent in try await repair.populating(key) {
             try await repair.withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
-        }
+        } }
     }
 
     /// The first terminal of new workspace `key` (Cmd-N's way for every caller of ``create(_:name:on:repair:terminal:)``):
@@ -61,22 +65,24 @@ enum WorkspaceCreation {
     @MainActor static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
         name: String?,
+        placedBy rule: NewWorkspaceDefaultSlot? = nil,
+        ledger: NewWorkspacePlacements.Ledger? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
         giveUp: ContinuousClock.Instant? = nil,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
-        try await repair.populating(key) {
+        try await WorkspacePlacementLedger.placing(ledger, rule, key: key, on: connection) { sent in try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await repair.withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, until: giveUp) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue, until: giveUp) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
                 },
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
-        }
+        } }
     }
 
     /// Whether `spawn` opens on the New Tab page (or a first chat), not a terminal.
@@ -88,10 +94,11 @@ enum WorkspaceCreation {
     /// A person's new workspace on the New Tab page (`opensNewTabPage`),
     /// starting in `cwd`; nil when `spawn` gets a terminal instead (it runs a
     /// command, or `daemon` cannot host the page).
-    @MainActor static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
+    @MainActor static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, placedBy rule: NewWorkspaceDefaultSlot? = nil,
+                           ledger: NewWorkspacePlacements.Ledger? = nil, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
         guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else { return nil }
-        return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
+        return try await createWithFirstTab(key, name: spawn.name, placedBy: rule, ledger: ledger, on: connection, repair: repair) { created in
             if let session = spawn.firstSession {
                 _ = try await sessionTab(session, in: created, on: daemon, tabs: tabs)
             } else {

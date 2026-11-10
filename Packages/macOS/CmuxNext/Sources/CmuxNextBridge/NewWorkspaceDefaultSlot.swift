@@ -14,7 +14,7 @@ public import CmuxNextSidebar
 /// it, at the group's top, Lawrence 2026-10-28); else the first slot of the workspace's machine section, which
 /// lists no pinned workspace (they show in the Pinned section above), above
 /// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
+/// it. `afterCurrent` (and its opt-in mirror `beforeCurrent`) is right after (before) the workspace the window showed
 /// when the new one was asked for, inside its group when it has one; `top`
 /// when that workspace is not in the section (pinned, Home, another machine,
 /// none). `bottom` is the last slot of the current workspace's group; outside a
@@ -65,6 +65,25 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             + (currentGaps.first?.group.map { [.endOfGroup($0)] } ?? [])
     }
 
+    /// `beforeCurrent`'s mirror of ``belowCurrentOrItsPlace``: right above `current`, else where it was when it
+    /// closed during the create (the gap above it first, by its previous row), else the end of the group it was in.
+    private var aboveCurrentOrItsPlace: [WorkspaceSlot] {
+        (current.map { [WorkspaceSlot.above($0)] } ?? []) + currentGaps.reversed().map { .gap($0) }
+            + (currentGaps.first?.group.map { [.endOfGroup($0)] } ?? [])
+    }
+
+    /// The slots of `afterCurrent` or `beforeCurrent`, in preference order; empty under `top` and `bottom`.
+    private var besideCurrentOrItsPlace: [WorkspaceSlot] {
+        switch placement {
+        case .afterCurrent: belowCurrentOrItsPlace
+        case .beforeCurrent: aboveCurrentOrItsPlace
+        case .top, .bottom: []
+        }
+    }
+
+    /// Whether this rule places beside the window's current workspace (`afterCurrent`, `beforeCurrent`).
+    nonisolated public var placesBesideCurrent: Bool { placement == .afterCurrent || placement == .beforeCurrent }
+
     /// The current row is expected in this machine section but is not in the
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
     /// realized, instead of resolving the slot against an empty layout. Only
@@ -73,7 +92,9 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// left out on purpose (a filter, another space, a close) and the slot
     /// falls back as documented.
     public func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {
-        guard catchingUp, placement == .afterCurrent, let current, let currentMachine,
+        // Every placement: `top` and `bottom` resolve inside the current workspace's group too, so a slot read
+        // before its row lists drew the row at the section's top or end, then moved it into the group.
+        guard catchingUp, let current, let currentMachine,
               current != home,
               case let .machine(machine) = section, machine.rawValue == currentMachine,
               !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }
@@ -99,10 +120,10 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
                 return .bottom(anchor: current)
             }
             return nil
-        case .afterCurrent:
+        case .afterCurrent, .beforeCurrent:
             if awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { return nil }
             if current != id, current != home,
-               let slot = belowCurrentOrItsPlace.first(where: { $0.position(moving: [id], section: section, in: sections) != nil }) {
+               let slot = besideCurrentOrItsPlace.first(where: { $0.position(moving: [id], section: section, in: sections) != nil }) {
                 return slot
             }
             return Self.top(for: id, section: section, in: sections, home: home)
@@ -119,25 +140,26 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// at ``slot(for:section:in:home:catchingUp:)``: the daemon places every new workspace by `workspaces.newPlacement` in
     /// the commit that creates it (first below Home under `top`, last under `bottom`), so a second write would be a second
     /// state change and render for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon
-    /// does not know is moved to: in the current workspace's group, and every `afterCurrent` one (the daemon anchors it
-    /// to its active workspace, which a top page such as Home leaves on the parked one, #32731).
+    /// does not know is moved to: in the current workspace's group, and every `afterCurrent` or `beforeCurrent` one (an
+    /// older daemon anchors it to its active workspace, which a top page such as Home leaves on the parked one, #32731;
+    /// a create the daemon placed by the window's own rule, `WorkspacePlacementLedger.placedByDaemon`, sends none).
     public func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if !named, placement != .afterCurrent, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        if !named, !placesBesideCurrent, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
 
     /// The slot for a new workspace made inside group `group` from the group itself (its header's
     /// +, a double-click in its empty part), whose workspace rows are `members` in order: its
-    /// first slot under `top`, right below the window's current workspace under `afterCurrent`
-    /// when that one is a member (where it was, should it close during the create), else the group's
+    /// first slot under `top`, right below (`beforeCurrent`: above) the window's current workspace under
+    /// `afterCurrent` when that one is a member (where it was, should it close during the create), else the group's
     /// end (Leo 2026-11-06), its last slot under `bottom`.
     public func slot(inGroup group: GroupID, members: [String]) -> WorkspaceSlot {
         let first = members.first.map { WorkspaceSlot.top(anchor: $0) } ?? .endOfGroup(group)
         switch placement {
         case .top: return first
-        case .afterCurrent:
-            if let current, members.contains(current) { return .first(belowCurrentOrItsPlace + [.endOfGroup(group)]) }
+        case .afterCurrent, .beforeCurrent:
+            if let current, members.contains(current) { return .first(besideCurrentOrItsPlace + [.endOfGroup(group)]) }
             return .endOfGroup(group)
         case .bottom: return .endOfGroup(group)
         }
@@ -151,5 +173,28 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         }.first
         if let home, first == home { return .below(home) }
         return .top(anchor: nil)
+    }
+
+    /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
+    /// the window's current workspace (not Home), or the one New Workspace Above or Below names; under
+    /// `top` / `bottom`, first / last in its group when it is in one (``NewWorkspaceDefaultSlot``'s rule).
+    public static func anchor(slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, home: String?) -> SidebarDocSections.UnplacedAnchor? {
+        switch slot {
+        case .above(let id)?: return .before(id)
+        case .below(let id)?: return .after(id)
+        case nil: break
+        default: return nil
+        }
+        guard let byDefault else { return nil }
+        guard let current = byDefault.current, current != home else {
+            // No current workspace, or Home: the daemon puts the new one first (`top`'s slot), as the app would.
+            return byDefault.placesBesideCurrent ? .first : nil
+        }
+        switch byDefault.placement {
+        case .beforeCurrent: return .before(current, fallbackFirst: true)
+        case .afterCurrent: return .after(current, fallbackFirst: true)
+        case .top: return .firstInGroupOf(current)
+        case .bottom: return .lastInGroupOf(current)
+        }
     }
 }

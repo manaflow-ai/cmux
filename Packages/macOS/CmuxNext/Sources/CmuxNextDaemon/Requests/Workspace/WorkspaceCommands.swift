@@ -5,19 +5,39 @@ public struct CreateWorkspaceRequest: DaemonRequest {
     public static let command = "create-workspace"
     public var name: String?
     public var key: WorkspaceKey?
+    /// The app places the new workspace by `workspaces.newPlacement` against
+    /// `current`, the workspace the creating window shows (nil: none, the window
+    /// shows a top page). The daemon then places it there too, not against the
+    /// session's active workspace, so its first place is the final one. An
+    /// older daemon ignores both.
+    public var placesBySetting: Bool
+    public var current: WorkspaceKey?
+    /// The app's `workspaces.newPlacement` value (`top`, `beforeCurrent`, ...): the daemon places by it
+    /// rather than its own read of the settings file, so both use one value.
+    public var placement: String?
     public var mutation: MutationIdentity?
 
-    public init(name: String? = nil, key: WorkspaceKey? = nil, mutation: MutationIdentity?) {
+    public init(name: String? = nil, key: WorkspaceKey? = nil, placesBySetting: Bool = false, current: WorkspaceKey? = nil,
+                placement: String? = nil, mutation: MutationIdentity?) {
         self.name = name
         self.key = key
+        self.placesBySetting = placesBySetting
+        self.current = current
+        self.placement = placement
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case name, key }
+    enum CodingKeys: String, CodingKey {
+        case name, key, current, placement
+        case placesBySetting = "places_by_setting"
+    }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(key, forKey: .key)
+        if placesBySetting { try c.encode(true, forKey: .placesBySetting) }
+        try c.encodeIfPresent(current, forKey: .current)
+        try c.encodeIfPresent(placement, forKey: .placement)
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }

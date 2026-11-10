@@ -14,6 +14,11 @@ public final class ClosingWorkspaces {
     public static let shared = ClosingWorkspaces()
 
     public private(set) var ids: Set<String> = []
+    /// Hidden ids whose close went through (or a close that took their create): they stay hidden until no store
+    /// holds the workspace (`releaseGone`), not until a reply, which can come before the store has applied the
+    /// close (a resync, a reconnect, a create still in flight). Releasing at the reply listed the row again for
+    /// the rest of the round trip: the closed workspace came back for a moment, then left.
+    @ObservationIgnored private var untilGone: Set<String> = []
 
     /// Proof hook (`debug.sidebar_rows {"refuse_next_close": true}`): the next close fails before it reaches the daemon.
     @ObservationIgnored public var refusesNext = false
@@ -35,13 +40,33 @@ public final class ClosingWorkspaces {
         return true
     }
 
-    /// The close of `id` ended: the daemon refused it, or the store applied its result (the row is gone
-    /// from the store). A refusal lists the row again and shows the toast in `window`: `reason` when the
+    /// The close of `id` ended: the daemon refused it, it was cancelled, or it went through (`held`). A refusal lists the row again and shows the toast in `window`: `reason` when the
     /// close knows why (its machine did not answer), else that it could not be closed.
-    public func end(_ id: String, refused: Bool, reason: String? = nil, in window: NSWindow?) {
+    /// `held`: a close that went through (`refused` false) whose store still holds the workspace keeps it hidden until
+    /// no store does (`releaseGone`); a cancel passes false and lists the row again now.
+    public func end(_ id: String, refused: Bool, reason: String? = nil, in window: NSWindow?, held: Bool = false) {
+        if !refused, held, ids.contains(id) { untilGone.insert(id); return }
         ids.remove(id)
+        untilGone.remove(id)
         guard refused, let window else { return }
         CmuxToastCenter.shared.show(CmuxToast(id: "workspace-close-refused", message: reason ?? Strings.closeRefused), in: window)
+    }
+
+    /// Hides `id` until no store holds it (`releaseGone`): a close that took workspace `id`'s create before the
+    /// window lists it (the create's own row goes; the store's copy of the workspace must not list in its place).
+    public func hide(untilGone id: String) {
+        untilGone.insert(id)
+        ids.insert(id)
+    }
+
+    /// Lists again the closed workspaces no store holds now (`held`). Read in the sidebar's tracked rows pass, so
+    /// it runs on each change of the stores' workspaces: a reopen of the same id later lists it again.
+    public func releaseGone(held: (String) -> Bool) {
+        guard !untilGone.isEmpty else { return }
+        let gone = untilGone.filter { !held($0) }
+        guard !gone.isEmpty else { return }
+        untilGone.subtract(gone)
+        ids.subtract(gone)
     }
 
     /// `members` without the closing workspaces, unless that leaves none.

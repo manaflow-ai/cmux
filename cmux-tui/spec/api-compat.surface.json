@@ -9305,6 +9305,10 @@
       }
     },
     "request:create-workspace": {
+      "/current": {
+        "ty": "string",
+        "nullable": true
+      },
       "/expected_generation": {
         "ty": "string",
         "nullable": true
@@ -9328,6 +9332,13 @@
       "/origin": {
         "ty": "string",
         "nullable": true
+      },
+      "/placement": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/places_by_setting": {
+        "ty": "boolean"
       }
     },
     "request:create-workspace-group": {

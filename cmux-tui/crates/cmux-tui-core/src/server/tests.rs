@@ -569,4 +569,5 @@ mod tree_selection_deltas;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;
+mod workspace_create_current;
 mod workspace_name_source;

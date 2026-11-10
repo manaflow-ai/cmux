@@ -53,6 +53,12 @@ fn after_current_puts_a_new_group_first_never_last() {
 }
 
 #[test]
+fn before_current_puts_a_new_group_first_never_last() {
+    let home = home_with(Some(r#"{"workspaces": {"newPlacement": "beforeCurrent"}}"#));
+    assert_eq!(new_group_index(home.path()), Some(0));
+}
+
+#[test]
 fn a_missing_home_reads_as_the_default() {
     assert_eq!(
         new_group_index(Path::new("/nonexistent/cmux-home-for-test")),

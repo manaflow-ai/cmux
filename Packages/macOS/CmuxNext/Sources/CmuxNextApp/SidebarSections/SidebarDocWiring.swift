@@ -26,13 +26,21 @@ extension SidebarDocument {
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: wrapping(DaemonSidebarDocRemote(connection: { local.connection }, serves: serves)))
         self.store = store
-        // A new workspace lists at the daemon's slot until its item comes: below the active window's current one (none on Home: first).
+        // A new workspace lists at the daemon's slot until its item comes: below (`beforeCurrent`: above) the active window's current one (none on Home: first).
         docSections.newRowsPlace = { [weak services] in
             switch services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault {
             case .top: .first
             case .bottom: .last
             case .afterCurrent: services?.windows.active.flatMap { $0.state.page == nil ? $0.state.workspaceID : nil }.map(SidebarDocSections.NewRowsPlace.below) ?? .first
+            case .beforeCurrent: services?.windows.active.flatMap { $0.state.page == nil ? $0.state.workspaceID : nil }.map(SidebarDocSections.NewRowsPlace.above) ?? .first
             }
+        }
+        // `beforeCurrent` / `afterCurrent` and New Workspace Above or Below: beside the workspace the create named.
+        docSections.unplacedAnchor = { [weak services, weak self] workspace in
+            guard let services, let self else { return nil }
+            return services.windows.newPlacements.unplacedAnchor(for: workspace.id,
+                hasDocumentItem: { self.item(workspace: $0) != nil },
+                workspaceExists: { services.machines.workspace(id: $0) != nil })
         }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.newItemRoom = { [weak services, weak self] in self?.room(services?.windows.active?.state.profileID.rawValue) }

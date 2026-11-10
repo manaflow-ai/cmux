@@ -54,17 +54,31 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
+        windows.newPlacements.expect(id, anchor: NewWorkspaceDefaultSlot.anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)))
         if windows.pendingPlacements[id] == nil { windows.pendingPlacementOrder.append(id) }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
 
     /// A new workspace's key, placed like Cmd-N's on any machine: a create with no slot of its own never lands at its daemon's.
-    static func placedKey(in windows: WindowManager) -> WorkspaceKey {
-        let key = WorkspaceKey.generate()
-        expect(key.rawValue, in: nil, byDefault: rule(for: nil, in: windows), windows: windows)
-        return key
+    static func placedKey(in windows: WindowManager) -> WorkspaceKey { placedCreate(in: windows).key }
+
+    /// ``placedKey(in:)`` with the rule it is placed by, for the create to send (`WorkspaceCreation`'s `placedBy`), so
+    /// the daemon places it by the same rule against the same current workspace.
+    static func placedCreate(in windows: WindowManager) -> (key: WorkspaceKey, rule: NewWorkspaceDefaultSlot) {
+        let key = WorkspaceKey.generate(), byDefault = rule(for: nil, in: windows)
+        expect(key.rawValue, in: nil, byDefault: byDefault, windows: windows)
+        return (key, byDefault)
     }
+
+    /// Drops what a create that ended without its workspace left for it.
+    static func forget(_ id: String, windows: WindowManager) {
+        windows.pendingPlacements[id] = nil
+        windows.pendingPlacementOrder.removeAll { $0 == id }
+        windows.newPlacements.forget(id)
+    }
+
+    typealias Ledger = WorkspacePlacementLedger
 
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.
     static func home(_ machines: MachineRegistry) -> String? {

@@ -24,7 +24,7 @@ enum PersonalSidebar {
         let isHome = daemon === machines.local
         if machines.local.store.supportsPersonalMixedOrder {
             return mixedSections(workspaces, groups: groups, session: session, personal: personal, keepsEmptyGroups: isHome,
-                                 newRows: newRows(daemon, machines, doc, session))
+                                 newRows: newRows(daemon, machines, doc, session), unplacedAnchor: doc.docSections.unplacedAnchor)
         }
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
@@ -51,7 +51,7 @@ enum PersonalSidebar {
         if machines.local.store.supportsPersonalMixedOrder {
             let groups = personal.groups.sorted { $0.index < $1.index }
             return mixedSections(daemon.store.workspaces, groups: groups, session: session, personal: personal, keepsEmptyGroups: false,
-                                 newRows: newRows(daemon, machines, doc, session))
+                                 newRows: newRows(daemon, machines, doc, session), unplacedAnchor: doc.docSections.unplacedAnchor)
                 .flatMap(\.workspaces).map(\.id)
         }
         return order(daemon.store.workspaces, rows: rows(of: session, personal),
@@ -68,7 +68,8 @@ enum PersonalSidebar {
     /// `newRows`: where those workspaces list when they are creates whose row is on the way (this Mac's daemon
     /// writes one in every create): newest first, where the row will put them (sidebar-ordering-DESIGN.md).
     static func mixedSections(_ workspaces: [WorkspaceModel], groups: [WorkspaceGroupModel], session: String,
-                              personal: PersonalStore, keepsEmptyGroups: Bool, newRows: NewRows = { _, _ in (.last, true) }) -> [SidebarSection] {
+                              personal: PersonalStore, keepsEmptyGroups: Bool, newRows: NewRows = { _, _ in (.last, true) },
+                              unplacedAnchor anchor: (WorkspaceModel) -> SidebarDocSections.UnplacedAnchor? = { _ in nil }) -> [SidebarSection] {
         let all = personal.workspacesInOrder // sorted once per change of the list, not on every pass
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
@@ -94,7 +95,12 @@ enum PersonalSidebar {
                 loose.append(workspace)
             }
         }
-        let fresh = ordered.filter { rows[rowKey($0)] == nil }, (place, newestFirst) = newRows(ordered, fresh)
+        // A create in flight that named a neighbour lists beside it (`SidebarDocSections.unplacedAnchor`), where
+        // the daemon's create puts it; the others where `newRows` puts them.
+        let unrowed = ordered.filter { rows[rowKey($0)] == nil }
+        let besides = unrowed.compactMap { workspace in anchor(workspace).map { (workspace, $0) } } // `.first`: below a leading Home row
+        let named = Set(besides.map(\.0.id))
+        let fresh = unrowed.filter { !named.contains($0.id) }, (place, newestFirst) = newRows(ordered, fresh)
         if place == .last { loose += fresh }
         for group in groups where group.topIndex.map({ $0 >= all.count }) ?? true { emit(group) }
         if !loose.isEmpty || sections.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
@@ -102,6 +108,7 @@ enum PersonalSidebar {
             if sections.count == 1, sections[0].group == nil, sections[0].workspaces.isEmpty { sections = [] }
             SidebarDocSections.insertNew(newestFirst ? Array(fresh.reversed()) : fresh, place, into: &sections, machineSections: sections.count)
         }
+        SidebarDocSections.insert(besides, else: place, into: &sections)
         return sections
     }
 

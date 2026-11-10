@@ -76,12 +76,12 @@ struct WorkspaceSpawner {
             do {
                 return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
                     let terminals = services.workspace(id: id).map { WorkspaceClose.closing($0, on: daemon) } ?? []
-                    _ = await daemon.failure("close-workspace") { connection in
+                    if (await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
-                    }
+                    }) != nil { ClosingWorkspaces.shared.end(id, refused: true, in: nil) } // a taken create that stays lists again
                 }, settle: { await daemon.settledCheck() }) { try await named.create(key, rule: rule) }
             } catch {
-                windows.forgetCreate(key.rawValue)
+                windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
             }
         }
@@ -103,16 +103,17 @@ struct WorkspaceSpawner {
         // frame, before its commit (not in the key's handler: SWITCH STALL 6, nor a hop later: SWITCH STALL 4); its slot is placed once the daemon has it.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
-                                                           session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
+                                                           session: spawn.firstSession.map { ($0, nil, false) }, placedBy: rule,
+                                                           ledger: windows.newPlacements, on: daemon, repair: repair) else { return nil }
         if let controller = windows.controller(for: windowID), controller.state.workspaceID == key.rawValue { MainRunLoopBlock.perform { [weak controller] in controller.map { $0.showWorkspace(requested: $0.state.workspaceID) } } }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
         return {
             do {
                 return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
-                    _ = await daemon.failure("close-workspace") { connection in
+                    if (await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
-                    }
+                    }) != nil { ClosingWorkspaces.shared.end(id, refused: true, in: nil) } // a taken create that stays lists again
                 }, settle: { await daemon.settledCheck() }) {
                     // One late-reply budget for the pin, the create and the first tab.
                     let giveUp = DaemonConnection.lateReplyDeadline()
@@ -123,7 +124,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.forgetCreate(key.rawValue)
+                windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
             }
         }
@@ -166,9 +167,9 @@ struct WorkspaceSpawner {
                                         workspace: key, terminal: terminal, sendsEnv: daemon.supports(DaemonCapability.terminalEnv.rawValue), reaps: daemon.supports(DaemonCapability.terminalReap.rawValue))
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         BenchSpans.mark("cmdN.create.sending")
-        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: start.cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: start.cwd, placedBy: rule, ledger: windows.newPlacements, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
-        return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
+        return try await WorkspaceCreation.create(key, name: spawn.name, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
             let started = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: start.cwd,

@@ -14,13 +14,15 @@ public import CmuxNextDesign
 /// the window shows when that one is in a group, and first in a group the new
 /// workspace is made in (its header's +, a Chief subagent's group; Lawrence
 /// 2026-10-28); outside a group, first in the workspace list, below the Pinned
-/// section and the Home row, above every group. `bottom`: last in the
+/// section and the Home row, above every group. `beforeCurrent` (opt-in):
+/// `afterCurrent`'s mirror, right before the workspace the window shows.
+/// `bottom`: last in the
 /// group of the workspace the window shows; outside a group, after the last
 /// loose workspace, where the daemon puts it. An explicit place (a drop on a
 /// sidebar gap, New Workspace Above or Below) always wins; a reopened workspace
 /// keeps its old place.
 public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseIterable {
-    case top, afterCurrent, bottom
+    case top, beforeCurrent, afterCurrent, bottom
 }
 
 /// The workspace list's shape (Lawrence 2026-10-08, cx-plf5): new workspaces
