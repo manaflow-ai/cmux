@@ -15,24 +15,41 @@ import Foundation
 ///   (`pending`, HomeMessagesOutbox.row: Not Delivered, Retry under its own key, so it never goes
 ///   twice). It leaves the log unless it is in flight there (then the owner's echo settles the
 ///   page's row, and a later failure moves over at the next outbox load).
+///
+/// The conversation is selected (`select`, HomeService.pendingSelection) only once the send's
+/// outcome is known, and only when it opened: a selection published before would let the page's
+/// selection watch open the conversation and leave New Message while the send could still be refused.
 @MainActor
 public struct HomeMessagesFirstSend {
     private let store: HomeStore
     private let contacts: [HomeContact]
     private let start: @MainActor ([HomeRecipient], [MessagePart]) async -> HomeComposeOutcome
     private let refusal: @MainActor (any Error, String) -> HomeComposeOutcome
+    private let select: @MainActor (ConversationID) -> Void
 
+    /// `start` makes the conversation without selecting it; `select` selects it once the outcome is known.
     public init(store: HomeStore, contacts: [HomeContact],
                 start: @escaping @MainActor (_ recipients: [HomeRecipient], _ firstMessage: [MessagePart]) async -> HomeComposeOutcome,
-                refusal: @escaping @MainActor (_ error: any Error, _ naming: String) -> HomeComposeOutcome) {
+                refusal: @escaping @MainActor (_ error: any Error, _ naming: String) -> HomeComposeOutcome,
+                select: @escaping @MainActor (_ conversation: ConversationID) -> Void = { _ in }) {
         self.store = store
         self.contacts = contacts
         self.start = start
         self.refusal = refusal
+        self.select = select
     }
 
     /// `{outcome}` (HomeComposeOutcome.pageOutcome); an opened one may carry `pending: [row]`. `key`: the send's.
     public func run(_ fields: [String: JSONValue], key: IdempotencyKey = .make()) async -> JSONValue {
+        let answer = await outcome(fields, key: key)
+        if answer.value(at: ["outcome", "kind"]) == .string("opened"),
+           let id = answer.value(at: ["outcome", "conversation"])?.stringValue {
+            select(ConversationID(id))
+        }
+        return answer
+    }
+
+    private func outcome(_ fields: [String: JSONValue], key: IdempotencyKey) async -> JSONValue {
         let recipients = Self.recipients(fields["recipients"]?.arrayValue ?? [], contacts: contacts)
         guard !recipients.isEmpty else { return HomeComposeOutcome.refused("").pageOutcome }
         let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

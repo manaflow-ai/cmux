@@ -66,13 +66,16 @@ export function mountMessagesPage(
   document.title = strings.t("home.title");
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   // The app keeps them across launches too (outbox.ts): a relaunch shows a send it never took.
-  const carry = client ? new KeptPendingCarry(pageOutboxKeeper(client)) : new PendingCarry();
-  if (carry instanceof KeptPendingCarry) void carry.load();
   // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
   const nav = new MessagesNav(
     client ? pageDraftKeeper(client) : undefined,
     client ? pageAttachmentKeeper(client) : undefined,
   );
+  // A sent file's kept bytes pass from its tray to the outbox once the outbox keeps the send.
+  const carry = client
+    ? new KeptPendingCarry(pageOutboxKeeper(client), (hashes) => nav.attachments.handedOver(hashes))
+    : new PendingCarry();
+  if (carry instanceof KeptPendingCarry) void carry.load();
   void nav.loadDrafts();
   void nav.attachments.load();
   // The page's whole life: what was typed in the last pause is kept before the document ends.

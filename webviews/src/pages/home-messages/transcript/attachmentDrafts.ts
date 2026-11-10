@@ -18,6 +18,11 @@
 // and goes on (`resend`, HomeChannelsStore `reupload`). The bytes of the files sent last stay here
 // for that, at most `SENT_BYTES_BUDGET` (the app's own bound, HomeMessagesAttachmentDrafts.swift).
 //
+// A file a send took stays kept until the app's outbox keeps that send (`handedOver`, outbox.ts):
+// the outbox then owns the bytes (HomeMessagesKept `outbox.remove` lets them go once the send is
+// delivered or discarded), so a send that fails and a relaunch still find the bytes for Retry
+// (`resend` reads them back from the app when this page no longer has them).
+//
 // Cost: one tray per conversation that has files; a change copies only that tray, and the keeper
 // hears one call per file that finished or left (not on upload progress), and the bytes of each
 // finished file once.
@@ -117,6 +122,9 @@ export class AttachmentDrafts {
    * relaunch either, since a kept entry with no bytes cannot go up again once the owner lets go of
    * its upload. */
   private readonly bytesRefused = new Set<string>();
+  /** The files a send took, by hash, with their tray's conversation, until the app's outbox keeps
+   * that send (`handedOver`): their kept entries, and so their bytes, stay until then. */
+  private readonly handing = new Map<string, string>();
 
   constructor(private readonly keeper?: AttachmentKeeper) {
     this.loaded = !keeper;
@@ -195,11 +203,22 @@ export class AttachmentDrafts {
   ): Promise<HomeAttachment[] | undefined> {
     const upload = this.upload;
     if (!upload) return undefined;
-    const files = parts.map((part) => this.bytesOf(part));
-    if (files.some((file) => !file)) return undefined;
+    const files: File[] = [];
+    for (const part of parts) {
+      const file = this.bytesOf(part) ?? (await this.keptBytes(part));
+      if (!file) return undefined;
+      files.push(file);
+    }
     const out: HomeAttachment[] = [];
-    for (const file of files) out.push(await upload.run(conversation, file!, signal, () => {}));
+    for (const file of files) out.push(await upload.run(conversation, file, signal, () => {}));
     return out;
+  }
+
+  /** A sent file's bytes as the app keeps them (the outbox owns them after a relaunch). */
+  private async keptBytes(part: HomeAttachment): Promise<File | undefined> {
+    if (part.byteCount <= 0) return undefined;
+    const file = await this.keeper?.read?.(part).catch(() => undefined);
+    return file && file.size === part.byteCount ? file : undefined;
   }
 
   private bytesOf(part: HomeAttachment): File | undefined {
@@ -230,9 +249,10 @@ export class AttachmentDrafts {
     }
   }
 
-  /** The upload the native composer's files take; they go once both it and the kept files are here. */
+  /** The upload the files take (the latest store's: a reconnect's remount brings a new store and
+   * connection); the native composer's files go once both it and the kept files are here. */
   uploadLegacy(run: ConversationUpload, failed: string): void {
-    this.upload ??= { run, failed };
+    this.upload = { run, failed };
     this.migrate();
     this.refresh();
   }
@@ -338,7 +358,10 @@ export class AttachmentDrafts {
   take(conversation: string, parts: readonly HomeAttachment[]): PendingAttachment[] {
     const tray = this.files(conversation);
     const taken = tray.filter((item) => item.part && parts.includes(item.part));
-    for (const item of taken) this.keepSent(item);
+    for (const item of taken) {
+      this.keepSent(item);
+      if (item.part) this.handing.set(item.part.hash, conversation);
+    }
     if (taken.length)
       this.write(
         conversation,
@@ -351,7 +374,21 @@ export class AttachmentDrafts {
   giveBack(conversation: string, items: readonly PendingAttachment[]): void {
     const tray = this.files(conversation);
     const back = items.filter((item) => !tray.some((kept) => kept.id === item.id));
+    for (const item of items) if (item.part) this.handing.delete(item.part.hash);
     if (back.length) this.write(conversation, [...back, ...tray]);
+  }
+
+  /** The app's outbox kept (or refused) the send that took these files: their tray entries go
+   * now, and the outbox owns the bytes until that send is delivered or discarded. */
+  handedOver(hashes: readonly string[]): void {
+    const touched = new Set<string>();
+    for (const hash of hashes) {
+      const conversation = this.handing.get(hash);
+      if (conversation === undefined) continue;
+      this.handing.delete(hash);
+      touched.add(conversation);
+    }
+    if (this.loaded) for (const conversation of touched) this.save(conversation);
   }
 
   /** `from`'s finished files go to `to`'s tray after its own (one per hash), and `from`'s tray
@@ -438,7 +475,7 @@ export class AttachmentDrafts {
           });
     }
     for (const hash of saved) {
-      if (now.has(hash)) continue;
+      if (now.has(hash) || this.handing.has(hash)) continue;
       saved.delete(hash);
       keeper.remove(conversation, hash);
     }

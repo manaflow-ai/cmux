@@ -46,8 +46,10 @@ import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./i
 export type DictationCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 export interface MessageComposerHandle {
-  /** Files dropped on the transcript come here (the pane's drop target). */
-  addFiles(files: Iterable<File>): void;
+  /** Files dropped on the transcript come here (the pane's drop target); their tray ids. */
+  addFiles(files: Iterable<File>): string[];
+  /** Takes files out of the tray by their ids (the app took back what it handed). */
+  removeFiles(ids: readonly string[]): void;
   focus(): void;
 }
 
@@ -143,9 +145,10 @@ export function MessageComposer({
   useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
 
-  const addFiles = (list: Iterable<File>) => {
-    if (!attachments) return;
+  const addFiles = (list: Iterable<File>): string[] => {
+    if (!attachments) return [];
     const { service, conversation, prepare } = attachments;
+    const added: string[] = [];
     for (const file of list) {
       const problem = intakeProblem(file, t("home.composer.attach.pasted"));
       if (problem) {
@@ -164,6 +167,7 @@ export function MessageComposer({
         },
         t("home.composer.attach.failed"),
       );
+      added.push(id);
       // A small local picture while it uploads (a data URL: any page policy).
       if (attachmentClass(attachmentType(file) ?? "") === "image" && file.size <= 8_000_000) {
         const reader = new FileReader();
@@ -172,6 +176,7 @@ export function MessageComposer({
         reader.readAsDataURL(file);
       }
     }
+    return added;
   };
   const removeFile = (id: string) => drafts.remove(tray, id);
 
@@ -231,7 +236,13 @@ export function MessageComposer({
     if (words) editor.current?.insertTyped(words);
   };
 
-  useImperativeHandle(ref, () => ({ addFiles, focus: () => editor.current?.focus() }));
+  useImperativeHandle(ref, () => ({
+    addFiles,
+    removeFiles: (ids) => {
+      for (const id of ids) drafts.remove(tray, id);
+    },
+    focus: () => editor.current?.focus(),
+  }));
 
   return (
     <div className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>

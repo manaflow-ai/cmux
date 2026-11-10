@@ -11,6 +11,12 @@
 //   home.moveConversation     {delta}                             -> {moved}    (as Channels serves it)
 //   home.messages.selectNumber {number: 1..9}                     -> {selected} (9 = the last)
 //   home.messages.replyToSelection {}                             -> {replied}  (Cmd-Shift-R, the palette)
+//   home.messages.attach      {files: [{token, name, mimeType, byteCount}]} -> {attached: [id]} | {attached: false}
+//       the app's files for the shown conversation's composer, as a drop (Attach Files, `cmux home
+//       attach`, a viewer quote, a browser highlight): the page reads each file's bytes from the app
+//       (`cmux.home.messages.attachments.intake.read`) while it answers; false while New Message or
+//       nothing shows (no composer takes files)
+//   home.messages.detach      {ids}                               -> {removed}  (the app takes back what it handed)
 //
 // Page → host: `cmux.home.messages.selected {conversation: string | null, message?, composing?}` on
 // every change of the shown conversation once the inbox is read (fire and forget): the host keeps it
@@ -21,6 +27,7 @@ import { CURRENT_SELECTION_OP, type HomeSelection } from "../home-channels/hostS
 import { MOVE_CONVERSATION_OP } from "../home-channels/hostMove";
 import type { HomeChannelsStore } from "../home-channels/store";
 import type { PageClient } from "../shared/pageClient";
+import { readOffered } from "./host";
 import { conversationNumber, neighbor, type ListModel } from "./list/model";
 import { newMessageHasKeyboard, type MessagesNav, type SheetKind } from "./nav";
 
@@ -32,7 +39,20 @@ export const MessagesPageOps = {
   moveConversation: MOVE_CONVERSATION_OP,
   selectNumber: "home.messages.selectNumber",
   replyToSelection: "home.messages.replyToSelection",
+  attach: "home.messages.attach",
+  detach: "home.messages.detach",
 } as const;
+
+/** One file the app offers the composer (HomeMessagesIntake.swift): its bytes come by `token`. */
+export interface OfferedFile {
+  token: string;
+  name: string;
+  mimeType: string;
+  byteCount: number;
+}
+
+/** Reads an offered file's bytes from the app (host.ts `readOffered`); undefined when it cannot. */
+export type ReadOffered = (offer: OfferedFile) => Promise<File | undefined>;
 
 /** Page → host: the shown conversation changed. */
 export const SELECTED_OP = "cmux.home.messages.selected";
@@ -144,6 +164,48 @@ export async function selectNumber(context: PageCommandContext, params: unknown)
   return { selected: true };
 }
 
+/** The offered files of an `attach` call; malformed entries are left out. */
+export function offeredFiles(params: unknown): OfferedFile[] {
+  const files = record(params).files;
+  if (!Array.isArray(files)) return [];
+  return files.flatMap((value) => {
+    const file = record(value);
+    const { token, name, mimeType, byteCount } = file;
+    if (typeof token !== "string" || !token || typeof name !== "string" || typeof byteCount !== "number") return [];
+    if (!Number.isInteger(byteCount) || byteCount < 0) return [];
+    return [{ token, name, mimeType: typeof mimeType === "string" ? mimeType : "", byteCount }];
+  });
+}
+
+/** The app's files go to the shown conversation's composer, as a drop (the list's drop target:
+ * none on New Message). Answers their tray ids, or false when nothing takes them. */
+export async function attach(
+  context: Pick<PageCommandContext, "nav">,
+  params: unknown,
+  read: ReadOffered,
+): Promise<{ attached: string[] | false }> {
+  const offers = offeredFiles(params);
+  if (!offers.length || !context.nav.fileDrop()) return { attached: false };
+  const files: File[] = [];
+  for (const offer of offers) {
+    const file = await read(offer);
+    if (!file) return { attached: false };
+    files.push(file);
+  }
+  // Read first, then the target as it is now (the person may have moved on meanwhile).
+  const target = context.nav.fileDrop();
+  return { attached: target ? target.take(files) : false };
+}
+
+/** Takes back files the app handed (`attach`'s ids) from the shown conversation's tray. */
+export function detach(context: Pick<PageCommandContext, "nav">, params: unknown): { removed: boolean } {
+  const ids = record(params).ids;
+  const target = context.nav.fileDrop();
+  if (!target || !Array.isArray(ids)) return { removed: false };
+  target.remove(ids.filter((value): value is string => typeof value === "string"));
+  return { removed: true };
+}
+
 /** The requests a page remembers (a host retries within seconds; a few dozen cover any burst). */
 const REMEMBERED_REQUESTS = 64;
 
@@ -168,8 +230,17 @@ export function once<T>(run: (params: unknown) => T | Promise<T>, ran: Map<strin
 }
 
 /** Serves every command on `host` with the context `latest` returns at call time. Returns the stop. */
-export function servePageCommands(host: PageClient, latest: () => PageCommandContext): () => void {
+export function servePageCommands(
+  host: PageClient,
+  latest: () => PageCommandContext,
+  read: ReadOffered = (offer) => readOffered(host, offer),
+): () => void {
   const stops = [
+    host.handle(
+      MessagesPageOps.attach,
+      once((params) => attach(latest(), params, read)),
+    ),
+    host.handle(MessagesPageOps.detach, (params) => detach(latest(), params)),
     host.handle(MessagesPageOps.currentSelection, () => currentSelection(latest())),
     host.handle(
       MessagesPageOps.show,

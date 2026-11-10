@@ -396,10 +396,10 @@ final class AppControl {
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
-            // a real drop, paste or pick (HomeNativeTranscriptView.attachFiles).
-            .mainActor("debug.home.attach") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.attach(call.params, services: services))
+            // a real drop, paste or pick (HomeComposerIntake: a native transcript's or the Messages page's).
+            .async("debug.home.attach") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugHomeNativeFixture.attach(call.params, services: services)
             },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }

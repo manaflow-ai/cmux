@@ -58,6 +58,8 @@ final class HomeMessagesHostProvider: PageProvider {
     var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
     /// The `hidden` stream: the deleted conversations and the archived Chiefs' ones.
     let hidden = HomeMessagesHiddenFeed()
+    /// The files the app hands the page's composer (``HomeComposerIntake``).
+    let intake = HomeMessagesIntake()
     /// The `list` stream (tags, Cloud note, teammates, header sizes) and the list's width (``HomeMessagesListFeed``).
     let list: HomeMessagesListFeed
     private var previewProvider: HomeLinkPreviewProvider?
@@ -157,8 +159,8 @@ final class HomeMessagesHostProvider: PageProvider {
             return .object(["result": .object(["kind": .string(answer.rawValue)])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1) },
-                                               refusal: { home.composer.outcome(for: $0, naming: $1) }).run(fields)
+            return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1, select: false) },
+                                               refusal: { home.composer.outcome(for: $0, naming: $1) }, select: { home.pendingSelection = $0 }).run(fields)
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
@@ -280,7 +282,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The drafts, staged files and unsent sends kept in HomeStore (``HomeMessagesKept``).
     private func kept(_ home: HomeService) -> HomeMessagesKept {
         if let keeping { return keeping }
-        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }, approvals: services.map { ChiefApprovalDecider(home: home.chief.home, app: QuitAgents.environment($0), work: $0.work, environment: ChiefHomeAcpmux.environment) })
+        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }, approvals: services.map { ChiefApprovalDecider(home: home.chief.home, app: QuitAgents.environment($0), work: $0.work, environment: ChiefHomeAcpmux.environment) }, intake: intake)
         keeping = made
         return made
     }

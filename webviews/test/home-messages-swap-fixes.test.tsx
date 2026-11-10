@@ -641,8 +641,9 @@ test("round 5 F1: one page's tray never writes over another page's", async () =>
   pageB.add("a", new File(["plan"], "b.txt"), async () => part("hB", "b.txt"), "failed");
   await settle();
   expect(hashes()).toEqual({ a: ["hA", "hB"] });
-  // B sends its file: only that one leaves the app's book.
+  // B sends its file: once the outbox keeps that send (round 10 F2), only that one leaves the tray's book.
   pageB.take("a", [pageB.files("a")[0]!.part!]);
+  pageB.handedOver(["hB"]);
   expect(hashes()).toEqual({ a: ["hA"] });
   const next = new AttachmentDrafts(keeper);
   await next.load();

@@ -45,16 +45,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.attach`: the shown Home composer of the active window
-    /// (the real Home tab or this fixture) takes the files by path.
-    static func attach(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    /// (a conversation tab, the Messages page or this fixture) takes the files by path.
+    static func attach(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         let paths = params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? params["path"]?.stringValue.map { [$0] } ?? []
         guard let via = HomeAttachVia(rawValue: params["via"]?.stringValue ?? "drop") else {
             return .object(["error": .string("via must be drop, paste or pick")])
         }
-        guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) else {
+        guard let intake = HomeComposerIntake(window: services.windows.active?.window) else {
             return .object(["error": .string("no Home conversation is shown")])
         }
-        let result = view.attachFiles(paths: paths, via: via)
+        let result = await intake.attach(paths: paths, via: via).result
         return .object(["ok": .bool(result == .accepted), "result": .string(result.rawValue), "via": .string(via.rawValue)])
     }
 

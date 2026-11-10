@@ -313,6 +313,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           setDropping(false);
           composer.current?.addFiles(files);
         },
+        take: (files) => composer.current?.addFiles(files) ?? [],
+        remove: (ids) => composer.current?.removeFiles(ids),
       }
     : undefined;
   useImperativeHandle(props.ref, () => ({

@@ -41,9 +41,29 @@ public struct HomeMessagesOutbox {
         store.setPendingWebSend(text, key: key, for: id)
     }
 
-    /// Lets go of one send (delivered, or discarded).
-    public func remove(_ key: String, for id: ConversationID) {
+    /// Lets go of one send (delivered, or discarded); returns the hashes of the files it named,
+    /// whose kept bytes it owned (``HomeMessagesAttachmentDrafts/releaseBytes(_:)``).
+    @discardableResult
+    public func remove(_ key: String, for id: ConversationID) -> [String] {
+        let row = store.pendingWebSends(for: id)[key]
         store.setPendingWebSend(nil, key: key, for: id)
+        return row.flatMap { try? JSONValue.parse(Data($0.utf8)) }.map(Self.hashes) ?? []
+    }
+
+    /// The hashes of the files the kept sends name (their bytes stay while one does).
+    public func attachmentHashes() -> Set<String> {
+        var out: Set<String> = []
+        for id in store.pendingWebSendConversations {
+            for text in store.pendingWebSends(for: id).values {
+                guard let row = try? JSONValue.parse(Data(text.utf8)) else { continue }
+                out.formUnion(Self.hashes(row))
+            }
+        }
+        return out
+    }
+
+    static func hashes(_ row: JSONValue) -> [String] {
+        (row.value(at: ["attachments"])?.arrayValue ?? []).compactMap { $0.value(at: ["hash"])?.stringValue }
     }
 
     /// HomeStore's Not Delivered text sends leave its log for this outbox, each under its key: the

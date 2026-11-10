@@ -11,7 +11,8 @@ import Foundation
 ///   their bytes (``HomeMessagesAttachmentDrafts``);
 /// - `attachments.prepare.*`: a photo's or video's bytes before they upload (``HomeAttachmentPreparer``);
 /// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``);
-/// - `approval.decide`: a Chief's permission card, on the person's click (``HomeMessagesApprovals``).
+/// - `approval.decide`: a Chief's permission card, on the person's click (``HomeMessagesApprovals``);
+/// - `attachments.intake.read`: the bytes of a file the app hands the composer (``HomeMessagesIntake``).
 @MainActor
 public final class HomeMessagesKept {
     /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
@@ -23,10 +24,13 @@ public final class HomeMessagesKept {
     private let store: HomeStore
     private let preparer: HomeAttachmentPreparer
     private let approvals: HomeMessagesApprovals
+    private let intake: HomeMessagesIntake?
 
     /// `approvals` answers acpmux for a permission card (the App's `ChiefApprovalDecider`; nil refuses each click).
-    public init(store: HomeStore, keepLocation: @escaping @MainActor () -> Bool, approvals: (any HomeApprovalDeciding)? = nil) {
+    public init(store: HomeStore, keepLocation: @escaping @MainActor () -> Bool, approvals: (any HomeApprovalDeciding)? = nil,
+                intake: HomeMessagesIntake? = nil) {
         self.store = store
+        self.intake = intake
         preparer = HomeAttachmentPreparer(store: store, keepLocation: keepLocation)
         self.approvals = HomeMessagesApprovals(store: store, decider: approvals)
     }
@@ -36,6 +40,7 @@ public final class HomeMessagesKept {
         if name == HomeMessagesApprovals.op {
             return try await approvals.call(name, fields, context: context ?? PageCallContext(page: ""))
         }
+        if name.hasPrefix(HomeMessagesIntake.prefix) { return try await intake?.call(name, fields) }
         switch name {
         case "drafts.load":
             let drafts = store.rows.reduce(into: [String: JSONValue]()) { out, row in
@@ -99,7 +104,10 @@ public final class HomeMessagesKept {
             }
             return .null
         case "outbox.remove":
-            HomeMessagesOutbox(store: store).remove(fields["key"]?.stringValue ?? "", for: try Self.conversation(fields))
+            // The send's files' bytes go with it, unless a tray or another send still names them.
+            let hashes = HomeMessagesOutbox(store: store).remove(fields["key"]?.stringValue ?? "", for: try Self.conversation(fields))
+            let drafts = HomeMessagesAttachmentDrafts(store: store)
+            for hash in Set(hashes) { await drafts.releaseBytes(hash) }
             return .null
         default:
             return nil

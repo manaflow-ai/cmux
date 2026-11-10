@@ -30,10 +30,10 @@ extension HomeService {
                                   agents: HomeContact.agents(in: rows, me: me))
     }
 
-    /// Starts a DM or a group; the page shows it once the inbox lists it.
-    func startConversation(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = []) async -> HomeComposeOutcome {
+    /// Starts a DM or a group; the page shows it once the inbox lists it (`select`: the caller selects it later).
+    func startConversation(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = [], select: Bool = true) async -> HomeComposeOutcome {
         let outcome = await composer.start(recipients, title: title, firstMessage: firstMessage)
-        if case .opened(let id) = outcome { pendingSelection = id }
+        if select, case .opened(let id) = outcome { pendingSelection = id }
         return outcome
     }
 

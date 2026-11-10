@@ -36,7 +36,12 @@ export class KeptPendingCarry extends PendingCarry {
   /** Nothing is saved before the kept rows are read (a remove then could drop another page's). */
   private loaded = false;
 
-  constructor(private readonly keeper: OutboxKeeper) {
+  /** `handedOver` hears the files of each send the keeper answered for (kept or refused): the
+   * staged-file trays keep those files' entries until then (attachmentDrafts.ts `handedOver`). */
+  constructor(
+    private readonly keeper: OutboxKeeper,
+    private readonly handedOver?: (hashes: readonly string[]) => void,
+  ) {
     super();
   }
 
@@ -58,7 +63,10 @@ export class KeptPendingCarry extends PendingCarry {
       const text = keptText(entry);
       if (this.saved.get(entry.key)?.text === text) continue;
       this.saved.set(entry.key, { conversation: entry.conversation, text });
-      void this.keeper.put(entry).then((kept) => this.mark(entry.key, !kept));
+      void this.keeper.put(entry).then((kept) => {
+        this.mark(entry.key, !kept);
+        if (entry.attachments?.length) this.handedOver?.(entry.attachments.map((part) => part.hash));
+      });
     }
     for (const [key, { conversation }] of this.saved) {
       if (now.has(key)) continue;

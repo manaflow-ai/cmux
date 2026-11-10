@@ -164,7 +164,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
   }, [host, nav, requestsShown]);
 
   // The files the native composer staged go up into their trays once this store can upload
-  // (attachmentDrafts.ts `uploadLegacy`; the first store's service, once for the page's life).
+  // (attachmentDrafts.ts `uploadLegacy`, once for the page's life), and every upload after takes
+  // the latest store's service (a reconnect's remount replaces the store and its connection).
   const uploads = store.attachments;
   useEffect(() => {
     if (!uploads) return;

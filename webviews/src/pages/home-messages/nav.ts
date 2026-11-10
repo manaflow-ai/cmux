@@ -31,6 +31,11 @@ export interface FileDropTarget {
   leave(): void;
   /** The files were dropped on the list. */
   drop(files: Iterable<File>): void;
+  /** The app hands the composer files (Attach Files, `cmux home attach`, a viewer quote, a browser
+   * highlight: pageCommands.ts `home.messages.attach`), as a drop: their tray ids, none refused. */
+  take(files: Iterable<File>): string[];
+  /** The app takes back files it handed (a browser highlight removed): by their tray ids. */
+  remove(ids: readonly string[]): void;
 }
 
 /** How long typing waits before its draft goes to the keeper (one write per pause, not per key). */
