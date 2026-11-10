@@ -230,6 +230,12 @@ class PrePushGateTests(unittest.TestCase):
             # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
             "scripts/whats-new/digest.py",
             "scripts/whats-new/validate.py",
+            # Context files two scanners read (the gate's CONTEXT): without them "Motion and colour tokens" and
+            # "Browser chrome icons" crashed alike in both trees, which the gate used to subtract as no finding. It
+            # now refuses a check that gave no verdict, so the fixture gives them their inputs.
+            "schemas/motion-scale/motion-scale.json",
+            f"{PKG}/Sources/CmuxNextIcons/IconName+Members.swift",
+            f"{PKG}/Sources/CmuxNextIcons/Resources/icon-catalog.json",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
