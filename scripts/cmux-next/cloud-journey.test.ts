@@ -1206,6 +1206,35 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("an AWS credentials file's secret and a second hit's split value never leave in a path", () => {
+    const AWS = "wJalrXUtnFEMIk7MDENGbPxRfiCYq9Kz4Lw8Vn2B";
+    const LATE = "opaqueLate5Rk8Wq3Zn7Mv4Tx";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      [`home/cmux/${AWS}/.aws/credentials`]: `[default]\naws_access_key_id = AKIA${"Q".repeat(16)}\naws_secret_access_key = ${AWS}\n`,
+      // A key name first, then a refresh token's field far along the same line, its value on the next.
+      "home/cmux/late.json": `{"OPENAI_API_KEY": "", "pad": "${"p".repeat(600)}", "refresh_token":\n "${LATE}"}\n`,
+      [`home/cmux/${LATE}/.codex/auth.json`]: "{}",
+      "home/cmux/project/settings.ini": `aws_secret_access_key = ${AWS.slice(0, 20)}Zz9${AWS.slice(23)}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [AWS, LATE, AWS.slice(0, 15), LATE.slice(0, 15)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a secret]/.aws/credentials: an AWS credentials file",
+        "/home/cmux/[a secret]/.aws/credentials:2: an AWS access key id",
+        "/home/cmux/[a secret]/.aws/credentials:3: AWS_SECRET_ACCESS_KEY",
+        "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "/home/cmux/late.json:1: an OAuth refresh token",
+        "/home/cmux/project/settings.ini:1: AWS_SECRET_ACCESS_KEY",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key glued into a file's name never leaves in the answer", () => {
     const root = plant({
       "proc/5/comm": "bash\n",

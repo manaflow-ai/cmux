@@ -68,8 +68,9 @@ KEY_NAMES = {
 # (web/services/coderouter/vmGuestEnv.ts), which swaps in the real credential outside the machine.
 PLACEHOLDERS = {"", "cmux-vm-edge-placeholder"}
 
-# `NAME=value`, `export NAME=value`, `"NAME": "value"` and `NAME: value` lines in a file.
-ASSIGN = re.compile(r'["\']?\b([A-Z][A-Z0-9_]*)\b["\']?\s*[:=]\s*["\']?([^"\'\s,;)}]*)')
+# `NAME=value`, `export NAME=value`, `"NAME": "value"` and `NAME: value` lines in a file, the name in any case
+# (an AWS credentials file writes `aws_secret_access_key = ...`).
+ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b["\']?\s*[:=]\s*["\']?([^"\'\s,;)}]*)')
 # In a file a key's name alone is common (code that reads it, docs that name it): only a literal that looks
 # like a secret counts there, at least 16 characters of token alphabet with a letter and a digit, and no
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
@@ -119,7 +120,10 @@ HIT_SPAN = 512
 
 # Cheap byte prefilter: a line or chunk without one of these holds no finding, so only those get the full checks.
 PREFILTER = re.compile(
-    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|" + b"|".join(re.escape(n.encode()) for n in sorted(KEY_NAMES))
+    # Every key name ends in one of these, in upper or lower case (`aws_secret_access_key` in an AWS credentials
+    # file): short words that start with `_` keep the scan fast, where the names in both cases, or a case-blind
+    # pattern, cost the walk 3 to 1000 times over.
+    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|_KEY|_key|_TOKEN|_token|_JSON|_json"
 )
 # A key's name as a command-line word: `NAME=value`, `--name=value`, or `--name` then the value as the next word,
 # in any case, with `-` for `_`. Inside a longer word (a `sh -c` script) only the `NAME=value` form.
@@ -205,6 +209,7 @@ def redacted(value):
 
 
 REFRESH = dict(SHAPES)["an OAuth refresh token"]
+assert all(re.search(r"_(KEY|TOKEN|JSON)\b|_TOKEN_", n) for n in KEY_NAMES), "a key name the prefilter misses"
 
 
 def shape_kinds(text):
@@ -291,9 +296,9 @@ def scan_text(text):
     for n, line in enumerate(text.splitlines(), 1):
         seen = shape_kinds(line)
         for m in ASSIGN.finditer(line):
-            if m.group(1) in KEY_NAMES and literal_secret(m.group(2)):
+            if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
                 found(m.group(2))
-                seen.add(m.group(1))
+                seen.add(m.group(1).upper())
         out.extend((n, what) for what in sorted(seen))
     return out
 
@@ -308,9 +313,9 @@ def context_kinds(text, line_end):
             found(m.group(1))
             seen.add("an OAuth refresh token")
     for m in ASSIGN.finditer(text):
-        if m.start() < line_end and m.group(1) in KEY_NAMES and literal_secret(m.group(2)):
+        if m.start() < line_end and m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
             found(m.group(2))
-            seen.add(m.group(1))
+            seen.add(m.group(1).upper())
     return seen
 
 
@@ -319,12 +324,23 @@ def context_kinds(text, line_end):
 LOGIN_FIELD = re.compile(r"token|key|secret|password|credential", re.I)
 
 
+LOGIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[=:]\s*(\S+)\s*$", re.M)
+
+
 def login_values(path):
-    """Records the secret fields of a JSON login file for redaction. Never reports them."""
+    """Records the secret fields of a login file for redaction, JSON or `name = value` lines (an AWS credentials
+    file is INI). Never reports them."""
     try:
         with open(path, "rb") as f:
-            data = json.loads(f.read(1 << 20))
-    except (OSError, ValueError):
+            raw = f.read(1 << 20)
+    except OSError:
+        return
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        for m in LOGIN_LINE.finditer(raw.decode("utf-8", "replace")):
+            if LOGIN_FIELD.search(m.group(1)):
+                found(m.group(2))
         return
     stack = [(None, data)]
     while stack:
@@ -385,11 +401,12 @@ def scan_file(path):
                 seen = {what for _, what in scan_text(whole[start:end].decode("utf-8", "replace"))}
                 # A value on a later line: the stretch after the hit, read ahead past this chunk's end if need be
                 # (what is read ahead is kept for the next chunk).
-                if chunk and hit.end() + HIT_SPAN > len(block):
+                if chunk and end + HIT_SPAN > len(block):
                     more = f.read(HIT_SPAN)
                     block += more
                     rest += more
-                after = block[start:hit.end() + HIT_SPAN].decode("utf-8", "replace")
+                # From the line's start to past its end, so every hit on the line has its stretch checked, not the first.
+                after = block[start:end + HIT_SPAN].decode("utf-8", "replace")
                 seen |= context_kinds(after, len(whole[start:end].decode("utf-8", "replace")))
                 out.extend((line, what) for what in sorted(seen))
             line += whole.count(b"\n", seen_to)
