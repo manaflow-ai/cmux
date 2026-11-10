@@ -158,6 +158,19 @@ impl AgentSessionFold {
         hidden: &HiddenHistory,
         live: &HashMap<String, i64>,
     ) -> Vec<HistoryEntry> {
+        self.visible_with_live(hidden, live).iter().map(|session| session.entry(context)).collect()
+    }
+
+    /// The sessions that `hidden` does not hide, newest first, each with the
+    /// newer of the journal's last activity and `live` (see
+    /// `entries_with_live`). The whole session, with its terminal and tab:
+    /// what a reader needs that can no longer fold the journal itself,
+    /// because retention deleted the session's records.
+    pub fn visible_with_live(
+        &self,
+        hidden: &HiddenHistory,
+        live: &HashMap<String, i64>,
+    ) -> Vec<AgentSession> {
         let mut sessions: Vec<AgentSession> = self
             .sessions
             .iter()
@@ -172,13 +185,10 @@ impl AgentSessionFold {
         sessions.sort_by(|a, b| {
             (b.last_activity_ms, &b.session_id).cmp(&(a.last_activity_ms, &a.session_id))
         });
+        sessions.retain(|session| {
+            !hidden.hides(&session.qualified_id(), session.last_activity_ms, Some("agent"))
+        });
         sessions
-            .iter()
-            .filter(|session| {
-                !hidden.hides(&session.qualified_id(), session.last_activity_ms, Some("agent"))
-            })
-            .map(|session| session.entry(context))
-            .collect()
     }
 
     /// One stamp of a coalesced activity row: a known session's last

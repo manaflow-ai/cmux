@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_history::{
-    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, hidden_id,
+    AgentSession, AgentSessionFold, EntryContext, HiddenHistory, HistoryKind, hidden_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -231,16 +231,15 @@ impl HistoryHost {
         changed
     }
 
-    /// Agent entries the hides leave visible, each with the newer of the
-    /// journal's time and `live` (the daemon's own report times, keyed
-    /// `<provider>/<session id>`).
-    fn agent_entries(
+    /// Agent sessions the hides leave visible, newest first, each with the
+    /// newer of the journal's time and `live` (the daemon's own report times,
+    /// keyed `<provider>/<session id>`).
+    fn agent_sessions(
         &self,
         hidden: &HiddenHistory,
         live: &std::collections::HashMap<String, i64>,
-    ) -> Vec<HistoryEntry> {
-        let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
-        self.lock().agents.entries_with_live(&context, hidden, live)
+    ) -> Vec<AgentSession> {
+        self.lock().agents.visible_with_live(hidden, live)
     }
 
     fn revision(&self) -> u64 {
@@ -295,6 +294,8 @@ pub(super) fn list(
         );
     }
     let mut pending = Vec::new();
+    // Fields a row carries beyond its entry, by the entry's id.
+    let mut extras = Map::new();
     if wants(HistoryKind::Agent) {
         journal_feed::start(mux);
         // A first fold over a large journal can take minutes: answer what is
@@ -310,7 +311,16 @@ pub(super) fn list(
             pending.push(HistoryKind::Agent.as_str());
         }
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(mux.history.agent_entries(&hidden, &mux.live_agent_activity()));
+        // An agent row also carries its terminal, its tab and its start and
+        // end times. The fold is the only owner of a session whose records
+        // retention deleted, so a reader takes the whole session from here
+        // and never folds the journal from its first retained record.
+        let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
+        for session in mux.history.agent_sessions(&hidden, &mux.live_agent_activity()) {
+            let entry = session.entry(&context);
+            extras.insert(entry.id.clone(), sources::agent_session_fields(&session));
+            entries.push(entry);
+        }
     }
     if wants(HistoryKind::Command) {
         // Every unexpired row up to the store's page (1000): the search and
@@ -325,14 +335,12 @@ pub(super) fn list(
     }
     // A location row also carries its window and stored location (an app
     // rebuilds its Back/Forward steps from them).
-    let mut locations = Map::new();
     if wants(HistoryKind::Location) {
         let (document, _) = trail::load(mux).map_err(|error| failed(OPERATION, &error))?;
         let newest = document.entries.last().map(|entry| entry.id);
         for entry in &document.entries {
             let id = format!("location:{}", entry.id);
-            locations
-                .insert(id.clone(), json!({"window": entry.window, "location": entry.location}));
+            extras.insert(id.clone(), json!({"window": entry.window, "location": entry.location}));
             entries.push(sources::location_entry(&id, entry, Some(entry.id) == newest));
         }
     }
@@ -342,7 +350,7 @@ pub(super) fn list(
         .map(|entry| {
             let mut row = wire(entry);
             if let (Some(object), Some(Value::Object(extra))) =
-                (row.as_object_mut(), locations.get(&entry.id))
+                (row.as_object_mut(), extras.get(&entry.id))
             {
                 object.extend(extra.clone());
             }
