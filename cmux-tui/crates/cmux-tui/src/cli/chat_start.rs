@@ -378,19 +378,28 @@ fn setting_target(global: &GlobalArgs) -> Result<Option<String>, Value> {
 }
 
 /// Reads `chat.on` from the app at `stream`. Each ask waits while the app answers its liveness
-/// ping (`window` is how often it is asked), the way every app request does ([`super::app::request`]);
-/// an app that stops answering it, or closes, is no setting. An ask the app refuses before it
-/// ran (`busy`, `timeout`, `unavailable`) is asked again while less than `total` has passed; past
-/// it the answer is `app.setting_unanswered`, retryable.
+/// ping (`window` is how often it is asked), the way every app request does
+/// ([`super::app::request`]), but never past `total` in all; an app that stops answering it, or
+/// closes, is no setting. An ask the app refuses before it ran (`busy`, `timeout`,
+/// `unavailable`) is asked again while less than `total` has passed; past it, or a pending ask
+/// past it, the answer is `app.setting_unanswered`, retryable.
 pub(super) fn read_setting(
     stream: &mut UnixStream,
     window: Duration,
     total: Duration,
 ) -> Result<Option<String>, Value> {
     let began = std::time::Instant::now();
+    // The whole wait, a pending ask included: an app that answers pings but never this ask
+    // would otherwise hold the read forever.
+    let deadline = began + total;
     loop {
-        let answer =
-            super::app::request(stream, "settings.get", json!({ "path": TARGET_SETTING }), window);
+        let answer = super::app::request_by(
+            stream,
+            "settings.get",
+            json!({ "path": TARGET_SETTING }),
+            window,
+            Some(deadline),
+        );
         let refusal = match answer {
             Ok(Ok(answer)) => {
                 return Ok(answer.get("value").and_then(Value::as_str).map(str::to_owned));

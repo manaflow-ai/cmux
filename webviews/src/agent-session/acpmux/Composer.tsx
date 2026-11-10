@@ -94,6 +94,7 @@ import {
   type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
+import { localCommand, type LocalCommand } from "./localCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
   cachePersistedDraft,
@@ -365,6 +366,10 @@ type Props = {
     attachments?: ComposerAttachment[],
     gesture?: SendGesture,
   ): CmuxCommandResult;
+  /// Runs a harness's local command typed alone (localCommands.ts: `/mcp`, `/cost`), at once, in the
+  /// GUI, even mid-turn: it is never queued or steered. False (nothing here can show it): it goes on
+  /// the normal send path as typed.
+  onLocalCommand?(command: LocalCommand): boolean;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -520,6 +525,7 @@ function ComposerFrame({
   prompt,
   onEdit,
   onCmuxCommand,
+  onLocalCommand,
   onUnsentDraft,
   onDraftSettled,
   onTyping,
@@ -1325,24 +1331,20 @@ function ComposerFrame({
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
-  // The table loads in its own chunk once the composer is idle after its first paint.
+  // The table loads in its own chunk at the first idle moment after the person first types in this
+  // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
-  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
-  useEffect(() => {
-    let alive = true;
+  const emojiRequested = useRef(false);
+  const requestEmoji = () => {
+    if (emojiRequested.current) return;
+    emojiRequested.current = true;
     const load = () =>
-      void loadEmojiShortcodes().then(
-        (data) => alive && setEmojiData(data),
-        () => undefined,
-      );
-    const idle = globalThis.requestIdleCallback?.(load, { timeout: 2000 });
-    const timer = idle === undefined ? setTimeout(load, 0) : undefined;
-    return () => {
-      alive = false;
-      if (idle !== undefined) globalThis.cancelIdleCallback?.(idle);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, []);
+      void loadEmojiShortcodes().then(setEmojiData, () => {
+        emojiRequested.current = false;
+      });
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
+    else setTimeout(load, 0);
+  };
   // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
   // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
@@ -1387,6 +1389,7 @@ function ComposerFrame({
   });
 
   const edit = (value: string, at: number) => {
+    requestEmoji();
     setText(value);
     setCaret(at);
     setDismissed(undefined);
@@ -1643,6 +1646,22 @@ function ComposerFrame({
         sentAt.current = Date.now();
         return true;
       }
+    }
+    // A harness's local command typed alone (`/mcp`, `/cost`: localCommands.ts) sends nothing to the
+    // model: it runs now, in the GUI, never queued or steered behind a running turn. Not with staged
+    // files, which are a prompt's.
+    const local =
+      !command && !side && attachments.length === 0 && pending.length === 0
+        ? localCommand(prompt, snapshot.summary?.harness)
+        : undefined;
+    if (local && (local.action.kind === "commands" || onLocalCommand?.(local))) {
+      setAttachError(undefined);
+      plusDraft.current = undefined;
+      // `/help`: the `/` menu, every command with what it does.
+      if (local.action.kind === "commands") edit("/", 1);
+      else edit("", 0);
+      sentAt.current = Date.now();
+      return true;
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
     if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
