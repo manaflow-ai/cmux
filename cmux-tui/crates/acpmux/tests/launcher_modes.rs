@@ -236,6 +236,7 @@ mod launcher_modes {
         for mode in ["plan", "default"] {
             let set = web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
             assert!(set.get("error").is_some(), "impostor {mode} from the Web: {set}");
+            assert_eq!(set["error"]["data"]["family"], json!("lane"), "impostor {mode}: {set}");
             assert_eq!(cli.mode(&id).await, "default", "impostor {mode} from the Web: {set}");
         }
         hub.shutdown_all().await;

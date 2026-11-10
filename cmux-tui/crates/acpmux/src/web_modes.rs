@@ -384,7 +384,9 @@ pub(crate) fn mode_family(m: &SessionMeta) -> String {
 /// `family`. It never believes the agent's own `agentInfo`, which any ACP agent writes: an agent
 /// that names itself `claude-stdio` keeps its own family's row. With no config entry (a folder
 /// profile, an entry removed, a config being written) it is `family`, never wider (fail closed).
-/// [`mode_family`], which believes `agentInfo`, only narrows (`policy_mode.rs`).
+/// `policy_mode.rs` still reads [`mode_family`], which believes `agentInfo`: that is a known gap
+/// (an impostor of family `lane` is held in Claude's `default`, and `policy_gate::has_gate` and
+/// `start_mode::may_move_without_person` trust agent-reported data too): cmux#40568.
 pub(crate) fn trusted_mode_family(
     entry: Option<&crate::config::HarnessProfile>,
     family: String,
