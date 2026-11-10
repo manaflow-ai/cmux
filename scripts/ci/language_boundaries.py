@@ -54,6 +54,10 @@ LANGUAGES: dict[str, frozenset[str]] = {
 FOREIGN: dict[str, tuple[str, ...]] = {"swift": ("rust", "web"), "web": ("swift", "rust"), "rust": ("swift",)}
 POLICIES = ("keep", "minimal")
 FIELDS = ("name", "language", "policy", "paths")
+# The check itself: a pull request that changes what judges boundaries needs Leo's approval too (it lands on the
+# base, where the next pull request's run reads it).
+SELF_PATHS = (".github/language-boundaries.toml", "scripts/ci/language_boundaries.py",
+              ".github/workflows/language-boundaries.yml")
 
 
 def glob_regex(pattern: str) -> re.Pattern[str]:
@@ -181,7 +185,8 @@ def parse_records(text: str) -> list[Record]:
 
 def violations(areas: list[Area], records: list[Record]) -> list[str]:
     """One line per broken boundary, empty when the pull request keeps every area in its language."""
-    out = []
+    out = [f"changes the language-boundaries check itself: {rec.path}" for rec in records
+           if rec.path in SELF_PATHS or rec.old in SELF_PATHS]
     for area in areas:
         lost, gained, foreign, new_swift = [], [], [], []
         for rec in records:

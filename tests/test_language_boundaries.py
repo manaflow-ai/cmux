@@ -162,6 +162,15 @@ class KeepTests(unittest.TestCase):
         self.assertEqual(run("D\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/X.swift\nA\twebviews/src/x.swift\n")[0], 0)
 
 
+class SelfTests(unittest.TestCase):
+    def test_changing_the_check_needs_leos_approval(self) -> None:
+        for path in lb.SELF_PATHS:
+            code, lines = run(f"M\t{path}\n")
+            self.assertEqual(code, 1, path)
+            self.assertIn("check itself", lines[0])
+            self.assertEqual(run(f"M\t{path}\n", ["leo-approved-port"], [LABEL_EVENT], [LEO_NOTE])[0], 0)
+
+
 class MinimalTests(unittest.TestCase):
     def test_new_swift_in_cloud_core_fails(self) -> None:
         code, lines = run(f"A\t{CLOUD}/CloudNewThing.swift\n")

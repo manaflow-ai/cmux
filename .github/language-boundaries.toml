@@ -30,6 +30,9 @@
 #   when it adds a Swift file to the area (a new file, or one renamed or copied in from outside it). Changing or
 #   deleting existing Swift there passes.
 #
+# A pull request that changes this file, scripts/ci/language_boundaries.py or .github/workflows/language-boundaries.yml
+# fails the same way: the boundaries are Leo's call.
+#
 # The only way through is Leo's approval: the label `leo-approved-port` added by teamleaderleo, plus a comment or
 # review by teamleaderleo with a line starting `leo-approved-port:` and his reason, carrying no agent footer.
 # Agents never add that label or write that line (scripts/ci/language_boundaries.py's docstring says what the check
