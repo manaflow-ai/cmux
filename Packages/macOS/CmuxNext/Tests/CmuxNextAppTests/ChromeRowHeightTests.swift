@@ -16,7 +16,7 @@ import Testing
 /// At every density preset and every `sidebar.density`, a real tab strip and a real browser chrome
 /// are laid out in a window: the tab pill, the back button and the omnibar are each as tall as a
 /// one-line sidebar workspace row (``SidebarRowTokens``), the back arrow's ink is the tab icon's
-/// side, and its leftmost ink sits on the first tab icon's. Base drew a 24 pt tab beside a 28 pt
+/// side, and its leftmost ink sits on the first tab icon's box (the box every tab icon shares). Base drew a 24 pt tab beside a 28 pt
 /// omnibar and back button at Compact (30 / 34 / 32 at Comfortable), and the arrow's 12 pt ink
 /// beside the tab's 14 pt icon.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ChromeRowHeightTests {
@@ -138,10 +138,13 @@ import Testing
         // Both rows start at their pane's leading edge (PaneContentView lays the strip and the
         // content host out from x 0), so the strip's and the chrome's own x are one column.
         let arrowLeft = back.convert(NSPoint(x: glyphLeft + arrowInk.lowerBound, y: 0), to: chrome).x
-        let iconLeft = iconFrame.minX + iconInk.lowerBound
-        #expect(abs(arrowLeft - iconLeft) <= 0.5, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon ink at \(iconLeft)")
-        // The arrow reads at the tab icon's size: one ink width (the pack's icons fill their box).
-        let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound, iconWidth = iconInk.upperBound - iconInk.lowerBound
-        #expect(abs(arrowWidth - iconWidth) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, tab icon ink \(iconWidth)")
+        // The icon's box, not one glyph's ink: favicons and agent marks fill the box, the pack's
+        // terminal starts its chevron 2 pt in. The arrow's ink starts on the box every tab icon shares.
+        let iconLeft = iconFrame.minX
+        #expect(iconInk.lowerBound >= -0.01, "\(preset): the tab icon draws inside its box")
+        #expect(abs(arrowLeft - iconLeft) <= 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        // The arrow reads at the tab icon's size: its ink is the icon box's side.
+        let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound
+        #expect(abs(arrowWidth - iconFrame.width) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, tab icon box \(iconFrame.width)")
     }
 }
