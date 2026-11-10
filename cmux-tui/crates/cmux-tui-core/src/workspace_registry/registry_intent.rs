@@ -223,6 +223,18 @@ impl RegistryConnection {
         self.hold_unsettled(pending, settle);
     }
 
+    /// True while an earlier indeterminate commit still waits for its answer or owes its state update.
+    /// A reader that holds no lock asks this before it decides to settle (the session snapshot read).
+    /// It never waits: when another thread holds the list (it drains or settles it, see
+    /// [`Self::drain_unsettled`]), the answer is `false`, because that thread does the work.
+    pub(crate) fn owes_settlement(&self) -> bool {
+        match self.unsettled.try_lock() {
+            Ok(unsettled) => !unsettled.is_empty(),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => !poisoned.into_inner().is_empty(),
+            Err(std::sync::TryLockError::WouldBlock) => false,
+        }
+    }
+
     fn hold_unsettled(&self, pending: PendingRegistryReceipt, settle: Option<SettleState>) {
         self.unsettled
             .lock()

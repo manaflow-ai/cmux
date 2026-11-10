@@ -543,11 +543,14 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 }
 
 /// Returns the public session snapshot together with the session journal head
-/// read under the same registry + state projection lock. The pair is one
-/// consistent cut: every journal record at or below the returned head is
-/// reflected in the snapshot, and every later record is not. Checkpoint
-/// capture keys its consistency fence to this cut so a journal write that
-/// merely precedes the cut cannot spuriously abort the capture.
+/// of the same committed revision (one read transaction, `committed_snapshot.rs`;
+/// no registry lock and no state lock). The pair is one consistent cut: every
+/// journal record at or below the returned head is reflected in the durable
+/// rows of the snapshot, and every later record is not. Checkpoint capture
+/// keys its consistency fence to this cut so a journal write that merely
+/// precedes the cut cannot spuriously abort the capture. The live values
+/// (terminal and browser runtime) are those of the published route tables at
+/// the time of the read: they are not part of the cut.
 ///
 /// A checkpoint is written to disk, so this snapshot leaves out what the daemon
 /// keeps in memory only (`mux/agent_prompts.rs`): an agent's last reply
@@ -568,14 +571,13 @@ fn session_snapshot_with_journal_head(
     // No pending terminal directory is published here: a read runs no
     // write. Terminal output, resize, reconnect and every committed graph
     // change publish a pending one (`publish_resource_event`).
-    // Collect the auxiliary runtime before taking the registry + state
-    // projection lock. Sidebar status locks its own lifecycle and then looks
-    // up a surface in State, so doing this inside the projection would invert
-    // that lock order.
+    // Collect the auxiliary runtime first, as the read did when it held the
+    // registry + state projection lock (sidebar status locks its own
+    // lifecycle and then looks up a surface).
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
-    // Taken before the projection lock, like the sidebar status (memory only).
+    // Taken before the walk, like the sidebar status (memory only).
     let (last_replies, last_sessions) = if memory_only {
         (mux.agent_last_replies(), mux.agent_last_sessions())
     } else {
@@ -586,6 +588,12 @@ fn session_snapshot_with_journal_head(
     // No registry lock and no state lock across this walk: the durable rows are one committed revision
     // (`committed_snapshot.rs`), the live surfaces are the published route tables.
     (|| -> anyhow::Result<(Value, u64)> {
+        // The answer of an earlier indeterminate registry commit owes a state update (cx-g1fa.3). The read
+        // settled it while it pinned the state; it still does, but only when one is owed: the rows of that
+        // commit are in this snapshot, so its state update must not wait for some later mutation.
+        if mux.registry_connection.owes_settlement() {
+            mux.with_resource_projection(|_, _| Ok(()))?;
+        }
         let committed = committed_snapshot::committed_snapshot(mux)?;
         let routes = mux.published_routes()?;
         #[cfg(test)]
@@ -681,20 +689,24 @@ fn session_snapshot_with_journal_head(
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
-                let surface = routes.catalog_terminal(&terminal_id);
                 let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
                     format!("terminal {terminal_id} omitted its durable identity")
                 })?;
-                if let Some(surface) = surface {
-                    let runtime_host =
-                        mux.resource_terminal_host_identity(surface).with_context(|| {
-                            format!("terminal {terminal_id} runtime omitted its durable identity")
-                        })?;
+                // The routes are a published table, read with no lock. The identity of an in-process
+                // runtime is in a table of the mux, which a close purges after it releases the state
+                // guard and a create fills after it inserts the surface. A runtime with no identity is
+                // thus one that closes or starts under this read: it gives no live values (the durable
+                // row still shows), it never fails the whole snapshot.
+                let routed = routes.catalog_terminal(&terminal_id);
+                let runtime_host =
+                    routed.and_then(|surface| mux.resource_terminal_host_identity(surface));
+                if let Some(runtime_host) = &runtime_host {
                     anyhow::ensure!(
                         runtime_host.terminal_id == *host_id,
                         "terminal {terminal_id} runtime references a mismatched durable host"
                     );
                 }
+                let surface = routed.filter(|_| runtime_host.is_some());
                 let durable = terminals_by_id.get(host_id.as_str()).with_context(|| {
                     format!("terminal {terminal_id} references missing {host_id}")
                 })?;

@@ -244,6 +244,13 @@ impl RegistryConnection {
     }
 
     /// (committed, synced) registry commits for `server-stats` `write_path`.
+    ///
+    /// The committed count is also a CORRECTNESS key, not only a diagnostic: the session snapshot cache
+    /// (`resource_api/committed_snapshot.rs`) is current only while this count is unchanged. It must move
+    /// inside every COMMIT that writes a WAL frame on this connection (the WAL hook, `wal_durability.rs`
+    /// `note_commit`). A `PRAGMA wal_autocheckpoint` or another `sqlite3_wal_hook` on this connection
+    /// replaces that hook, and the snapshot is then stale for ever; the guard is
+    /// `a_warm_snapshot_shows_the_next_commit_of_each_kind` (`mux/tests/snapshot_read.rs`).
     pub(crate) fn durability_counts(&self) -> (u64, u64) {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()
     }

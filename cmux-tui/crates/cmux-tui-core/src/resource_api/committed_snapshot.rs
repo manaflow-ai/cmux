@@ -8,7 +8,12 @@
 //! rows on a read-only WAL connection of its own, in ONE read transaction: the journal head, the topology (the
 //! cursor), the terminal rows, the projections and the state fields are one committed revision. The key is the
 //! registry writer's commit count, read before the rows, so the rows are never older than their key. A reader that
-//! finds the key unchanged runs no statement and takes no lock but an atomic load.
+//! finds the key unchanged runs no statement and takes no registry lock and no state lock: it takes the short mutex
+//! of the commit count (`WalDurability::counts`) and makes one atomic load.
+//!
+//! The key is a correctness key: the count must move inside every COMMIT that writes rows on the registry's
+//! connection (the WAL hook, `workspace_registry/wal_durability.rs` `note_commit`). `mux/tests/snapshot_read.rs`
+//! (`a_warm_snapshot_shows_the_next_commit_of_each_kind`) fails when a commit does not move it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
