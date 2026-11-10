@@ -180,22 +180,29 @@ struct CloudCredentialTransferTests {
     @Test func aGuestCheckPassedBesideTheReadsIsTheTransfersFirst() async throws {
         let fresh = Recorder(); fresh.cached = Self.token
         var transfer = fresh.transfer
-        transfer.guestCheckedAt = .now
+        transfer.guestCheckedAt = .init(machineID: "vm-one", teamID: "team")
         try await transfer.run(currentTeamID: { fresh.team }, currentUserID: { fresh.user }, confirmed: true, effects: fresh.effects)
         #expect(!fresh.commands.contains(CloudCredentialInstaller.preflight) && fresh.writes.count == 1)
         let stale = Recorder(); stale.cached = Self.token
         transfer = stale.transfer
-        transfer.guestCheckedAt = .now - .seconds(3)
+        transfer.guestCheckedAt = .init(machineID: "vm-one", teamID: "team", at: .now - .seconds(3))
         try await transfer.run(currentTeamID: { stale.team }, currentUserID: { stale.user }, confirmed: true, effects: stale.effects)
         #expect(stale.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && stale.writes.count == 1)
         let creator = Recorder(); creator.cached = Self.token
         var team = CloudCredentialTransfer(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", allowsCreatorTeamGuest: true, openTerminal: { _ in false })
-        team.guestCheckedAt = .now
+        team.guestCheckedAt = .init(machineID: "vm-one", teamID: "team")
         try await team.run(currentTeamID: { creator.team }, currentUserID: { creator.user }, confirmed: true, effects: creator.effects)
         #expect(creator.commands.filter { $0 == CloudCredentialInstaller.creatorTeamPreflight }.count == 1)
+        for (machine, team) in [("vm-two", "team"), ("vm-one", "other")] as [(String, String?)] { // a check from elsewhere is checked again
+            let elsewhere = Recorder(); elsewhere.cached = Self.token
+            transfer = elsewhere.transfer
+            transfer.guestCheckedAt = .init(machineID: machine, teamID: team)
+            try await transfer.run(currentTeamID: { elsewhere.team }, currentUserID: { elsewhere.user }, confirmed: true, effects: elsewhere.effects)
+            #expect(elsewhere.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && elsewhere.writes.count == 1)
+        }
         let lost = Recorder(); lost.cached = Self.token; lost.owner = false
         transfer = lost.transfer
-        transfer.guestCheckedAt = .now
+        transfer.guestCheckedAt = .init(machineID: "vm-one", teamID: "team")
         await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) {
             try await transfer.run(currentTeamID: { lost.team }, currentUserID: { lost.user }, confirmed: true, effects: lost.effects)
         }
@@ -206,6 +213,7 @@ struct CloudCredentialTransferTests {
     /// or `--login machine`, nor for a Codex or pi run, which the start itself would give no Claude login.
     @Test func theEarlyCopyFollowsTheRunsLoginAndAgent() {
         #expect(CloudHarnessLoginAsk().allowsEarlyCopy(harness: "claude") && CloudHarnessLoginAsk().allowsEarlyCopy(harness: nil))
+        #expect(CloudHarnessLoginAsk().allowsEarlyCopy(harness: "claude-sr2") && CloudHarnessLoginAsk().allowsEarlyCopy(harness: ""))
         #expect(CloudHarnessLoginAsk(requested: .pass).allowsEarlyCopy(harness: "Claude"))
         #expect(!CloudHarnessLoginAsk(requested: CloudHarnessLoginDecision.Choice.none).allowsEarlyCopy(harness: "claude"))
         #expect(!CloudHarnessLoginAsk(requested: .machine).allowsEarlyCopy(harness: "claude"))

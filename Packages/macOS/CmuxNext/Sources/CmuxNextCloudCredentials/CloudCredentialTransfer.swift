@@ -48,14 +48,23 @@ public import Foundation
     /// A login read within this long of the guest check that passed is delivered on that check: the second guest
     /// check runs only after a sign-in, or a Keychain read slow enough (a prompt) for the target to have changed.
     var recheckAfter: Duration = .seconds(2)
-    /// When this transfer's own guest check (``CloudCredentialInstaller/preflight``) last passed, run ahead of it
-    /// beside the start's machine reads (``guestCheck(on:machineID:)``). Within ``recheckAfter`` the transfer
-    /// takes it as its first guest check instead of running one more exec; older, or for the creator allowance
-    /// (another program), it checks again as before.
-    public var guestCheckedAt: ContinuousClock.Instant?
+    /// This transfer's own guest check (``CloudCredentialInstaller/preflight``), passed ahead of it beside the
+    /// start's machine reads (``guestCheck(on:machineID:teamID:)``). Taken as the first guest check, one exec
+    /// less, only for this machine and team and within ``recheckAfter``; otherwise, or for the creator
+    /// allowance (another program), the transfer checks again as before.
+    public var guestCheckedAt: GuestCheck?
+
+    /// A passed owner guest check: which machine, which team, when. Only ``guestCheck(on:machineID:teamID:)``
+    /// makes one, so a caller cannot hand the transfer a check that never ran or ran elsewhere.
+    public struct GuestCheck: Sendable, Equatable {
+        public let machineID: String
+        public let teamID: String?
+        public let at: ContinuousClock.Instant
+        init(machineID: String, teamID: String?, at: ContinuousClock.Instant = .now) { self.machineID = machineID; self.teamID = teamID; self.at = at }
+    }
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
-                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, guestCheckedAt: ContinuousClock.Instant? = nil,
+                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, guestCheckedAt: GuestCheck? = nil,
                 openTerminal: @escaping @MainActor (String) async -> Bool) {
         self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
         self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.steps = steps
@@ -145,9 +154,9 @@ public import Foundation
     /// Runs the owner guest check (``CloudCredentialInstaller/preflight``) once on `machineID` (`api` pinned to its
     /// team): the instant it passed, else nil (failed, unbound, or the exec did not answer). A start runs it beside its
     /// machine reads, after the owner check, and hands it to the transfer (``guestCheckedAt``).
-    public nonisolated static func guestCheck(on api: CloudAPIClient, machineID: String) async -> ContinuousClock.Instant? {
+    public nonisolated static func guestCheck(on api: CloudAPIClient, machineID: String, teamID: String?) async -> GuestCheck? {
         guard let result = try? await api.exec(machineID, command: CloudCredentialInstaller.preflight, timeoutMs: 20_000), result.exitCode == 0 else { return nil }
-        return .now
+        return GuestCheck(machineID: machineID, teamID: teamID)
     }
 
     /// What cmux holds of this account's login: one, none, or a Keychain that did not answer (locked,
@@ -226,8 +235,9 @@ public import Foundation
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
         let checked: ContinuousClock.Instant
-        if !allowsCreatorTeamGuest, let earlier = guestCheckedAt, earlier.duration(to: .now) <= recheckAfter {
-            checked = earlier // the same check, passed just now beside the machine reads
+        if !allowsCreatorTeamGuest, let earlier = guestCheckedAt, earlier.machineID == machineID, earlier.teamID == teamID,
+           earlier.at.duration(to: .now) <= recheckAfter {
+            checked = earlier.at // the same check, passed just now beside the machine reads
         } else {
             try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
             checked = .now
