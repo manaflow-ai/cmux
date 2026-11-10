@@ -200,3 +200,62 @@ test("the hidden section grip takes no press; it takes the pointer only while it
   expect(shown?.[1]).toContain(".ui-disclosure-trigger:hover");
   expect(shown?.[2]).toMatch(/pointer-events:\s*auto;/);
 });
+
+/// A box whose rows scroll in a list of their own (Outputs, the ended subagents): open at first.
+function ScrolledList() {
+  const [all, setAll] = useState(true);
+  const fold = useFoldMotion<HTMLDivElement>(all, () => 2 * 28);
+  const rows = fold.drawn ? [1, 2, 3, 4, 5] : [1, 2];
+  return (
+    <>
+      <div ref={fold.ref}>
+        <ul className="scroller">
+          {rows.map((row) => (
+            <li key={row}>{row}</li>
+          ))}
+        </ul>
+      </div>
+      <button type="button" onClick={() => fold.toggle(!all, setAll)}>
+        fold
+      </button>
+    </>
+  );
+}
+
+// Closing a list scrolled down: its rows were drawn at the scroll offset for the whole fold, and on its
+// last frame, the rows gone, the browser clamped the scroll to 0 and the rows left jumped by it. The
+// close takes the scroll back on the fold's own curve: scrollTop goes to 0 on the first frame and the
+// first row's margin starts at minus what it was, so nothing moves at once and the rows reach the top
+// as the box closes.
+test("a Show less on a scrolled list takes the scroll back on the fold, never at its last frame", async () => {
+  const keyframes: Keyframe[][] = [];
+  const proto = dom!.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+  const record = proto.animate as (frames: Keyframe[], timing: KeyframeAnimationOptions) => FakeAnimation;
+  proto.animate = function (this: HTMLElement, frames: Keyframe[], timing: KeyframeAnimationOptions) {
+    keyframes.push(frames);
+    return record.call(this, frames, timing);
+  };
+  const tops = new WeakMap<Element, number>();
+  Object.defineProperty(proto, "scrollTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return tops.get(this) ?? 0;
+    },
+    set(this: HTMLElement, value: number) {
+      tops.set(this, value);
+    },
+  });
+  const container = dom!.window.document.getElementById("root")!;
+  root = createRoot(container);
+  await act(async () => root!.render(<ScrolledList />));
+  const scroller = container.querySelector<HTMLElement>("ul.scroller")!;
+  scroller.scrollTop = 40;
+  await act(async () => container.querySelector("button")!.click());
+  expect(scroller.scrollTop).toBe(0);
+  expect(scroller.children.length).toBe(5);
+  const margin = keyframes.find((frames) => frames[0]?.marginTop !== undefined);
+  expect(margin?.[0]?.marginTop).toBe("-40px");
+  expect(margin?.at(-1)?.marginTop).toBe("0px");
+  for (const animation of [...animations]) await act(async () => animation.onfinish?.());
+  expect(scroller.children.length).toBe(2);
+});
