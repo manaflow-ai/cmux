@@ -381,3 +381,46 @@ fn agents_at_rest_a_fold_of_the_journal_gives_the_live_roster() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A hook helper that got no answer sends the report again with the same
+/// idempotency key. The retry gets the first answer and changes nothing:
+/// the presence of a tool call that already ended does not come back.
+#[test]
+fn agents_at_rest_a_retried_report_has_no_second_effect() {
+    let (mux, agent, root) = one_agent("retry");
+    let report = |event: &str, file: &str, key: &str| {
+        let native = json!({
+            "session_id": agent.session,
+            "cwd": CWD,
+            "tool_name": "Read",
+            "tool_input": { "file_path": file },
+        });
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(agent.terminal.as_str()),
+            native,
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", key).unwrap()
+    };
+    let before = written(&mux);
+    let first = report("PreToolUse", "/work/project/one.rs", "retry-1");
+    report("PreToolUse", "/work/project/two.rs", "retry-2");
+    let events = mux.subscribe();
+    let again = report("PreToolUse", "/work/project/one.rs", "retry-1");
+    assert_eq!(again, first, "the retry gets the first answer");
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match events.recv_timeout(remaining) {
+            Ok(MuxEvent::AgentPresenceChanged { presence, .. }) => {
+                panic!("a retried report changed presence: {presence:?}")
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    assert_eq!(written(&mux), before, "no report of the three wrote a row");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
