@@ -10,7 +10,7 @@ import Testing
     }
 
     private func titles(_ batch: [DaemonEventEnvelope]) -> [String] {
-        batch.compactMap { if case .titleChanged(_, let text) = $0.event { text } else { nil } }
+        batch.compactMap { if case .titleChanged(_, let text, _) = $0.event { text } else { nil } }
     }
 
     @Test func aNewerTitleOfTheSameSurfaceReplacesTheOlderOne() {

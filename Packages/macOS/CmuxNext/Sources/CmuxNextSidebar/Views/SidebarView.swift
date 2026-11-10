@@ -108,6 +108,15 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+    /// App health's dot and line on the footer line after the avatar (design/app-health.md); it shows and
+    /// hides itself and asks for a layout. It never fades with the footer.
+    public var healthIndicator: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            healthIndicator.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -144,7 +153,7 @@ public final class SidebarView: NSView {
     var lastState: RenderState?
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
-    /// The sections the list showed at the last render (for the space slide and the provisional check).
+    /// The sections the list showed at the last render (for the provisional check).
     var lastSections: [SidebarSection] = []
     /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
     var bandsDirty = true
@@ -325,6 +334,8 @@ public final class SidebarView: NSView {
         ]
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
+        // A stuck project header draws its own fade under it: the list's top fade holds off while one is stuck.
+        list.onStuckHeaderChange = { [weak self] stuck in self?.edgeFade.holdsTopEdge = stuck }
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands(); buildNeedsYou()
 

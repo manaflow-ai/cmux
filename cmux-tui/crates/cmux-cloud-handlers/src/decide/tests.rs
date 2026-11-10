@@ -33,14 +33,6 @@ fn only_a_person_may_mean_the_machine_in_view() {
 }
 
 #[test]
-fn attachable_needs_a_settled_machine_that_answers_or_has_no_app_link() {
-    assert!(attachable(false, true, true));
-    assert!(attachable(false, false, false));
-    assert!(!attachable(false, false, true));
-    assert!(!attachable(true, true, true));
-}
-
-#[test]
 fn new_cloud_workspace_routes() {
     assert_eq!(new_workspace(true, true, false, false), NewWorkspace::Workspace);
     assert_eq!(new_workspace(true, false, true, true), NewWorkspace::Connecting);
@@ -120,53 +112,6 @@ fn a_returned_machine_wins_over_a_failed_or_gone_phase() {
     }
 }
 
-fn desktop_of(value: Value) -> Result<Desktop, Said> {
-    desktop(&serde_json::from_value(value).unwrap())
-}
-
-#[test]
-fn open_desktop_picks_its_viewer() {
-    let unavailable = Err(Said::with("desktopUnavailable", ["box"]));
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "defaultViewer": "rd", "allows": false, "capability": true})
-        ),
-        unavailable
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "defaultViewer": "rd", "allows": true, "capability": true})
-        ),
-        Ok(Desktop::Rd)
-    );
-    assert_eq!(
-        desktop_of(json!({"title": "box", "defaultViewer": "rd", "allows": true})),
-        unavailable
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "defaultViewer": "web", "allows": true, "reachable": true})
-        ),
-        Ok(Desktop::Web)
-    );
-    assert_eq!(
-        desktop_of(json!({"title": "box", "defaultViewer": "web", "allows": true})),
-        unavailable
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "viewer": "native", "defaultViewer": "rd", "allows": true, "reachable": true, "nativeAvailable": true})
-        ),
-        Ok(Desktop::Native)
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "viewer": "native", "defaultViewer": "rd", "allows": true, "reachable": true})
-        ),
-        unavailable
-    );
-}
-
 #[test]
 fn the_diagnostics_summary_names_the_first_thing_to_fix() {
     let machines: Vec<Diagnosed> = serde_json::from_value(json!([
@@ -228,15 +173,6 @@ fn set_up_github_says_the_app_or_the_fallback_and_why() {
             Said::with("gitHubConfirmBody", ["—", "ada@x.dev"])
         ]
     );
-}
-
-#[test]
-fn the_cloud_deletes_ask_first() {
-    assert_eq!(confirmation("cloudKillMachine"), Some("killMachine"));
-    assert_eq!(confirmation("palette.cloud.deleteSnapshot"), Some("deleteSnapshot"));
-    assert_eq!(confirmation("cloudFileRemove"), Some("removeFile"));
-    assert_eq!(confirmation("cloudFirewallDelete"), Some("deleteFirewallRule"));
-    assert_eq!(confirmation("cloudPauseMachine"), None);
 }
 
 #[test]

@@ -69,20 +69,29 @@
   height: var(--ds-icon-14);
 }
 
-/* ghost: nothing at rest; the hover fill on its own box. */
+/* ghost: nothing at rest, the hover fill under the pointer, the pressed fill while held or while
+   its menu is open (design-tokens.md section 1: hoverFill, then pressedFill). Hover went straight to
+   the pressed fill, so a press showed nothing new. */
 .ui-btn[data-variant="ghost"] {
   background: transparent;
+}
+.ui-btn[data-variant="ghost"]:hover:not([data-disabled], [data-popup-open]) {
+  background: var(--ds-color-hover);
 }
 /* subtle (the default): a quiet fill at rest, one step stronger on hover. */
 .ui-btn[data-variant="subtle"] {
   background: var(--ds-color-hover);
 }
-.ui-btn:is([data-variant="ghost"], [data-variant="subtle"]):hover:not([data-disabled]),
-.ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open] {
+.ui-btn[data-variant="subtle"]:hover:not([data-disabled], [data-popup-open]) {
   background: var(--ds-color-pressed);
 }
-.ui-btn:is([data-variant="ghost"], [data-variant="subtle"]):active:not([data-disabled]) {
+.ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open],
+.ui-btn[data-variant="ghost"]:active:not([data-disabled]) {
   background: var(--ds-color-pressed);
+}
+/* A held subtle button goes one step past its hover, the same distance the ghost one moves. */
+.ui-btn[data-variant="subtle"]:active:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ds-color-fg) 6%, var(--ds-color-pressed));
 }
 /* solid: the theme accent (the text colour unless the theme names a hue; never system blue). */
 .ui-btn[data-variant="solid"] {
@@ -134,6 +143,9 @@
 .ui-button.ui-btn.ui-select-button:hover:not([data-disabled]),
 .ui-button.ui-btn.ui-select-button[data-popup-open] {
   background: var(--ds-color-pressed);
+}
+.ui-button.ui-btn.ui-select-button:active:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ds-color-fg) 6%, var(--ds-color-pressed));
 }
 .ui-btn.ui-select-button:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);

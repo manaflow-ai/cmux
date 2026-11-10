@@ -54,7 +54,7 @@ public struct Motion {
     /// the category.
     public static var basePolicy: MotionPolicy {
         let design = DesignSettings.shared
-        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
+        return MotionPolicy(speed: speed, reduceMotion: reduceMotion,
                             enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
                             animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
                             disabledCategories: design.disabledAnimationCategories)
@@ -99,10 +99,11 @@ extension MotionGate {
 
     /// Position, size, scale and scroll animate. When false, snap.
     public var animatesMovement: Bool { policy.animatesMovement }
-    /// Pane layout changes (split, close, move, swap, zoom, column reveal,
-    /// screen switch) spring: `ui.paneAnimations` is on and movement
-    /// animates. Off by default, so they apply in one frame; direct
-    /// manipulation (trackpad fling, wheel, divider drag) keeps its physics.
+    /// Pane layout changes (split, close, move, swap, zoom, column reveal)
+    /// spring: `ui.paneAnimations` is on (the default) and movement
+    /// animates. Off, they apply in one frame; direct manipulation
+    /// (trackpad fling, wheel, divider drag) keeps its physics. A change of
+    /// screen is not in this set: it never animates (`LayoutRootView.showScreen`).
     public var animatesPaneLayout: Bool { DesignSettings.shared.paneAnimations && animatesMovement }
     /// Opacity and color changes animate.
     public var animatesFades: Bool { policy.animatesFades }
