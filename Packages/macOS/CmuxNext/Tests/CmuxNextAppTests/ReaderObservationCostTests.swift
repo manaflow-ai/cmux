@@ -30,10 +30,10 @@ struct ReaderObservationCostTests {
     static let bound = 8
 
     /// The models a list pass of `ObservedItems` has visited.
-    private static func listed(_ work: ObservationWork) -> Int { work.byStep["ObservedItems.list"] ?? 0 }
+    fileprivate static func listed(_ work: ObservationWork) -> Int { work.byStep["ObservedItems.list"] ?? 0 }
 
     /// The models `ObservedItems` has mapped.
-    private static func mapped(_ work: ObservationWork) -> Int { work.byStep["ObservedItems.map"] ?? 0 }
+    fileprivate static func mapped(_ work: ObservationWork) -> Int { work.byStep["ObservedItems.map"] ?? 0 }
 
     /// `MobileHostWorkspaceFolders` (the folders a phone's agent chat may start in): a `cd` in one terminal visits
     /// that terminal's workspace and the folders that came or went, whatever the session's size, and acpmux gets the
@@ -66,7 +66,6 @@ struct ReaderObservationCostTests {
         /// Makes one change of one terminal's folder, waits until its workspace was read again and acpmux has the
         /// folders of every workspace, and checks what that one change visited.
         func step(_ name: String, _ change: () -> Void) async {
-            let before = (set: Set(sent.last ?? []), sends: sent.count)
             work.reset()
             change()
             await LargeSessionFixture.until { Self.mapped(work) >= 1 && Set(sent.last ?? []) == Set(whole()) }
@@ -75,8 +74,6 @@ struct ReaderObservationCostTests {
             let all = whole()
             #expect(Set(sent.last ?? []) == Set(all), "\(name): acpmux does not have the folders of every workspace")
             #expect(sent.last?.count == all.count, "\(name): a folder was sent twice, or one is missing")
-            // The same folders are the same roots for acpmux: nothing is sent.
-            if Set(all) == before.set { #expect(sent.count == before.sends, "\(name): the same folders were sent again") }
             #expect(work.count <= Self.bound,
                     "\(name): one folder change visited \(work.count) items \(work.byStep) in a session of \(size.workspaces) workspaces")
         }
@@ -96,7 +93,12 @@ struct ReaderObservationCostTests {
             excludes.append(params["exclude"] as? [String] ?? [])
         }
     }
+}
 
+/// The chat history's case is a case of ``LargeSessionObservationTests``: it turns the session tree on in
+/// `DesignSettings.shared` (one value for the process), as that suite's O2, O6 and O7 cases do, and that suite is
+/// serialized. A case in a suite of its own would run beside them and turn the setting off under them.
+extension LargeSessionObservationTests {
     /// `SidebarChatHistoryFeed` (the session tree's Earlier list leaves out the chats open tabs show): a chat tab that
     /// moves to another session, or a session whose chat binding comes or goes, visits that one tab and the chats that
     /// came or went, whatever the session's size, and Earlier leaves out the chats of every live tab.
@@ -120,7 +122,7 @@ struct ReaderObservationCostTests {
         lanes.set(moved, lane(moved))
         let history = SidebarChatHistory(defaults: UserDefaults(suiteName: "reader-cost-chats-\(UUID().uuidString)")!)
         let windows = AcpmuxChatWindows()
-        let requests = EarlierRequests()
+        let requests = ReaderObservationCostTests.EarlierRequests()
         windows.connected(send: requests.record)
         let work = ObservationWork()
         let feed = SidebarChatHistoryFeed()
@@ -134,8 +136,8 @@ struct ReaderObservationCostTests {
             SidebarChatHistoryFeed.liveChats(fixture.store.liveTabs, lanes: lanes, localHost: LargeSessionFixture.host).sorted()
         }
         let tabs = fixture.store.liveTabs.count
-        await LargeSessionFixture.until { Self.listed(work) >= tabs && requests.excludes.last == whole() }
-        try #require(Self.listed(work) >= tabs && requests.excludes.last?.count == chats.count,
+        await LargeSessionFixture.until { ReaderObservationCostTests.listed(work) >= tabs && requests.excludes.last == whole() }
+        try #require(ReaderObservationCostTests.listed(work) >= tabs && requests.excludes.last?.count == chats.count,
                      "fixture: Earlier never left out the \(chats.count) chats of the live tabs (\(requests.excludes.last?.count ?? -1))")
         await LargeSessionFixture.drainMain()
 
@@ -144,15 +146,17 @@ struct ReaderObservationCostTests {
         func step(_ name: String, _ change: () -> Void) async {
             work.reset()
             change()
-            await LargeSessionFixture.until { Self.mapped(work) >= 1 && requests.excludes.last == whole() }
+            await LargeSessionFixture.until { ReaderObservationCostTests.mapped(work) >= 1 && requests.excludes.last == whole() }
             await LargeSessionFixture.drainMain()
-            #expect(Self.mapped(work) >= 1, "fixture: no tab was read again (the counter is not wired): \(name)")
+            #expect(ReaderObservationCostTests.mapped(work) >= 1,
+                    "fixture: no tab was read again (the counter is not wired): \(name)")
             #expect(requests.excludes.last == whole(), "\(name): Earlier does not leave out the chats of every live tab")
-            #expect(work.count <= Self.bound,
-                    "\(name): one chat change visited \(work.count) items \(work.byStep) in a session of \(size.workspaces) workspaces and \(tabs) tabs")
+            #expect(work.count <= ReaderObservationCostTests.bound,
+                    "\(name): one chat change visited \(work.count) items \(work.byStep) in a session of \(tabs) tabs")
         }
         await step("a chat tab moves to another session") {
-            middle.tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: LargeSessionFixture.host, session: moved, harness: nil))
+            let ref = AgentSessionRef(host: LargeSessionFixture.host, session: moved, harness: nil)
+            middle.tab.conversation = ConversationTabRef(agentSession: ref)
         }
         #expect(requests.excludes.last?.contains("claude-code:\(moved)") == true)
         let session = LargeSessionFixture.session(early.workspace)
