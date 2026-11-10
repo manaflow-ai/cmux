@@ -1833,6 +1833,10 @@
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
 }
+/* A failed upload's Retry, after its note: the item's text gives it the room. */
+.hc-tray-retry {
+  flex: none;
+}
 .hc-tray-thumb {
   display: grid;
   place-items: center;

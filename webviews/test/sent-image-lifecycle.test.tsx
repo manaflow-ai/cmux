@@ -39,6 +39,17 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { attachmentRetry } = await import("../src/pages/shared/attachmentRetry");
+// A failed read is tried again on its own (pages/shared/attachmentRetry.ts): no waits here.
+attachmentRetry.delaysMs = [0, 0, 0];
+/// Yields macrotasks until `check` holds (the tries again each wait 0 ms), or fails after 200.
+const until = async (check: () => boolean) => {
+  for (let turn = 0; turn < 200 && !check(); turn++)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  expect(check()).toBe(true);
+};
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -58,15 +69,18 @@ const render = (promptImage: (id: string) => Promise<string | undefined>, imageI
   );
 
 try {
+  // A read that keeps failing ends in the failed slot with Retry (Leo, 2026-11-06: "you can't
+  // simply just do nothing about it"), never a placeholder left loading.
   test("rejected sent-image reads clear the placeholder without an unhandled rejection", async () => {
     await act(async () => {
       render(async () => {
         throw new Error("attachment unavailable");
       });
-      for (let index = 0; index < 5; index++) await Promise.resolve();
     });
+    await until(() => host.querySelector(".cv-user__image-failed") !== null);
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
     expect(host.querySelector(".cv-user__images img")).toBeNull();
+    expect(host.querySelector(".cv-user__image-retry")).not.toBeNull();
   });
 
   // The row now names another image (an id names an image's bytes: the same id is the same
@@ -81,8 +95,8 @@ try {
       render(async () => {
         throw new Error("session closed");
       }, "image-3");
-      for (let index = 0; index < 5; index++) await Promise.resolve();
     });
+    await until(() => host.querySelector(".cv-user__image-failed") !== null);
     expect(host.querySelector(".cv-user__images img")).toBeNull();
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
   });
