@@ -91,24 +91,10 @@ public final class SidebarFaceBatch {
     func append(_ workspace: WorkspaceModel, local: Bool, status: String?, selectedTab: (PaneModel) -> String?,
                 focusedPane: String? = nil,
                 newTabPages: Set<String>, listTitle: (TabModel) -> String, branded: (TabModel) -> Bool) {
-        var row = CmuxSidebarFaceWorkspace()
-        row.pane_start = UInt32(clamping: panes.count)
-        row.tab_start = UInt32(clamping: faceTabs.count)
-        row.entry_start = UInt32(clamping: entries.count)
-        for screen in workspace.screens {
-            for pane in screen.panes {
-                let selected = selectedTab(pane).flatMap { id in pane.tabs.firstIndex { $0.id == id } }
-                let focusedAt = pane.id == focusedPane ? UInt64.max : pane.focusedAt
-                panes.append(CmuxSidebarFacePane(focused_at: focusedAt, default_tab: Int64(pane.defaultTabIndex),
-                                                 tab_count: UInt32(clamping: pane.tabs.count),
-                                                 selected: selected.map { UInt32(clamping: $0) } ?? Self.none))
-                for tab in pane.tabs {
-                    let title = listTitle(tab)
-                    faceTabs.append(encode(tab, newTabPage: newTabPages.contains(tab.id), listTitle: title, branded: branded(tab)))
-                    tabs.append(tab)
-                    listTitles.append(title)
-                }
-            }
+        var row = stage(workspace, selectedTab: selectedTab, focusedPane: focusedPane) { tab in
+            let title = listTitle(tab)
+            listTitles.append(title)
+            return encode(tab, newTabPage: newTabPages.contains(tab.id), listTitle: title, branded: branded(tab))
         }
         if let status = workspace.status {
             for entry in status.entries {
@@ -124,16 +110,65 @@ public final class SidebarFaceBatch {
         if workspace.markedUnread { row.flags |= Bit.workspaceMarkedUnread }
         row.unread_count = UInt64(clamping: max(workspace.unreadCount, 0))
         row.status = add(status)
-        row.pane_count = UInt32(clamping: panes.count) - row.pane_start
-        row.tab_count = UInt32(clamping: faceTabs.count) - row.tab_start
         row.entry_count = UInt32(clamping: entries.count) - row.entry_start
         workspaces.append(row)
     }
 
-    private func encode(_ tab: TabModel, newTabPage: Bool, listTitle: String, branded: Bool) -> CmuxSidebarFaceTab {
+    /// Adds one row for its picked tabs alone (`SidebarMapping.faceTabs`): its panes, and of each tab only what
+    /// the picks read of a tab that is not in front (``structure(_:newTabPage:)``). It reads no tab's title, folder,
+    /// command or unread state and no workspace status, so a caller in an observation is not woken by them: a
+    /// terminal retitles on every command, and a reader of every tab's title re-ran for each of them
+    /// (`NewTabWakesDoNotGrowWithSessionTests`). ``addFrontFacts(_:)`` then adds the front tab's own.
+    func appendPicks(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?, newTabPages: Set<String>) {
+        var row = stage(workspace, selectedTab: selectedTab, focusedPane: nil) { tab in
+            listTitles.append("")
+            return structure(tab, newTabPage: newTabPages.contains(tab.id))
+        }
+        row.flags |= Bit.local
+        row.status = Self.absent
+        workspaces.append(row)
+    }
+
+    /// Adds, to tab `index` of a row staged by ``appendPicks(_:selectedTab:newTabPages:)``, the facts the picks
+    /// read of the front tab alone (whether it is an idle shell, which yields the row's name to an agent chat):
+    /// `index` is the `front` of that row's first ``run()``, which no tab's text changes.
+    func addFrontFacts(_ index: Int) {
+        guard tabs.indices.contains(index), faceTabs.indices.contains(index) else { return }
+        var row = faceTabs[index]
+        addShellFacts(tabs[index], to: &row)
+        faceTabs[index] = row
+    }
+
+    /// One row's panes and tabs, each tab as `tab` encodes it; the caller adds the row's own facts and appends it.
+    private func stage(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?, focusedPane: String?,
+                       tab encoded: (TabModel) -> CmuxSidebarFaceTab) -> CmuxSidebarFaceWorkspace {
+        var row = CmuxSidebarFaceWorkspace()
+        row.pane_start = UInt32(clamping: panes.count)
+        row.tab_start = UInt32(clamping: faceTabs.count)
+        row.entry_start = UInt32(clamping: entries.count)
+        for screen in workspace.screens {
+            for pane in screen.panes {
+                let selected = selectedTab(pane).flatMap { id in pane.tabs.firstIndex { $0.id == id } }
+                let focusedAt = pane.id == focusedPane ? UInt64.max : pane.focusedAt
+                panes.append(CmuxSidebarFacePane(focused_at: focusedAt, default_tab: Int64(pane.defaultTabIndex),
+                                                 tab_count: UInt32(clamping: pane.tabs.count),
+                                                 selected: selected.map { UInt32(clamping: $0) } ?? Self.none))
+                for tab in pane.tabs {
+                    let face = encoded(tab)
+                    faceTabs.append(face)
+                    tabs.append(tab)
+                }
+            }
+        }
+        row.pane_count = UInt32(clamping: panes.count) - row.pane_start
+        row.tab_count = UInt32(clamping: faceTabs.count) - row.tab_start
+        return row
+    }
+
+    /// What the picks read of every tab (`front_tab`, `work_tab`, `label_tab`'s chats, `face_tab`, `chat_tab`):
+    /// its kind, whether it is a chat, a page, an app or a New Tab page, and its agent's state. No text.
+    private func structure(_ tab: TabModel, newTabPage: Bool) -> CmuxSidebarFaceTab {
         var row = CmuxSidebarFaceTab()
-        var flags: UInt32 = 0
-        func mark(_ on: Bool, _ bit: UInt32) { if on { flags |= bit } }
         row.kind = switch tab.kind {
         case .pty: 0
         case .browser: 1
@@ -141,27 +176,44 @@ public final class SidebarFaceBatch {
         case .conversation: 3
         case .other: 4
         }
-        row.title = add(tab.titleText)
-        row.list_title = add(listTitle)
-        row.cwd = add(tab.cwd)
-        mark(!(tab.name?.isEmpty ?? true), Bit.named)
-        mark(tab.agentSession != nil, Bit.chat)
-        mark(tab.commandSinceMs != nil, Bit.commandRunning)
-        mark(tab.titleActivity != nil, Bit.titleActivity)
-        mark(tab.page != nil, Bit.page)
-        mark(tab.appTab != nil, Bit.app)
-        mark(newTabPage, Bit.newTabPage)
-        mark(branded, Bit.branded)
-        mark(tab.hasUnread, Bit.hasUnread)
-        mark(tab.markedUnread, Bit.markedUnread)
-        mark(tab.attention != nil, Bit.attention)
-        row.flags = flags
+        row.title = Self.absent
+        row.list_title = Self.absent
+        row.cwd = Self.absent
+        if tab.agentSession != nil { row.flags |= Bit.chat }
+        if tab.page != nil { row.flags |= Bit.page }
+        if tab.appTab != nil { row.flags |= Bit.app }
+        if newTabPage { row.flags |= Bit.newTabPage }
         row.agent = switch tab.agent?.state {
         case nil: 0
         case .working?: 1
         case .blocked?: 2
         case _?: 3
         }
+        // Int32.min is the no-value marker.
+        row.progress_value = Int32.min
+        return row
+    }
+
+    /// What tells an idle shell from one at work (`is_idle`): the picks read these of the front tab alone.
+    private func addShellFacts(_ tab: TabModel, to row: inout CmuxSidebarFaceTab) {
+        row.title = add(tab.titleText)
+        row.cwd = add(tab.cwd)
+        if tab.commandSinceMs != nil { row.flags |= Bit.commandRunning }
+        if tab.titleActivity != nil { row.flags |= Bit.titleActivity }
+    }
+
+    private func encode(_ tab: TabModel, newTabPage: Bool, listTitle: String, branded: Bool) -> CmuxSidebarFaceTab {
+        var row = structure(tab, newTabPage: newTabPage)
+        addShellFacts(tab, to: &row)
+        var flags = row.flags
+        func mark(_ on: Bool, _ bit: UInt32) { if on { flags |= bit } }
+        row.list_title = add(listTitle)
+        mark(!(tab.name?.isEmpty ?? true), Bit.named)
+        mark(branded, Bit.branded)
+        mark(tab.hasUnread, Bit.hasUnread)
+        mark(tab.markedUnread, Bit.markedUnread)
+        mark(tab.attention != nil, Bit.attention)
+        row.flags = flags
         row.progress_state = switch tab.progress?.state {
         case nil: 0
         case .normal?: 1
