@@ -112,6 +112,21 @@ struct PaneCloseCameraGroundTests {
         }
     }
 
+    /// The same closes as a key press makes them (`PaneController.closePane`: `syncWithModelForNextFrame`, which holds the
+    /// presentation for the next frame tick). The closing panes are first placed one spring step after the close's turn
+    /// decided which of them a neighbour moves over, so the two must read the neighbours at the same time: a neighbour
+    /// with a little more than half a point to go in the turn has less than that a step later.
+    @Test(arguments: gaps) func twoLastColumnClosesByKeyAnyTimeApartLeaveNoGroundPastTheStrip(every: Int) throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.columns(4, width: 0.3), focused: "p4")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require(screen.scroll.value > 100, "SETUP: the camera does not show the fourth column (offset \(screen.scroll.value))")
+        try #require(rig.root.isLive && rig.root.driver.isAttached, "SETUP: the root runs no frames, so the key's turn holds nothing")
+        try Self.check(rig, closing: ["p4", "p3"], every: every, vertical: false, landsWithin: 24, byKey: true) {
+            try #require(screen.hasMotion, "SETUP: the close does not move the strip")
+        }
+    }
+
     /// The same for two last-row closes (the layout of `twoLastRowClosesInARowLeaveNoHole`): the second close gives the row
     /// scroll a new target a whole row away, so the first closing pane's travel is never short.
     @Test(arguments: gaps) func twoLastRowClosesAnyTimeApartLeaveNoGround(every: Int) throws {
@@ -141,8 +156,9 @@ struct PaneCloseCameraGroundTests {
     /// Closes `panes`, each `every` frames after the one before, and checks each frame along the line through the window's
     /// middle (`vertical`: top to bottom, else left to right). `moving`: the SETUP checks after the first close's turn.
     /// `landsWithin`: the most frames from the last close to the landing (the landing waits for the closing panes' free
-    /// sides, and must not wait longer than a close takes: 24 frames are 200 ms at 120 Hz).
-    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, landsWithin: Int? = nil,
+    /// sides, and must not wait longer than a close takes: 24 frames are 200 ms at 120 Hz). `byKey`: each close is shown
+    /// by the next frame tick, as a key press's is (`LayoutRootView.syncWithModelForNextFrame`), not in its own turn.
+    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, landsWithin: Int? = nil, byKey: Bool = false,
                       moving: () throws -> Void) throws {
         let screen = try rig.screen
         let bounds = screen.convert(screen.bounds, to: nil)
@@ -173,7 +189,7 @@ struct PaneCloseCameraGroundTests {
         for (index, pane) in panes.enumerated() {
             lastClose = frames
             _ = try #require(rig.model.showPaneClose(pane), "\(pane) did not close")
-            rig.root.syncWithModel()
+            if byKey { rig.root.syncWithModelForNextFrame() } else { rig.root.syncWithModel() }
             rig.root.layoutSubtreeIfNeeded()
             if index == 0 { try moving() }
             widths.append((frames, uncovered()))
