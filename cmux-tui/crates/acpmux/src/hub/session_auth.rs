@@ -110,6 +110,14 @@ fn credential_file_changed(
 }
 
 fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf> {
+    if let Some(agent) = signs_in_by_store(family) {
+        // Where `agent_login` signs it in: `agent_login::Cli::store` over the same env.
+        let cli = crate::agent_login::Cli {
+            env: crate::login_env::effective_for(Some(family), env),
+            ..Default::default()
+        };
+        return Some(cli.store(agent));
+    }
     let var = route_account::home_var(family)?;
     let effective = crate::login_env::effective_for(Some(family), env);
     effective.get(var).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| {
@@ -119,6 +127,14 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
             .or_else(dirs::home_dir)
             .map(|p| p.join(format!(".{family}")))
     })
+}
+
+/// An `agent_login` agent whose account is its store alone (no route account home): Gemini
+/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`) and Cursor (`$XDG_CONFIG_HOME/cursor`). A
+/// sign-in there supersedes the account's old failures, as for Claude and Codex.
+fn signs_in_by_store(family: &str) -> Option<crate::agent_login::Agent> {
+    use crate::agent_login::Agent;
+    Agent::parse(family).filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor))
 }
 
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
@@ -329,7 +345,7 @@ impl Hub {
         home: &Path,
         route: Option<&str>,
     ) -> Result<(), RpcError> {
-        if route_account::home_var(family).is_none() {
+        if route_account::home_var(family).is_none() && signs_in_by_store(family).is_none() {
             return Ok(());
         }
         for session in self.sessions() {
