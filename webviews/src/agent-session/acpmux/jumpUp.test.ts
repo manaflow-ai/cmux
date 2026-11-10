@@ -36,11 +36,7 @@ test("the last prompt the reader sent, past the prompts they did not type", () =
 test("in a shared chat, yours is the one with your author: none for the owner, your id for a guest", () => {
   const guest = { id: "guest-1", name: "Sam" };
   const other = { id: "guest-2", name: "Kim" };
-  const rows: AcpmuxRow[] = [
-    row("owner-1"),
-    row("guest-2", { author: guest }),
-    row("other-3", { author: other }),
-  ];
+  const rows: AcpmuxRow[] = [row("owner-1"), row("guest-2", { author: guest }), row("other-3", { author: other })];
   expect(lastOwnPrompt(rows, scan())?.id).toBe("owner-1");
   expect(lastOwnPrompt(rows, scan(), "guest-1")?.id).toBe("guest-2");
   expect(lastOwnPrompt(rows, scan(), "guest-3")).toBeUndefined();
