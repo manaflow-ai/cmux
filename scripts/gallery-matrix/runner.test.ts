@@ -110,6 +110,63 @@ test("a hash-route case keeps its route; params go only into a stage's query", a
   expect(stageUrlForTest("index.html#/a.b/c?theme=Nord", { width: 1600 })).toBe("/index.html#/a.b/c?theme=Nord");
 });
 
+/** The browser-context double's CDP session: Performance metrics with this renderer ThreadTime (s). */
+function cdpSession(threadTimeS: number) {
+  return async () => ({
+    send: async (method: string) =>
+      method === "Performance.getMetrics" ? { metrics: [{ name: "ThreadTime", value: threadTimeS }] } : {},
+  });
+}
+
+/** One ready case, stamped ready 3000 ms after navigation, in a context with or without CDP. */
+async function renderReadyCase(context: Record<string, unknown>) {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-ready-cpu-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([{ id: "ready", path_or_url: "https://example.test/", params: { entry: "e", variant: "v" } }]));
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async () => {}, addInitScript: async () => {}, goto: async () => {}, waitForFunction: async () => {},
+        evaluate: async (fn: unknown) => {
+          const source = String(fn);
+          if (source.includes("cmuxGalleryReadyMs")) return 3000;
+          if (source.includes("galleryReady ??")) return "1";
+          return null;
+        },
+        screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+      }),
+      close: async () => {},
+      ...context,
+    }),
+    close: async () => {},
+  }) } };
+  const exitCode = process.exitCode;
+  try {
+    return (await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never))[0]!;
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a ready case records the renderer's CPU time, and its budget is held to it", async () => {
+  const { readyTimes } = await import("./ready-budgets");
+  const result = await renderReadyCase({ newCDPSession: cdpSession(0.75) });
+  expect([result.ready, result.readyMs, result.readyCpuMs]).toEqual(["1", 3000, 750]);
+  expect(readyTimes([result as never])).toEqual(new Map([["e#v", 750]]));
+});
+
+test("a context with no CDP, or one that refuses it, falls back to wall time instead of failing the case", async () => {
+  const { readyTimes } = await import("./ready-budgets");
+  const refuse = () => { throw new Error("CDP session is only available in Chromium"); };
+  for (const context of [{}, { newCDPSession: refuse }, { newCDPSession: async () => ({ send: refuse }) }]) {
+    const result = await renderReadyCase(context);
+    expect([result.ready, result.readyMs, result.readyCpuMs, result.error]).toEqual(["1", 3000, null, undefined]);
+    expect(readyTimes([result as never])).toEqual(new Map([["e#v", 3000]]));
+  }
+});
+
 test("a matrix reuses its browser while isolating and closing every case context", async () => {
   const { runLocal } = await import("./runner");
   const { writeFileSync } = await import("node:fs");
@@ -134,6 +191,7 @@ test("a matrix reuses its browser while isolating and closing every case context
             evaluate: async () => null,
             screenshot: async ({ path, ...options }: { path: string; fullPage?: boolean; clip?: unknown }) => { screenshots.push(options); writeFileSync(path, "fixture screenshot"); },
           }),
+          newCDPSession: cdpSession(0.5),
           close: async () => { closedContexts++; },
         };
       },
@@ -170,6 +228,7 @@ test("recycles a crashed renderer and keeps the matrix moving", async () => {
             evaluate: async () => { if (attempt === 1) throw new Error("Target crashed"); return null; },
             screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
           }),
+          newCDPSession: cdpSession(0.5),
           close: async () => {},
         }),
         close: async () => { closedBrowsers++; },
@@ -206,6 +265,7 @@ test("records a hung case after both bounded attempts and captures later cases",
               evaluate: async () => target.includes("hung") ? new Promise(() => {}) : null,
               screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
             }),
+            newCDPSession: cdpSession(0.5),
             close: async () => {},
           };
         },
@@ -243,6 +303,7 @@ test("records a navigation failure and continues the matrix", async () => {
         evaluate: async () => null,
         screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
       }),
+      newCDPSession: cdpSession(0.5),
       close: async () => {},
     }),
     close: async () => {},
