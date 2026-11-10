@@ -17,16 +17,23 @@ public final class GitHubConnections {
     @ObservationIgnored private let call: Call
     @ObservationIgnored private let open: (URL) -> Void
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private var connectKeys: [Scope: String] = [:]
+    /// One connect ask: the scope, and the repository a chat's Connect GitHub card named (nil for
+    /// Settings, the palette and the CLI). Each ask keeps its own idempotency key and browser URL,
+    /// so a card for one repository never replays another's answer.
+    struct Ask: Hashable {
+        let scope: Scope
+        let repo: String?
+    }
+    @ObservationIgnored private var connectKeys: [Ask: String] = [:]
     private var loadedScope: Scope?
     private var workingScope: Scope?
     private var generation = 0
-    @ObservationIgnored private var authorizations: [Scope: (id: String, url: URL, expires: Date)] = [:]
+    @ObservationIgnored private var authorizations: [Ask: (id: String, url: URL, expires: Date)] = [:]
     private(set) var connections: [JSONValue] = []
     private(set) var configured = false
     private var errorScope: Scope?
     public var error: Bool { scope() != nil && errorScope == scope() }
-    public var pending: Bool { currentConnections.contains { $0["status"]?.stringValue == "pending" } || scope().map { authorizations[$0] != nil } == true }
+    public var pending: Bool { currentConnections.contains { $0["status"]?.stringValue == "pending" } || scope().map { bound in authorizations.keys.contains { $0.scope == bound } } == true }
 
     public init(scope: @escaping () -> Scope?, call: @escaping Call, open: @escaping (URL) -> Void, now: @escaping () -> Date = Date.init) {
         self.scope = scope
@@ -40,26 +47,30 @@ public final class GitHubConnections {
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
-    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map(resumable) == true) }
+    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map { resumable(Ask(scope: $0, repo: nil)) } == true) }
 
     /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
     /// connect whose response was lost (replaying it returns the same pending connection's URL).
-    private func resumable(_ bound: Scope) -> Bool { authorizations[bound] != nil || connectKeys[bound] != nil }
+    private func resumable(_ ask: Ask) -> Bool { authorizations[ask] != nil || connectKeys[ask] != nil }
 
     public func canDisconnect(_ row: JSONValue) -> Bool {
         scope() != nil && row["created_by"]?.stringValue == scope()?.user
     }
 
-    /// One shared entry point for Settings, the Setup Guide, the palette and CLI.
-    public func connect() async {
+    /// One shared entry point for Settings, the Setup Guide, the palette, the CLI and a chat's
+    /// Connect GitHub card. Without `repo`, an active connection is done. With one (the card's
+    /// failed call), the API decides: a connection that covers it answers connected and nothing
+    /// opens; otherwise GitHub's page for that repository's owner opens. `returnTo`, a cmux link
+    /// to the chat, rides in the API's signed state and GitHub's return opens it.
+    public func connect(repo: String? = nil, returnTo: String? = nil) async {
         let bound = scope()
         await perform("githubRefresh")
         guard scope() == bound, !error else { return }
-        if connected { return }
-        await perform("githubConnect")
+        if connected, repo == nil { return }
+        await perform("githubConnect", repo: repo, returnTo: returnTo)
     }
 
-    public func perform(_ action: String, connection: String? = nil) async {
+    public func perform(_ action: String, connection: String? = nil, repo: String? = nil, returnTo: String? = nil) async {
         guard let bound = scope(), workingScope != bound else { return }
         generation += 1
         let ticket = generation
@@ -70,22 +81,32 @@ public final class GitHubConnections {
             switch action {
             case "githubConnect":
                 // A pending flow from another launch has no resumable URL or key here.
-                // Keep it pending until refresh or disconnect resolves that flow.
-                guard ready, !connected, !pending || resumable(bound) else { return }
-                if let authorization = authorizations[bound], authorization.expires <= now() {
-                    authorizations[bound] = nil
-                    connectKeys[bound] = nil
+                // Keep it pending until refresh or disconnect resolves that flow. A card's ask (a
+                // repository) goes to the API whatever the list says: the API knows what covers it.
+                let ask = Ask(scope: bound, repo: repo)
+                guard ready, repo != nil || !connected, repo != nil || !pending || resumable(ask) else { return }
+                if let authorization = authorizations[ask], authorization.expires <= now() {
+                    authorizations[ask] = nil
+                    connectKeys[ask] = nil
                 }
-                if let authorization = authorizations[bound] {
+                if let authorization = authorizations[ask] {
                     open(authorization.url)
                 } else {
-                    if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    let value = try await call(bound, "integration.connect", ["provider": "github"], connectKeys[bound])
+                    if connectKeys[ask] == nil { connectKeys[ask] = UUID().uuidString }
+                    var params: [String: JSONValue] = ["provider": "github"]
+                    if let repo { params["repo"] = .string(repo) }
+                    if let returnTo { params["return_to"] = .string(returnTo) }
+                    let value = try await call(bound, "integration.connect", .object(params), connectKeys[ask])
                     guard scope() == bound, generation == ticket else { return }
-                    guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
-                          let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }
-                    authorizations[bound] = (id, url, Self.authorizationExpiration(url) ?? now())
-                    open(url)
+                    guard let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }
+                    if value["connected"]?.boolValue == true {
+                        // Already covered: nothing to open; the list below shows it.
+                        connectKeys[ask] = nil
+                    } else {
+                        guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw) else { throw GitHubFailure.invalidReply }
+                        authorizations[ask] = (id, url, Self.authorizationExpiration(url) ?? now())
+                        open(url)
+                    }
                 }
             case "githubDisconnect":
                 guard let connection, currentConnections.contains(where: { $0["id"]?.stringValue == connection && canDisconnect($0) }) else { return }
@@ -101,29 +122,39 @@ public final class GitHubConnections {
             connections = rows.filter { $0["provider"]?.stringValue == "github" && !["revoked", "expired"].contains($0["status"]?.stringValue ?? "") }
             configured = providers.contains { $0["provider"]?.stringValue == "github" && $0["configured"]?.boolValue == true }
             loadedScope = bound
-            if let authorization = authorizations[bound],
-               !connections.contains(where: { $0["id"]?.stringValue == authorization.id && $0["status"]?.stringValue == "pending" }) {
-                authorizations[bound] = nil
-                connectKeys[bound] = nil
+            for (ask, authorization) in authorizations where ask.scope == bound
+                && !connections.contains(where: { $0["id"]?.stringValue == authorization.id && $0["status"]?.stringValue == "pending" }) {
+                authorizations[ask] = nil
+                connectKeys[ask] = nil
             }
         } catch {
             if action == "githubConnect", generation == ticket, scope() == bound,
                let failure = error as? GitHubFailure, case .refused = failure {
                 // A definitive API refusal is replayed under its mutation key.
                 // Transport failures keep the key because the mutation may have succeeded.
-                connectKeys[bound] = nil
+                connectKeys[Ask(scope: bound, repo: repo)] = nil
             }
             if scope() == bound, generation == ticket { errorScope = bound }
         }
     }
 
-    /// Only the App installation page returned by integration.connect may open.
+    /// Only the GitHub pages integration.connect answers may open: the App's installation page,
+    /// its installation page for one owner (`installations/new/permissions?target_id=…`), and
+    /// GitHub's OAuth authorize page (an installation that already covers the owner). https on
+    /// github.com itself, with no user, password or port.
     public nonisolated static func installationURL(_ raw: String) -> URL? {
         guard let url = URL(string: raw), url.scheme == "https", url.host == "github.com",
               url.user == nil, url.password == nil, url.port == nil,
-              url.path.range(of: #"^/apps/[A-Za-z0-9-]+/installations/new$"#, options: .regularExpression) != nil else { return nil }
+              Self.connectPaths.contains(where: { url.path.range(of: $0, options: .regularExpression) != nil }) else { return nil }
         return url
     }
+
+    /// The paths of the pages ``installationURL(_:)`` lets open.
+    nonisolated static let connectPaths = [
+        #"^/apps/[A-Za-z0-9-]+/installations/new$"#,
+        #"^/apps/[A-Za-z0-9-]+/installations/new/permissions$"#,
+        #"^/login/oauth/authorize$"#,
+    ]
 
     /// Expiry is only a cache hint; the API still verifies the signed state on completion.
     private nonisolated static func authorizationExpiration(_ url: URL) -> Date? {

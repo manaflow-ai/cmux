@@ -106,8 +106,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
     /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
-    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
-    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens. `repo` and
+    /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
+    /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, repo: String? = nil, returnTo: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the

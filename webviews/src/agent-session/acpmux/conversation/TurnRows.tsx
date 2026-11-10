@@ -8,6 +8,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
@@ -529,6 +530,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           failedAgain={row.failedAgain === true}
           retryNote={retryNote}
         />
+      )}
+      {row.githubConnect && (
+        <GitHubConnectCard need={row.githubConnect} phaseKey={`${row.id}:${row.githubConnect.callId}`} />
       )}
       <div
         className={

@@ -19,6 +19,16 @@ extension AgentPaneRequest {
             && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
     }
 
+    /// A GitHub repository's full name (webviews githubConnect.ts `isGitHubRepo`): an owner of 1 to 39
+    /// letters, digits and inner dashes, a name of 1 to 100 letters, digits, `.`, `_` and `-`, never
+    /// `.` or `..`. Connect GitHub passes only such a one on.
+    static func isGitHubRepo(_ value: String) -> Bool {
+        guard value.utf8.count <= 140,
+              value.range(of: #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$"#, options: .regularExpression) != nil else { return false }
+        let name = value.split(separator: "/").last
+        return name != "." && name != ".."
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -605,7 +615,13 @@ extension AgentPaneRequest {
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
                handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
+                // Connect GitHub's card names the failed call's repository and the chat's link: a
+                // malformed one is dropped (Connect still runs, as from the palette); the link is
+                // checked against this build's links where it runs (AgentPaneModel+Actions.swift).
+                let github = id == "accounts.githubConnect"
+                let repo = (params?["repo"] as? String).flatMap { github && AgentPaneRequest.isGitHubRepo($0) ? $0 : nil }
+                let returnTo = (params?["returnTo"] as? String).flatMap { github && $0.utf8.count <= 512 ? $0 : nil }
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, repo: repo, returnTo: returnTo)
             } else {
                 self = .unsupported(method)
             }

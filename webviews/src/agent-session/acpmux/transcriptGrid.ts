@@ -85,6 +85,8 @@ type MarkedRow = {
   below?: boolean;
   retryable?: boolean;
   turnCopy?: readonly unknown[];
+  /// A footer's Connect GitHub card (conversation/githubConnect.ts): content, as a failure card is.
+  githubConnect?: unknown;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
@@ -99,6 +101,7 @@ export function rowMark(row: MarkedRow): number {
     return row.status !== "failed" &&
       row.status !== "error" &&
       !row.resumable &&
+      !row.githubConnect &&
       ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;

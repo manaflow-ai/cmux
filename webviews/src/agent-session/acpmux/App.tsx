@@ -587,6 +587,7 @@ import { RulesNotice } from "./RulesNotice";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
+import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "./conversation/githubConnect";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
@@ -3923,6 +3924,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ? answerThrough(callNative)(text)
               : Promise.reject(new Error(CHAT_CHANGED))
         )(restartChat),
+      }),
+      // Connect GitHub (githubConnect.ts, a GitHub call that found no connection for this chat): the
+      // app's `accounts.githubConnect` with the call's repository and this chat's link, which GitHub's
+      // return opens; then Continue, with Continue's reach. A Connect the app did not run rejects with
+      // its reason, for the card.
+      ...(restartChat && {
+        githubConnect: ((owner: string): GitHubConnectOffer => ({
+          connect: (repo) => {
+            const returnTo = sessionLink(owner);
+            return callNative("action.run", {
+              id: GITHUB_CONNECT_ACTION,
+              ...(repo && { repo }),
+              ...(returnTo && { returnTo }),
+            }).then(() => undefined);
+          },
+          continue: () =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? resumeThrough(callNative)()
+              : Promise.resolve(),
+        }))(restartChat),
       }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
       // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
