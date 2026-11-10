@@ -133,8 +133,14 @@ pub(super) fn retryable(outcome: &str) -> bool {
 }
 
 /// Whether the attempt's first link has been parked for at least `limit` at `now`.
-pub(super) fn parked_for(first_open: Option<Instant>, allocated: Option<Instant>, now: Instant, limit: Duration) -> bool {
-    allocated.is_none() && first_open.is_some_and(|open| now.saturating_duration_since(open) >= limit)
+pub(super) fn parked_for(
+    first_open: Option<Instant>,
+    allocated: Option<Instant>,
+    now: Instant,
+    limit: Duration,
+) -> bool {
+    allocated.is_none()
+        && first_open.is_some_and(|open| now.saturating_duration_since(open) >= limit)
 }
 
 /// Stops the watch when the attempt ends (an adopt already under way goes on).
@@ -193,7 +199,11 @@ pub(super) fn watch(
 /// The look, then the adopt when it needs one: a short `[a-z_]` outcome. The adopt gets
 /// what is left of the dial's `deadline` (at least [`ADOPT_FLOOR`]): a `carrier dial`
 /// process ends with it, and its runtime with the request.
-async fn look_and_adopt(source: &dyn CarrierSource, machine: &str, deadline: Instant) -> &'static str {
+async fn look_and_adopt(
+    source: &dyn CarrierSource,
+    machine: &str,
+    deadline: Instant,
+) -> &'static str {
     let looked = match source.exec(machine, LOOK, LOOK_TIMEOUT).await {
         Ok(reply) if reply.exit_code == 0 => reply,
         Ok(_) => return "look_failed",
@@ -206,7 +216,8 @@ async fn look_and_adopt(source: &dyn CarrierSource, machine: &str, deadline: Ins
     let Ok(payload) = verified_channel().await else { return "channel_unread" };
     let Ok((tui, _hook)) = payload.binaries_for(target) else { return "channel_no_build" };
     let left = deadline.saturating_duration_since(Instant::now()).max(ADOPT_FLOOR);
-    match source.exec(machine, &adopt_command(&tui.url, &tui.sha256), ADOPT_TIMEOUT.min(left)).await {
+    match source.exec(machine, &adopt_command(&tui.url, &tui.sha256), ADOPT_TIMEOUT.min(left)).await
+    {
         Ok(reply) if reply.exit_code == 0 => "adopted",
         Ok(_) => "adopt_failed",
         Err(_) => "adopt_refused",

@@ -231,7 +231,9 @@ pub fn relink_work_link(paths: &Paths) -> io::Result<bool> {
             }
         }
         Ok(meta) if meta.is_file() => fs::rename(&link, paths.at(WORK_CMUX_TUI_KEPT))?,
-        Ok(_) => return Err(io::Error::other(format!("{WORK_CMUX_TUI_LINK} is not a file or a link"))),
+        Ok(_) => {
+            return Err(io::Error::other(format!("{WORK_CMUX_TUI_LINK} is not a file or a link")));
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }

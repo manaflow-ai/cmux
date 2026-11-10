@@ -22,8 +22,10 @@ fn the_look_reads_a_legacy_host_a_replaced_link_and_leaves_the_rest() {
 #[test]
 fn the_look_script_classifies_each_status_answer() {
     let run = |status: &str| {
-        let script = LOOK
-            .replace("sudo -n /opt/cmux/current/bin/cmux host update status", "printf '%s' \"$STATUS\"");
+        let script = LOOK.replace(
+            "sudo -n /opt/cmux/current/bin/cmux host update status",
+            "printf '%s' \"$STATUS\"",
+        );
         let out = std::process::Command::new("sh")
             .arg("-c")
             .arg(script)
@@ -34,7 +36,8 @@ fn the_look_script_classifies_each_status_answer() {
     };
     let legacy = "cmux host: unknown verb update\nusage: cmux host run [--roles-only] ...";
     assert!(matches!(run(legacy), Found::Adopt(_) | Found::Leave("arch")));
-    let on = r#"{"channel":"https://files.cmux.com/cmux-tui/channels/cloud-machine.json","off":null}"#;
+    let on =
+        r#"{"channel":"https://files.cmux.com/cmux-tui/channels/cloud-machine.json","off":null}"#;
     assert!(matches!(run(on), Found::Leave("updater_on" | "arch")));
     let marked = r#"{"off":"/etc/cmux/no-self-update exists"}"#;
     // An old outcome line naming the file is not the updater being off now.
@@ -61,7 +64,9 @@ fn the_adopt_checks_the_download_then_runs_the_new_builds_adopt() {
     assert!(at(&format!("'{url}'")) < at("sha256sum"));
     assert!(at("sha256sum") < at("sudo -n install -m 0555"));
     assert!(command.contains(&format!("/opt/cmux/store/{sha}")));
-    assert!(command.ends_with(&format!("'exec -a cmux \"$0\" host update adopt' \"$e/{CMUX_TUI}\"")));
+    assert!(
+        command.ends_with(&format!("'exec -a cmux \"$0\" host update adopt' \"$e/{CMUX_TUI}\""))
+    );
     assert!(command.starts_with("set -eu"));
 }
 
@@ -89,7 +94,11 @@ fn an_exec_answer_reads_its_code_and_output_or_its_refusal() {
     let ok = serde_json::json!({"exitCode": 0, "stdout": "arch=x86_64 updater=on\n", "stderr": ""});
     assert_eq!(
         read_exec(200, &ok).unwrap(),
-        ExecReply { exit_code: 0, stdout: "arch=x86_64 updater=on\n".into(), stderr: String::new() }
+        ExecReply {
+            exit_code: 0,
+            stdout: "arch=x86_64 updater=on\n".into(),
+            stderr: String::new()
+        }
     );
     let refused = serde_json::json!({"ok": false, "error": {"code": "vm_forbidden"}});
     assert!(!read_exec(403, &refused).unwrap_err().retryable);
