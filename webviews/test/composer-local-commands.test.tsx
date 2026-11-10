@@ -248,7 +248,6 @@ test("/help mid-turn opens the / menu at once: nothing is sent", async () => {
   expect(run.field.textContent).toBe("/");
 });
 
-
 test("Codex's /diff mid-turn runs at once: the chat's changes open, nothing is sent", async () => {
   const run = await composer(working("codex", false), "/diff");
   await enter(run.field);
