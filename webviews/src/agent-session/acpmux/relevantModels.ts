@@ -95,15 +95,26 @@ export function relevantModelSections<T extends Model>(
     // never fold, and the chat's running model keeps its row: folding never hides the live choice.
     const isRunning = (model: T) =>
       !!running && (model.offers ?? [model]).some((offer) => offer.id === running || offer.release === running);
+    // A release the catalog has not seen yet (claude-fable-5-2 the day it ships) has no family; it
+    // takes the one its id's line already has in this menu, so it leads that line at once.
+    const inferred = (model: T) => familyKey({ ...model, family: undefined });
+    const lines = new Map<string, string>();
+    for (const model of chosen) if (model.family) lines.set(inferred(model), model.family);
+    const family = (model: T) => model.family ?? lines.get(inferred(model));
+    const line = (model: T) => {
+      const declared = family(model);
+      return declared ? lineKey({ ...model, family: declared }) : undefined;
+    };
     const newest = new Map<string, T>();
     for (const model of chosen) {
-      if (!model.family) continue;
-      const key = lineKey(model);
+      const key = line(model);
+      if (!key) continue;
       const previous = newest.get(key);
       if (!previous || olderVersion(previous, model)) newest.set(key, model);
     }
     for (const model of chosen) {
-      const lead = model.family ? newest.get(lineKey(model)) : undefined;
+      const key = line(model);
+      const lead = key ? newest.get(key) : undefined;
       if (lead && olderVersion(model, lead) && !isRunning(model)) chosen.delete(model);
     }
   } else {
