@@ -401,3 +401,66 @@ fn no_record_or_log_of_the_daemon_holds_a_credential() {
         }
     }
 }
+
+/// The person key the log check sends, and its base64 as the request carries it.
+const LOG_CHECK_KEY: &str = "person-key-for-the-log-check";
+
+/// The log check's child (it returns at once unless the check started it): keyed starts whose
+/// answers echo the key, a refusal and a decoding failure, and then the daemon's store.
+#[test]
+fn keyed_start_for_the_log_check() {
+    if std::env::var_os("CMUX_CLOUD_API_LOG_CHECK_CHILD").is_none() {
+        return;
+    }
+    let encoded = base64::engine::general_purpose::STANDARD.encode(LOG_CHECK_KEY);
+    let echo = |seen: &Seen| String::from_utf8_lossy(&seen.body).to_string();
+    let (refusing, _) = fake(move |seen| {
+        (409, json!({"error": "vm_busy", "message": format!("echo {}", echo(seen))}).to_string())
+    });
+    let (garbled, _) =
+        fake(move |seen| (200, json!({"ok": true, "value": {"echo": echo(seen)}}).to_string()));
+    let daemon = Daemon::start("key-log");
+    for (n, origin) in [refusing, garbled].iter().enumerate() {
+        let mut keyed =
+            params(origin, "owner", json!({"machine": VM, "key_length": LOG_CHECK_KEY.len()}));
+        keyed["key_base64"] = json!(encoded);
+        let (_, message, details) = daemon
+            .send("cloud.owner.acpmux_keyed_start", keyed, Some(&format!("key-log-{n}")))
+            .unwrap_err();
+        let text = format!("{message} {details}");
+        assert!(!text.contains(LOG_CHECK_KEY) && !text.contains(&encoded), "refusal: {text}");
+    }
+    for (path, bytes) in files(&daemon.state) {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains(LOG_CHECK_KEY) && !text.contains(&encoded), "{}", path.display());
+    }
+    println!("log check: both keyed starts ran");
+}
+
+/// The person key is in no line the daemon logs (its stdout and stderr, every level), no file of
+/// its store and no refusal. The calls run in a child process of this test binary, so the check
+/// reads everything the daemon's threads print.
+#[test]
+fn the_person_key_is_in_no_log_line_store_or_refusal_of_the_daemon() {
+    let module = module_path!().split_once("::").map_or("", |(_, rest)| rest);
+    let child = format!("{module}::keyed_start_for_the_log_check");
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([child.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+        .env("CMUX_CLOUD_API_LOG_CHECK_CHILD", "1")
+        .env("RUST_LOG", "trace")
+        .env("RUST_BACKTRACE", "1")
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.status.success(), "the child failed:\n{text}");
+    assert!(text.contains("log check: both keyed starts ran"), "the child ran nothing:\n{text}");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(LOG_CHECK_KEY);
+    assert!(
+        !text.contains(LOG_CHECK_KEY) && !text.contains(&encoded),
+        "the daemon logged the key:\n{text}"
+    );
+}

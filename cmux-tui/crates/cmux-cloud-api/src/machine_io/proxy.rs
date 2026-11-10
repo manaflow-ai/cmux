@@ -35,10 +35,7 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
         Op::Write => {
             let mut body = serde_json::Map::new();
             body.insert("path".into(), json!(path));
-            body.insert(
-                "dataBase64".into(),
-                json!(request.data_base64.clone().unwrap_or_default()),
-            );
+            body.insert("dataBase64".into(), json!(request.data_text()));
             if let Some(mode) = request.mode {
                 body.insert("mode".into(), json!(mode));
             }

@@ -130,6 +130,7 @@ fn request(origin: &str, cache: &std::path::Path, op: Op) -> Request {
         app_version: None,
         local_only: false,
         max_bytes: None,
+        data_bytes: None,
     }
 }
 

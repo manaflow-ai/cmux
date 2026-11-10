@@ -1140,6 +1140,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-cloud-machine",
  "cmux-json",
+ "libc",
  "reqwest",
  "rustls",
  "serde",

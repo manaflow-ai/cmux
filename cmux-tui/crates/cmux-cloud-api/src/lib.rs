@@ -41,6 +41,7 @@
 #![cfg(unix)]
 
 mod http;
+pub mod local_file;
 mod machine;
 pub mod machine_io;
 mod network;

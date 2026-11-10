@@ -3,6 +3,7 @@
 //! it can, else the cmux API's `/v1/cloud/machines/{id}/...`). A machine's SCP route
 //! ([`scp_endpoint`]) is always cmux-platform's.
 
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::Method;
@@ -11,16 +12,61 @@ use serde_json::{Map, Value, json};
 use super::http::{Auth, Body, Http, path_text, vm_error};
 use super::owner::is_machine_id;
 use super::{Failure, Request, text};
-use crate::machine_io;
 use crate::session::secure_origin;
+use crate::{local_file, machine_io};
 
 /// `machine.io` on a Worker machines client: `args` is machine-io's request without the person's
-/// fields (`op`, `machine`, `path`, `data_base64`, `mode`, `command`, `timeout_ms`; a `cache_dir` is dropped).
+/// fields (`op`, `machine`, `path`, `data_base64`, `mode`, `command`, `timeout_ms`; a `cache_dir` is
+/// dropped), and optionally `local_path`: a read or write through a file of the caller's in the
+/// transfer folder instead of base64 in the call ([`crate::local_file`]).
 pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
+    worker_in(request, local_file::transfer_dir().as_deref()).await
+}
+
+/// [`worker`] with the transfer folder `transfer` (none: the path form is refused).
+pub(crate) async fn worker_in(
+    request: &Request,
+    transfer: Option<&Path>,
+) -> Result<Value, Failure> {
     let api = secure_origin(request.api.trim()).map_err(Failure::Transport)?;
     let mut fields = request.args.clone();
     // The daemon and this library keep no session on disk: a caller never picks a cache.
     fields.remove("cache_dir");
+    let local = match fields.remove("local_path") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(path)) => Some(path),
+        Some(_) => return Err(local_refusal("local_path is a string")),
+    };
+    let op = op_name(&request.args);
+    let (mut data, mut destination) = (None, None);
+    if let Some(path) = &local {
+        let dir = transfer.ok_or_else(|| local_refusal("this system has no transfer folder"))?;
+        match op {
+            "write" if !fields.contains_key("data_base64") => {
+                data = Some(local_file::read_source(dir, path).map_err(|e| local_refusal(&e))?);
+            }
+            "read" => {
+                destination =
+                    Some(local_file::create_destination(dir, path).map_err(|e| local_refusal(&e))?);
+            }
+            _ => return Err(local_refusal("local_path is for a file read or a write alone")),
+        }
+    }
+    let result = run(request, &api, fields, data, destination.as_mut().map(|(_, file)| file)).await;
+    if let (Some((path, _)), Err(_)) = (&destination, &result) {
+        // The destination this call made, by its exact path: a failed read leaves no file.
+        let _ = std::fs::remove_file(path);
+    }
+    result
+}
+
+async fn run(
+    request: &Request,
+    api: &str,
+    mut fields: Map<String, Value>,
+    data: Option<Vec<u8>>,
+    destination: Option<&mut std::fs::File>,
+) -> Result<Value, Failure> {
     fields.insert("api".into(), json!(api));
     fields.insert("credential".into(), json!(request.credential));
     if let Some(team) = request.team.as_deref().filter(|t| !t.is_empty()) {
@@ -31,12 +77,18 @@ pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
     }
     fields.insert("local_only".into(), json!(request.local_only));
     // A file's bytes come back as base64 inside the answer: 12 MiB less 64 KiB stays under it.
-    fields.insert("max_bytes".into(), json!(FILE_LIMIT));
-    let io: machine_io::Request = serde_json::from_value(Value::Object(fields))
+    // A read into a local file is not in the answer, so it may come to the path form's limit.
+    let limit = if destination.is_some() { local_file::LIMIT } else { FILE_LIMIT };
+    fields.insert("max_bytes".into(), json!(limit));
+    let mut io: machine_io::Request = serde_json::from_value(Value::Object(fields))
         .map_err(|e| Failure::Transport(format!("not a machine request: {e}")))?;
+    io.data_bytes = data;
     let client = machine_io::http_client().map_err(Failure::Transport)?;
     let (route, answer) = machine_io::perform(&client, &io, machine_io::now_ms).await;
     let mut answer = machine_io::scrub(answer, &io.credential);
+    if let Some(out) = destination {
+        local_file::deliver(&mut answer, out).map_err(|e| local_refusal(&e))?;
+    }
     // The line machine-io prints, so a file's verified bytes come back as `dataBase64`.
     let mut line = Capped(Vec::new());
     machine_io::write_line(&mut line, route, &mut answer)
@@ -44,7 +96,12 @@ pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
     let line: Value = serde_json::from_slice(&line.0)
         .map_err(|e| Failure::Transport(format!("the machine's answer could not be read: {e}")))?;
     let path = route_path(&io.machine, op_name(&request.args));
-    read(&line, &path)
+    read(&line, &path, limit)
+}
+
+/// A refused or failed local file of the path form.
+fn local_refusal(message: &str) -> Failure {
+    Failure::Transport(format!("local_path: {message}"))
 }
 
 /// The most bytes a Worker machine read or listing may come to through the daemon.
@@ -86,7 +143,7 @@ fn route_path(machine: &str, op: &str) -> String {
 
 /// A machine-io line (`{route, status, code, body}`): the body of a 2xx, else what the route's
 /// refusal says. Status 0 is no answer at all (`code` says why: `timed_out` or `transport`).
-pub(crate) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
+pub(crate) fn read(line: &Value, path: &str, limit: u64) -> Result<Value, Failure> {
     let status =
         line.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok()).unwrap_or(0);
     let code = line.get("code").and_then(Value::as_str);
@@ -96,7 +153,7 @@ pub(crate) fn read(line: &Value, path: &str) -> Result<Value, Failure> {
         0 if code == Some("no_backend") => Err(Failure::NoBackend),
         0 if code == Some("decoding") => Err(Failure::Decoding(format!("{path}: not JSON"))),
         0 if code == Some("too_large") => {
-            Err(Failure::Transport(format!("{path}: the answer is larger than {FILE_LIMIT} bytes")))
+            Err(Failure::Transport(format!("{path}: the answer is larger than {limit} bytes")))
         }
         0 => Err(Failure::Transport(code.unwrap_or("no answer").to_owned())),
         200..=299 => Ok(body),

@@ -6,7 +6,10 @@
 //! Fields (spec/resource-operations-v2.json): `api` (the API's base URL), `auth`
 //! (`stack|owner|worker`), `access_token`, and optionally `refresh_token`, `team`, `app_version`,
 //! `local_only`, `args` (the call's object) and `key_base64` (`cloud.owner.acpmux_keyed_start`'s
-//! person key, decoded into a buffer the request body owns and wipes). The daemon keeps no
+//! person key, decoded into a buffer the request body owns and wipes, never logged, stored or
+//! echoed in a refusal). `cloud.machine.io`'s `args` may name `local_path`, a file of the app's in
+//! its transfer folder, for a read or write too large for one request or answer
+//! (`cmux_cloud_api::local_file`). The daemon keeps no
 //! credential and grants none: the call runs with the request's own. Only a local socket client
 //! may call, so a remote device cannot use the daemon to reach the Mac's loopback services.
 //!

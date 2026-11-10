@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
 @testable import CmuxNextCloudCredentials
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -15,7 +16,10 @@ struct CloudWorkerMachineFilesTests {
         CloudDaemonFake { _, args in
             CloudDaemonFake.value(switch args["op"] as? String {
             case "exec": #"{"exitCode":0,"stdout":"ok","stderr":""}"#
-            case "read": #"{"path":"/a","dataBase64":"aGk=","size":2}"#
+            case "read":
+                // The daemon fills the read's file (the path form) and answers its metadata.
+                if let local = args["local_path"] as? String { FileManager.default.createFile(atPath: local, contents: Data("hi".utf8)) }
+                #"{"path":"/a","size":2}"#
             default: #"{"ok":true,"path":"/a"}"#
             })
         }
@@ -97,5 +101,44 @@ struct CloudWorkerMachineFilesTests {
         #expect(made.contains("chmod 700") && made.contains("test -O"))
         #expect(fake.sent.last?.args["mode"] as? Int == 0o644)
         #expect(fake.sent.last?.args["path"] as? String == path)
+    }
+
+    /// A read's bytes come through a new name in the transfer folder, removed after the call.
+    @Test func aReadComesThroughATransferFileThatIsRemovedAfterwards() async throws {
+        let fake = fake()
+        let contents = try await worker(fake).readFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/a")
+        #expect(contents.data == Data("hi".utf8) && contents.size == 2)
+        let local = try #require(fake.sent.first?.args["local_path"] as? String)
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cmux-cloud-transfer").path
+        #expect(URL(fileURLWithPath: local).deletingLastPathComponent().path == folder)
+        #expect(!FileManager.default.fileExists(atPath: local))
+        let mode = try FileManager.default.attributesOfItem(atPath: folder)[.posixPermissions] as? Int
+        #expect(mode == 0o700)
+    }
+
+    /// A write past the inline limit hands the daemon a private file instead of base64 a protocol
+    /// request (4 MiB) could not hold; a small one stays inline.
+    @Test func aLargeWriteGoesThroughAPrivateTransferFile() async throws {
+        final class Seen: Sendable { let file = Mutex<(bytes: Data?, mode: Int?)>((nil, nil)) }
+        let seen = Seen()
+        let fake = CloudDaemonFake { _, args in
+            if let local = args["local_path"] as? String {
+                let mode = (try? FileManager.default.attributesOfItem(atPath: local))?[.posixPermissions] as? Int
+                let bytes = FileManager.default.contents(atPath: local)
+                seen.file.withLock { $0 = (bytes, mode) }
+            }
+            return CloudDaemonFake.value(#"{"ok":true}"#)
+        }
+        let data = Data((0..<(5 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        try await worker(fake).writeFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/big", data: data, mode: 0o600)
+        let args = try #require(fake.sent.first?.args)
+        #expect(args["data_base64"] == nil && args["path"] as? String == "/big" && args["mode"] as? Int == 0o600)
+        let local = try #require(args["local_path"] as? String)
+        #expect(seen.file.withLock { $0.bytes } == data)
+        #expect(seen.file.withLock { $0.mode } == 0o600)
+        #expect(!FileManager.default.fileExists(atPath: local))
+
+        try await worker(fake).writeFile("vm_aaaaaaaaaaaaaaaaaaaa", path: "/small", data: Data("hi".utf8))
+        #expect(fake.sent.last?.args["data_base64"] as? String == "aGk=" && fake.sent.last?.args["local_path"] == nil)
     }
 }
