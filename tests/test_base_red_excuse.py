@@ -1657,6 +1657,54 @@ class SupersededCancelledRun(unittest.TestCase):
         self.assertNotIn("ignored", lines)
 
 
+class SkippedCheckIsNoVerdict(unittest.TestCase):
+    """cmux#39863 at 5bba0857 (2026-11-10): a hand dispatch of cmux-next.yml on the pull request's branch (run
+    42735041008) posted a skipped 'cmux-next fast tier' (job 129562640684) over the pull request run's cancelled one
+    (job 129507677190): every job a dispatch does not run is a newer skipped check run of the same workflow and name
+    on the head. A skip is no verdict, as merge_fast_gate.latest ranks it (after #39027): it never supersedes a red,
+    and of a name's check runs the newest one that is not a skip decides."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.workflows = {}
+
+    def skipped(self, job_id, run):
+        self.gh.jobs[job_id] = dict(failed_job(job_id, run, HEAD), conclusion="skipped", steps=[])
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def check(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT])
+
+    def test_a_newer_skip_does_not_supersede_a_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.skipped(5, 11)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_green_run_under_a_newer_skip_still_supersedes_a_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        self.skipped(6, 12)
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+
+    def test_a_check_named_whose_newest_run_is_a_skip_is_judged_by_its_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.skipped(5, 11)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.check()
+
+    def test_a_check_named_whose_newest_run_is_a_skip_is_judged_by_its_failure(self):
+        self.skipped(5, 11)
+        lines = "\n".join(self.check())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+
 class SlimRunRecordGitHub(FakeGitHub):
     """A lane VM's gh chain: `actions/runs/ID` answers glaeda's 12-field run summary (no workflow_id or path), and a
     run's job list names no run_id; `actions/runs?head_sha=SHA` is REST's list (LISTED, or every run in workflow 7)."""
