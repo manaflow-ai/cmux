@@ -78,6 +78,10 @@ public struct ScreenSessionView: View {
     @State private var trackpadLink = ScreenTrackpadLink()
     /// The drawer's measured height (above the bottom safe area).
     @State private var trackpadDrawerHeight: CGFloat = 300
+    /// The drawer content's measured height, kept while closed so the drawer's travel stays the same.
+    @State private var trackpadContentHeight: CGFloat = 224
+    /// The drawer's content is drawn: from opening until a close has finished sliding down.
+    @State private var trackpadContentShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickedPhoto: PhotosPickerItem?
     /// Reading and preparing the picked photo, before it is sent.
@@ -215,7 +219,12 @@ public struct ScreenSessionView: View {
 
     private func setTrackpad(open: Bool) {
         // Reduce Motion: the drawer moves in one frame.
-        withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1)) { trackpadOpen = open }
+        if open { trackpadContentShown = true }
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1)) {
+            trackpadOpen = open
+        } completion: {
+            if !trackpadOpen { trackpadContentShown = false }
+        }
     }
 
     /// The trackpad drawer: its handle at the bottom edge, and above the
@@ -224,28 +233,16 @@ public struct ScreenSessionView: View {
         let progress = trackpadTravel > 0 ? 1 - trackpadOffset / trackpadTravel : (trackpadOpen ? 1 : 0)
         return VStack(spacing: 10) {
             trackpadHandle
-            VStack(spacing: 10) {
-                ScreenTrackpadPad(link: trackpadLink, active: trackpadOpen)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 180)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.18)))
-                if hasMenu {
-                    Menu {
-                        optionsItems
-                    } label: {
-                        Label("Viewer Settings", systemImage: "slider.horizontal.3")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    .accessibilityIdentifier("screen.options")
-                }
+            // Closed (and not being dragged), the content is not drawn: only its room is kept below
+            // the handle, so nothing hidden can take touches or show to VoiceOver.
+            if trackpadContentShown || trackpadDrag != 0 {
+                trackpadContent
+                    .opacity(progress)
+                    .allowsHitTesting(trackpadOpen)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { trackpadContentHeight = $0 }
+            } else {
+                Color.clear.frame(height: trackpadContentHeight).accessibilityHidden(true)
             }
-            .opacity(progress)
-            .allowsHitTesting(trackpadOpen)
-            .accessibilityHidden(!trackpadOpen)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
@@ -263,6 +260,29 @@ public struct ScreenSessionView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("screen.trackpad.drawer")
         .accessibilityValue(trackpadOpen ? "open" : "closed")
+    }
+
+    /// The open drawer's content: the trackpad surface and the viewer settings.
+    private var trackpadContent: some View {
+        VStack(spacing: 10) {
+            ScreenTrackpadPad(link: trackpadLink, active: trackpadOpen)
+                .frame(maxWidth: .infinity)
+                .frame(height: 180)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.18)))
+            if hasMenu {
+                Menu {
+                    optionsItems
+                } label: {
+                    Label("Viewer Settings", systemImage: "slider.horizontal.3")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                }
+                .accessibilityIdentifier("screen.options")
+            }
+        }
     }
 
     /// The drawer's handle: swipe it up to open the drawer, down to hide it (a tap toggles too).
