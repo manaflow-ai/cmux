@@ -27,16 +27,6 @@ impl Surface {
         }
     }
 
-    /// What a tab shows of [`Self::title`] (D2): a terminal's title without
-    /// its status glyphs, a page's as is.
-    pub fn shown_title(&self) -> crate::TabTitle {
-        let raw = self.title();
-        match self {
-            Surface::Pty(_) => crate::TabTitle::terminal(&raw),
-            Surface::Browser(_) => crate::TabTitle::page(&raw),
-        }
-    }
-
     /// The newest finished shell command this terminal's tracker kept
     /// (`shell_history::Recording`), if any.
     pub(crate) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
