@@ -131,11 +131,17 @@ export class MockAppPanelsClient implements PageClient {
             ? { panels: this.widgets, layout: this.layout }
             : { panels: this.panels };
         break;
-      case "cmux.apps.panels.layout.set":
+      case "cmux.apps.panels.layout.set": {
         if (this.refusesLayout) throw pageError("cmux.protocol.unknown_op", op);
-        this.layout = [...(params.layout as string[])];
+        const layout = [...(params.layout as string[])];
+        const changed = layout.join("\n") !== this.layout.join("\n");
+        this.layout = layout;
         this.savedLayouts.push(this.layout);
+        // As the daemon does (store_panels.rs): a save that changes the layout is a change to every
+        // page's listing, so every other open page (shown, hidden or just opened) hears it.
+        if (changed) this.announceChanged();
         break;
+      }
       case "cmux.apps.panels.mount": {
         const panel = [...this.panels, ...this.widgets].find(
           (entry) => entry.app === params.app && entry.section === params.section,
@@ -210,7 +216,12 @@ export class MockAppPanelsClient implements PageClient {
 
   setPanels(panels: readonly AppPanel[]): void {
     this.panels = panels;
-    for (const listener of this.changed) listener(undefined, ++this.seq);
+    this.announceChanged();
+  }
+
+  /** `cmux.apps.panels.changed` to every watching page. */
+  private announceChanged(): void {
+    for (const listener of [...this.changed]) listener(undefined, ++this.seq);
   }
 
   /** Mounts the mock holds now (a closed New Tab page holds none). */
