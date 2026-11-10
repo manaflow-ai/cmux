@@ -15,6 +15,7 @@ import {
   planBuildTarget,
   type PlanBuildElsewhere,
 } from "../src/agent-session/acpmux/permissions/planBuild";
+import { teardownDom } from "./support/domTeardown";
 
 const plan: AcpmuxPermission = {
   permissionId: "p1",
@@ -111,11 +112,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("the chevron's menu offers the three builds, and a pick builds once", async () => {

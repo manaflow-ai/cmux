@@ -11,6 +11,7 @@ import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import type { UpdateOffer } from "../src/agent-session/acpmux/harnessHealthNoticeModel";
 import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -83,12 +84,8 @@ afterEach(() => {
   for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu, .acpmux-cols")) popup.remove();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Sent = { method: "model" | "effort" | "route"; value: string | null };

@@ -10,6 +10,7 @@ import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-sess
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+import { teardownDom } from "./support/domTeardown";
 
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
@@ -144,13 +145,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = (error: string, errorCode?: string) => ({

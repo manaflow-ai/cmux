@@ -13,6 +13,7 @@ import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
 import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
 import { NestedAgents, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/subagentTranscriptModel";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -50,6 +51,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

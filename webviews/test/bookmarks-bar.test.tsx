@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { Bookmark } from "../src/pages/bookmarks/types";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -31,7 +32,8 @@ beforeAll(() => {
   scope.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];

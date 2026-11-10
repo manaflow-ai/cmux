@@ -21,6 +21,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/markdownCut";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
 
 // The report from Leo's screenshot, long enough that acpmux's 240-character cut lands in the
 // bold span of the first list item.
@@ -142,9 +143,10 @@ const click = async (element: Element) =>
     element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
   });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

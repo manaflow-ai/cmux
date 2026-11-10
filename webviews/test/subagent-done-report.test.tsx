@@ -13,6 +13,7 @@ import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/tur
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -82,9 +83,10 @@ const click = (element: Element) =>
     element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
   });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

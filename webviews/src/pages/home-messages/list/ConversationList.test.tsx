@@ -8,6 +8,7 @@ import { ConversationList, type ConversationListProps } from "./ConversationList
 import { ME, sampleConversations } from "./fixtures";
 import { listMetrics } from "./layout";
 import { listModel } from "./model";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,6 +39,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

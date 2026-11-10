@@ -9,6 +9,7 @@ import { toolImages } from "../src/agent-session/acpmux/toolImages";
 import { ToolVisualRow } from "../src/agent-session/acpmux/conversation/ToolVisualPreview";
 import { ImageViewerContext } from "../src/agent-session/acpmux/conversation/imageViewerContext";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const image = "data:image/png;base64,iVBORw0KGgo=";
 const envelope = JSON.stringify([{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }]);
@@ -128,6 +129,7 @@ test.each(["inline", "file"])("a new %s capture keeps its preview open and updat
     await act(async () => root.unmount());
     setChipHost(undefined);
     resetLinkStore();
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

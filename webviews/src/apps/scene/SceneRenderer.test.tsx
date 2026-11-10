@@ -12,15 +12,17 @@ import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch 
 import { translate } from "../../agent-session/acpmux/i18n";
 import { appSceneIcon } from "./SceneSymbol";
 import { SceneStore, type SceneOp } from "./store";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

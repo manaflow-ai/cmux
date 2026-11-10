@@ -4,6 +4,7 @@
 // times a second that nobody saw. It now waits for the page to show, then draws once.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -20,7 +21,8 @@ beforeAll(() => {
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

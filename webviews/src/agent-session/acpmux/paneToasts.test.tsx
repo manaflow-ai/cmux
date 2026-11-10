@@ -14,6 +14,7 @@ import { WhoElseCard } from "./conversation/WhoElseCard";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./conversation/whoElseCalls";
 import { paneNotices } from "./paneToasts";
 import { SubsessionContext, SubsessionStore } from "./subagents/subsessions";
+import { settleReact } from "../../../test/support/domTeardown";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -54,6 +55,7 @@ afterEach(async () => {
   resetTranscriptDisclosure();
   setSessionRefResolver(undefined);
   resetSessionRefs();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

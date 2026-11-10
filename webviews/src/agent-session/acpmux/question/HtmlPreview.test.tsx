@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { previewDocument } from "./htmlPreviewModel";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const fixture = (name: string): AgentQuestion =>
   JSON.parse(
@@ -67,6 +68,7 @@ function installDom() {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

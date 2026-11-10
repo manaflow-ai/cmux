@@ -11,6 +11,7 @@ import type { PageClient } from "../src/pages/shared/pageClient";
 import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/server-cards/generated/strings.json";
 import { MockServerOwner } from "../src/pages/server-cards/server/mockOwner";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -46,12 +47,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 type Call = { op: string; params: unknown };

@@ -18,6 +18,7 @@ import type { SubsessionLimits } from "../src/agent-session/acpmux/model";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { startedSessions, type StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import { slotCounts, subsessionLimits } from "../src/agent-session/acpmux/subsessionLimits";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -51,6 +52,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetSessionInfoState();
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

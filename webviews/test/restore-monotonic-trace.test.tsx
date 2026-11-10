@@ -14,6 +14,7 @@
 // from snapshot or real back down to placeholder.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { settleReact, teardownDom } from "./support/domTeardown";
 
 setDefaultTimeout(60_000);
 
@@ -75,12 +76,8 @@ beforeAll(() => {
   (dom.window as unknown as { WebSocket: unknown }).WebSocket = Daemon;
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
   if (savedSocket.had) scope.WebSocket = savedSocket.value;
   else delete scope.WebSocket;
 });
@@ -274,6 +271,7 @@ afterEach(async () => {
   doc().getElementById("root")!.replaceChildren();
   doc().querySelector("cmux-chat-snapshot")?.remove();
   const globals = dom.window as unknown as Record<string, unknown>;
+  await settleReact();
   for (const key of ["__cmuxChatSnapshotShown", "__cmuxChatSnapshotLive", "cmuxAcpmuxActions", "webkit"])
     delete globals[key];
   dom.window.sessionStorage.clear();

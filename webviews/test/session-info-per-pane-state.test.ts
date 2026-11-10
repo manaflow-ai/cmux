@@ -6,6 +6,7 @@
 // pane after a relaunch is a fresh copy over the same storage.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 type Module = typeof import("../src/agent-session/acpmux/session-info/sessionInfoState");
 const MODULE = new URL("../src/agent-session/acpmux/session-info/sessionInfoState.ts", import.meta.url).pathname;
@@ -33,8 +34,9 @@ beforeEach(() => {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
 });
-afterEach(() => {
+afterEach(async () => {
   setSystemTime();
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

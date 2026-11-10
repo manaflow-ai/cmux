@@ -9,6 +9,7 @@ import { MessageAttachments } from "../../home-channels/AttachmentViews";
 import type { HomeAttachment } from "../../home-channels/types";
 import { createStrings } from "../../shared/i18n";
 import { attachmentDragParams } from "../detail/detailHost";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -65,9 +66,10 @@ function dragStart(element: Element): boolean {
   return event.defaultPrevented;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

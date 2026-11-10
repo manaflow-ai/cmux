@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { loopNextText } from "./taskGoalStripModel";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const never = async () => {
   throw new Error("a loop has no command");
@@ -220,6 +221,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -9,6 +9,7 @@ import { childRows } from "./subagents/childRows";
 import { SubagentFold } from "./subagents/subagentFold";
 import { visibleToolItems } from "./conversation/mcpPresentation";
 import { isCompletedPlumbingTool } from "./hiddenTools";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -22,7 +23,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   // Put back exactly what was there: a global that was absent stays absent for later files.
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];

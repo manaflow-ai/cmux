@@ -14,6 +14,7 @@ import { MachinesSection } from "../src/pages/machines/MachinesSection";
 import { MockMachinesProvider, joinedRows, sampleRows, sampleSnapshot } from "../src/pages/machines/mockProvider";
 import { MachinesStore } from "../src/pages/machines/store";
 import type { MachinesSnapshot } from "../src/pages/machines/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -59,12 +60,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function mount(snapshot: MachinesSnapshot = sampleSnapshot) {

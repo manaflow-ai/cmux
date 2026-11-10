@@ -18,6 +18,7 @@ import {
 } from "../src/agent-session/acpmux/newtab/pageWidgets";
 import { translateNewTab } from "../src/agent-session/acpmux/newtab/strings";
 import { DOT_STATES, NEW_TAB_DOTS, dotName, pickDot, shownDot } from "../src/agent-session/acpmux/newtab/tabDots";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -58,14 +59,11 @@ beforeAll(() => {
 
 beforeEach(() => setComposerLook("claude"));
 
-afterAll(() => {
+afterAll(async () => {
   // The look is module state: leave the default for the files after this one.
   setComposerLook("claude");
   window.localStorage.clear();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const storedLook = () => window.localStorage.getItem("cmux.composer.look");

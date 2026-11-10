@@ -14,6 +14,7 @@ import { projectInboxRows } from "./laneNoticeBatches";
 import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { findSkipped } from "./chatFind";
 import { isVisiblyEmptyMessage } from "./visibleMessage";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

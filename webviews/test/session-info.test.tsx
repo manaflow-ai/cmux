@@ -62,6 +62,7 @@ import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSumma
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -122,6 +123,7 @@ afterEach(async () => {
   resetSessionInfoState();
   setSessionInfoMore(true);
   setHeaderState({ inspector: false, pullRequest: null });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

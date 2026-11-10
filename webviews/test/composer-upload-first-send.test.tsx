@@ -18,6 +18,7 @@ import {
   UPLOAD_AUTO_RETRIES,
   UPLOAD_RETRY_DELAY_MS,
 } from "../src/agent-session/acpmux/composer/uploadRetry";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -48,12 +49,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const mp4 = () => new File(["video bytes"], "Sunbringer Menu Animation.mp4", { type: "video/mp4" });

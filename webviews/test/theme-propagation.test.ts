@@ -20,6 +20,7 @@ import {
   runPropagationMatrix,
 } from "../src/gallery/theme/propagation";
 import { themeTokens } from "../src/gallery/theme/web";
+import { settleReact } from "./support/domTeardown";
 
 const themes = readShippedThemes();
 const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", {
@@ -35,7 +36,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
   dom.window.eval(readWebThemeBootstrap());
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

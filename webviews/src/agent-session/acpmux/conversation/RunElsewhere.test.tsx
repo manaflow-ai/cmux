@@ -26,6 +26,7 @@ import {
   type RunPlan,
 } from "./runElsewhereModel";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -53,6 +54,7 @@ afterEach(async () => {
   jest.useRealTimers();
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

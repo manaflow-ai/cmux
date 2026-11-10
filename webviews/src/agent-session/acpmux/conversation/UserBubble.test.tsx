@@ -9,6 +9,7 @@ import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
 import { PromptActions } from "./MessageActions";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -46,6 +47,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

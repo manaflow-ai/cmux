@@ -2,6 +2,7 @@
 // Workflow progress traverses the real App memo boundary; unchanged siblings stay untouched.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -53,12 +54,8 @@ const { createRoot } = await import("react-dom/client");
 const fixtures = await import("../src/gallery/fixtures/acpmux");
 const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");

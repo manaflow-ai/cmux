@@ -8,6 +8,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { pageSwitch } from "./support/pageSwitch";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -55,13 +56,9 @@ const { RevealedMarkdown } = await import("../src/agent-session/acpmux/conversat
 const { revealFrames } = await import("../src/agent-session/acpmux/conversation/revealedMarkdownModel");
 const page = pageSwitch(dom.window);
 
-afterAll(() => {
+afterAll(async () => {
   page.dispose();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });

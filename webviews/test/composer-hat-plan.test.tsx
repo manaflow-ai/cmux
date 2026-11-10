@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture todo items and commands, not shipped UI.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,12 +55,8 @@ type AcpmuxPlanEntry = import("../src/agent-session/acpmux/model").AcpmuxPlanEnt
 // composer hat is kinda ok?"): folded, "2 of 5 · <the step at work>" before what runs; opened, the
 // checklist over the lines. Settings > Agent Chat > Pin Task List in Chat pins it in the transcript
 // instead (App.tsx `planInHat`).
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
