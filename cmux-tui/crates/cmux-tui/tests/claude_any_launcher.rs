@@ -169,19 +169,6 @@ fn unique_root() -> PathBuf {
     root.canonicalize().unwrap()
 }
 
-/// Writes `contents` as an executable file through a short-lived `sh`, so no
-/// fork of this test process holds a write descriptor to it (ETXTBSY).
-fn write_executable(path: &Path, contents: &str) {
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_bytes()).unwrap();
-    assert!(child.wait().unwrap().success(), "write {}", path.display());
-}
-
 struct Daemon {
     child: Child,
     socket: PathBuf,
@@ -459,7 +446,7 @@ fn any_launcher_claude_reports_to_the_pane_session() {
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
-    write_executable(&claude, FAKE_CLAUDE);
+    cmux_test_exec::write_executable(&claude, FAKE_CLAUDE).unwrap();
 
     // A launcher like `sr2 claude`: its own config directory, its own
     // `--settings` with a hook of its own, and Claude by full path.
@@ -473,9 +460,9 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     )
     .unwrap();
     let launcher = root.join("fake-sr2");
-    write_executable(
+    cmux_test_exec::write_executable(
         &launcher,
-        &format!(
+        format!(
             "#!/bin/sh\n[ \"$1\" = claude ] && shift\n\
              CLAUDE_CONFIG_DIR='{config}'\nexport CLAUDE_CONFIG_DIR\n\
              exec '{claude}' --settings '{settings}' \"$@\"\n",
@@ -483,7 +470,8 @@ fn any_launcher_claude_reports_to_the_pane_session() {
             claude = claude.display(),
             settings = launcher_settings.display(),
         ),
-    );
+    )
+    .unwrap();
 
     // `agent hook install claude` into its own config directory, for the
     // launch that also has the installed copy of the hooks.
@@ -497,7 +485,7 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     fs::create_dir_all(&build).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(exe, &daemon_exe).is_err() {
-        fs::copy(exe, &daemon_exe).unwrap();
+        cmux_test_exec::copy_executable(Path::new(exe), &daemon_exe).unwrap();
     }
     let install = Command::new(&daemon_exe)
         .args(["agent", "hook", "install", "claude"])
@@ -671,10 +659,11 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
-    write_executable(&claude, FAKE_CLAUDE);
+    cmux_test_exec::write_executable(&claude, FAKE_CLAUDE).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
-        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+        cmux_test_exec::copy_executable(Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &daemon_exe)
+            .unwrap();
     }
     // `agent hook install claude` in one config directory: its copy of the
     // hooks, not the plugin's, then reports for the Claude and the nested one.

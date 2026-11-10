@@ -2806,7 +2806,7 @@ mod tests {
         let data_home = root.join("data");
         fs::create_dir_all(&home).unwrap();
         let helper = root.join("cmux-tui-hook");
-        atomic_write(&helper, b"#!/bin/sh\nexit 0\n", Some(0o755)).unwrap();
+        cmux_test_exec::write_executable(&helper, b"#!/bin/sh\nexit 0\n").unwrap();
         Context {
             home,
             data_home,
@@ -3528,12 +3528,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn session_context_codex_launch_prints_one_json_object() {
-        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let helper = root.path().join("hook");
         let run = |event: &str, script: &str| {
-            fs::write(&helper, script).unwrap();
-            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+            cmux_test_exec::write_executable(&helper, script).unwrap();
             let command =
                 codex_contextual_hook_command(event, Path::new("/unused"), "term_test", &helper);
             let result = sh_c(&command);
@@ -3857,14 +3855,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn any_launcher_plugin_hooks_run_the_build_helper_marked_as_the_plugin_copy() {
-        use std::os::unix::fs::PermissionsExt as _;
         let dir = tempfile::tempdir().unwrap();
         // A path that needs every double-quote escape.
         let folder = dir.path().join("a \"b\" $c `d` \\e");
         fs::create_dir_all(&folder).unwrap();
         let helper = folder.join("cmux-tui-hook");
         let log = dir.path().join("log");
-        fs::write(
+        cmux_test_exec::write_executable(
             &helper,
             format!(
                 "#!/bin/sh\nprintf '%s %s %s\\n' \"${CLAUDE_PLUGIN_ORIGIN_ENV}\" \"$1\" \"$2\" >> '{}'\n",
@@ -3872,7 +3869,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
         let plugin = claude_plugin_hook_settings(&helper).unwrap();
         let installed = claude_session_hook_settings(None).unwrap();
         let events = |settings: &Map<String, Value>| {
@@ -3979,7 +3975,7 @@ mod tests {
         // Hermes activation requires its CLI, unlike file-only providers.
         // Keep the executable and its enabled state inside this test's home.
         let binary = root.path().join("hermes");
-        atomic_write(
+        cmux_test_exec::write_executable(
             &binary,
             br#"#!/bin/sh
 state="${0%/*}/hermes-enabled"
@@ -3995,7 +3991,6 @@ case "$*" in
   *) exit 64 ;;
 esac
 "#,
-            Some(0o755),
         )
         .unwrap();
         context.path = Some(root.path().as_os_str().to_owned());
@@ -4077,10 +4072,9 @@ esac
         let mut context = context(root.path());
         let capture = root.path().join("capture");
         let helper_source = context.helper_source.as_ref().unwrap();
-        atomic_write(
+        cmux_test_exec::write_executable(
             helper_source,
             b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
-            Some(0o755),
         )
         .unwrap();
         context.helper_source = Some(helper_source.clone());
