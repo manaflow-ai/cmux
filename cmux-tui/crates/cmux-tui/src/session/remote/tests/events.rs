@@ -525,3 +525,28 @@ fn indexed_title_update_changes_only_the_addressed_surface() {
     assert_eq!(cache.view.workspaces()[1].screens[0].panes[0].tabs[0].title, "other title");
     assert!(!cache.update_title(99, "missing".to_string()));
 }
+
+/// The remote tree cache keeps the daemon's split (D2). A raw title written
+/// back by the event path returns on the next `replace_tree` (a resize) and
+/// keeps that spinner frame, as the daemon sends no frame of the same text.
+#[cfg(unix)]
+#[test]
+fn a_title_event_caches_its_text_not_the_spinner_frame() {
+    let (client, _server) = UnixStream::pair().unwrap();
+    let session = socket_test_session(client);
+    session.tree.lock().unwrap().replace(
+        parse_tree(&json!({"workspaces": [{"id": 1, "active": true, "screens": [{
+            "id": 2, "active": true, "layout": {"type": "leaf", "pane": 3},
+            "panes": [{"id": 3, "tabs": [{"surface": 7, "kind": "pty", "title": "zsh"}]}]
+        }]}]})),
+        0,
+    );
+    session.handle_line(json!({
+        "event": "title-changed",
+        "surface": 7,
+        "title": "⠂ Fix it",
+        "text": "Fix it",
+        "activity": "working",
+    }));
+    assert_eq!(session.tree.lock().unwrap().view.surface(7).unwrap().title, "Fix it");
+}
