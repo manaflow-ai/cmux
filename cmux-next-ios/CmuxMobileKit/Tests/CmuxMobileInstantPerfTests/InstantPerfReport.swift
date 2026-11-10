@@ -47,7 +47,11 @@ enum InstantPerfReport {
     static let ratioLimit = 1.2
     static let ratioFloorMs = 1.0
     /// Timer and scheduler noise on a shared runner: a god within this of small passes the ratio.
+    /// The allowance is the larger of `noiseMs` and `noiseShareOfTarget` of the metric's target:
+    /// a hosted simulator moved a 7 ms chat open by 5 to 30 ms between runs of one job
+    /// (kit run 42846456096), and a tenth of the target is the bar's own "within about 10%".
     static let noiseMs: Double = 2
+    static let noiseShareOfTarget: Double = 0.1
     /// A known-red check must pass at this share of its limit before its mark has to come off.
     static let clearMargin: Double = 0.75
     static let budgetFactor = 3.0
@@ -103,7 +107,7 @@ enum InstantPerfReport {
             .smallBudget: smallMs <= budget,
             .godBudget: godMs <= budget,
             // A god that is over the ratio by less than the runner's noise is not a finding.
-            .ratio: ratio <= ratioLimit || godMs - max(smallMs, ratioFloorMs) <= noiseMs,
+            .ratio: ratio <= ratioLimit || godMs - max(smallMs, ratioFloorMs) <= max(noiseMs, target * noiseShareOfTarget),
         ]
         // A known-red check has to pass with room to spare before its mark must come off; one
         // that only just passes on a quick runner stays marked, and never fails the run.
