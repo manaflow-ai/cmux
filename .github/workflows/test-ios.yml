@@ -1120,10 +1120,11 @@ jobs:
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
-    # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m. The per-step
-    # watchdogs remain the first line of defense; this 25-minute job cap bounds
+    # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m, before the
+    # App Review journey step (bounded at 10 minutes per attempt). The per-step
+    # watchdogs remain the first line of defense; this 35-minute job cap bounds
     # setup or teardown that makes no test progress.
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
@@ -1386,6 +1387,44 @@ jobs:
               stop_video
               continue
             fi
+            exit "$status"
+          done
+
+      # App Review rejected 1.0.0 for a fresh install it could not get through
+      # (an iPad with no Mac, then the demonstration account). The default
+      # product above already holds cmuxUITests, so the path a reviewer takes
+      # runs on both families in every iOS pull request and merge-group run,
+      # and the required ios-tests gate fails before App Store Connect would.
+      - name: Run App Review journey
+        id: app-review-journey
+        if: ${{ inputs.test_filter == '' }}
+        env:
+          JOURNEY_FILTER: cmuxUITests/AppReviewJourneyUITests
+          XCODEBUILD_TIMEOUT_SECONDS: "600"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2; do
+            LOG_PATH="$IOS_DERIVED_DATA/logs/app-review-journey-${attempt}.log"
+            RESULT_PATH="$IOS_DERIVED_DATA/Logs/Test/app-review-journey-${attempt}.xcresult"
+            xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            xcrun simctl erase "$SIMULATOR_ID"
+            xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if scripts/blacksmith-bounded-command.sh "$XCODEBUILD_TIMEOUT_SECONDS" \
+              xcodebuild -xctestrun "$CMUX_IOS_XCTESTRUN" \
+                -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+                -only-testing:"$JOURNEY_FILTER" \
+                -resultBundlePath "$RESULT_PATH" \
+                test-without-building 2>&1 | tee "$LOG_PATH"; then
+              ./scripts/ci/require_selected_test_execution.sh "$LOG_PATH" "$JOURNEY_FILTER"
+              exit 0
+            fi
+            status="${PIPESTATUS[0]}"
+            if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
+              echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
+              continue
+            fi
+            echo "::error::A reviewer on ${{ matrix.family }} cannot get through the app: AppReviewJourneyUITests failed. App Review would reject this build."
             exit "$status"
           done
 

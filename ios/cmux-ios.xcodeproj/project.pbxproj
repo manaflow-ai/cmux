@@ -19,6 +19,7 @@
 		A17662012F00000000A66F90 /* AgentFeedQuestionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17662022F00000000A66F90 /* AgentFeedQuestionUITests.swift */; };
 		A7EFF0012F00000000A66F90 /* TaskComposerEffortPickerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EFF0022F00000000A66F90 /* TaskComposerEffortPickerUITests.swift */; };
 		8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */; };
+		A11EB0012E00000000A11E01 /* AppReviewJourneyUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EB0022E00000000A11E02 /* AppReviewJourneyUITests.swift */; };
 		8B8A10302DF5000000A66F90 /* PushReadinessUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */; };
 		8B8A10E22DF5000000A66F90 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */; };
 		8B8A10E42DF5000000A66F90 /* SnapshotUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */; };
@@ -87,6 +88,7 @@
 		A17662022F00000000A66F90 /* AgentFeedQuestionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedQuestionUITests.swift; sourceTree = "<group>"; };
 		A7EFF0022F00000000A66F90 /* TaskComposerEffortPickerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskComposerEffortPickerUITests.swift; sourceTree = "<group>"; };
 		8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeParityUITests.swift; sourceTree = "<group>"; };
+		A11EB0022E00000000A11E02 /* AppReviewJourneyUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewJourneyUITests.swift; sourceTree = "<group>"; };
 		8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushReadinessUITests.swift; sourceTree = "<group>"; };
 		8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
 		8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotUITests.swift; sourceTree = "<group>"; };
@@ -150,6 +152,7 @@
 				A17662022F00000000A66F90 /* AgentFeedQuestionUITests.swift */,
 				A7EFF0022F00000000A66F90 /* TaskComposerEffortPickerUITests.swift */,
 				8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */,
+				A11EB0022E00000000A11E02 /* AppReviewJourneyUITests.swift */,
 				8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */,
 				8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */,
 				8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */,
@@ -443,6 +446,7 @@
 				A17662012F00000000A66F90 /* AgentFeedQuestionUITests.swift in Sources */,
 				A7EFF0012F00000000A66F90 /* TaskComposerEffortPickerUITests.swift in Sources */,
 				8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */,
+				A11EB0012E00000000A11E01 /* AppReviewJourneyUITests.swift in Sources */,
 				8B8A10302DF5000000A66F90 /* PushReadinessUITests.swift in Sources */,
 				8B8A10E42DF5000000A66F90 /* SnapshotUITests.swift in Sources */,
 				8B8A10E22DF5000000A66F90 /* SnapshotHelper.swift in Sources */,
