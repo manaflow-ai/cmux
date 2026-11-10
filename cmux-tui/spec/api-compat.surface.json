@@ -19922,6 +19922,30 @@
       "/data/disk": {
         "ty": "object"
       },
+      "/data/disk/checkpoints": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/disk/checkpoints/budget_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/checkpoints": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/largest_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/over_budget": {
+        "ty": "boolean",
+        "required": true
+      },
       "/data/disk/error": {
         "ty": "string",
         "required": true,

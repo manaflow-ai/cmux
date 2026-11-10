@@ -9197,6 +9197,11 @@ Result<ServerStatsConnections> Codec<ServerStatsConnections>::decode(const Json&
 Result<Json> Codec<ServerStatsDisk>::encode(const ServerStatsDisk& value) {
     (void)value;
     Json::Object object;
+    if (!value.checkpoints.is_absent()) {
+        auto encoded = encode_value(value.checkpoints);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("checkpoints", std::move(encoded).value());
+    }
     if (value.error) {
         auto encoded = encode_value(*value.error);
         if (!encoded) return std::move(encoded).error();
@@ -9252,6 +9257,16 @@ Result<ServerStatsDisk> Codec<ServerStatsDisk>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ServerStatsDisk result{};
+    const Json* field_checkpoints = value.find("checkpoints");
+    if (field_checkpoints) {
+        if (field_checkpoints->is_null()) {
+            result.checkpoints = Field<ServerStatsDiskCheckpoints>::null();
+        } else {
+            auto decoded = decode_value<ServerStatsDiskCheckpoints>(*field_checkpoints);
+            if (!decoded) return std::move(decoded).error();
+            result.checkpoints = Field<ServerStatsDiskCheckpoints>(std::move(decoded).value());
+        }
+    }
     const Json* field_error = value.find("error");
     if (!field_error) {
         return make_error(ErrorCode::decode, "missing required field 'error'");
@@ -9371,6 +9386,79 @@ Result<ServerStatsDisk> Codec<ServerStatsDisk>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_wal_bytes);
         if (!decoded) return std::move(decoded).error();
         result.wal_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskCheckpoints>::encode(const ServerStatsDiskCheckpoints& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_budget_bytes = encode_value(value.budget_bytes);
+    if (!encoded_budget_bytes) return std::move(encoded_budget_bytes).error();
+    object.emplace("budget_bytes", std::move(encoded_budget_bytes).value());
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_checkpoints = encode_value(value.checkpoints);
+    if (!encoded_checkpoints) return std::move(encoded_checkpoints).error();
+    object.emplace("checkpoints", std::move(encoded_checkpoints).value());
+    auto encoded_largest_bytes = encode_value(value.largest_bytes);
+    if (!encoded_largest_bytes) return std::move(encoded_largest_bytes).error();
+    object.emplace("largest_bytes", std::move(encoded_largest_bytes).value());
+    auto encoded_over_budget = encode_value(value.over_budget);
+    if (!encoded_over_budget) return std::move(encoded_over_budget).error();
+    object.emplace("over_budget", std::move(encoded_over_budget).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskCheckpoints> Codec<ServerStatsDiskCheckpoints>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskCheckpoints result{};
+    const Json* field_budget_bytes = value.find("budget_bytes");
+    if (!field_budget_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'budget_bytes'");
+    }
+    if (field_budget_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_budget_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.budget_bytes = std::move(decoded).value();
+    }
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_checkpoints = value.find("checkpoints");
+    if (!field_checkpoints) {
+        return make_error(ErrorCode::decode, "missing required field 'checkpoints'");
+    }
+    if (field_checkpoints) {
+        auto decoded = decode_value<std::uint64_t>(*field_checkpoints);
+        if (!decoded) return std::move(decoded).error();
+        result.checkpoints = std::move(decoded).value();
+    }
+    const Json* field_largest_bytes = value.find("largest_bytes");
+    if (!field_largest_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'largest_bytes'");
+    }
+    if (field_largest_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_largest_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.largest_bytes = std::move(decoded).value();
+    }
+    const Json* field_over_budget = value.find("over_budget");
+    if (!field_over_budget) {
+        return make_error(ErrorCode::decode, "missing required field 'over_budget'");
+    }
+    if (field_over_budget) {
+        auto decoded = decode_value<bool>(*field_over_budget);
+        if (!decoded) return std::move(decoded).error();
+        result.over_budget = std::move(decoded).value();
     }
     return result;
 }
