@@ -325,4 +325,40 @@ struct LargeSessionObservationTests {
 /// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor()`` that matched.
 @MainActor final class WaitHits {
     var names = Set<String>()
+
+    /// O7 `AgentLaneStore.swift:56`: every agent step writes the whole lane map (`lanes`), and the Needs You tray's
+    /// approvals (`SidebarApprovals.followLanes`) read that map, so every step of any session re-ran it. It reads the
+    /// waiting sessions (a set written only when it changes) and each waiting session's own cell now: a working
+    /// agent's step wakes it from no other session.
+    @Test(.timeLimit(.minutes(2)))
+    func o7ApprovalsReadTheWaitingSessionsOnly() async throws {
+        let saved = DesignSettings.shared.sidebarSections
+        DesignSettings.shared.sidebarSections.sessionTree = true
+        defer { DesignSettings.shared.sidebarSections = saved }
+        let store = AgentLaneStore()
+        let sessions = (1...LargeSessionFixture.workspaces).map(LargeSessionFixture.session)
+        store.lanes = Dictionary(uniqueKeysWithValues: sessions.map { ($0, SidebarApprovalAnswerTests.lane($0, .working)) })
+        let answerer = SidebarApprovalAnswerTests.Answerer()
+        answerer.pending = ["s-7": SidebarApprovalAnswerTests.approval("s-7")]
+        let approvals = SidebarApprovals(answerer: answerer)
+        let following = approvals.followLanes(store)
+        defer { following.cancel() }
+        await LargeSessionFixture.drainMain()
+
+        // The probe: each session's agent takes a step (what a working agent writes many times a second).
+        let changes = sessions.enumerated().map { offset, session -> (workspace: Int, change: @MainActor () -> Void) in
+            (offset + 1, {
+                store.set(session, AgentActivityLane(id: session, name: session, title: session, peer: nil, parent: nil, state: .working,
+                                                     since: nil, error: nil, workspaceID: nil, step: "step \(offset)"))
+            })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAgentLanes/SidebarApprovals", changes: changes)
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) sessions" }
+        #expect(wide.isEmpty, "approval observers woken by more than one session: \(wide)")
+
+        // The tray still follows: a session that starts waiting gets its buttons.
+        store.set("s-7", SidebarApprovalAnswerTests.lane("s-7", .input))
+        await LargeSessionFixture.until { approvals.answerable["s-7"] != nil }
+        #expect(approvals.answerable == ["s-7": "perm-s-7"])
+    }
 }
