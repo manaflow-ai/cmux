@@ -489,16 +489,17 @@ fn agents_at_rest_a_report_after_a_row_with_an_unknown_result_is_appended() {
     )
     .unwrap();
     assert_eq!(ended.kind, "agent.session.ended");
+    // Read now: the held writer keeps the registry connection.
+    let before_end = mux.session_journal_head().unwrap();
     let producer_mux = mux.clone();
     let producer = std::thread::spawn(move || {
         producer_mux.append_journal_ingress(&ended, "test", "unknown-result-1")
     });
     entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
     let error = producer.join().unwrap().expect_err("the producer gives up on a held commit");
-    let before_release = mux.session_journal_head().unwrap();
     release.send(()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while kinds_after(&mux, before_release).get("agent.session.ended").is_none() {
+    while kinds_after(&mux, before_end).get("agent.session.ended").is_none() {
         assert!(Instant::now() < deadline, "the held row did not commit after {error:#}");
         std::thread::sleep(Duration::from_millis(10));
     }
