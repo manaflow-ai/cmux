@@ -620,7 +620,7 @@ fn space<'a>(root: &'a Value, caller: &str, is_agent: &dyn Fn(&str) -> bool) -> 
     }
     let cell = match (path.get(at), path.last()) {
         (Some(split), _) => *split,
-        (None, Some(parent)) => child(*parent),
+        (None, Some(&parent)) => child(parent),
         (None, None) => root,
     };
     let top = path
