@@ -271,7 +271,7 @@ fn a_hold_waits_out_a_write_in_flight_before_its_lease_ends_it() {
         wait_started.recv().unwrap();
         // Well past the lease: the hold may not end while the write is in flight.
         std::thread::sleep(Duration::from_millis(400));
-        assert_eq!(state(&folder), "syncing", "the barrier stays until the write lands");
+        assert_eq!(state(folder), "syncing", "the barrier stays until the write lands");
         finish.send(()).unwrap();
         assert_eq!(writer.join().unwrap()["ok"], true);
     });

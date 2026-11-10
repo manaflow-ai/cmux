@@ -212,8 +212,11 @@ pub struct GitSeedService {
     config: Config,
     jobs: Mutex<Jobs>,
     /// The running holds' owner threads, and whether each still runs, by job ([`super::hold`]).
-    holds: Arc<Mutex<HashMap<String, (mpsc::Sender<hold::Op>, hold::Alive)>>>,
+    holds: Arc<Mutex<HashMap<String, Holder>>>,
 }
+
+/// A running hold's owner thread, and whether the hold still runs.
+type Holder = (mpsc::Sender<hold::Op>, hold::Alive);
 
 #[derive(Deserialize)]
 struct StatusParams {
