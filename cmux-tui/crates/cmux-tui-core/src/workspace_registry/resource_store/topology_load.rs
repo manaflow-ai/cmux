@@ -24,6 +24,52 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// [`Self::resource_topology_scoped`] whose frame holds the active
+    /// screen of `workspaces` only, for a projection that removes and moves
+    /// no workspace (a created view). It reads no row of another workspace,
+    /// so its cost does not follow the count of workspaces.
+    pub(crate) fn resource_topology_of_scope(
+        &self,
+        workspaces: &[WorkspacePublicId],
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let connection = self.connection.get();
+        let mut topology = load_scope_frame(
+            &connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            workspaces,
+        )?;
+        load_subtrees(&connection, &mut topology, workspaces)?;
+        Ok(topology)
+    }
+
+    /// Whether the store holds a live row of this workspace.
+    pub(crate) fn workspace_row_is_live(
+        &self,
+        workspace: &WorkspacePublicId,
+    ) -> anyhow::Result<bool> {
+        Ok(self
+            .connection
+            .get()
+            .prepare(
+                "SELECT 1 FROM resource_workspaces
+                 WHERE public_id = ?1 AND deleted_revision IS NULL",
+            )?
+            .query_row([workspace.as_str()], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
+    /// How many live workspace rows the store holds.
+    pub(crate) fn live_workspace_row_count(&self) -> anyhow::Result<usize> {
+        let count = self.connection.get().query_row(
+            "SELECT COUNT(*) FROM resource_workspaces WHERE deleted_revision IS NULL",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        usize::try_from(count).context("the count of live workspace rows is negative")
+    }
+
     /// What a workspace registry commit that leaves `live` as the live
     /// workspaces and `active` as the active one reads before it: the frame
     /// (every workspace's active screen), the subtrees of the workspaces it
@@ -302,6 +348,47 @@ fn load_screen_subtrees(
         topology.screens.extend(loaded);
     }
     Ok(())
+}
+
+/// Revision, active workspace and the active screen of each of `workspaces`
+/// that the store holds live: the frame of a scoped read that leaves out the
+/// rows of every other workspace.
+fn load_scope_frame(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+    workspaces: &[WorkspacePublicId],
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let revision = current_resource_revision(connection)?;
+    let active_workspace =
+        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
+    let mut active_screens = Vec::with_capacity(workspaces.len());
+    let mut statement = connection.prepare(
+        "SELECT active_screen_id
+         FROM resource_workspaces
+         WHERE public_id = ?1 AND deleted_revision IS NULL",
+    )?;
+    for workspace in workspaces {
+        let stored = statement
+            .query_row([workspace.as_str()], |row| row.get::<_, Option<String>>(0))
+            .optional()?;
+        if let Some(screen) = stored {
+            active_screens
+                .push((workspace.clone(), screen.map(ScreenPublicId::parse).transpose()?));
+        }
+    }
+    drop(statement);
+    Ok(ResourceTopologySnapshot {
+        session_id,
+        generation,
+        revision,
+        active_workspace,
+        active_screens,
+        screens: Vec::new(),
+        panes: Vec::new(),
+        tabs: Vec::new(),
+        browsers: Vec::new(),
+    })
 }
 
 /// Revision, active workspace and every live workspace's active screen.

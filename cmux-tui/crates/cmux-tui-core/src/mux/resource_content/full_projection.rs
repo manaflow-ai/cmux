@@ -125,8 +125,13 @@ impl Mux {
         let mut screens = PublishedScreens::default();
 
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
-            live_workspaces.insert(workspace.public_id.clone());
             let in_scope = scope.is_none_or(|scope| scope.contains(&workspace.public_id));
+            if !in_scope && !input.rows.states(workspace_index) && input.rows.scope_frame() {
+                // `before` holds no row of this workspace and the walk states none: there is
+                // nothing to compare, to keep or to delete for it.
+                continue;
+            }
+            live_workspaces.insert(workspace.public_id.clone());
             if !in_scope && !input.rows.states(workspace_index) {
                 // The caller knows this workspace's row and public value did not change. Its key
                 // stays live, so the walk does not publish a delete of it.
