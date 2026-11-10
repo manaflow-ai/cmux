@@ -112,7 +112,7 @@ struct InstantPerfTests {
                 var list: MacHomeList?
                 var memoTime = Duration.zero
                 let elapsed = try ContinuousClock().measure {
-                    guard case .named(let found, _) = try MacHomeReply(line: fixture.reply) else { return }
+                    guard case .named(let found, _, _) = try MacHomeReply(line: fixture.reply) else { return }
                     let inPlace = MacHomeRows.apply(found, asked: [fixture.id], complete: true, to: &rows)
                     let start = ContinuousClock.now
                     list = memo.list(rows, query: "", unreadOnly: false, version: .init(rows: 2),

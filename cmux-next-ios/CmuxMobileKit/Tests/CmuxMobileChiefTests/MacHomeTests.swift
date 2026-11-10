@@ -98,9 +98,18 @@ final class FakeHomeOwner: @unchecked Sendable {
     private(set) var commands: [[String: Any]] = []
     let windows: Windows
 
-    init(windows: Windows = .ignores) {
+    init(windows: Windows = .ignores, rows: [[String: Any]]? = nil) {
         self.windows = windows
+        if let rows { self.rows = rows }
     }
+
+    /// The owner drops a conversation (a Chief deleted on the Mac).
+    func remove(_ conversation: String) {
+        lock.withLock { rows.removeAll { $0["id"] as? String == conversation } }
+    }
+
+    /// The owner's order now.
+    var order: [String] { lock.withLock { rows.compactMap { $0["id"] as? String } } }
 
     func line(_ object: [String: Any]) -> Data {
         var data = try! JSONSerialization.data(withJSONObject: object)
@@ -155,7 +164,9 @@ final class FakeHomeOwner: @unchecked Sendable {
                             indexed["index"] = index
                             return indexed
                         }
-                        return [ok(["me": "user_local", "cloud": "not_asked", "rows": found, "total": rows.count])]
+                        let digest = MacHomeRows.orderDigest(rows.compactMap(MacHomeRow.init(wire:)))
+                        return [ok(["me": "user_local", "cloud": "not_asked", "rows": found, "total": rows.count,
+                                    "order": digest])]
                     }
                     let offset = object["offset"] as? Int ?? 0
                     let limit = object["limit"] as? Int ?? rows.count

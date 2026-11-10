@@ -39,6 +39,21 @@ public enum MacHomeRows {
         }
     }
 
+    /// The order digest cmux-mobile-host sends with an `ids` read (`order`): FNV-1a 64 over
+    /// each row id's UTF-8 bytes and a newline, in list order, as lowercase hex.
+    public static func orderDigest(_ rows: [MacHomeRow]) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for row in rows {
+            for byte in row.id.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01b3
+            }
+            hash ^= 0x0A
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return String(hash, radix: 16)
+    }
+
     /// Applies an `ids` read of `asked` to `rows`: a row that kept its place is replaced
     /// there; any other asked row leaves and comes back at its index (one the owner no
     /// longer lists stays gone). With only the first window loaded (`complete` false), a row
@@ -71,7 +86,8 @@ public enum MacHomeReply: Equatable, Sendable {
     /// `limit` rows from `offset` of the `total` the phone's list holds.
     case window([MacHomeRow], offset: Int, total: Int)
     /// The rows an `ids` read named, each at its index; an asked one missing has left.
-    case named([MacHomeRows.Found], total: Int)
+    /// `order` is the owner's order digest (``MacHomeRows/orderDigest(_:)``), when sent.
+    case named([MacHomeRows.Found], total: Int, order: String?)
 
     /// The reply's `data`.
     public init(homeInbox data: [String: Any]) {
@@ -88,7 +104,7 @@ public enum MacHomeReply: Equatable, Sendable {
             guard let index = (object["index"] as? NSNumber)?.intValue, index >= 0,
                   let row = MacHomeRow(wire: object) else { return nil }
             return MacHomeRows.Found(index: index, row: row)
-        }, total: total)
+        }, total: total, order: data["order"] as? String)
     }
 
     /// A reply line, or the owner's (or the host's) refusal as `LinkError` `refused`.
@@ -108,7 +124,7 @@ public enum MacHomeReply: Equatable, Sendable {
     public var rows: [MacHomeRow] {
         switch self {
         case .all(let rows), .window(let rows, _, _): rows
-        case .named(let found, _): found.map(\.row)
+        case .named(let found, _, _): found.map(\.row)
         }
     }
 

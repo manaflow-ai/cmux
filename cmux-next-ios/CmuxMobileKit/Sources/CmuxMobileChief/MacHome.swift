@@ -299,6 +299,10 @@ public final class MacHomeFeed {
     @ObservationIgnored private var reading = false
     /// List-state writes not answered yet: a read meanwhile could undo the edit shown.
     @ObservationIgnored private var pendingWrites = 0
+    /// Rows to read once the writes are answered: each write's own row, and every row a
+    /// read skipped meanwhile (``deferredAll``: a whole-list or window read was skipped).
+    @ObservationIgnored private var deferredIDs: Set<String> = []
+    @ObservationIgnored private var deferredAll = false
     /// Each conversation's newest seq (`conversation-list`), for Mark as Read.
     @ObservationIgnored private var lastSeq: [String: Int] = [:]
     // task-owner: the event reader of the current channel, cancelled with it
@@ -551,6 +555,8 @@ public final class MacHomeFeed {
         wantedIDs = []
         windows = nil
         pendingWrites = 0
+        deferredIDs = []
+        deferredAll = false
         return old
     }
 
@@ -715,18 +721,28 @@ public final class MacHomeFeed {
     /// Shows a reply's rows; false when the rows no longer agree with the owner's count.
     @discardableResult
     private func applyRows(_ reply: MacHomeReply, asked: Set<String>) -> Bool {
-        // A list-state write is on its way: its answer reads the rows again.
-        guard pendingWrites == 0 else { return true }
+        // A list-state write is on its way: what this read carried is read again once the
+        // writes are answered (``refreshDeferred()``), never dropped.
+        guard pendingWrites == 0 else {
+            if case .named = reply { deferredIDs.formUnion(asked) } else { deferredAll = true }
+            return true
+        }
         switch reply {
         case .all(let all):
             setRows(all, complete: true)
-        case .window(let first, _, let total):
-            // The first screen now; rows below it (kept, or from the last channel) stay
-            // until the whole list replaces them.
-            let shown = Set(first.map(\.id))
-            let below = (rows ?? []).filter { !shown.contains($0.id) }
-            setRows(first + below, complete: first.count >= total)
-        case .named(let found, let total):
+        case .window(let first, let offset, let total):
+            if offset == 0, first.count >= total {
+                // The window is the whole list: it replaces every earlier row (one the owner
+                // dropped while the phone was away never comes back from the kept rows).
+                setRows(first, complete: true)
+            } else {
+                // The first screen now; rows below it (kept, or from the last channel) stay
+                // until the whole list, read next, replaces them.
+                let shown = Set(first.map(\.id))
+                let below = (rows ?? []).filter { !shown.contains($0.id) }
+                setRows(first + below, complete: false)
+            }
+        case .named(let found, let total, let order):
             guard rows != nil else { return false }
             let inPlace = MacHomeRows.apply(found, asked: asked, complete: isComplete, to: &rows!)
             if inPlace?.isEmpty != true {
@@ -734,6 +750,10 @@ public final class MacHomeFeed {
                 lastChange = inPlace.map { MacHomeRows.Change(revision: rowsRevision, indices: $0) }
             }
             if isComplete, rows?.count != total { return false }
+            // A row placed by its index is right only if every other row is where the owner
+            // has it: two moves whose reads overlapped can place one against stale neighbours.
+            // The owner's order digest settles it; a mismatch reads the whole list.
+            if inPlace == nil, isComplete, let order, MacHomeRows.orderDigest(rows ?? []) != order { return false }
         }
         isShowingKeptRows = false
         // The top of the Mac's list, kept for the next launch.
@@ -789,6 +809,7 @@ public final class MacHomeFeed {
         setMarkedUnread(false, id)
         guard let client, let row = rows?.first(where: { $0.id == id }), row.unread > 0 else { return }
         pendingWrites += 1
+        deferredIDs.insert(id)
         let mine = generation
         // task-owner: one read-cursor move (the newest seq, then the op); ends with its reply
         Task { [weak self] in
@@ -798,7 +819,7 @@ public final class MacHomeFeed {
             }
             guard let self, mine == self.generation else { return }
             self.pendingWrites -= 1
-            if self.pendingWrites == 0 { self.refresh(relist: false, read: .ids([id])) }
+            if self.pendingWrites == 0 { self.refreshDeferred() }
         }
     }
 
@@ -812,6 +833,7 @@ public final class MacHomeFeed {
     private func write(_ id: String, cmd: String, _ params: [String: Any]) {
         guard let client, let body = try? JSONSerialization.data(withJSONObject: params) else { return }
         pendingWrites += 1
+        deferredIDs.insert(id)
         let mine = generation
         // task-owner: one list-state write; ends with its reply
         Task { [weak self] in
@@ -821,7 +843,20 @@ public final class MacHomeFeed {
             }
             guard let self, mine == self.generation else { return }
             self.pendingWrites -= 1
-            if self.pendingWrites == 0 { self.refresh(relist: false, read: .ids([id])) }
+            if self.pendingWrites == 0 { self.refreshDeferred() }
+        }
+    }
+
+    /// The writes are answered: every written row and every row a read skipped meanwhile
+    /// (or the whole list, when a whole-list read was skipped) is read now.
+    private func refreshDeferred() {
+        let ids = deferredIDs, all = deferredAll
+        deferredIDs = []
+        deferredAll = false
+        if all || ids.isEmpty {
+            refresh(relist: false, read: .all)
+        } else {
+            refresh(relist: false, read: .ids(ids))
         }
     }
 

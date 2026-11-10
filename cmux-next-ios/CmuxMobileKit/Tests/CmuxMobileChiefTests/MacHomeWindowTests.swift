@@ -26,7 +26,7 @@ import Testing
         let window = MacHomeReply(homeInbox: ["rows": [Self.wire("conv_a")], "offset": 0, "total": 5_000])
         #expect(window == .window([Self.row("conv_a")], offset: 0, total: 5_000))
         let some = MacHomeReply(homeInbox: ["rows": [Self.wire("conv_b", index: 7)], "total": 5_000])
-        #expect(some == .named([MacHomeRows.Found(index: 7, row: Self.row("conv_b"))], total: 5_000))
+        #expect(some == .named([MacHomeRows.Found(index: 7, row: Self.row("conv_b"))], total: 5_000, order: nil))
         // A host's refusal reads as one, so the feed can fall back.
         let refused = try JSONSerialization.data(withJSONObject: ["id": "m1", "ok": false,
                                                                   "error": ["code": "forbidden", "message": "home-inbox: limit is not accepted from a phone"]])
@@ -192,6 +192,84 @@ import Testing
         #expect(MacHomeList(rows).pinned.map(\.id) == ["conv_build", "conv_chief"])
     }
 
+    /// Four plain rows, newest first, as the owner lists them.
+    static let plainRows: [[String: Any]] = ["conv_a", "conv_b", "conv_c", "conv_d"].map { id in
+        ["id": id, "owner": "local", "kind": "direct", "name": "Name \(id)", "unread": 0, "preview": "hi",
+         "activity_at": "2026-10-12T09:41:07.123Z", "pinned": false, "marked_unread": false, "muted": false]
+    }
+
+    static func ids(in request: Data) -> [String]? {
+        ((try? JSONSerialization.jsonObject(with: request.dropLast())) as? [String: Any])?["ids"] as? [String]
+    }
+
+    /// Two moves whose reads cross: C's read is answered after D also moved, so C's index is
+    /// against a list where D already leads. The phone's order digest catches it and reads
+    /// the whole list, so it ends in the owner's order (not [D, A, C, B]).
+    @Test func crossedMovesEndInTheOwnersOrder() async throws {
+        let owner = FakeHomeOwner(windows: .honors, rows: Self.plainRows)
+        let raced = RaceFlag()
+        let link = PushLink { request in
+            guard Self.ids(in: request) == ["conv_c"], raced.take() else { return owner.respond(request) }
+            // The owner takes D's message before it answers C's read; D's event comes after.
+            let dMoved = owner.post(in: "conv_d", preview: "d")
+            return owner.respond(request) + [dMoved]
+        }
+        let feed = MacHomeFeed(firstWindow: 2)
+        await feed.connect(link: link, macID: "mac-1")
+        #expect(await eventually { feed.isComplete })
+        link.push(owner.post(in: "conv_c", preview: "c"))
+        #expect(await eventually { feed.rows?.map(\.id) == ["conv_d", "conv_c", "conv_a", "conv_b"] })
+        #expect(owner.order == ["conv_d", "conv_c", "conv_a", "conv_b"])
+        #expect(feed.rows?.map(\.preview) == ["d", "c", "hi", "hi"])
+    }
+
+    /// A row's event during a pending write is read again once the write is answered, not
+    /// dropped: the write's own row and the skipped one both come back.
+    @Test func aRowChangedDuringAWriteIsReadAfterIt() async throws {
+        let owner = FakeHomeOwner(windows: .honors)
+        let held = HeldReply()
+        let link = PushLink { request in
+            let object = (try? JSONSerialization.jsonObject(with: request.dropLast())) as? [String: Any]
+            if object?["cmd"] as? String == "conversation-op", let id = object?["id"] as? String {
+                _ = owner.respond(request)
+                held.hold(owner.line(["id": id, "ok": true, "data": ["rev": 10, "replayed": false]]))
+                return []
+            }
+            return owner.respond(request)
+        }
+        let feed = MacHomeFeed(firstWindow: 2)
+        await feed.connect(link: link, macID: "mac-1")
+        #expect(await eventually { feed.isComplete })
+        feed.markRead("conv_chief")
+        #expect(await eventually { held.line != nil })
+        // A message in another conversation while the read cursor write waits.
+        let reads = owner.sent("home-inbox").count
+        link.push(owner.post(in: "conv_old", preview: "Back again"))
+        #expect(await eventually { owner.sent("home-inbox").count > reads })
+        try link.push(#require(held.line))
+        #expect(await eventually { feed.rows?.first { $0.id == "conv_old" }?.preview == "Back again" })
+        #expect(MacHomeList(feed.rows ?? []).rows.map(\.id) == ["conv_old", "conv_ops"])
+    }
+
+    /// A Chief deleted on the Mac while the phone was away: the owner's list now fits in one
+    /// window, and that window replaces the kept rows whole (the deleted row is not kept).
+    @Test func aWholeWindowReplacesTheKeptRows() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "home-rows-gone-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = MacHomeRowsCache(directory: directory, writeDelay: .never)
+        let key = MacHomeRowsCache.key(account: "user_1", macID: "mac-1")
+        let owner = FakeHomeOwner(windows: .honors)
+        cache.save(key, rows: MacHomeRow.rows(fromHomeInbox: MacHomeListTests.reply))
+        owner.remove("conv_old")
+        let feed = MacHomeFeed(rowsCache: cache, accountID: { "user_1" }, firstWindow: 20)
+        feed.showKeptRows(of: "mac-1")
+        #expect(feed.rows?.count == 4)
+        await feed.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
+        #expect(await eventually { feed.isComplete && !feed.isShowingKeptRows })
+        #expect(feed.rows?.map(\.id) == ["conv_build", "conv_chief", "conv_ops"])
+        #expect(cache.cached(key)?.map(\.id) == ["conv_build", "conv_chief", "conv_ops"])
+    }
+
     /// The rows this phone kept show before the Mac answers, then the Mac's own replace them.
     @Test func keptRowsShowUntilTheMacAnswers() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "home-rows-feed-\(UUID().uuidString)")
@@ -212,4 +290,19 @@ import Testing
         feed.discardKeptRows()
         #expect(cache.cached(MacHomeRowsCache.key(account: "user_1", macID: "mac-1")) == nil)
     }
+}
+
+/// Taken once, from any thread (a test's fake owner).
+final class RaceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+    func take() -> Bool { lock.withLock { defer { taken = true }; return !taken } }
+}
+
+/// A reply the test's fake owner holds back until the test sends it.
+final class HeldReply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: Data?
+    func hold(_ line: Data) { lock.withLock { held = line } }
+    var line: Data? { lock.withLock { held } }
 }

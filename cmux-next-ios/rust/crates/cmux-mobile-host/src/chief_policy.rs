@@ -417,6 +417,7 @@ impl ChiefPolicy {
                     }
                     Some(InboxWindow::Ids(ids)) => {
                         data.insert("total".into(), Value::from(total));
+                        data.insert("order".into(), Value::from(order_digest(&kept)));
                         kept.into_iter()
                             .enumerate()
                             .filter(|(_, row)| {
@@ -543,6 +544,21 @@ fn check_part(part: &Value) -> Result<(), String> {
         Some(other) => Err(format!("{other} parts are not available to a phone")),
         None => Err("a part has no type".into()),
     }
+}
+
+/// The phone's whole-list order as one digest (FNV-1a 64 over each row id and a newline,
+/// lowercase hex), sent with an `ids` read: a phone that placed rows by their index checks
+/// its list against it, and reads the whole list when two moves crossed.
+fn order_digest(rows: &[Value]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for row in rows {
+        let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
+        for byte in id.bytes().chain(std::iter::once(b'\n')) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    format!("{hash:x}")
 }
 
 /// `home-inbox` asks for the local owner's rows only: the person's Cloud
@@ -1010,6 +1026,16 @@ mod tests {
         assert_eq!(ids(&some["data"]), [CHIEF]);
         assert_eq!(some["data"]["rows"][0]["index"], 1);
         assert_eq!(some["data"]["total"], 2);
+        // The order of the phone's whole list, as the phone computes it (MacHomeRows.orderDigest).
+        let digest = |ids: &[&str]| {
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for byte in ids.iter().flat_map(|id| id.bytes().chain(std::iter::once(b'\n'))) {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            format!("{hash:x}")
+        };
+        assert_eq!(some["data"]["order"], digest(&[OTHER, CHIEF]));
+        assert_ne!(some["data"]["order"], digest(&[CHIEF, OTHER]));
 
         // No window: the whole narrowed list, as before.
         assert_eq!(
