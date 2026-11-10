@@ -19,6 +19,8 @@ pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
 mod memory_inbox;
+mod prompt_coach;
+pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -556,6 +558,10 @@ pub struct PromptOptions {
     /// person's prompt, yet no connection proved the person, so it lifts no protected hold
     /// (`protected_hold.rs`), as #37497 made it.
     pub unproven_owner: bool,
+    /// The text of a prompt a connection proved the person's (`server/requests.rs`
+    /// `person_admitted`), for the prompt coach (`prompt_coach.rs`): recorded by the prompt's
+    /// id once it has one, so its own turn's end settles it.
+    pub coach: Option<String>,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -875,6 +881,8 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
+    /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
+    pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1228,6 +1236,7 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
+            coach_rewriter: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -1624,6 +1633,7 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),
