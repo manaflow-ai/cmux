@@ -42,6 +42,14 @@ override only when it is an explicit `http://` origin on `127.0.0.1`,
 remote, HTTPS, and mismatched values are ignored. The production backend
 allowlist remains active with or without the override.
 
+The daemon's journal retention can delete records that a session's stored
+cursor has not passed. The daemon then refuses that cursor with `cursor.gap`
+and names its floor. The forwarder subscribes again from the floor and adds
+the request header `x-chatmux-journal-gap` to its POSTs until one is
+acknowledged: a JSON array of `{"sessionId", "after", "oldestRevision"}`, where
+the revisions after `after`, up to and including `oldestRevision`, were deleted
+before the forwarder read them. The POST body does not change.
+
 ## Port plan (slices)
 
 Each slice is gated on the JS relay's behavior; the chatmux e2e conformance
