@@ -1090,3 +1090,229 @@ async fn a_copy_within_its_machines_recovery_gives_nothing_back() {
     assert!(kept, "the journal's own recovery was taken back for the same records");
     assert_eq!(after, None, "the row still names a recovery the copy holds");
 }
+
+/// Copies the folder `from` to `to` whole, as the disk holds it at a crash: a daemon started
+/// on `to` reads what a crash at this moment would have left.
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    std::fs::set_permissions(to, std::fs::metadata(from).unwrap().permissions()).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let (path, target) = (entry.path(), to.join(entry.file_name()));
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            copy_tree(&path, &target);
+        } else if kind.is_file() {
+            // A file a writer removed meanwhile is not there.
+            let _ = std::fs::copy(&path, &target);
+        }
+    }
+}
+
+/// A hub on a store on disk in `dir` (`segment_bytes`: its logs' segment size, None: the
+/// default), replaying the rules `rules` (0: now).
+fn hub_on_disk(dir: &Path, rules: u8, segment_bytes: Option<u64>) -> Arc<Hub> {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    if let Some(bytes) = segment_bytes {
+        cfg.store.segment_bytes = bytes;
+    }
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir).unwrap());
+    hub.replay_rules(rules);
+    hub
+}
+
+/// The next start on `dir`, replaying `rules`: chat `id` installed and its log read, as a
+/// restart reads it.
+fn restarted(
+    dir: &Path,
+    rules: u8,
+    id: &str,
+    segment_bytes: Option<u64>,
+) -> (Arc<Hub>, Arc<Session>) {
+    let hub = hub_on_disk(dir, rules, segment_bytes);
+    let meta = hub.store.load(id).unwrap().expect("the chat is gone");
+    hub.install_stored_session(meta, false, false);
+    let session = hub.sessions.lock().unwrap().get(id).cloned().unwrap();
+    hub.load_session_log(&session);
+    (hub, session)
+}
+
+/// Two prompts waiting on a machine on disk; a restore that stops short; while it holds the
+/// chat, the first is edited and the second removed, each answered done; then the daemon
+/// crashes. Each waiting prompt's id and preview after the next start reads the chat's log.
+async fn edits_during_a_hold_then_crashed(rules: u8) -> Vec<(String, String)> {
+    let run = uuid::Uuid::now_v7();
+    let dir = std::env::temp_dir().join(format!("acpmux-hold-crash-{run}"));
+    let crashed = std::env::temp_dir().join(format!("acpmux-hold-crash-{run}-after"));
+    let hub = hub_on_disk(&dir, rules, None);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    for p in ["p1", "p2"] {
+        let text = format!("{p} old words");
+        hub.append(
+            &session,
+            "mux",
+            "queued",
+            json!({"promptId": p, "turnId": format!("t-{p}"), "text": text, "prompt": words(&text),
+                   "held": true}),
+        );
+    }
+    hub.restore_queue(&session);
+    let last = session.seq.load(Ordering::SeqCst);
+    let records = json!([chunk(last + 1, 1), chunk(last + 2, 2), chunk(last + 3, 3)]);
+    let params = restore_params(&session, records);
+    super::journal_restore::fail_once_after_first_record(&session.id);
+    let first = hub.journal_restore(&params).await;
+    let reason = first.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("append_failed")));
+    let edit = json!({"sessionId": session.id, "promptId": "p1", "op": "update",
+                      "text": "p1 new words"});
+    let edited = hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    assert_eq!(edited["ok"], json!(true), "{edited}");
+    assert!(hub.remove_queued(&session, "p2"));
+    // The crash: what the disk holds now, every acknowledged journal record in it.
+    assert!(hub.store.wait_durable(Duration::from_secs(20)).unwrap());
+    copy_tree(&dir, &crashed);
+    let (after, reopened) = restarted(&crashed, rules, &session.id, None);
+    let queue: Vec<(String, String)> = {
+        let queue = reopened.queue.lock().unwrap();
+        queue.iter().map(|q| (q.prompt_id.clone(), q.preview.clone())).collect()
+    };
+    drop((hub, after));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&crashed);
+    queue
+}
+
+/// Review of #37284 at b7496c3f, F1: a queue edit and a removal answered while a restore holds
+/// the chat are on disk before they are answered (they take no seq), and a start after a crash
+/// during the hold keeps them: the edit stands, and the removed prompt does not wait again.
+/// Under b7496c3f's rules they were kept in memory only: after the crash the old words came
+/// back, and the removed prompt waited to run again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queue_edited_during_a_hold_keeps_the_edits_through_a_crash() {
+    let edited = vec![("p1".to_owned(), "p1 new words".to_owned())];
+    let old = edits_during_a_hold_then_crashed(super::journal_restore::AT_B749).await;
+    assert_ne!(old, edited, "b7496c3f kept them");
+    let now = edits_during_a_hold_then_crashed(0).await;
+    assert_eq!(now, edited);
+}
+
+/// A chat on disk with small segments, cut mid-turn and read by a restart, whose recovery
+/// begins at the end of the first segment and goes on in the second. The owner's copy ends the
+/// turn, queues a prompt and goes on past the recovery's end; its restore cuts the recovery,
+/// and the daemon crashes once the cut replaced the first segment, before the second. After the
+/// next start the owner sends what its copy holds past the `lastSeq` the chat says, and again
+/// from where the restore says its recovery begins. Replaying `rules`: whether the journal then
+/// holds every seq of the copy, and the copy's queued prompt.
+async fn a_cut_across_segments_then_crashed(rules: u8) -> (bool, bool) {
+    const SEGMENT: u64 = 64 * 1024;
+    let run = uuid::Uuid::now_v7();
+    let dir = std::env::temp_dir().join(format!("acpmux-cut-crash-{run}"));
+    let crashed = std::env::temp_dir().join(format!("acpmux-cut-crash-{run}-after"));
+    // The store's cut runs on this thread (`store/compact.rs`).
+    super::journal_restore::OLD_RULES.with(|r| r.set(rules));
+    let hub = hub_on_disk(&dir, rules, Some(SEGMENT));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    let id = session.id.clone();
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "t1", "promptId": "p1"}));
+    // The turn's output fills the first segment to just short of its size: the recovery's
+    // first record goes in it, the rest in the next.
+    let first = dir.join("sessions").join(&id).join("events").join("000001.ndjson");
+    let len = || std::fs::metadata(&first).map_or(0, |m| m.len());
+    let before = len();
+    hub.append(&session, "in", "agent_message_chunk", json!({"text": "x"}));
+    let line = len() - before - 1;
+    let room = SEGMENT - len();
+    let text = "x".repeat(usize::try_from(room - line - 24).unwrap());
+    hub.append(&session, "in", "agent_message_chunk", json!({"text": text}));
+    assert!(len() < SEGMENT && len() + 16 > SEGMENT - 32, "the filler missed: {}", len());
+    let cut = session.seq.load(Ordering::SeqCst);
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    hub.save_meta_answered(&session).unwrap();
+    let end = session.seq.load(Ordering::SeqCst);
+    assert!(end > cut + 1, "the restart's recovery wrote fewer than two records");
+    let text = std::fs::read_to_string(&first).unwrap();
+    let last_in_first = text.lines().filter_map(|l| serde_json::from_str::<EventRecord>(l).ok());
+    assert_eq!(
+        last_in_first.last().map(|r| r.seq),
+        Some(cut + 1),
+        "the recovery does not begin at the end of the first segment"
+    );
+    let second = first.with_file_name("000002.ndjson");
+    assert!(second.exists(), "the recovery does not go on in a second segment");
+    let mut copy = vec![
+        json!({"seq": cut + 1, "at": 1, "dir": "mux", "kind": "turn_result",
+               "msg": {"turnId": "t1", "promptId": "p1", "status": "ok"}}),
+        json!({"seq": cut + 2, "at": 2, "dir": "mux", "kind": "queued",
+               "msg": {"promptId": "p2", "turnId": "t2", "text": "next", "prompt": words("next")}}),
+    ];
+    copy.extend((cut + 3..=end + 2).map(|seq| chunk(seq, seq)));
+    let mut params = restore_params(&session, Value::from(copy.clone()));
+    params["afterSeq"] = json!(cut);
+    let crash = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (from, to, at) = (dir.clone(), crashed.clone(), crash.clone());
+    crate::store::between_segments_once(
+        &id,
+        Box::new(move || {
+            copy_tree(&from, &to);
+            at.store(true, Ordering::SeqCst);
+        }),
+    );
+    let _ = hub.journal_restore(&params).await;
+    assert!(crash.load(Ordering::SeqCst), "the cut never replaced a second segment");
+    // The next start, on what the disk held at the crash.
+    let (after, session) = restarted(&crashed, rules, &id, Some(SEGMENT));
+    // The owner gives back what its copy holds past the end the chat says, and again from where
+    // a refusal says the machine's own recovery begins.
+    let mut from = session.meta().last_seq;
+    let mut answer = None;
+    for _ in 0..3 {
+        let past: Vec<Value> =
+            copy.iter().filter(|r| r["seq"].as_u64().is_some_and(|s| s > from)).cloned().collect();
+        let mut again = restore_params(&session, Value::from(past));
+        again["afterSeq"] = json!(from);
+        let tried = after.journal_restore(&again).await;
+        let data = tried.as_ref().err().and_then(|e| e.data.clone()).unwrap_or_default();
+        answer = Some(tried);
+        match (data["reason"].as_str(), data["afterSeq"].as_u64()) {
+            (Some("recovered"), Some(at)) => from = at,
+            _ => break,
+        }
+    }
+    let events = after.events(&id, cut, 10_000).unwrap();
+    let seqs: Vec<u64> = events.iter().map(|e| e.seq).filter(|s| *s <= end + 2).collect();
+    let whole =
+        answer.is_some_and(|a| a.is_ok()) && seqs == (cut + 1..=end + 2).collect::<Vec<_>>();
+    let queued =
+        events.iter().any(|e| e.kind == "queued" && e.msg.get("promptId") == Some(&json!("p2")));
+    super::journal_restore::OLD_RULES.with(|r| r.set(0));
+    drop((hub, after));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&crashed);
+    (whole, queued)
+}
+
+/// Review of #37284 at b7496c3f, F2: a cut of the machine's recovery across two segments keeps
+/// its target on disk before its first rename, so a crash between the two leaves a log the next
+/// start finishes cutting before anything reads it: the owner's next try sends from the
+/// recovery's real beginning, and every record of its copy goes in. Under b7496c3f's rules the
+/// next start read the half-cut log as one whose recovery began in the second segment: the
+/// restore took back only from there, and the copy's records before it (its turn's result)
+/// were skipped while it answered done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cut_a_crash_stopped_between_segments_skips_no_record() {
+    let (whole, _) = a_cut_across_segments_then_crashed(super::journal_restore::AT_B749).await;
+    assert!(!whole, "b7496c3f skipped nothing");
+    let (whole, queued) = a_cut_across_segments_then_crashed(0).await;
+    assert!(whole, "a record of the copy is missing from the restored journal");
+    assert!(queued, "the copy's queued prompt was skipped");
+}

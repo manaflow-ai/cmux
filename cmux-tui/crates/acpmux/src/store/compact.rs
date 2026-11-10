@@ -20,6 +20,14 @@
 //! `events/compacted.json` records the pass in two steps: written before the first rename, so a
 //! log that may hold nothing is never taken for a purged chat's (`has_records`), and marked
 //! complete after the last, so a pass a crash cut short is done again (`compacted_seq`).
+//!
+//! A cut (`CompactMode::Truncate`, a journal restore's) writes its target, `events/cut.json`
+//! ([`CUT`]), durably before its first rename, and removes it after the last: a crash or a
+//! failure between two renames leaves segments cut to different ends, and every later reader or
+//! append of the log finishes the cut to that target first ([`LocalStore::finish_cut_locked`]).
+//! Without it a log of records 1-50 and 201-350 (the cut of 51-350 stopped after the first
+//! segment) read as one whose recovery begins at 200, and a restore then skipped 51-200 (review
+//! of #37284 at b7496c3f, F2).
 
 use super::*;
 use compact_archive::Archive;
@@ -30,6 +38,8 @@ mod compact_archive;
 
 /// The record of a log's compaction, beside its segments.
 pub const MARKER: &str = "compacted.json";
+/// A cut's target while its segments are replaced, beside them.
+pub const CUT: &str = "cut.json";
 /// A string longer than this, in a raw line or a tool call record, is cut.
 const LONG: usize = 2048;
 /// How much of a cut string is kept.
@@ -45,6 +55,14 @@ pub struct Compaction {
     pub dropped: u64,
     /// Records whose long strings were cut.
     pub trimmed: u64,
+}
+
+/// What a cut leaves beside the segments until each is replaced ([`CUT`]).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CutIntent {
+    /// Every record past it goes.
+    after: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -107,6 +125,52 @@ impl LocalStore {
         self.dir(id).join("events").join(MARKER)
     }
 
+    fn cut_intent(&self, id: &str) -> PathBuf {
+        self.dir(id).join("events").join(CUT)
+    }
+
+    /// Finishes a cut of `id`'s log a crash or a failure left between two of its renames
+    /// ([`CUT`]): every segment is cut again to the cut's target (a segment already cut is
+    /// unchanged by it), the compaction's record is marked complete as the commit would have,
+    /// and the target goes. Nothing when no cut is left. The caller holds the writers' lock, so
+    /// no record is appended meanwhile; every read and the first append of the log come here
+    /// first (`store.rs` `segments`, `append_line`).
+    pub(super) fn finish_cut_locked(&self, id: &str, writers: &mut Writers) -> Result<()> {
+        let path = self.cut_intent(id);
+        let text = match std::fs::read(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+        };
+        let intent: CutIntent = serde_json::from_slice(&text)
+            .with_context(|| format!("read the cut left in {}", path.display()))?;
+        tracing::warn!(session = %id, after = intent.after, "a cut of this log was left halfway; it is finished first");
+        if let Some(w) = writers.open.remove(id) {
+            w.close(id, &self.sync_failed);
+        }
+        let (segments, _) = self.list_segments(id)?;
+        if let Some(mut staged) =
+            self.stage_segments(id, segments, CompactMode::Truncate { after: intent.after })?
+        {
+            for segment in &mut staged.segments {
+                if let Some(tmp) = segment.tmp.take() {
+                    std::fs::rename(&tmp, &segment.path)?;
+                }
+            }
+        }
+        sync_directory(&self.dir(id).join("events"))?;
+        if let Ok(text) = std::fs::read(self.marker(id))
+            && let Ok(mut marker) = serde_json::from_slice::<Marker>(&text)
+            && !marker.complete
+        {
+            marker.complete = true;
+            write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+        }
+        std::fs::remove_file(&path)?;
+        sync_directory(&self.dir(id).join("events"))?;
+        Ok(())
+    }
+
     /// When the log was last written, in ms: its newest segment's modification time. A record
     /// appended, a compaction put in place and a copy an import made all set it; a status write
     /// that logs nothing does not.
@@ -127,6 +191,16 @@ impl LocalStore {
     /// None for a chat with no log.
     pub(super) fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         let segments = self.segments(id)?;
+        self.stage_segments(id, segments, mode)
+    }
+
+    /// [`Self::stage_compaction`] of `segments`, the log's as listed.
+    fn stage_segments(
+        &self,
+        id: &str,
+        segments: Vec<(u32, PathBuf)>,
+        mode: CompactMode,
+    ) -> Result<Option<Staged>> {
         if segments.is_empty() {
             return Ok(None);
         }
@@ -228,8 +302,11 @@ impl LocalStore {
         let mut marker = Marker { last_seq, at: now_ms(), complete: false, stats: staged.stats };
         {
             let mut writers = self.writers.lock_or_recover();
-            let now = self.segments(id)?;
-            let unchanged = now.len() == staged.segments.len()
+            // Listed as they are: a cut left halfway is a change (`stage_compaction` finished
+            // any before it read the log).
+            let (now, cut_pending) = self.list_segments(id)?;
+            let unchanged = !cut_pending
+                && now.len() == staged.segments.len()
                 && now.iter().zip(&staged.segments).all(|((_, path), s)| {
                     *path == s.path
                         && std::fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
@@ -242,16 +319,35 @@ impl LocalStore {
             // says complete, a later pass compacts the log again. Only a commit that goes ahead
             // writes it, so a refused one leaves the chat's folder as it was.
             write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+            // A cut's target is on disk before its first rename (review of #37284 at b7496c3f,
+            // F2): a crash or a failure between two renames leaves segments cut to different
+            // ends, and the next read or append finishes the cut to it (`finish_cut_locked`).
+            // b7496c3f kept it nowhere: a restart read the half-cut log as it was.
+            let intent = staged.cut.filter(|_| !crate::hub::journal_restore::rules_of_b749());
+            if let Some(after) = intent {
+                write_durably(&self.cut_intent(id), &serde_json::to_vec(&CutIntent { after })?)?;
+            }
             // Its next append opens the compacted segment, not the old one's descriptor.
             if let Some(w) = writers.open.remove(id) {
                 w.close(id, &self.sync_failed);
             }
             // Every segment stays, an empty one too: a reader that listed the segments a moment
             // ago opens each by its name.
-            for segment in &mut staged.segments {
+            for (n, segment) in staged.segments.iter_mut().enumerate() {
+                // Tests only: a crash between two renames.
+                #[cfg(test)]
+                if n > 0 {
+                    between_segments(id);
+                }
+                #[cfg(not(test))]
+                let _ = n;
                 if let Some(tmp) = segment.tmp.take() {
                     std::fs::rename(&tmp, &segment.path)?;
                 }
+            }
+            sync_directory(&self.dir(id).join("events"))?;
+            if intent.is_some() {
+                std::fs::remove_file(self.cut_intent(id))?;
             }
         }
         sync_directory(&self.dir(id).join("events"))?;
@@ -269,7 +365,7 @@ impl LocalStore {
 /// of the file or of its folder is an error (a [`SyncFailed`] for the folder's), not ignored: a
 /// compaction's record is what keeps a log that may hold nothing from passing for a purged chat's,
 /// and the journal store freezes on a failed sync of its files (#35905).
-fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     crate::config::refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

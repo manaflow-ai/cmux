@@ -58,29 +58,31 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. fd33a65b's: the twenty-second review's F1
+/// head's fixes are missing from an earlier one too. b7496c3f's: the twenty-third review's F1
 /// and F2.
-pub(crate) const AT_FD33: u8 = 1;
+pub(crate) const AT_B749: u8 = 1;
+/// fd33a65b's (the twenty-second review's F1 and F2 are missing too).
+pub(crate) const AT_FD33: u8 = 2;
 /// 4bce04df's (the twenty-first review's F1 and F2 are missing too).
-pub(crate) const AT_4BCE: u8 = 2;
+pub(crate) const AT_4BCE: u8 = 3;
 /// c4a1c13b's (the twentieth review's F1 is missing too).
-pub(crate) const AT_C4A1: u8 = 3;
+pub(crate) const AT_C4A1: u8 = 4;
 /// 8b5f3063's (the nineteenth review's F1 to F3 are missing too).
-pub(crate) const AT_8B5F: u8 = 4;
+pub(crate) const AT_8B5F: u8 = 5;
 /// 77f91e5a's (the eighteenth review's F1 is missing too).
-pub(crate) const AT_77F9: u8 = 5;
+pub(crate) const AT_77F9: u8 = 6;
 /// a088585e's (the sixteenth review's F1 to F3 are missing too).
-pub(crate) const AT_A088: u8 = 6;
+pub(crate) const AT_A088: u8 = 7;
 /// 07f76930's (the fourteenth review's F1 and F2 are missing too).
-pub(crate) const AT_07F7: u8 = 7;
+pub(crate) const AT_07F7: u8 = 8;
 /// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 8;
+pub(crate) const AT_FF3D: u8 = 9;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 9;
+pub(crate) const AT_C4A6: u8 = 10;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 10;
+pub(crate) const AT_4DCB: u8 = 11;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 11;
+pub(crate) const AT_91B: u8 = 12;
 
 #[cfg(test)]
 thread_local! {
@@ -115,6 +117,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of b7496c3f (tests only; never in a build).
+    pub(crate) fn at_b749(&self) -> bool {
+        self.old_rules() >= AT_B749
     }
 
     /// Whether this hub replays the rules of fd33a65b (tests only; never in a build).
@@ -179,6 +186,12 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of b7496c3f (tests only; never in a build): the
+/// store's cut of a journal (`store/compact.rs`), which runs on the restore's thread.
+pub(crate) fn rules_of_b749() -> bool {
+    thread_rules() >= AT_B749
 }
 
 /// Whether this thread replays the rules of fd33a65b (tests only; never in a build).

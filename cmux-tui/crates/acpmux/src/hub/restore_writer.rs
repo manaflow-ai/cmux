@@ -24,9 +24,19 @@
 //! other one
 //! is kept; when the store refuses it at the restore's end, it and every later record of the
 //! chat wait, in order, and go in first at the next append ([`Hub::behind_unparked`]).
+//!
+//! What is kept is durable before its caller hears of it (review of #37284 at b7496c3f, F1:
+//! b7496c3f kept it in memory only, so a crash during the hold lost an answered queue edit, and
+//! a removed prompt waited again). The store writes the whole kept list beside the chat's log
+//! (`Store::keep_parked`) at every change, and removes it once none is left; it takes no seq. A
+//! restart reads it back as records the store refused ([`Hub::take_back_kept`]): they go in first
+//! at the next append, and every rebuild of the queue reads them meanwhile. A caller that answers
+//! a client that its change is made (a queue edit, a move, a removal) appends through
+//! [`Hub::append_answered`]: when the list could not be written, the record is not kept, and the
+//! caller undoes its change and answers an error.
 
 use super::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 /// A record appended while a restore owned its chat, kept until the restore ends.
 pub(super) struct Parked {
@@ -38,6 +48,68 @@ pub(super) struct Parked {
     stored_only: bool,
     kept: log_deferral::Kept,
     notify: bool,
+    /// Where the chat's journal ended when it was kept: once stored, it is past it.
+    after: u64,
+}
+
+impl Parked {
+    /// As the store keeps it across a restart (`Store::keep_parked`).
+    fn to_json(&self) -> Value {
+        let stub = match &self.kept {
+            log_deferral::Kept::Sent => Value::Null,
+            log_deferral::Kept::Stub(stub) => stub.clone(),
+        };
+        json!({
+            "dir": self.dir,
+            "kind": self.kind,
+            "msg": self.msg,
+            "hostSeq": self.host_seq,
+            "at": self.at,
+            "storedOnly": self.stored_only,
+            "stub": stub,
+            "notify": self.notify,
+            "after": self.after,
+        })
+    }
+
+    fn from_json(value: &Value) -> Option<Self> {
+        let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+        let flag = |key: &str| value.get(key).and_then(Value::as_bool).unwrap_or_default();
+        let kept = match value.get("stub") {
+            None | Some(Value::Null) => log_deferral::Kept::Sent,
+            Some(stub) => log_deferral::Kept::Stub(stub.clone()),
+        };
+        Some(Parked {
+            dir: text("dir")?,
+            kind: text("kind")?,
+            msg: value.get("msg")?.clone(),
+            host_seq: value.get("hostSeq").and_then(Value::as_u64),
+            at: value.get("at").and_then(Value::as_u64)?,
+            stored_only: flag("storedOnly"),
+            kept,
+            notify: flag("notify"),
+            after: value.get("after").and_then(Value::as_u64).unwrap_or_default(),
+        })
+    }
+
+    /// Whether `record`, from the journal, is this one stored (as `write_record_locked` writes
+    /// it: its stub in its place, or the receipt of a fenced update).
+    fn stored_as(&self, record: &EventRecord) -> bool {
+        if record.at != self.at {
+            return false;
+        }
+        if record.dir == "mux"
+            && record.kind == "compaction_metadata_fenced"
+            && self.kind != record.kind
+        {
+            return record.msg.get("sourceKind").and_then(Value::as_str) == Some(self.kind.as_str());
+        }
+        let msg = match &self.kept {
+            log_deferral::Kept::Stub(stub) => stub,
+            log_deferral::Kept::Sent => &self.msg,
+        };
+        record.dir == self.dir && record.kind == self.kind && record.msg == *msg
+    }
 }
 
 thread_local! {
@@ -45,6 +117,11 @@ thread_local! {
     static WRITER: Cell<(usize, u64)> = const { Cell::new((0, 0)) };
     /// Set while this thread writes a log's recovery (`log_load.rs`): its records are marked.
     static RECOVERING: Cell<bool> = const { Cell::new(false) };
+    /// The kind of the record this thread appends through [`Hub::append_answered`]: when it
+    /// could not be kept durably, it is not kept, and [`UNKEPT`] says so.
+    static ANSWERED: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// The record [`Hub::append_answered`] appends could not be kept durably.
+    static UNKEPT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The key that marks a record this machine's own recovery wrote after a restart (a cut turn's
@@ -125,6 +202,12 @@ fn again_unstored(stored_only: bool, host_seq: Option<u64>) -> bool {
     stored_only || host_seq.is_some()
 }
 
+/// Whether this thread appends a record of `kind` through [`Hub::append_answered`] (not a
+/// record a deferral stores before it).
+fn answered(kind: &str) -> bool {
+    ANSWERED.with(|a| a.borrow().as_deref() == Some(kind))
+}
+
 fn holds_token(session: &Session) -> bool {
     let n = session.restore_token.load(Ordering::SeqCst);
     n != 0 && WRITER.with(Cell::get) == (std::ptr::from_ref(session) as usize, n)
@@ -172,6 +255,7 @@ impl Hub {
         }
         session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
         self.store_unparked(session);
+        self.keep_durably(session);
     }
 
     /// Writes what parked so far, now, by the restore's own thread, before it rebuilds anything
@@ -194,12 +278,19 @@ impl Hub {
             let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
             parked.as_mut().map(std::mem::take).unwrap_or_default()
         };
+        let kept = !parked.is_empty()
+            || !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
         if !parked.is_empty() {
             tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owns this chat go in before it is rebuilt");
             self.catch_up_locked(session);
             session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
         }
-        self.store_unparked(session) || self.at_a088()
+        let stored = self.store_unparked(session);
+        if kept {
+            // What is left kept, on disk; none, none.
+            self.keep_durably(session);
+        }
+        stored || self.at_a088()
     }
 
     /// `session`'s journal records of `kinds`, in order, each given to `f` until it answers
@@ -322,7 +413,12 @@ impl Hub {
         notify: bool,
     ) -> Result<(EventRecord, bool), (Value, log_deferral::Kept)> {
         let waits = !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
-        if !waits || self.store_unparked(session) {
+        if !waits {
+            return Err((msg, kept));
+        }
+        if self.store_unparked(session) {
+            // None is kept now: neither is it on disk.
+            self.keep_durably(session);
             return Err((msg, kept));
         }
         let at = at.unwrap_or_else(now_ms);
@@ -335,6 +431,7 @@ impl Hub {
             host_seq,
         };
         if !again_unstored(stored_only, host_seq) {
+            let after = session.seq.load(Ordering::SeqCst);
             session.unparked.lock().unwrap_or_else(|e| e.into_inner()).push(Parked {
                 dir: dir.into(),
                 kind: kind.into(),
@@ -344,7 +441,13 @@ impl Hub {
                 stored_only,
                 kept,
                 notify,
+                after,
             });
+            if !self.keep_durably(session) && answered(kind) {
+                // Not kept: its caller undoes its change and answers so.
+                session.unparked.lock().unwrap_or_else(|e| e.into_inner()).pop();
+                UNKEPT.with(|u| u.set(true));
+            }
         }
         Ok((record, false))
     }
@@ -365,8 +468,8 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> Result<(EventRecord, bool), (Value, log_deferral::Kept)> {
-        let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(parked) = parked.as_mut().filter(|_| !holds_token(session)) else {
+        let mut guard = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(parked) = guard.as_mut().filter(|_| !holds_token(session)) else {
             return Err((msg, kept));
         };
         let at = at.unwrap_or_else(now_ms);
@@ -392,8 +495,116 @@ impl Hub {
             stored_only,
             kept,
             notify,
+            after: session.seq.load(Ordering::SeqCst),
         });
+        drop(guard);
+        // On disk before its caller hears of it (review of #37284 at b7496c3f, F1).
+        if !self.keep_durably(session) && answered(kind) {
+            // Not kept: its caller undoes its change and answers so.
+            let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(parked) = parked.as_mut() {
+                parked.pop();
+            }
+            UNKEPT.with(|u| u.set(true));
+        }
         Ok((record, old))
+    }
+
+    /// Writes every record kept for `session` (those the store refused, then those parked) to
+    /// the store, durably, as one list; removes it when none is (`Store::keep_parked`). Answers
+    /// whether it is on disk. b7496c3f kept them in memory only. The caller holds `append_lock`.
+    fn keep_durably(&self, session: &Session) -> bool {
+        if self.at_b749() {
+            return true;
+        }
+        let kept: Vec<Value> = {
+            let unparked = session.unparked.lock().unwrap_or_else(|e| e.into_inner());
+            let parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+            unparked.iter().chain(parked.iter().flatten()).map(Parked::to_json).collect()
+        };
+        let bytes = if kept.is_empty() {
+            None
+        } else {
+            match serde_json::to_vec(&kept) {
+                Ok(bytes) => Some(bytes),
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "records kept while a restore holds this chat do not serialize: {e}");
+                    return false;
+                }
+            }
+        };
+        match self.store.keep_parked(&session.id, bytes.as_deref()) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(session = %session.id, records = kept.len(), "records kept while a restore holds this chat were not written to disk: {e:#}");
+                false
+            }
+        }
+    }
+
+    /// After a restart, what an earlier run kept for `session` and had not stored
+    /// ([`Self::keep_durably`]) is kept again, as records the store refused: they go in first at
+    /// the next append, and a rebuild of the queue reads them meanwhile. Those the journal holds
+    /// already (stored before that run removed the list) are left out. The caller holds
+    /// `append_lock`, once per run (`catch_up_locked`).
+    pub(super) fn take_back_kept(&self, session: &Session) {
+        if self.at_b749() {
+            return;
+        }
+        let bytes = match self.store.kept_parked(&session.id) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!(session = %session.id, "records kept while a restore held this chat do not read: {e:#}");
+                return;
+            }
+        };
+        let kept: Vec<Parked> = match serde_json::from_slice::<Vec<Value>>(&bytes) {
+            Ok(values) => values.iter().filter_map(Parked::from_json).collect(),
+            Err(e) => {
+                tracing::warn!(session = %session.id, "records kept while a restore held this chat do not parse: {e}");
+                return;
+            }
+        };
+        // Stored in order, each past where the journal ended when it was kept.
+        let from = kept.iter().map(|p| p.after).min().unwrap_or_default();
+        let mut stored = 0;
+        let scanned = self.store.scan(&session.id, from, &mut |record| {
+            if kept.get(stored).is_some_and(|p| p.stored_as(&record)) {
+                stored += 1;
+            }
+            stored < kept.len()
+        });
+        if let Err(e) = scanned {
+            tracing::warn!(session = %session.id, "the journal does not read to match the records kept while a restore held this chat: {e:#}");
+            return;
+        }
+        let left: Vec<Parked> = kept.into_iter().skip(stored).collect();
+        tracing::info!(session = %session.id, stored, left = left.len(), "records kept while a restore held this chat before a restart are kept again");
+        session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(left);
+        self.keep_durably(session);
+    }
+
+    /// [`Hub::append`] of a record whose caller answers a client that its change is made (a
+    /// queue edit, a move, a removal): Err when a restore holds the chat and the record could not
+    /// be kept on disk until it ends. It is not kept then, and the caller undoes its change.
+    pub(super) fn append_answered(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> Result<EventRecord, RpcError> {
+        let before = ANSWERED.with(|a| a.replace(Some(kind.to_owned())));
+        UNKEPT.with(|u| u.set(false));
+        let record = self.append(session, dir, kind, msg);
+        ANSWERED.with(|a| a.replace(before));
+        if UNKEPT.with(|u| u.replace(false)) {
+            return Err(RpcError::internal(
+                "a restore holds this chat, and the change could not be kept on disk until it ends",
+            ));
+        }
+        Ok(record)
     }
 }
 

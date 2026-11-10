@@ -382,11 +382,13 @@ impl Hub {
         // reach the log in the order their revisions were given, so a restart restores the last
         // words and never pairs an approval with older ones (`restore_queue`).
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (turn_id, run, text, revision) = {
+        let (turn_id, run, text, revision, was) = {
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            // As it was, for an edit a restore's hold could not keep (`append_answered`).
+            let was = (q.run.clone(), q.preview.clone(), q.revision);
             // Approved, it runs the words the owner approved (`queue_approve.rs`).
             let again = crate::author::awaits_owner(q.run.provenance.as_ref());
             if again && !q.awaiting_owner {
@@ -432,7 +434,7 @@ impl Hub {
             if again {
                 q.revision = q.revision.saturating_add(1);
             }
-            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
+            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision), was)
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         if let Some(revision) = revision {
@@ -457,7 +459,14 @@ impl Hub {
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
-        self.append(session, "mux", "queue_updated", msg);
+        // An edit a restore's hold could not keep on disk is undone and refused (review of
+        // #37284 at b7496c3f, F1): b7496c3f answered it made, and a crash lost it.
+        if let Err(e) = self.append_answered(session, "mux", "queue_updated", msg) {
+            if let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) {
+                (q.run, q.preview, q.revision) = was;
+            }
+            return Err(e);
+        }
         drop(queue);
         Ok(true)
     }
@@ -485,9 +494,14 @@ impl Hub {
             let to = index.min(queue.len());
             queue.insert(to, q);
             let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
-            // Logged under the lock that moved it, as `update_queued` logs an edit.
+            // Logged under the lock that moved it, as `update_queued` logs an edit; one a
+            // restore's hold could not keep on disk is moved back and refused.
             let msg = json!({"promptId": prompt_id, "order": order});
-            self.append(session, "mux", "queue_order", msg);
+            if let Err(e) = self.append_answered(session, "mux", "queue_order", msg) {
+                let q = queue.remove(to);
+                queue.insert(from, q);
+                return Err(e);
+            }
         }
         session.queue_moved.notify_waiters();
         Ok(true)

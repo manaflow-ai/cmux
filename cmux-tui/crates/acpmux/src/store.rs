@@ -990,6 +990,18 @@ pub trait Store: Send + Sync {
             None => Ok(false),
         }
     }
+    /// Keeps `kept`, the records chat `id` keeps while a journal restore holds it
+    /// (`hub/restore_writer.rs`), whole and durably beside its log, in place of what it kept
+    /// before; None removes them. They take no seq: the restore needs the seqs past the log's
+    /// end. Done only when it answers Ok. A store that keeps nothing across a restart keeps
+    /// nothing here.
+    fn keep_parked(&self, _id: &str, _kept: Option<&[u8]>) -> Result<()> {
+        Ok(())
+    }
+    /// What [`Store::keep_parked`] last kept for chat `id`.
+    fn kept_parked(&self, _id: &str) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1172,6 +1184,9 @@ struct Writers {
 
 const OPEN_LOGS: usize = 64;
 
+/// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
+const PARKED: &str = "parked.json";
+
 struct SegmentWriter {
     index: u32,
     file: File,
@@ -1221,23 +1236,44 @@ impl LocalStore {
         self.root.join(id)
     }
 
+    /// The log's segments, in order. A cut a crash or a failure left halfway
+    /// (`store/compact.rs` `finish_cut_locked`) is finished first: no reader ever sees a log
+    /// whose segments were cut to different ends (review of #37284 at b7496c3f, F2).
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+        let (segments, cut_pending) = self.list_segments(id)?;
+        if !cut_pending {
+            return Ok(segments);
+        }
+        // A sealed store writes nothing: the next daemon finishes it.
+        let Ok(_open) = self.writable() else { return Ok(segments) };
+        let mut writers = self.writers.lock_or_recover();
+        self.finish_cut_locked(id, &mut writers)?;
+        drop(writers);
+        Ok(self.list_segments(id)?.0)
+    }
+
+    /// The log's segments, in order, as the folder lists them, and whether a cut's intent
+    /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
+    fn list_segments(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
         let dir = self.dir(id).join("events");
         let mut out = Vec::new();
+        let mut cut_pending = false;
         let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok(out);
+            return Ok((out, false));
         };
         for entry in rd {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stem) = name.strip_suffix(".ndjson")
+            if name == compact::CUT {
+                cut_pending = true;
+            } else if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
             {
                 out.push((idx, entry.path()));
             }
         }
         out.sort();
-        Ok(out)
+        Ok((out, cut_pending))
     }
 
     fn list_entry(&self, entry: &std::fs::DirEntry) -> Result<Option<SessionMeta>> {
@@ -1308,7 +1344,8 @@ impl LocalStore {
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;
         crate::config::private_state_dir(&dir)?;
-        let segs = self.segments(id)?;
+        // Under the writers' lock (`append_line`), which finished any cut left halfway first.
+        let (segs, _) = self.list_segments(id)?;
         let (index, path) = match segs.last() {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
@@ -1546,6 +1583,8 @@ impl LocalStore {
             w.close(&oldest, &self.sync_failed);
         }
         if !writers.open.contains_key(id) {
+            // A cut left halfway is finished before anything is appended past it.
+            self.finish_cut_locked(id, &mut writers)?;
             let writer = self.open_writer(id)?;
             writers.open.insert(id.to_owned(), writer);
         }
@@ -1855,6 +1894,34 @@ impl Store for LocalStore {
 
     fn seal(&self) {
         *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+    }
+
+    /// `<id>/parked.json`, beside the chat's `events/`: written whole by a rename, its file and
+    /// folder synced before it answers. Never makes the chat's folder: a purged chat keeps none.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        let _open = self.writable()?;
+        let path = self.dir(id).join(PARKED);
+        match kept {
+            Some(bytes) => compact::write_durably(&path, bytes),
+            None => match std::fs::remove_file(&path) {
+                Ok(()) => sync_directory(&self.dir(id)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
+            },
+        }
+    }
+
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        let path = self.dir(id).join(PARKED);
+        match crate::config::private_state_file(&path) {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                BufReader::new(file).read_to_end(&mut bytes)?;
+                Ok(Some(bytes))
+            }
+            Err(_) if std::fs::symlink_metadata(&path).is_err() => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     fn delete(&self, id: &str) -> Result<()> {
@@ -2290,6 +2357,39 @@ static FAIL_BEFORE_MARKER: std::sync::Mutex<Option<String>> = std::sync::Mutex::
 #[cfg(test)]
 pub(crate) fn fail_before_marker_once(id: &str) {
     *FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
+}
+
+/// Tests only: what runs once a commit of chat `id`'s staged log (`compact.rs`
+/// `commit_compaction`) replaced its first segment, before its second: a crash there, as a test
+/// copies what the disk holds then (review of #37284 at b7496c3f, F2).
+#[cfg(test)]
+type Crash = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static BETWEEN_SEGMENTS: std::sync::Mutex<Option<(String, Crash)>> = std::sync::Mutex::new(None);
+
+/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once.
+#[cfg(test)]
+pub(crate) fn between_segments_once(id: &str, crash: Crash) {
+    *BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), crash));
+}
+
+/// Runs [`between_segments_once`]'s crash of chat `id`, on the committing thread.
+#[cfg(test)]
+fn between_segments(id: &str) {
+    let crash = {
+        let mut armed = BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner());
+        match armed.take() {
+            Some((at, crash)) if at == id => Some(crash),
+            other => {
+                *armed = other;
+                None
+            }
+        }
+    };
+    if let Some(crash) = crash {
+        crash();
+    }
 }
 
 #[cfg(test)]

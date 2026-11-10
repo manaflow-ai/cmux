@@ -1179,7 +1179,20 @@ impl Hub {
         session.queued.fetch_sub(1, Ordering::SeqCst);
         let removed = queue.remove(i);
         let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
-        self.settle_removed(session, removed, &mut ledger, why);
+        if self.at_b749() {
+            self.settle_removed(session, removed, &mut ledger, why);
+        } else {
+            // A removal a restore's hold could not keep on disk is put back and refused (review
+            // of #37284 at b7496c3f, F1): b7496c3f answered it removed, and after a crash the
+            // prompt waited again and ran.
+            let msg = removed_record(session, &removed, why);
+            if let Err(e) = self.append_answered(session, "mux", "queue_removed", msg) {
+                session.queued.fetch_add(1, Ordering::SeqCst);
+                queue.insert(i, removed);
+                return Err(e);
+            }
+            self.settle_removed_logged(session, removed, &mut ledger);
+        }
         drop(ledger);
         drop(queue);
         Ok(Withdrawn::Removed)
@@ -1195,14 +1208,20 @@ impl Hub {
         ledger: &mut PromptLedger,
         why: Value,
     ) {
-        let prompt_id = removed.prompt_id.as_str();
-        let mut msg =
-            json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
-        if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
-            msg.extend(why);
-        }
+        let msg = removed_record(session, &removed, why);
         self.append(session, "mux", "queue_removed", msg);
         // Finish the best-effort append before settlement can evict the retry identity.
+        self.settle_removed_logged(session, removed, ledger);
+    }
+
+    /// [`Self::settle_removed`] once its record is appended.
+    fn settle_removed_logged(
+        &self,
+        session: &Arc<Session>,
+        removed: QueuedPrompt,
+        ledger: &mut PromptLedger,
+    ) {
+        let prompt_id = removed.prompt_id.as_str();
         if removed.restored {
             let answer = if removed.declined.load(Ordering::SeqCst) {
                 Err(queue_approve::declined_error(prompt_id, &removed.turn_id))
@@ -1803,4 +1822,14 @@ pub(super) fn closing(session: &Session) -> bool {
 pub(super) fn closing_error() -> RpcError {
     RpcError::invalid_params("the session is closing or closed: it takes no prompt")
         .with_data(json!({"reason": "session.closing", "closing": true}))
+}
+
+/// The `queue_removed` record of `removed`, with the fields of `why`.
+fn removed_record(session: &Session, removed: &QueuedPrompt, why: Value) -> Value {
+    let mut msg = json!({"promptId": removed.prompt_id, "turnId": removed.turn_id,
+                         "queued": session.queued()});
+    if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
+        msg.extend(why);
+    }
+    msg
 }

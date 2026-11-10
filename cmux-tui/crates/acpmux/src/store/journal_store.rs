@@ -827,6 +827,15 @@ impl Store for JournalStore {
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         Store::stage_compaction(&self.inner.local, id, mode)
     }
+    /// Beside the log, not in the journal: what it keeps takes no seq (`hub/restore_writer.rs`).
+    /// Not while a delete or a checkpoint works on the chat's folder.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        let _folder = self.inner.folders.lock_or_recover();
+        Store::keep_parked(&self.inner.local, id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        Store::kept_parked(&self.inner.local, id)
+    }
     /// No journal record of the chat may be past the checkpoint: a replay must never write the
     /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or
     /// below it (`Order::log_lsn`; retention takes chats untouched for days) needs no checkpoint;
