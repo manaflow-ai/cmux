@@ -713,7 +713,14 @@
   margin: 0 0 var(--ds-space-2);
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
   border-radius: 12px;
-  background: var(--cmux-surface-solid);
+  /* The message box's own glass (.mt-field): the card sits on the composer, so what is behind shows. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 60%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mt-quote-card {
+    background: var(--cmux-surface-solid, Canvas);
+  }
 }
 
 .mt-quote-card::before {

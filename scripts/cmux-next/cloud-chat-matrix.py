@@ -16,8 +16,9 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 - the reply, which must carry a word only the folder's own file holds (so the agent read the copy).
 
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
-remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder of secrets, and
-odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
+limits (`huge-plain`: a sparse 21 GiB file, no disk spent, which must be refused fast with `copy.too_large`
+and no machine made; link/sync_cli/size_cap.rs), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -47,8 +48,12 @@ from pathlib import Path
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "secrets", "odd-names")
+              "big-plain", "huge-plain", "secrets", "odd-names")
 WORD_FILE = "cmux-matrix-word.txt"
+# huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
+HUGE_PLAIN_BYTES = 21 * 1024 ** 3
+# How long the copy may take to refuse huge-plain, from the call to its answer.
+HUGE_PLAIN_REFUSED_WITHIN_S = 30
 
 # What a copy leaves out (link/sync_cli/skips.rs): keep these in step with it.
 CREDENTIAL_FOLDERS = (".ssh", ".aws", ".gnupg", ".config/gcloud", ".config/gh", ".kube", ".docker", ".secrets",
@@ -83,6 +88,8 @@ def parse_args(argv=None):
                         help="a person's own folder as a cell, read only")
     parser.add_argument("--monorepo", default="https://github.com/manaflow-ai/cmux.git",
                         help="the big monorepo: a git URL cloned at depth 1, or a local checkout cloned from")
+    parser.add_argument("--monorepo-ref", default="", help="the branch to clone (a mirror's HEAD may name none)")
+    parser.add_argument("--submodule-url", default="https://github.com/octocat/Hello-World.git")
     parser.add_argument("--big-files", type=int, default=20000, help="files in the big non-Git folder")
     parser.add_argument("--parallel", type=int, default=3, help="most machines at once")
     parser.add_argument("--timeout", type=int, default=900, help="seconds one start-chat may wait")
@@ -91,7 +98,9 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.app and not (args.cloud_backend and args.expected_api_origin):
         parser.error("--app needs --cloud-backend and --expected-api-origin")
-    args.parallel = max(1, min(args.parallel, 3))
+    # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
+    # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
+    args.parallel = max(1, min(args.parallel, 2))
     return args
 
 
@@ -144,17 +153,20 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         source = args.monorepo
         if Path(source).is_dir():
             source = Path(source).resolve().as_uri()
-        git(root, "clone", "-q", "--depth", "1", "--no-recurse-submodules", source, str(path), timeout=1800)
+        branch = ("--branch", args.monorepo_ref) if args.monorepo_ref else ()
+        git(root, "clone", "-q", "--depth", "1", "--no-recurse-submodules", *branch, source, str(path), timeout=1800)
+        if not any(entry.name != ".git" for entry in path.iterdir()):
+            raise RuntimeError(f"the clone of {args.monorepo} checked out nothing (give --monorepo-ref)")
     elif kind == "private-remote":
         small_repo(path)
         git(path, "remote", "add", "origin", "https://github.com/manaflow-ai/cmuxterm-hq.git")
     elif kind == "submodules":
-        child = root / "submodule-child"
-        small_repo(child)
+        # A public GitHub submodule, as a real project has: the machine fetches it itself (a file://
+        # submodule only this Mac can reach is not a workspace anyone moves to Cloud).
         path.mkdir(parents=True)
         git(path, "init", "-q")
         write(path / "top.txt", "top\n")
-        git(path, "submodule", "add", "-q", child.as_uri(), "vendor/child")
+        git(path, "submodule", "add", "-q", "--depth", "1", args.submodule_url, "vendor/child")
         git(path, "add", "-A")
         git(path, "commit", "-qm", "with a submodule")
     elif kind == "lfs":
@@ -182,6 +194,11 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
             write(path / f"d{index % 200:03d}" / f"f{index:05d}.txt", f"{index}\n" * (1 + index % 512))
         for index in range(4):
             write(path / "large" / f"blob{index}.bin", os.urandom(32 * 1024 * 1024))
+    elif kind == "huge-plain":
+        path.mkdir(parents=True)
+        write(path / "src/app.py", "print('hi')\n")
+        with open(path / "disk.img", "wb") as sparse:
+            sparse.truncate(HUGE_PLAIN_BYTES)
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -242,6 +259,8 @@ lines, size, links = [], 0, []
 for top, dirs, files in os.walk(root):
     rel_top = os.path.relpath(top, root)
     dirs[:] = sorted(d for d in dirs if not (rel_top == "." and d == ".git"))
+    if rel_top == ".":
+        files = [f for f in files if f != ".cmux-sync.json"]  # the copy's own record (skips.rs Reserved)
     for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
         full = os.path.join(top, name)
         rel = os.path.normpath(os.path.join(rel_top, name))
@@ -351,6 +370,17 @@ def git_state(folder: Path) -> dict | None:
             "changed": len(status.splitlines())}
 
 
+def launch_argv(app: str, socket: str, credentials_file: str | None, backend: str) -> list[str]:
+    """The `open` command that starts --app on its own socket, as cloud-chat-proof.py does. The socket goes
+    only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app then strips the
+    CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507)."""
+    argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}"]
+    if credentials_file:
+        argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
+                 "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
+    return argv + [str(Path(app).resolve()), "--args", "--cloud-backend", backend]
+
+
 class Matrix:
     def __init__(self, args):
         self.args = args
@@ -394,21 +424,35 @@ class Matrix:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
         if args.app:
-            launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_SOCKET_PATH={self.env['CMUX_SOCKET_PATH']}",
-                      "--env", f"CMUX_NEXT_SOCKET_PATH={self.env['CMUX_NEXT_SOCKET_PATH']}"]
-            if args.credentials_file:
-                launch += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(args.credentials_file).resolve()}",
-                           "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
-            launch += [str(Path(args.app).resolve()), "--args", "--cloud-backend", args.cloud_backend]
+            launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file, args.cloud_backend)
             self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        deadline = time.monotonic() + 300
-        while time.monotonic() < deadline:
-            code, out, _ = self.cmux("cloud", "list-machines", "--json", timeout=30)
-            value = self.parsed(out) if code == 0 else {}
-            if (value.get("account") or {}).get("signed_in") and value.get("loaded") is not False:
-                return ""
-            time.sleep(3)
-        return "the app is not signed in to cmux (cloud list-machines: account.signed_in is not true)"
+        # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
+        # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
+        # gave up at 300 s, run 42808502162). Then the machine list loads.
+        steps = []
+        if args.app:
+            app_path = str(Path(args.app).resolve())
+            steps.append(("app identify", ("app", "identify", "--json"), 240,
+                          lambda v: bool(v.get("pid")) and v.get("app_bundle_path") == app_path))
+            origin = (args.expected_api_origin or "").rstrip("/")
+            steps.append(("auth.status", ("app", "call", "auth.status", "--json"), 300,
+                          lambda v: v.get("signed_in") is True and v.get("cloud_environment") == args.cloud_backend
+                          and str(v.get("backend", "")).rstrip("/") == origin))
+        steps.append(("cloud list-machines", ("cloud", "list-machines", "--json"), 300,
+                      lambda v: bool((v.get("account") or {}).get("signed_in")) and v.get("loaded") is not False))
+        for name, words, limit, ready in steps:
+            deadline, last = time.monotonic() + limit, ""
+            while True:
+                code, out, err = self.cmux(*words, timeout=30)
+                value = self.parsed(out) if code == 0 else {}
+                if code == 0 and ready(value):
+                    break
+                last = clean(self.error(out, err).get("message") or err or json.dumps(
+                    {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
+                if time.monotonic() >= deadline:
+                    return f"the app is not ready: {name} after {limit} s ({last})"
+                time.sleep(3)
+        return ""
 
     def quit(self) -> None:
         if self.launcher is not None:
@@ -428,16 +472,37 @@ class Matrix:
                 return True
         return False
 
+    def machine_titled(self, title: str) -> str | None:
+        code, out, _ = self.cmux("cloud", "list-machines", "--json", timeout=60)
+        rows = (self.parsed(out).get("machines") or []) if code == 0 else []
+        return next((row.get("machine_id") for row in rows
+                     if isinstance(row, dict) and row.get("title") == title and row.get("machine_id")), None)
+
     def sweep(self) -> list[str]:
         """Kill every machine still named after this run; answer the ones that would not go."""
         code, out, _ = self.cmux("cloud", "list-machines", "--json", timeout=60)
-        rows = self.parsed(out).get("machines") or [] if code == 0 else []
+        rows = (self.parsed(out).get("machines") or []) if code == 0 else []
         left = []
         for row in rows:
             if isinstance(row, dict) and str(row.get("title", "")).startswith(self.args.tag):
                 if not self.kill(row.get("machine_id", "")):
                     left.append(row.get("machine_id", ""))
         return left + sorted(self.machines)
+
+    def find_copy(self, machine: str, folder: Path, word: str) -> str:
+        """The copy of FOLDER on the machine: the folder holding the word's file, else the newest folder
+        named after it (CloudMoveFolder: the local name plus a short hash) under the work roots."""
+        roots = "/home/cmux/work /root/work /home/cmux/chats /root/chats"
+        if word:
+            command = (f"for f in $(find {roots} -maxdepth 4 -name {WORD_FILE} 2>/dev/null); do "
+                       f"grep -qx {shlex_quote(word)} \"$f\" && dirname \"$f\"; done | head -1")
+        else:
+            command = (f"ls -dt $(find {roots} -maxdepth 2 -type d -name {shlex_quote(folder.name + '*')} 2>/dev/null) "
+                       "2>/dev/null | head -1")
+        code, out, _ = self.cmux("cloud", "exec", "--target", f"machine:{machine}", "--command", command, "--json",
+                                 timeout=120)
+        stdout = self.parsed(out).get("stdout") if code == 0 else ""
+        return (stdout or "").strip().splitlines()[0] if (stdout or "").strip() else ""
 
     def exec_json(self, machine: str, command: str, timeout: int = 600) -> tuple[dict, str]:
         code, out, err = self.cmux("cloud", "exec", "--target", f"machine:{machine}", "--command", command,
@@ -459,17 +524,22 @@ class Matrix:
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
+        if name == "huge-plain":
+            return self.refused_cell(cell, folder, agent)
         started = time.monotonic()
         expected = local_manifest(folder, canary)
         cell["local"] = {key: expected[key] for key in ("files", "bytes", "left_out")}
         cell["local"]["manifest_s"] = round(time.monotonic() - started, 1)
         cell["local_git"] = git_state(folder)
-        title = f"{self.args.tag}-{name}-{agent}"[:60]
+        title = re.sub(r"[^A-Za-z0-9-]", "-", f"{self.args.tag}-{name}-{agent}")[:60]
+        # File reads only: a shell command makes the agent ask permission first, and a headless --wait
+        # then ends at chat.permission_waiting (the first live run, 2026-11-10). The copy's folder on
+        # the machine is found with `cloud exec`, not from the reply.
         ask_word = "" if read_only or name == "empty" else (
-            f" Then read the file {WORD_FILE} in that folder; it holds one word.")
-        form = "MATRIX_OK pwd=<the folder> files=<the number>" + ("" if not ask_word else " word=<the word>")
-        prompt = (f"This is an automated check of the folder this chat started in. Run `pwd` and count the files "
-                  f"under it (not in .git).{ask_word} Reply on one line in exactly this form and nothing else: {form}")
+            f" Read the file {WORD_FILE} in your working folder with your file-reading tool; it holds one word.")
+        form = "MATRIX_OK" + ("" if not ask_word else " word=<the word>")
+        prompt = (f"This is an automated check of the folder this chat started in. Do not run any shell command."
+                  f"{ask_word} Reply on one line in exactly this form and nothing else: {form}")
         chat_started = time.monotonic()
         deadline = chat_started + self.args.timeout
         while True:
@@ -485,6 +555,13 @@ class Matrix:
         details = failure.get("details") or {}
         machine = (answer.get("machine_id") or details.get("machine_id")
                    or (details.get("answer") or {}).get("machine_id"))
+        if not machine:
+            # Some refusals name the machine they made only in their text ("--target vm:vm_…"): a cell
+            # that misses it would leave the machine running.
+            named = re.search(r"\b(vm_[0-9a-f]{8,64})\b", f"{failure.get('message', '')} {err} {out}")
+            machine = named.group(1) if named else None
+        if not machine and code != 0:
+            machine = self.machine_titled(title)
         if machine:
             with self.lock:
                 self.machines.add(machine)
@@ -498,8 +575,14 @@ class Matrix:
             if isinstance(answer.get(key), (dict, list, int, str)):
                 cell.setdefault("answer_timing", {})[key] = json.loads(clean(json.dumps(answer[key]), 4000)) \
                     if not EVIDENCE_SCAN.search(json.dumps(answer[key])) else "[left out]"
-        match = re.search(r"MATRIX_OK pwd=(\S+)", reply)
-        remote = match.group(1) if match else ""
+        match = re.search(r"MATRIX_OK", reply)
+        remote = ""
+        for key in ("folder", "cwd", "remote_folder", "path"):
+            if isinstance(answer.get(key), str) and answer[key].startswith("/"):
+                remote = answer[key]
+                break
+        if machine and not remote and code == 0:
+            remote = self.find_copy(machine, folder, word if ask_word else "")
         cell["reply"] = {
             "observed": bool(reply),
             "form_ok": bool(match),
@@ -542,6 +625,34 @@ class Matrix:
         cell["machine_killed"] = self.kill(machine) if machine else None
         cell["result"] = verdict(cell, canary)
         return cell
+
+
+def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
+    """huge-plain: start-chat refuses the folder with copy.too_large, fast, before any machine is made."""
+    started = time.monotonic()
+    code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", "x",
+                               "--agent", agent, "--json", timeout=HUGE_PLAIN_REFUSED_WITHIN_S + 60)
+    cell["create_to_reply_s"] = round(time.monotonic() - started, 1)
+    failure = self.error(out, err)
+    cell["start_exit"] = code
+    cell["start_error"] = clean(f"{failure.get('code', '')}: {failure.get('message', '')}", 800)
+    machine = (failure.get("details") or {}).get("machine_id")
+    if machine:
+        with self.lock:
+            self.machines.add(machine)
+        cell["machine_killed"] = self.kill(machine)
+    problems = []
+    if code != 2 or failure.get("code") != "copy.too_large":
+        problems.append(f"not refused as copy.too_large (exit {code}, {failure.get('code')})")
+    if cell["create_to_reply_s"] > HUGE_PLAIN_REFUSED_WITHIN_S:
+        problems.append(f"refused after {cell['create_to_reply_s']} s")
+    if machine:
+        problems.append("a machine was made")
+    cell["result"] = "pass" if not problems else "fail: " + ", ".join(problems)
+    return cell
+
+
+Matrix.refused_cell = _refused_cell
 
 
 def shlex_quote(text: str) -> str:
