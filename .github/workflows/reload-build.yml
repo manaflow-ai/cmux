@@ -125,7 +125,9 @@ jobs:
     # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
     # Any other label is honored.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26)) || startsWith(inputs.runner, 'depot-') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) || inputs.runner) }}
-    timeout-minutes: 60
+    # A GitHub-hosted macOS runner (macos-26: 3 cores, cold caches) builds acpmux
+    # alone in about 27 minutes and hit 60 in the app build (run 42758039962).
+    timeout-minutes: ${{ startsWith(inputs.runner, 'macos-') && 150 || 60 }}
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
       CMUX_SKIP_ZIG_BUILD: "1"
