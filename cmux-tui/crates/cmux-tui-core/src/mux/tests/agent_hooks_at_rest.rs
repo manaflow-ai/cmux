@@ -569,11 +569,11 @@ fn agents_at_rest_a_report_for_a_closed_terminal_keeps_no_table_entry() {
 /// A hook row whose projection failed waits for a retry
 /// (`enqueue_agent_hook_pending`). Before reports at rest, the next hook of
 /// the terminal was a row, and its projection ran the retry first
-/// (`reconcile_preceding_agent_hooks`). A report at rest is no row, so it
-/// must run the retry itself: a failed turn start must not wait for the
-/// turn's end.
+/// (`reconcile_preceding_agent_hooks`). A report at rest is no row and runs
+/// no retry, so while the projection waits the next report must be a row: a
+/// failed turn start must not wait for the turn's end.
 #[test]
-fn agents_at_rest_a_report_at_rest_retries_a_pending_projection() {
+fn agents_at_rest_the_report_after_a_failed_projection_runs_its_retry() {
     let (mux, agent, root) = one_agent("pending");
     let projected = |mux: &Arc<Mux>| {
         mux.agent_records.lock().unwrap().get(&agent.terminal).map(|record| record.state)
@@ -593,8 +593,8 @@ fn agents_at_rest_a_report_at_rest_retries_a_pending_projection() {
     assert_eq!(pending(&mux), 1, "setup: the projection of the turn's start waits");
     assert_eq!(projected(&mux), Some(AgentState::Idle), "setup: the start is not projected");
 
-    // A report that changes nothing: no row of its own, and the retry runs.
-    let head = settled(&mux).session_journal_head().unwrap();
+    // A report that changes nothing is a row while the projection waits: the
+    // row's projection runs the retry, as before reports at rest.
     let answer = send(&mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));
     assert_eq!(
         pending(&mux),
@@ -606,14 +606,12 @@ fn agents_at_rest_a_report_at_rest_retries_a_pending_projection() {
         Some(AgentState::Working),
         "the turn's start is projected with the next report, not with the turn's end"
     );
-    // The report itself is no row: its receipt is the one of the turn's
-    // start, and the journal holds no row of the tool call.
-    assert!(answer.replayed && answer.sequence == started.sequence, "{answer:?} {started:?}");
-    let page = mux.session_journal_after(head, 500).unwrap();
     assert!(
-        page.records.iter().all(|record| record.payload["native_event"] != "PreToolUse"),
-        "the report at rest got a journal row"
+        !answer.replayed && answer.sequence > started.sequence,
+        "the report that runs the retry is a row: {answer:?} {started:?}"
     );
+    // Nothing waits now, so an equal report writes nothing again.
+    assert_eq!(tool_call_rows(&mux, &agent), 0, "the wait did not end with the retry");
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -805,6 +803,43 @@ fn agents_at_rest_an_unknown_result_of_another_hook_row_makes_the_next_report_a_
         "the report after a hook-producer row with an unknown result must be appended"
     );
     assert_eq!(tool_call_rows(&mux, &agent), 0, "the equal report after it writes nothing again");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A row of the hook producer that is no hook helper's report (a socket
+/// report's echo) waits behind a failing projection of its terminal. The
+/// wait it notes must count for the terminal: the next report is a row.
+/// Setup: the wait the failing row noted is ended through the table's own
+/// function, as a retry that read an empty table does, so only the echo's
+/// note can set it again.
+#[test]
+fn agents_at_rest_a_waiting_row_that_is_no_helper_report_keeps_the_wait() {
+    let (mux, agent, root) = one_agent("echo-waits");
+    let first = failing_turn_start(&mux, &agent, "failing-start");
+    let notes = mux.agent_hook_projection_pending_notes(&agent.terminal);
+    mux.note_no_agent_hook_projection_pending(&agent.terminal, notes);
+    assert!(!mux.agent_hook_projection_is_pending(&agent.terminal), "setup: no wait is noted");
+
+    mux.append_agent_report_echo(
+        &agent.terminal,
+        AgentState::Working,
+        AgentSource::Socket,
+        None,
+        1,
+    );
+    assert_eq!(
+        waiting_projection(&mux, "failing-start").map(|(attempt, _)| attempt),
+        Some(first + 1),
+        "setup: the echo's projection ran the retry of the failing row"
+    );
+    assert!(
+        mux.agent_hook_projection_is_pending(&agent.terminal),
+        "a waiting row that is no hook helper's report did not note the wait"
+    );
+    let answer = send(&mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));
+    assert!(!answer.replayed, "the report after it must be a row: {answer:?}");
+    fail_projections(&mux, false);
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }

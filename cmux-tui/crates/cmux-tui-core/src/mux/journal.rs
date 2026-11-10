@@ -642,18 +642,24 @@ impl Mux {
                         "durable agent hook receipt remains staged after retry bookkeeping failure",
                     );
                 }
-                // A report at rest of this terminal runs the retry.
+                // Each report of this terminal is a row while this waits:
+                // the row's projection is the retry.
                 self.note_agent_hook_projection_pending(ingress);
             }
-        } else if let Err(_bookkeeping_error) = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
-        {
-            self.report_internal_diagnostic(
-                "agent hook projection applied; retry bookkeeping cleanup deferred",
-            );
+        } else {
+            if let Err(_bookkeeping_error) = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
+            {
+                self.report_internal_diagnostic(
+                    "agent hook projection applied; retry bookkeeping cleanup deferred",
+                );
+            }
+            // After the clear of this row: ends the terminal's wait when no
+            // projection of it is left to try.
+            self.note_agent_hook_projected(ingress);
         }
         // A replayed plugin event can repair a projection after a process
         // crash between the durable journal commit and the in-memory fold.
