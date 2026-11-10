@@ -331,7 +331,7 @@ export function cmuxCommandRefusal(
     case "customize":
       // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's,
       // and so would the chat a New Tab with Cloud or Sandboxed picked is about to start.
-      return state.inCloud || state.startsElsewhere ? "composer.cmuxUnavailable" : undefined;
+      return state.inCloud || state.startsElsewhere ? "composer.cmuxCustomizeHere" : undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":

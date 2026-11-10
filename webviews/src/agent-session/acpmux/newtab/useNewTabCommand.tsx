@@ -78,7 +78,7 @@ export function useNewTabCommand(
       return true;
     }
     if (command.command.action === "customize" && actions.startsElsewhere?.()) {
-      refuse(t("composer.cmuxUnavailable"));
+      refuse(t("composer.cmuxCustomizeHere"));
       return true;
     }
     if (!actions.onCmuxCommand && harnessTakesToo(command.command)) return false;

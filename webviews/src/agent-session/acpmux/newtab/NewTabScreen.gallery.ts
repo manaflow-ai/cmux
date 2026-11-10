@@ -418,6 +418,32 @@ export default agentPaneEntry({
         );
       },
     },
+    "customize-slash-menu": {
+      note: "Typing /cust offers cmux's own /customize with what it does: ask, watch it change live, then apply or discard.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([]),
+      play: async (ctx) => {
+        await typePrompt(ctx, "/cust");
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll('[role="option"]')].some((row) => row.textContent?.includes("customize")),
+        );
+      },
+    },
+    "customize-refused-elsewhere": {
+      note: "/customize with another machine picked: refused inline, since its agent would change that machine's cmux; the prompt stays.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await openMachineList(ctx);
+        await ctx.click({ role: "option", name: /devbox/ });
+        await typePrompt(ctx, "/customize make the sidebar compact");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => !!ctx.document.body.textContent?.includes("changes cmux on this computer"));
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"))
+          throw new Error("/customize started a chat on another machine");
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab({ pageWidgets: ["chats"] }),

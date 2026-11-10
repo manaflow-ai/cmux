@@ -164,13 +164,13 @@ test("/customize is cmux's own everywhere but a Cloud chat, whose machine is not
   };
   expect(cmuxCommandRefusal(command.command, command.args, state)).toBeUndefined();
   expect(cmuxCommandRefusal(command.command, command.args, { ...state, inCloud: true })).toBe(
-    "composer.cmuxUnavailable",
+    "composer.cmuxCustomizeHere",
   );
   // New Tab with Cloud picked: no chat exists yet, so there is no host to read (`inCloud` is
   // false), and the chat this starts is not on this machine.
   const newTab = { ...state, summary: false, session: false, newTab: true, inCloud: false };
   expect(cmuxCommandRefusal(command.command, command.args, newTab)).toBeUndefined();
   expect(cmuxCommandRefusal(command.command, command.args, { ...newTab, startsElsewhere: true })).toBe(
-    "composer.cmuxUnavailable",
+    "composer.cmuxCustomizeHere",
   );
 });
