@@ -123,6 +123,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         set { webView.refusesKeyFocus = newValue }
     }
 
+    /// The page never scrolls itself; scrolls over it go to the native scroll view around it
+    /// (``PageWKWebView/passesScrollWheel``): a strip inside a native list, such as the sidebar's chat history.
+    public var passesScrollWheel: Bool {
+        get { webView.passesScrollWheel }
+        set { webView.passesScrollWheel = newValue }
+    }
+
     public var followsUIScale = true {
         didSet { if followsUIScale != oldValue { applyUIScale() } }
     }

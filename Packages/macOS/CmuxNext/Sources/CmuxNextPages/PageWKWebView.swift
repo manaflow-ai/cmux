@@ -141,6 +141,18 @@ final class PageWKWebView: WKWebView {
         return became
     }
 
+    /// A page inside a native scroll view that never scrolls itself (a sidebar chat history block): a wheel or trackpad
+    /// scroll over it goes to that scroll view in the same event, momentum and phases intact, as over a native row.
+    var passesScrollWheel = false
+
+    override func scrollWheel(with event: NSEvent) {
+        if passesScrollWheel, let scrollView = enclosingScrollView {
+            scrollView.scrollWheel(with: event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }

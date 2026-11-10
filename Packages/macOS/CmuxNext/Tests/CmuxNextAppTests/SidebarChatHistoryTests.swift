@@ -4,6 +4,8 @@ import CmuxNextActions
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextAgentPane
 @testable import CmuxNextDesign
+import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
@@ -176,58 +178,109 @@ import Testing
         #expect(SidebarChatHistory(defaults: defaults).pinned == ["a"])
     }
 
-    // MARK: Rows
+    // MARK: Rows (the React block, webviews/src/pages/sidebar-chats, through its host)
 
-    @Test func earlierMakesRowsForThePageOnlyAndRowsOpenAndPin() throws {
+    /// A block host with no page (the page's own tests are webviews `sidebar-chats-page.test.tsx`).
+    private static func host(_ part: SidebarChatHistoryHost.Part, history: SidebarChatHistory) -> SidebarChatHistoryHost {
+        let host = SidebarChatHistoryHost(part: part, makePage: { _ in nil })
+        host.history = history
+        return host
+    }
+
+    /// The person's click in the page view, as the router records it; each call spends its own.
+    private static func click(_ at: TimeInterval) -> PageCallContext {
+        PageCallContext(page: PageDescriptor.sidebarChats.id, userGesture: true, gestureEvent: at)
+    }
+
+    @Test func earlierSendsThePageOnlyAndItsRowsOpenFoldShowMoreAndPin() async throws {
         let history = SidebarChatHistory(defaults: try Self.defaults())
         var opened: [String] = []
         history.onOpen = { opened.append($0) }
-        let view = SidebarChatHistoryView(part: .earlier)
-        view.history = history
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
-        view.show(Self.make(Self.chats(50), limit: 3), metrics: .standard)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.rows.map(\.titleText) == ["chat 0", "chat 1", "chat 2"])
-        #expect(!view.more.isHidden)
-        #expect(view.header.foldable)
-        view.rows[1].onClick?()
+        let host = Self.host(.earlier, history: history)
+        host.show(Self.make(Self.chats(50), limit: 3), metrics: .standard, width: 240)
+        let block = try #require(host.provider.block)
+        #expect(block.rows.map(\.title) == ["chat 0", "chat 1", "chat 2"])
+        #expect(block.tail == .more)
+        #expect(!block.folded)
+        #expect(block.height == Double(Self.make(Self.chats(50), limit: 3).earlierHeight(.standard)), "the page draws the gap the layout keeps")
+        let op = { (name: String) in SidebarChatHistoryProvider.prefix + name }
+        _ = try await host.provider.call(op("open"), params: .object(["revision": .number(1), "chat": .string("c1")]), context: Self.click(1))
         #expect(opened == ["c1"])
         // The row's menu is the registry's Pin or Unpin Chat on its chat, retitled for this chat.
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         SidebarChatHistoryFeed.bind(into: registry, history: history)
-        let menu = try #require(view.rows[1].contextMenu())
+        let menu = try #require(host.contextMenu(for: "c1"))
         #expect(menu.items.map(\.title) == [Strings.chatHistoryPin])
         let run = try #require(menu.items.first.flatMap(ActionRegistry.menuRun(of:)))
         #expect(run.id == SidebarChatHistoryFeed.togglePinAction)
         #expect(run.target == ActionTargetRef(kind: .sidebarItem, id: "c1"))
         #expect(registry.perform(run.id, invocation: ActionInvocation(target: run.target)))
         #expect(history.pinned == ["c1"])
-        #expect(view.rows[1].contextMenu()?.items.map(\.title) == [Strings.chatHistoryUnpin])
-        view.more.onClick?()
+        #expect(host.contextMenu(for: "c1")?.items.map(\.title) == [Strings.chatHistoryUnpin])
+        _ = try await host.provider.call(op("more"), params: .object(["revision": .number(1)]), context: Self.click(2))
         #expect(history.limit == 2 * SidebarChatHistory.pageSize)
-        view.header.onClick?()
+        _ = try await host.provider.call(op("fold"), params: .object(["revision": .number(1)]), context: Self.click(3))
         #expect(history.earlierFolded)
     }
 
-    @Test func foldedEarlierHidesItsRowsAndShowMore() {
-        let view = SidebarChatHistoryView(part: .earlier)
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
-        view.show(Self.make(Self.chats(5), limit: 3), metrics: .standard)
-        view.show(Self.make(Self.chats(5), limit: 3, folded: true), metrics: .standard)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.rows.isEmpty)
-        #expect(view.more.isHidden)
-        #expect(view.header.folded)
+    /// The page acts only on the person's own click, once per click, and only on a chat it was shown.
+    @Test func pageCallsNeedAFreshClickAndAShownChat() async throws {
+        let history = SidebarChatHistory(defaults: try Self.defaults())
+        var opened: [String] = []
+        history.onOpen = { opened.append($0) }
+        let host = Self.host(.earlier, history: history)
+        host.show(Self.make(Self.chats(5), limit: 3), metrics: .standard, width: 240)
+        let open = SidebarChatHistoryProvider.prefix + "open"
+        let params = { (chat: String) in CmuxNextSettings.JSONValue.object(["revision": .number(1), "chat": .string(chat)]) }
+        await #expect(throws: PageError.self) {
+            _ = try await host.provider.call(open, params: params("c0"), context: PageCallContext(page: PageDescriptor.sidebarChats.id))
+        }
+        await #expect(throws: PageError.self) { _ = try await host.provider.call(open, params: params("c4"), context: Self.click(1)) }
+        _ = try await host.provider.call(open, params: params("c0"), context: Self.click(2))
+        await #expect(throws: PageError.self) { _ = try await host.provider.call(open, params: params("c1"), context: Self.click(2)) }
+        #expect(opened == ["c0"], "no script-only open, no chat outside the page, one open per click")
+        // Pinned has no fold and no Show More.
+        let pinned = Self.host(.pinned, history: history)
+        pinned.show(SidebarChatHistoryState(pinned: Self.chats(2)), metrics: .standard, width: 240)
+        await #expect(throws: PageError.self) {
+            _ = try await pinned.provider.call(SidebarChatHistoryProvider.prefix + "fold", params: .object([:]), context: Self.click(3))
+        }
+        #expect(!history.earlierFolded)
     }
 
-    @Test func pinnedRowsAreNotQuietAndItsHeaderDoesNotFold() {
-        let view = SidebarChatHistoryView(part: .pinned)
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
-        view.show(SidebarChatHistoryState(pinned: Self.chats(2)), metrics: .standard)
-        #expect(view.rows.map(\.titleText) == ["chat 0", "chat 1"])
-        #expect(view.more.isHidden)
-        #expect(!view.header.foldable)
-        #expect(view.header.titleText == Strings.pinned)
+    @Test func aBlockIsSentOnlyWhenItChangesAndTheReadyReportShowsThePage() async throws {
+        let host = Self.host(.earlier, history: SidebarChatHistory(defaults: try Self.defaults()))
+        let state = Self.make(Self.chats(5), limit: 3)
+        host.show(state, metrics: .standard, width: 240)
+        host.show(state, metrics: .standard, width: 240)
+        #expect(host.provider.revision == 1)
+        host.show(Self.make(Self.chats(5), limit: 4), metrics: .standard, width: 240)
+        #expect(host.provider.revision == 2)
+        _ = try await host.provider.call(SidebarChatHistoryProvider.prefix + "ready",
+                                         params: .object(["revision": .number(2), "height": .number(150)]),
+                                         context: PageCallContext(page: PageDescriptor.sidebarChats.id))
+        #expect(host.drawn?.revision == 2)
+        #expect(host.drawn?.height == 150)
+    }
+
+    @Test func foldedEarlierSendsNoRowsAndNoShowMore() throws {
+        let host = Self.host(.earlier, history: SidebarChatHistory(defaults: try Self.defaults()))
+        host.show(Self.make(Self.chats(5), limit: 3, folded: true), metrics: .standard, width: 240)
+        let block = try #require(host.provider.block)
+        #expect(block.rows.isEmpty)
+        #expect(block.tail == nil)
+        #expect(block.folded)
+        #expect(block.height == Double(SidebarLayoutMetrics.standard.sectionHeaderHeight))
+    }
+
+    @Test func pinnedDoesNotFoldAndHasNoTail() throws {
+        let host = Self.host(.pinned, history: SidebarChatHistory(defaults: try Self.defaults()))
+        host.show(SidebarChatHistoryState(pinned: Self.chats(2)), metrics: .standard, width: 240)
+        let block = try #require(host.provider.block)
+        #expect(block.rows.map(\.title) == ["chat 0", "chat 1"])
+        #expect(block.tail == nil)
+        #expect(!block.folded)
+        #expect(block.part == .pinned)
     }
 
     // MARK: The feed
@@ -302,7 +355,7 @@ import Testing
     /// Leo, 2026-11-05 (ask-26245544ff): "i cant see any chats" after a restart into a new nightly. acpmux took 42 s
     /// under load to start its chat index and answered Earlier `ready: false` until then; the history drew nothing, which
     /// reads as every chat gone. Until acpmux first sends Earlier's rows it keeps its header and a Loading row.
-    @Test func earlierSaysLoadingUntilAcpmuxFirstSendsItsRows() throws {
+    @Test func earlierSaysLoadingUntilAcpmuxFirstSendsItsRows() async throws {
         let inputs = SidebarChatHistoryFeed.Inputs(live: [], pinned: [], limit: 3, folded: false)
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
@@ -317,14 +370,16 @@ import Testing
         #expect(waiting.hasEarlier && waiting.showsLoading, "an index still starting is not an empty history")
         let m = SidebarLayoutMetrics.standard
         #expect(waiting.earlierHeight(m) == m.sectionHeaderHeight + m.rowHeight + m.rowSpacing)
-        let view = SidebarChatHistoryView(part: .earlier)
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
-        view.show(waiting, metrics: m)
-        #expect(!view.more.isHidden)
-        #expect(view.more.titleText == Strings.chatHistoryLoading)
-        let limit = view.history.limit
-        view.more.onClick?()
-        #expect(view.history.limit == limit, "the Loading row asks for no page")
+        let history = SidebarChatHistory(defaults: try Self.defaults())
+        let host = Self.host(.earlier, history: history)
+        host.show(waiting, metrics: m, width: 240)
+        #expect(host.provider.block?.tail == .loading)
+        #expect(host.provider.block?.height == Double(waiting.earlierHeight(m)))
+        let limit = history.limit
+        await #expect(throws: Never.self) {
+            _ = try await host.provider.call(SidebarChatHistoryProvider.prefix + "more", params: .object([:]), context: Self.click(1))
+        }
+        #expect(history.limit == limit, "the Loading row asks for no page")
 
         let full: [String: Any] = ["window": SidebarChatHistoryFeed.earlierWindow, "gen": NSNumber(value: generation),
                                    "revision": NSNumber(value: 1), "full": true, "keys": [String](), "rows": [[String: Any]](),
@@ -338,21 +393,20 @@ import Testing
         #expect(!SidebarChatHistoryState(earlierFolded: true, loading: true).showsLoading, "folded Earlier keeps only its header")
     }
 
-    @Test func historyRowsCarryHarnessMarksAndStableFallbackColoursAcrossReuse() throws {
-        let view = SidebarChatHistoryView(part: .earlier)
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
+    @Test func historyRowsCarryHarnessMarksAndStableFallbackColours() throws {
+        let host = Self.host(.earlier, history: SidebarChatHistory(defaults: try Self.defaults()))
         let codex = SidebarHistoryChat(id: "codex:1", title: "same title", updatedAt: Self.start, harness: "codex")
         let unknown = SidebarHistoryChat(id: "acme:1", title: "same title", updatedAt: Self.start, harness: "acme-agent")
-        view.show(SidebarChatHistoryState(earlier: [codex]), metrics: .standard)
-        view.layoutSubtreeIfNeeded()
-        let row = try #require(view.rows.first)
+        host.show(SidebarChatHistoryState(earlier: [codex]), metrics: .standard, width: 240)
+        let row = try #require(host.provider.block?.rows.first)
         #expect(row.harness == "codex")
-        #expect(row.harnessMarkColor == nil)
-        #expect(row.titleText == "same title")
-        view.show(SidebarChatHistoryState(earlier: [unknown]), metrics: .standard)
-        view.layoutSubtreeIfNeeded()
-        #expect(row.harness == "acme-agent")
-        #expect(row.harnessMarkColor == GroupColor.unset(id: "acme-agent"))
-        #expect(row.harnessMarkColor != nil)
+        #expect(row.markColor == nil)
+        #expect(row.title == "same title")
+        host.show(SidebarChatHistoryState(earlier: [unknown]), metrics: .standard, width: 240)
+        let other = try #require(host.provider.block?.rows.first)
+        #expect(other.harness == "acme-agent")
+        let colour = host.performWithTheme { SidebarChatHistoryBlock.css(GroupColor.unset(id: "acme-agent").markColor) }
+        #expect(other.markColor != nil)
+        #expect(other.markColor == colour)
     }
 }
