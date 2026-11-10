@@ -23,7 +23,13 @@ flag, never read from the environment:
   the push adds; tests/test_ci_single_host_fallbacks.py runs it too.
 - --advisory: what ci-guards.yml passes. One `::warning file=...,line=...::` per finding and a line in
   $GITHUB_STEP_SUMMARY, and exit 0 whatever it finds, even when it cannot run.
-- --json: the findings as JSON (key, message, file, line), exit 0; the pre-push gate's input.
+- --json: the findings as JSON (key, message, file, line, status), exit 0; the pre-push gate's input.
+
+Every finding has a status. "found": the scan ran and found it. "incomplete": the scan (or a part of it) did not run,
+so what it would have found is unknown: a declaration that is missing, unreadable or of the wrong shape, or a
+workflow whose YAML does not load. The gate never subtracts an incomplete finding as old debt and refuses any push
+whose head has one (Codex on #40840: a schema fault the base already had was subtracted, so a new vars.NAME at the
+head passed with no scan at all).
 """
 
 from __future__ import annotations
@@ -38,6 +44,8 @@ from pathlib import Path
 
 DECLARATION = ".github/single-host-fallbacks.json"
 WORKFLOWS = ".github/workflows"
+# A finding's status (see the module doc): the scan found it, or the scan did not run.
+FOUND, INCOMPLETE = "found", "incomplete"
 
 RUNS_ON_LINE = re.compile(r"^\s*runs-on:\s*(?P<value>.*)$")
 # `vars.NAME` and `vars['NAME']`; GitHub matches variable names case-insensitively, so `vars.name` reads NAME.
@@ -321,13 +329,14 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
     A finding is {"key", "message", "file", "line"}; `key` names the undeclared thing (`vars.NAME`, a label),
     which is what the pre-push gate compares between the base and the head."""
     reads = references(workflow_dirs)
-    found = [{"key": f"unreadable:{note}", "message": note, "file": WORKFLOWS, "line": 1} for note in reads.unreadable]
+    found = [{"key": f"unreadable:{note}", "message": note, "file": WORKFLOWS, "line": 1, "status": INCOMPLETE}
+             for note in reads.unreadable]
     declared = {name.upper() for name in policy.get("variables", {})}
     for name in sorted(reads.variables):
         if name in declared:
             continue
         places = reads.variables[name]
-        found.append({"key": f"vars.{name}", "file": places[0][1], "line": places[0][2],
+        found.append({"key": f"vars.{name}", "file": places[0][1], "line": places[0][2], "status": FOUND,
                       "message": f"vars.{name} is read by a runs-on but {DECLARATION} does not declare its fallback "
                                  f"(variables.{name}): {', '.join(where for where, _, _ in places)}"})
     labels = set(policy.get("labels", {}))
@@ -337,7 +346,7 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
         for label in LABEL.findall(value):
             if label in labels or (label not in controller and not label.startswith(prefixes)):
                 continue
-            found.append({"key": f"label:{label}", "file": rel, "line": number,
+            found.append({"key": f"label:{label}", "file": rel, "line": number, "status": FOUND,
                           "message": f"{Path(rel).name}:{number}: {label} is a single-host label with no declared "
                                      f"fallback (labels.{label})"})
     return found
@@ -348,22 +357,27 @@ def undeclared(workflow_dirs: Iterable[Path], policy: dict) -> list[str]:
 
 
 def check(root: Path) -> list[dict]:
-    """Every finding for the repository at ROOT: the declaration's own faults, then the workflows'."""
+    """Every finding for the repository at ROOT: the declaration's own faults, then the workflows'.
+
+    A declaration the scan cannot walk (missing, not JSON, a section of the wrong type) gives INCOMPLETE findings
+    only: no workflow was read, so none of them says anything about the runs-on lines."""
     path = root / DECLARATION
     if not path.is_file():
-        return [{"key": "declaration:missing", "file": DECLARATION, "line": 1,
+        return [{"key": "declaration:missing", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
                  "message": f"{DECLARATION} is missing, so no runs-on variable has a declared fallback"}]
     try:
         policy = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, UnicodeDecodeError) as error:
-        return [{"key": "declaration:unreadable", "file": DECLARATION, "line": 1,
-                 "message": f"{DECLARATION} is not readable JSON: {error}"}]
-    found = [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "message": f"{DECLARATION}: {fault}"}
-             for fault in declaration_faults(policy)]
+        return [{"key": "declaration:unreadable", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
+                 "message": f"{DECLARATION} is not readable JSON, so no workflow was scanned: {error}"}]
+    faults = declaration_faults(policy)
     if not scannable(policy):
-        # The schema findings alone: a section of the wrong type (null, a list for an object) is never walked.
-        return found or [{"key": "declaration:shape", "file": DECLARATION, "line": 1,
-                          "message": f"{DECLARATION}: a section the scan reads has the wrong type"}]
+        # A section of the wrong type (null, a list for an object) is never walked: the scan did not run.
+        return [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
+                 "message": f"{DECLARATION}: {fault} (no workflow was scanned)"}
+                for fault in faults or ["a section the scan reads has the wrong type"]]
+    found = [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "status": FOUND,
+              "message": f"{DECLARATION}: {fault}"} for fault in faults]
     return found + findings([root / WORKFLOWS], policy)
 
 
@@ -378,7 +392,7 @@ def advisory(root: Path) -> int:
     try:
         found = check(root)
     except Exception as error:  # advisory: a scan that cannot run warns, it never fails the step
-        found = [{"key": "error", "file": DECLARATION, "line": 1,
+        found = [{"key": "error", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
                   "message": f"the single-host fallback scan could not run: {error.__class__.__name__}: {error}"}]
     for finding in found:
         print(f"::warning file={escape(finding['file'], True)},line={finding['line']},"
