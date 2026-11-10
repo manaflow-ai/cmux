@@ -32,6 +32,12 @@ export type TurnActions = {
   /// Cloud chats can fork their current machine and transcript into one sibling. The action is
   /// intentionally latest-turn-only until platform checkpoint inputs are available.
   tryAnotherApproach?: (throughSeq: number) => Promise<void>;
+  /// Back to before this turn (a sent prompt's rewind, MessageActions.tsx RewindButton): `ready`, the
+  /// prompt row ids whose turn has a whole-machine Cloud checkpoint taken before it ran, and `before`,
+  /// the rewind that puts the machine back to that checkpoint, settling with how long it took.
+  /// Absent where the chat is not a Cloud chat or the host serves no rewind (App.tsx
+  /// `cloudTurnRewind`), so no prompt draws it.
+  rewind?: { ready: ReadonlySet<string>; before(rowId: string): Promise<{ seconds: number }> };
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
   fork?: (throughSeq: number) => void;

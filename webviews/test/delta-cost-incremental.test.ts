@@ -3,13 +3,14 @@
 // update cost more as the transcript grew, 1.9x and 2.9x from 50 to 5,000 rows).
 import { expect, test } from "bun:test";
 import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
-import { PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
+import { keptPrefix, PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
 import { rowPresence, type RowPresenceHints } from "../src/agent-session/acpmux/conversation/rowPresence";
 import { withoutQuietThoughts } from "../src/agent-session/acpmux/conversation/thoughts";
 import {
   transcriptRepositories,
   transcriptRepositoriesFrom,
   type RepositoryCache,
+  type RepositoryReading,
 } from "../src/agent-session/acpmux/conversation/transcriptRepositories";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { transcriptBackground } from "../src/agent-session/acpmux/summary/sessionSummary";
@@ -87,14 +88,15 @@ test("transcriptRepositoriesFrom gives what a whole pass gives, as the rows stre
     row("u2", { kind: "user", text: "and o/r#2" }),
   ];
   const cache: RepositoryCache = new Map();
+  const drawn = (reading: RepositoryReading, count: number) => Array.from({ length: count }, (_, i) => reading.at(i));
   let reading = transcriptRepositoriesFrom(rows, "h/r", cache);
-  expect(reading.repositories).toEqual(transcriptRepositories(rows, "h/r"));
+  expect(drawn(reading, rows.length)).toEqual(transcriptRepositories(rows, "h/r"));
   for (const text of ["x", "x see a/b#3", "x see a/b#3 done"]) {
     const next = [...rows, row("a2", { text })];
     reading = transcriptRepositoriesFrom(next, "h/r", cache, reading);
-    expect(reading.repositories).toEqual(transcriptRepositories(next, "h/r"));
+    expect(drawn(reading, next.length)).toEqual(transcriptRepositories(next, "h/r"));
   }
-  expect(transcriptRepositoriesFrom(rows, undefined, cache, reading).repositories).toEqual(
+  expect(drawn(transcriptRepositoriesFrom(rows, undefined, cache, reading), rows.length)).toEqual(
     transcriptRepositories(rows),
   );
 });
@@ -189,4 +191,186 @@ test("transcriptRepositoriesFrom reads none of the rows before a streamed token"
   for (const text of ["x y", "x y z"])
     reading = transcriptRepositoriesFrom([...history.rows, row("reply", { text })], undefined, cache, reading);
   expect(history.reads.count, "transcriptRepositoriesFrom: history row fields read over two tokens").toBe(0);
+});
+
+// The pane's passes over a whole snapshot (App.tsx: the composer's rows, the tray's done lines, the
+// hat's todo list, Find's waiting messages, Session Info's subagents, the asks, the failed runs):
+// a thought token or a tool call is a new snapshot, and at 35,000 rows (bench/godFixture.ts) each
+// pass that read every row made one update cost 2-3x what it costs in a small chat. Each must read
+// only the rows the update changed, and answer what a pass over every row (fresh objects, so
+// nothing is kept) answers.
+function mixedHistory(count: number): AcpmuxRow[] {
+  const agent = (index: number) => ({
+    id: `agent-${index}`,
+    parent: null,
+    name: `Explore ${index}`,
+    state: "completed",
+    startedAt: index * 10,
+    endedAt: index * 10 + 5,
+  });
+  return Array.from({ length: count }, (_, index): AcpmuxRow => {
+    const at = index * 10;
+    switch (index % 12) {
+      case 0:
+        return row(`u${index}`, { kind: "user", at, text: `prompt ${index}` });
+      case 1:
+        return row(`p${index}`, {
+          kind: "plan",
+          at,
+          turnEnded: true,
+          plan: [{ content: "step", status: index % 24 === 1 ? "pending" : "completed" }],
+        } as Partial<AcpmuxRow>);
+      case 2:
+        return row(`g${index}`, {
+          kind: "subagents",
+          at,
+          text: undefined,
+          subagents: [agent(index)],
+        } as Partial<AcpmuxRow>);
+      case 3:
+        return row(`b${index}`, {
+          kind: "backgroundTurn",
+          at,
+          text: undefined,
+          background: { id: `bg${index}`, cause: { kind: "subagent", origin: `agent-${index - 1}` } },
+        } as Partial<AcpmuxRow>);
+      case 4:
+        return row(`f${index}`, { kind: "user", at, failed: true, text: `failed ${index}` });
+      case 5:
+        return row(`d${index}`, { kind: "date", at, text: undefined });
+      case 6:
+        return row(`f${index}`, { kind: "user", at, failed: true, text: `failed ${index}` });
+      case 7:
+        return row(`q${index}`, {
+          kind: "permission",
+          at,
+          text: undefined,
+          permission: { pending: index % 24 === 7, toolCallId: `call-${index}` },
+        } as Partial<AcpmuxRow>);
+      case 8:
+        return row(`pair${index}`, {
+          kind: "agentPair",
+          at,
+          text: undefined,
+          agentPair: { peer: `peer-${index % 5}`, held: index % 36 === 8 ? ["m"] : [], resumed: false },
+        } as unknown as Partial<AcpmuxRow>);
+      case 9:
+        return row(`s${index}`, { kind: "turnSummary", at, text: undefined, status: "completed" });
+      default:
+        return row(`a${index}`, { at, text: `reply ${index}` });
+    }
+  });
+}
+
+/// `pass` over a counted history and a tail that streams: no history row's field is read after the
+/// first pass (but `allowed`, the chat's first rows), and each answer is a fresh whole pass's.
+function readsOnlyTheTail<T>(
+  name: string,
+  pass: (rows: readonly AcpmuxRow[]) => T,
+  allowed = 0,
+  view: (answer: T) => unknown = (answer) => answer,
+) {
+  const plain = mixedHistory(4000);
+  const history = countedRows(plain.length, (index) => plain[index]!);
+  const tails = [
+    [row("live", { text: "x" })],
+    [row("live", { text: "x y" })],
+    [row("live", { text: "x y" }), row("call", { kind: "activity", text: undefined, items: [] } as Partial<AcpmuxRow>)],
+    [
+      row("u-new", { kind: "user", text: "next" }),
+      row("p-new", { kind: "plan", plan: [{ content: "a", status: "pending" }] } as Partial<AcpmuxRow>),
+    ],
+  ];
+  pass([...history.rows, ...tails[0]!]);
+  history.reads.count = 0;
+  for (const tail of tails.slice(1)) {
+    const answer = pass([...history.rows, ...tail]);
+    // What the answer reads to compare it is the test's, not the pass's.
+    const counted = history.reads.count;
+    const got = view(answer);
+    const whole = view(pass([...plain.map((each) => ({ ...each })), ...tail.map((each) => ({ ...each }))]));
+    history.reads.count = counted;
+    expect(Bun.deepEquals(got, whole), `${name}: the answer a whole pass gives`).toBe(true);
+  }
+  expect(history.reads.count, `${name}: history row fields read over three updates`).toBeLessThanOrEqual(allowed);
+}
+
+test("the pane's per-snapshot passes read only the rows an update changed", async () => {
+  const { composerRows } = await import("../src/agent-session/acpmux/composer/composerView");
+  const { subagentsIn, withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+  const { withSubagentLines } = await import("../src/agent-session/acpmux/subagents/runningTray");
+  const { pendingToolCalls } = await import("../src/agent-session/acpmux/summary/subagentStatusListModel");
+  const { heldPairs } = await import("../src/agent-session/acpmux/needsYou/model");
+  const { failedRuns } = await import("../src/agent-session/acpmux/sendFailure");
+  const { liveTurnPlan, earlierTurnPlan } = await import("../src/agent-session/acpmux/conversation/turns");
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { searchablePendingRows } = await import("../src/agent-session/acpmux/conversation/pendingMessages");
+  const { firstReplyCompleted } = await import("../src/agent-session/acpmux/share/shareNudgeModel");
+  const ids = (rows: readonly AcpmuxRow[]) => rows.map((each) => each.id);
+  // The chat's start (its first row after the session start) is read once per update.
+  readsOnlyTheTail("composerRows", composerRows, 3, ids);
+  readsOnlyTheTail(
+    "subagentsIn",
+    (rows) => subagentsIn(rows),
+    0,
+    (agents) => [...agents.keys()],
+  );
+  readsOnlyTheTail("withSubagentRows", (rows) => withSubagentRows(rows, new Set()), 0, ids);
+  readsOnlyTheTail(
+    "pendingToolCalls",
+    (rows) => pendingToolCalls({ rows: rows as AcpmuxRow[] }),
+    0,
+    (calls) => [...calls],
+  );
+  readsOnlyTheTail("heldPairs", heldPairs, 0, (pairs) => pairs.map((pair) => pair.peer));
+  readsOnlyTheTail(
+    "failedRuns",
+    (rows) => failedRuns(rows),
+    0,
+    (runs) => [...runs].map(([id, run]) => [id, run.rowIds]),
+  );
+  readsOnlyTheTail("liveTurnPlan", liveTurnPlan, 0, (plan) => plan?.id);
+  readsOnlyTheTail("earlierTurnPlan", earlierTurnPlan, 0, (plan) => plan?.id);
+  readsOnlyTheTail("flattenInboxRows", flattenInboxRows, 0, ids);
+  readsOnlyTheTail("searchablePendingRows", (rows) => searchablePendingRows(rows, []), 0, ids);
+  // Up to the second ended turn, the history's first 22 rows, whatever the chat's length.
+  readsOnlyTheTail("firstReplyCompleted", firstReplyCompleted, 3 * 22);
+  // The groups and reports are found from the tail alone; each ended subagent's line is still
+  // placed again per update (its group, its agent and the rows right after it: about a dozen
+  // fields per group, 333 groups here), never the rows between groups. Grows with groups, not rows.
+  const lines = new Map();
+  readsOnlyTheTail(
+    "withSubagentLines",
+    (rows) => withSubagentLines(rows, lines),
+    333 * 3 * 13,
+    (rows) => rows.map((each) => [each.id, each.kind]),
+  );
+});
+
+test("the prefix passes hold no rows of a chat that closed", async () => {
+  // The passes are module state shared by every chat; holding a closed 35,000-row chat's arrays
+  // there kept it in memory until newer passes pushed it out (review of #40592).
+  const { composerRows } = await import("../src/agent-session/acpmux/composer/composerView");
+  const { subagentsIn } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+  const cache = new PrefixFlatCache<AcpmuxRow, string>((each) => [each.id]);
+  const open = (): WeakRef<readonly AcpmuxRow[]>[] => {
+    const first = mixedHistory(2000);
+    const next = [...first, row("live", { text: "x" })];
+    for (const rows of [first, next]) {
+      cache.read(rows);
+      composerRows(rows);
+      subagentsIn(rows);
+      keptPrefix(first, rows);
+    }
+    // The passes reused the first snapshot's work for the next one.
+    expect(cache.read(next).items.length).toBe(next.length);
+    return [new WeakRef(first), new WeakRef(next)];
+  };
+  const closed = [...open(), ...open()];
+  for (let pass = 0; pass < 4; pass += 1) {
+    // A turn of the event loop between collections: a WeakRef holds its target until the job ends.
+    await new Promise((resolve) => setImmediate(resolve));
+    Bun.gc(true);
+  }
+  expect(closed.filter((ref) => ref.deref() !== undefined).length).toBe(0);
 });

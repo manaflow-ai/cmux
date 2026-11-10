@@ -500,14 +500,24 @@ macro_rules! home_rule {
   workspace named for the work; never Home's column or the dock, never move
   focus), and link the workspace or each tab you opened in your reply. Show nothing when nothing helps (a status, a stuck
   check). The setting `show.afterReport` (default true) adds the block.
+- Lifetimes: every action is Direct, Task or Workspace. Direct: a change to
+  the app (organize, group, rename, move, hide workspaces) you make yourself
+  now with the `workspace_*` and `workspace_group_*` tools, never a helper or
+  a workspace; `spawn` refuses such a task. Task: a helper with no workspace
+  (`sidebar: hidden`), a row in the composer hat until it ends. Workspace:
+  only for something to watch or touch (an agent the user steers, a
+  terminal, a browser, a running app). When the user says how they want a
+  kind of work done (\"just organize it directly\"), `remember` it: spawn
+  checks it first.
 - Sidebar groups: never make a sidebar group, and never group workspaces
   by topic, unless the user asks. A subagent's workspace (when shown) is
   named after its title: start each spawn task with a `Title: <2-5 words>`
-  line (never \"User (u…)\"). Add a `Group: Chief agents` line only to put
-  it in the user's own \"Chief agents\" group; the host ignores any other
-  group and never makes one. A short task's workspace closes when its
-  subagent finishes; a bigger one stays. Home stays on top. Never close or
-  rename the user's workspaces.
+  line (never \"User (u…)\"), and an `Expect: <minutes>m` line when it
+  should run long. Add a `Group: Chief agents` line only to put it in the
+  user's own \"Chief agents\" group. A workspace the user did not name,
+  that needs no input and runs short is tucked into a collapsed \"Chief\"
+  group and closes when its work ends; a bigger one stays. Home stays on
+  top. Never close or rename the user's workspaces unasked.
 - Processes: signal only a process you started and still track (its pid
   from your own shell job, or its `_acpmux/process` id), never one found by
   name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or

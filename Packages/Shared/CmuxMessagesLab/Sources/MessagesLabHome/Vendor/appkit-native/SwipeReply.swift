@@ -143,18 +143,25 @@ final class SwipeReply {
         armed = nowArmed
     }
 
+    /// cmux: the spring that brings the row back (damping ratio 1), built in one place so
+    /// `NoBounceSpringsTests` steps the animation the swipe adds.
+    static func returnSpring() -> CASpringAnimation {
+        let back = CASpringAnimation(keyPath: "sublayerTransform")
+        back.mass = 1
+        back.stiffness = pow(2 * .pi / Tuning.returnResponse, 2)
+        back.damping = 4 * .pi / Tuning.returnResponse
+        return back
+    }
+
     private func end(cancelled: Bool) {
         claimed = false
         swallowMomentum = true
         guard let cell else { return }
         let from = cell.layer.sublayerTransform
         cell.layer.sublayerTransform = CATransform3DIdentity
-        let back = CASpringAnimation(keyPath: "sublayerTransform")
+        let back = Self.returnSpring() // cmux: built in one place (above)
         back.fromValue = NSValue(caTransform3D: from)
         back.toValue = NSValue(caTransform3D: CATransform3DIdentity)
-        back.mass = 1
-        back.stiffness = pow(2 * .pi / Tuning.returnResponse, 2)
-        back.damping = 4 * .pi / Tuning.returnResponse
         back.duration = back.settlingDuration
         cell.layer.add(back, forKey: "swipe.back")
         // The arrow fades out, then leaves the cell (unless a new swipe took it).

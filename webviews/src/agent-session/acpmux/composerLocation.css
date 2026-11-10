@@ -807,14 +807,19 @@
 }
 /* A tight row (#20548's narrow step): the group gap narrows and the card reaches 10px from the
    pane's edges. Every chevron and the turn's own controls stay. The default queue and its fold
-   continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). */
+   continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). Each part
+   says how far in from the column it sits (--acpmux-part-inset-left and -right, negative out past
+   it), so what is placed in its box from the column (the gap in its line under the tucked hat's pill,
+   subagents.css) follows it. */
 .acpmux-composer { --acpmux-composer-narrow-outset: 8px; }
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box,
   :root:not([data-top-strip]) .acpmux-composer:not(.acpmux-quick .acpmux-composer)
     > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
-    margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
+    --acpmux-part-inset-left: calc(-1 * var(--acpmux-composer-narrow-outset));
+    --acpmux-part-inset-right: calc(-1 * var(--acpmux-composer-narrow-outset));
+    margin-inline: var(--acpmux-part-inset-left) var(--acpmux-part-inset-right);
   }
   /* The quiet row widens with the box, so the mode text stays on the prompt's 16 px edge. */
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot {
@@ -1766,3 +1771,11 @@
     animation: acpmux-env-row-swap var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
   }
 }
+
+/* The active team on the Cloud row and the Cloud face (TeamTag.tsx): its icon and name in the
+   secondary ink, after the label, cut with an ellipsis before the label is. */
+.acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
+.acpmux-team-tag > svg { flex: none; }
+.acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.acpmux-location-row .acpmux-team-tag { margin-left: auto; padding-left: 8px; }
+.acpmux-location-row .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }

@@ -106,6 +106,9 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// The startup pass left its log unread, the chat being cold-archived (`load_logs`): the
+    /// pass's end does not make it read (`Hub::session_log_loaded`).
+    pub(super) log_skipped: AtomicBool,
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
@@ -138,6 +141,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
+    pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,

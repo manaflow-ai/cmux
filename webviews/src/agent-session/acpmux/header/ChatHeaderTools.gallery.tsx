@@ -695,7 +695,7 @@ const motionVariants = {
     play: motionArrive(50),
   },
   "motion-spring-arrive-120ms": {
-    note: "Header motion: spring. 120 ms in: Changes overshoots a touch, its neighbours nearly there.",
+    note: "Header motion: spring. 120 ms in: Changes is almost at full size (never past it), its neighbours nearly there.",
     props: { ...motionBase("animated-spring"), hasChanges: false },
     play: motionArrive(120),
   },

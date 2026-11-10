@@ -89,10 +89,16 @@ pub struct ForkView {
     /// What this view knows of the references ([`Refs`]).
     refs: RwLock<Refs>,
     /// Held exclusively by `materialize` for the whole write, so one fork's history is written
-    /// once, by the delete and compaction of a chat, and by a save of a meta that names a
-    /// reference, from its check to its write; shared by each read of a fork's history: a save that read the
-    /// reference first cannot write it back after the drop (review of #37020: after a restart
-    /// the fork named its deleted chat again; two writes of one fork's history raced).
+    /// once, by the delete and compaction of a chat, by a cold archive's commit, and by a save of
+    /// a meta that names a reference, from its check to its write; shared by each read of a fork's
+    /// history: a save that read the reference first cannot write it back after the drop (review
+    /// of #37020: after a restart the fork named its deleted chat again; two writes of one fork's
+    /// history raced).
+    ///
+    /// Lock order: the hub's `Session::append_lock` (a retention or cold archive commit takes it
+    /// first, `hub/retention.rs`, `hub/cold_archive.rs`), then this, then the inner store's own
+    /// locks (`LocalStore`'s writers', then its cold lock). This view takes no session lock under
+    /// it, and nothing under the inner store's locks takes it.
     dropping: RwLock<()>,
 }
 
@@ -100,6 +106,14 @@ thread_local! {
     /// Whether this thread holds `dropping` already: a fork of a fork reads its parent through
     /// this view again, and a write reads the history it writes, under the hold they started.
     static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread says so, once, when it is about to wait for `dropping` held exclusively
+    /// by another thread.
+    pub(super) static NOTE_DROPPING_WAIT: super::log_sync::Note =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// A hold of [`ForkView`]'s `dropping`, or none when this thread holds it already.
@@ -157,6 +171,10 @@ impl ForkView {
     fn exclusive(&self) -> Held<'_> {
         if HELD.with(|h| h.replace(true)) {
             return Held::Nested;
+        }
+        #[cfg(test)]
+        if let Err(std::sync::TryLockError::WouldBlock) = self.dropping.try_write() {
+            super::log_sync::note(&NOTE_DROPPING_WAIT, "waits");
         }
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
     }
@@ -579,6 +597,29 @@ impl Store for ForkView {
             self.materialize_locked(&fork)?;
         }
         self.inner.commit_compaction(id, staged)
+    }
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        self.inner.stage_cold(id)
+    }
+    /// A cold archive keeps every byte (`store/cold.rs`): a fork that shows the chat's records
+    /// keeps its reference, and its read brings the chat's log back. Under `dropping`, as a
+    /// compaction's commit is: a write of `id`'s own history (`materialize`, its chat's delete)
+    /// rehydrates its log and then writes segment `000000` into `events/`, and a commit between
+    /// the two moved `events/` into the archive, so the write made a new `events/` with the
+    /// history alone and the fork's own turns stayed in an archive never read again (third review
+    /// of #39141, F2). After a write, the commit finds the log changed and refuses.
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let _dropping = self.exclusive();
+        self.inner.commit_cold(id, staged)
+    }
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        self.inner.rehydrate(id)
+    }
+    fn is_cold(&self, id: &str) -> bool {
+        self.inner.is_cold(id)
+    }
+    fn on_rehydrate(&self, hook: RehydrateHook) {
+        self.inner.on_rehydrate(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
