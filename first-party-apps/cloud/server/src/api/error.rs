@@ -276,5 +276,26 @@ mod tests {
         assert_eq!(error.upstream_code.as_deref(), Some("cloud.quota.vm_limit"));
         assert_eq!(error.details.as_ref(), Some(&details));
         assert!(!error.retryable);
+        // On the /v1/ops path each op that makes or starts a VM declares it, so it is never a
+        // protocol error there.
+        for op in [
+            "cloud.machine.create",
+            "cloud.machine.start",
+            "cloud.snapshot.restore",
+            "cloud.environment.build",
+            "cloud.environment.boot",
+        ] {
+            let error = CloudError::from_wire_for(
+                op,
+                &WireError {
+                    code: "cloud.quota.vm_limit".into(),
+                    message: "this team has its limit of 20 machines (paused ones count)".into(),
+                    details: Some(details.clone()),
+                    retryable: false,
+                },
+            );
+            assert_eq!(error.code, codes::VM_LIMIT, "{op}");
+            assert_eq!(error.details.as_ref(), Some(&details), "{op}");
+        }
     }
 }
