@@ -160,6 +160,7 @@ class WarmCheckoutTest(unittest.TestCase):
 
     def assert_whole_tree(self, state: str) -> None:
         result = self.run_warm_step()
+        self.last_run = result
         self.assertEqual(result.returncode, 0, f"{state}: the warm checkout step failed\n{result.stdout}\n{result.stderr}")
         self.assertEqual(self.git(self.ws, "rev-parse", "HEAD"), self.new)
         self.assertEqual(self.missing(NEW_TREE), [], f"{state}: the build tree lacks these files of the build commit")
@@ -216,11 +217,30 @@ class WarmCheckoutTest(unittest.TestCase):
         self.assertIn(".xcode-version", self.hidden())
         self.assert_whole_tree("with the setting removed and the skip-worktree bits left")
 
+    def test_a_build_of_the_commit_the_sparse_job_left(self) -> None:
+        # A second build of one commit after its signer: HEAD does not move, the files must still come back.
+        self.kept_workspace()
+        self.after_the_signer()
+        self.after_the_deltas_job()
+        self.new, tree = self.old, OLD_TREE
+        result = self.run_warm_step()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.missing(tree), [])
+        self.assertEqual(self.hidden(), [])
+
+    def test_the_log_says_the_clone_was_sparse(self) -> None:
+        self.kept_workspace()
+        self.after_the_signer()
+        self.after_the_deltas_job()
+        self.assert_whole_tree("after the deltas job")
+        self.assertIn("the kept clone was sparse", self.last_run.stdout)
+
     # -- the states that worked before stay as they were -----------------------------------------
 
     def test_a_workspace_that_was_never_sparse(self) -> None:
         self.kept_workspace()
         self.assert_whole_tree("never sparse")
+        self.assertNotIn("the kept clone was sparse", self.last_run.stdout)
 
     def test_a_fresh_workspace(self) -> None:
         self.assert_whole_tree("fresh")
