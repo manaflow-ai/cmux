@@ -185,6 +185,8 @@ pub(crate) mod ssh_forward;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
+#[cfg(test)]
+mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
@@ -192,8 +194,6 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
-#[cfg(test)]
-mod stress;
 pub(crate) mod supervise;
 pub mod tailnet;
 #[cfg(test)]
