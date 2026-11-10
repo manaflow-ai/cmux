@@ -538,6 +538,32 @@ class StepFailureOutput(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    def test_defaults_checker_fail_line_is_compared(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "check-group-menus: FAIL tab: tabGroup.create is not a top-level row"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+        }
+        self.assertIn(defaults, "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
+
+    def test_defaults_snapshot_source_mismatch_is_compared(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "DEFAULTS snapshot: schemas/defaults/cmux-next.json does not match the sources"
+        github.jobs = {1: failed_job(1, 10, HEAD, name=defaults, step=step),
+                       2: failed_job(2, 20, BASE_SHA, name=defaults, step=step)}
+        github.logs = {1: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+                       2: log(defaults, step, failure, "##[error]Process completed with exit code 1.")}
+        self.assertIn(defaults, "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
+
     def test_defaults_checker_summary_cannot_excuse_a_crash(self):
         github = FakeGitHub()
         defaults = "defaults-snapshot"
@@ -760,6 +786,11 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 22"):
             self.judge()
 
+    def test_a_failure_not_on_the_base_blocks(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        with self.assertRaisesRegex(excuse.Refused, "somethingNew"):
+            self.judge()
+
     def test_a_different_failed_step_blocks(self):
         self.gh.jobs[1]["steps"][1]["conclusion"] = "failure"
         with self.assertRaisesRegex(excuse.Refused, "Build package and tests"):
@@ -825,6 +856,15 @@ class Excusing(unittest.TestCase):
         self.gh.logs[2] = log(SCHEME, "Compile the cmux scheme",
                               "Sources/App/Onboarding.swift:30:7: error: type 'ActionSurfaces' has no member 'cli'")
         self.assertIn(SCHEME, "\n".join(self.judge()))
+
+    def test_warning_lines_that_differ_between_runs_do_not_block(self):
+        # #18147 at 6b8ec44652f against base run 37564446089: the same red test,
+        # refused over SwiftPM cache warnings only the head printed.
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE,
+                              "warning: 'swift-collections': skipping cache due to an error: "
+                              "The file \u201cmaintenance.lock\u201d doesn\u2019t exist.",
+                              "##[warning]'swift-system': skipping cache due to an error: lock")
+        self.assertIn(SWIFT, "\n".join(self.judge()))
 
     def test_failing_tests_decide_and_error_lines_beside_them_are_not_compared(self):
         self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]error: the swift test run exited with code 1")
@@ -3313,6 +3353,12 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[1] = self.gh.logs[2] = log(fast, "Install", "##[error]error: Could not find a version for foo")
         self.assertIn(fast, "\n".join(self.judge()))
 
+    def test_a_red_test_the_base_does_not_fail_blocks(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER)
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
+        with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
+            self.judge()
+
 
 class VolatileErrorTokens(unittest.TestCase):
     """An error line naming each run's own temp dir is the same error (2026-11-04, cmux#34660's release-notary red)."""
@@ -3578,6 +3624,14 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[1] = log(scheme, "Build", "error: cmux-tui for this checkout's tree 5948da759b3 is not published.")
         self.gh.logs[2] = log(scheme, "Build", "error: cmux-tui for this checkout's tree 8f0c2e1aa is corrupt.")
         with self.assertRaisesRegex(excuse.Refused, "not published"):
+            self.judge()
+
+    def test_other_hex_ids_are_compared_as_they_are(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        self.gh.logs[1] = log(scheme, "Build", "error: artifact deadbeef1 missing")
+        self.gh.logs[2] = log(scheme, "Build", "error: artifact abcdef12 missing")
+        with self.assertRaisesRegex(excuse.Refused, "artifact"):
             self.judge()
 
     def test_two_different_forty_hex_digests_are_not_one_red(self):
@@ -4394,6 +4448,17 @@ class FixedOnBase(unittest.TestCase):
         self.assertIn("PR does not touch tests/test_car_guards.py, .github/, scripts/, tests/", text)
         self.assertIn(CAR_TEST, text)
 
+    def test_receipts_are_read_across_pages_as_the_real_reader_returns_them(self):
+        """GitHub.json(paginate=True) returns pages ([[comment, ...], ...]; no reviews is [[]]); a SHIP on the
+        second page still counts (cmux#38792 review)."""
+        github = FixedOnBaseGitHub()
+        filler = {"body": "noted", "created_at": "2026-11-08T17:00:00Z",
+                  "user": {"login": "someone", "type": "User"}, "author_association": "MEMBER"}
+        github.comments = [filler] * 100 + [ship_comment(HEAD)]
+        self.assertEqual(len(github.json(f"repos/{REPO}/issues/38700/comments", paginate=True)), 2)
+        self.assertEqual(github.json(f"repos/{REPO}/pulls/38700/reviews", paginate=True), [[]])
+        self.assertIn(f"#38700, SHIP at {HEAD[:12]}", self.judge(github))
+
     def test_the_pull_request_gates_of_cmuxterm_hq_7948(self):
         """A lane's land and next-autoland agree (cmuxterm-hq#7948): fixed on base also needs an independent SHIP at
         the exact head, no conflict, not risk:high, and the job red at the PR's merge-base."""
@@ -4761,6 +4826,14 @@ class LostRunnerIsInfra(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("HTTP 502", str(caught.exception))
 
+    def test_a_real_test_failure_is_still_compared(self):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("somethingNew", str(caught.exception))
+
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
     for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
@@ -4861,6 +4934,13 @@ class WsCheckPerTest(unittest.TestCase):
                       f"main {self.gh.TIP[:12]} too", audit)
         # Named as a check, the same.
         self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
+    def test_a_step_line_with_its_seconds_is_read(self):
+        # leo-workspace#3746 (2026-11-07) ends each step line with its time, "(exit 1, ..., gh calls 0, 62.1 s)";
+        # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
         red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}
