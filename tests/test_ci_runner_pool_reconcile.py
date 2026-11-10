@@ -118,6 +118,13 @@ class SecretRouteBoundary(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repeated key 'deploy-staging'"):
             backend_secret_jobs(text.rstrip("\n") + "\n\n  deploy-staging:\n    runs-on: ubuntu-24.04\n")
 
+    def test_a_merge_key_override_is_not_a_repeated_key(self):
+        text = (
+            "on: push\njobs:\n  base: &base\n    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n"
+            "  derived:\n    <<: *base\n    runs-on: ubuntu-latest\n"
+        )
+        self.assertEqual(workflow_jobs.runs_on(workflow_jobs.jobs(text)["derived"]), "ubuntu-latest")
+
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
