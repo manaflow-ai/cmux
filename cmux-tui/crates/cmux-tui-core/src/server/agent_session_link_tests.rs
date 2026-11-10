@@ -7,9 +7,7 @@ use std::os::unix::net::UnixListener;
 /// A fake acpmux on a fresh socket that answers its requests, in order, with `results`
 /// (`{"$error": message}` answers with that error).
 /// Returns the link to it and the params of each request it read.
-fn scripted(
-    results: Vec<Value>,
-) -> (Arc<AcpmuxLink>, Receiver<Value>, cmux_unix_socket::TestDir) {
+fn scripted(results: Vec<Value>) -> (Arc<AcpmuxLink>, Receiver<Value>, cmux_unix_socket::TestDir) {
     let dir = cmux_unix_socket::short_test_dir("aslink");
     let socket = dir.path().join("acpmux.sock");
     let listener = UnixListener::bind(&socket).unwrap();

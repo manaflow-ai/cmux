@@ -144,6 +144,7 @@ fn patient(socket: &std::path::Path) -> Remote {
     remote.reader.get_ref().set_read_timeout(Some(Duration::from_millis(50))).unwrap();
     remote.patience = super::Patience {
         ceiling: Duration::from_secs(10),
+        stale: Duration::from_secs(5),
         probe: Duration::from_millis(200),
         reconnect: Duration::from_millis(400),
         replays: 4,
@@ -233,6 +234,39 @@ fn a_connection_that_never_comes_back_fails_after_the_window() {
     assert!(error.contains("closed the connection"), "{error}");
     assert!(started.elapsed() < Duration::from_secs(3), "waited {:?}", started.elapsed());
     drop(dir);
+}
+
+/// An append, or the first part of a file written in parts, is never sent again: its first
+/// copy may still land after the replay and the appends that follow it. A whole file's single
+/// overwrite and a listing's first page are.
+#[test]
+fn only_whole_file_overwrites_and_reads_are_sent_again() {
+    use super::replayable;
+    let write = |mode: &str, path: &str| json!({"mode": mode, "path": path});
+    assert!(replayable("fs.write", &write("overwrite", "/work/a.rs")));
+    assert!(!replayable("fs.write", &write("append", "/work/.a.bin.cmux-sync-part")));
+    assert!(!replayable("fs.write", &write("overwrite", "/work/.a.bin.cmux-sync-part")));
+    assert!(replayable("fs.list", &json!({"path": "/work"})));
+    assert!(!replayable("fs.list", &json!({"listing": "l", "cursor": "c"})));
+    assert!(replayable("fs.stat", &json!({"path": "/work"})));
+    for cmd in ["fs.rename", "fs.delete", "fs.mkdir", "fs.symlink", "blob.fetch.start"] {
+        assert!(!replayable(cmd, &json!({})), "{cmd}");
+    }
+}
+
+/// The machine answers pings but this connection stays silent (a link that redialed and left
+/// the old stream open): past `stale` the connection counts as dropped, and the request is
+/// sent again on a new one, which answers.
+#[test]
+fn a_connection_silent_while_the_machine_answers_is_replaced() {
+    let (_dir, socket) = machine(|connection, request| match request["cmd"].as_str() {
+        Some("ping") => Reply::After(Duration::ZERO),
+        Some("fs.stat") if connection == 0 => Reply::Never,
+        _ => Reply::After(Duration::ZERO),
+    });
+    let mut remote = patient(&socket);
+    remote.patience.stale = Duration::from_millis(300);
+    assert_eq!(remote.kind("/work").unwrap().as_deref(), Some("dir"));
 }
 
 /// A request that is not safe to send twice (a rename) is not sent again after a drop.

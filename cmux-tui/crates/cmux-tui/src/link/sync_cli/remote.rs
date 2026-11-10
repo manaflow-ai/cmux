@@ -40,9 +40,13 @@ const PROBE_DEADLINE: Duration = IO_DEADLINE;
 const RECONNECT_WINDOW: Duration = Duration::from_secs(3 * 60);
 /// How many times one request is sent again on a new connection after its own dropped.
 const MAX_REPLAYS: usize = 4;
-/// The requests sent again after a dropped connection ([`replayable`]): each reads, or writes
-/// what it wrote before (an overwrite, an append guarded by the revision it expects, a folder
-/// that `mkdir_all` checks for), so a second copy of one that landed changes nothing.
+/// How long past its budget a request waits on its own connection while the machine answers a
+/// ping on another: past it, this connection counts as dropped (a link that redialed may leave
+/// the old local stream open and silent), and a replayable request is sent again on a new one.
+const STALE_CONNECTION: Duration = Duration::from_secs(10 * 60);
+/// The requests sent again after a dropped connection ([`replayable`]): each reads, or
+/// overwrites a whole file with the same bytes, so a second copy of one that landed changes
+/// nothing, even when the first lands after it.
 const REPLAYABLE: [&str; 9] = [
     "identify",
     "ping",
@@ -131,14 +135,32 @@ impl std::error::Error for Dropped {}
 /// Whether `cmd` with `params` may be sent again after its connection dropped: one of
 /// [`REPLAYABLE`], and a listing's first page only (a later page names a listing of the
 /// connection that dropped).
+///
+/// A write is sent again only as a whole file's one overwrite: an append, or the first part of
+/// a file written in parts, is not (its first copy may still land after the replay and the
+/// appends that follow it, cutting the part file short).
 fn replayable(cmd: &str, params: &Value) -> bool {
-    REPLAYABLE.contains(&cmd) && !(cmd == "fs.list" && params.get("cursor").is_some())
+    match cmd {
+        "fs.list" => params.get("cursor").is_none(),
+        "fs.write" => {
+            params.get("mode").and_then(Value::as_str) == Some("overwrite")
+                && !params
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .is_some_and(|path| path.ends_with(PART_SUFFIX))
+        }
+        _ => REPLAYABLE.contains(&cmd),
+    }
 }
+
+/// The name a file written in parts has until its rename ([`Remote::write_with_progress`]).
+const PART_SUFFIX: &str = ".cmux-sync-part";
 
 /// How a connection waits on a late answer and a dropped connection. Tests compress it.
 #[derive(Clone, Copy, Debug)]
 struct Patience {
     ceiling: Duration,
+    stale: Duration,
     probe: Duration,
     reconnect: Duration,
     replays: usize,
@@ -146,6 +168,7 @@ struct Patience {
 
 const PATIENCE: Patience = Patience {
     ceiling: ANSWER_CEILING,
+    stale: STALE_CONNECTION,
     probe: PROBE_DEADLINE,
     reconnect: RECONNECT_WINDOW,
     replays: MAX_REPLAYS,
@@ -286,13 +309,15 @@ impl Remote {
         mut params: Value,
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<Value> {
-        super::fence::check(cmd)?;
-        if let Some(job) = super::fence::hold_for(cmd) {
-            params.set("hold", json!(job));
-        }
         let started = Instant::now();
         let mut replays = 0;
         loop {
+            // Each send, a replay too, passes the held copy's fence again: a replay may go out
+            // minutes later, past the hold's lease.
+            super::fence::check(cmd)?;
+            if let Some(job) = super::fence::hold_for(cmd) {
+                params.set("hold", json!(job));
+            }
             match self.exchange(cmd, params.clone(), started, progress) {
                 Err(error)
                     if error.is::<Dropped>()
@@ -338,6 +363,7 @@ impl Remote {
         let alive = || socket.as_deref().is_some_and(|socket| alive(socket, patience.probe));
         let budget = answer_budget(silence, line.len());
         let mut answer_by = Instant::now().checked_add(budget);
+        let stale_by = Instant::now().checked_add(budget.saturating_add(self.patience.stale));
         // The machine is not trusted: an answer line has a size limit, and
         // only so many answers for other requests are skipped.
         for _ in 0..=MAX_OTHER_ANSWERS {
@@ -356,10 +382,18 @@ impl Remote {
                     {
                         progress();
                     }
-                    // Late, but the machine still answers beside it: wait one more silence.
+                    // Late, but the machine still answers beside it: wait one more silence, and
+                    // past `stale` call this connection dropped (sent again when replayable).
                     Err(error)
                         if timed_out(&error) && started.elapsed() < patience.ceiling && alive() =>
                     {
+                        if stale_by.is_some_and(|by| Instant::now() >= by) {
+                            return Err(Dropped(format!(
+                                "the machine answers, but this connection was silent for {} s",
+                                started.elapsed().as_secs()
+                            ))
+                            .into());
+                        }
                         progress();
                         answer_by = Instant::now().checked_add(silence.unwrap_or(IO_DEADLINE));
                     }
@@ -544,7 +578,7 @@ impl Remote {
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
-        let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
+        let part = format!("{}/.{name}{PART_SUFFIX}", parent.trim_end_matches('/'));
         let request =
             self.guarded(json!({ "path": part, "mode": "overwrite", "permissions": permissions }));
         let mut revision = revision_of(&self.call_with_progress(

@@ -168,9 +168,22 @@ impl AcpmuxLink {
         params: Value,
         patience: Patience,
     ) -> Result<Value, LinkError> {
-        let started = Instant::now();
+        let until = Instant::now() + patience.ceiling;
+        self.call_while_alive_until(method, params, patience, until)
+    }
+
+    /// [`Self::call_while_alive`] with a ceiling at `until` (the earlier of it and the
+    /// patience's own): a run of calls that shares one ceiling, such as a chat start's.
+    pub(crate) fn call_while_alive_until(
+        &self,
+        method: &str,
+        params: Value,
+        patience: Patience,
+        until: Instant,
+    ) -> Result<Value, LinkError> {
+        let until = until.min(Instant::now() + patience.ceiling);
         let (id, receiver) = self.send(method, params)?;
-        let result = self.wait_while_alive(&receiver, started, patience);
+        let result = self.wait_while_alive(&receiver, until, patience);
         self.forget(id);
         result
     }
@@ -178,11 +191,11 @@ impl AcpmuxLink {
     fn wait_while_alive(
         &self,
         receiver: &Receiver<Result<Value, LinkError>>,
-        started: Instant,
+        until: Instant,
         patience: Patience,
     ) -> Result<Value, LinkError> {
         loop {
-            let left = patience.ceiling.saturating_sub(started.elapsed());
+            let left = until.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 return Err(LinkError::Timeout);
             }
@@ -191,7 +204,11 @@ impl AcpmuxLink {
                 Err(RecvTimeoutError::Disconnected) => return Err(LinkError::Closed),
                 Err(RecvTimeoutError::Timeout) => {}
             }
-            match self.call(LIVENESS_PROBE, json!({}), patience.probe) {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(LinkError::Timeout);
+            }
+            match self.call(LIVENESS_PROBE, json!({}), patience.probe.min(left)) {
                 // Answered, refused, or a link with every slot taken by other live calls.
                 Ok(_)
                 | Err(LinkError::Rpc(..) | LinkError::MethodNotFound(_) | LinkError::Busy)
