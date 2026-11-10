@@ -11,6 +11,8 @@ import Testing
 /// go into.
 @MainActor @Suite(.serialized)
 struct BookmarkDaemonOnlyTests {
+    typealias JSONValue = BookmarkRoutedClient.JSONValue
+
     @Test func anEditBeforeTheHomeDaemonServesBookmarksIsRefusedAndWritesNoFile() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -106,5 +108,54 @@ struct BookmarkDaemonOnlyTests {
         do { try await BookmarkRoutedClient.inBatches(ops) { _ in tries += 1; throw Refused() } } catch is Refused { refused = true }
         #expect(refused)
         #expect(tries == 1, "a refused batch stops the rest")
+    }
+
+    /// Review F1 (P1): an older build's 20,000-bookmark file (past 4 MiB as one request) goes as
+    /// ordered batches, each under the byte budget and 256 rows, parents before children.
+    @Test func aTwentyThousandBookmarkFileMigratesInBoundedOrderedBatches() throws {
+        var rows: [JSONValue] = []
+        var folder = ""
+        for n in 0..<20_000 {
+            let id = "bm_" + String(repeating: "0", count: 32 - String(n, radix: 16).count) + String(n, radix: 16)
+            if n % 200 == 0 {
+                rows.append(["id": .string(id), "parent": "bar", "kind": "folder", "title": .string("Folder \(n)"),
+                             "created_ms": 1_700_000_000_000])
+                folder = id
+                continue
+            }
+            var row: [String: JSONValue] = [
+                "id": .string(id), "parent": .string(folder), "kind": "url", "title": .string("Bookmark \(n) with a longer title"),
+                "url": .string("https://example.test/\(n)/a/somewhat/long/path?q=\(n)"), "created_ms": 1_700_000_000_000,
+            ]
+            if n.isMultiple(of: 3) { row["last_used_ms"] = 1_700_000_000_001 }
+            rows.append(.object(row))
+        }
+        let document = try JSONEncoder().encode(JSONValue.object(["version": 1, "profiles": ["default": .array(rows)]]))
+        let cap = 4 * 1024 * 1024
+        #expect(document.count > cap, "the fixture is past the cap as one request")
+
+        let batches = try BookmarkRoutedClient.legacyBatches(document)
+        #expect(batches.count == (20_000 + 255) / 256)
+        for batch in batches {
+            #expect(batch.nodes.count <= BookmarkRoutedClient.maxOps)
+            let request: JSONValue = [
+                "protocol": "cmux.protocol/2", "type": "request", "id": .string(UUID().uuidString),
+                "operation": "bookmarks.import_legacy_file", "idempotency_key": .string(UUID().uuidString.lowercased()),
+                "params": .object(batch.params),
+            ]
+            let bytes = try JSONEncoder().encode(request).count
+            #expect(bytes <= BookmarkRoutedClient.legacyBatchBytes + 1024, "a batch of \(bytes) bytes")
+            #expect(bytes < cap)
+        }
+        let sent = batches.flatMap(\.nodes)
+        #expect(sent.map { $0["id"] } == rows.map { $0["id"] }, "the file's order")
+        var seen: Set<String> = ["bar", "other"]
+        for node in sent {
+            #expect(seen.contains(node["parent"]?.stringValue ?? ""), "a parent goes before its children")
+            seen.insert(node["id"]?.stringValue ?? "")
+        }
+        #expect(sent[2]["index"] == 1, "each row has its index among its siblings")
+        #expect(sent[200]["index"] == 1, "the second folder is the bar's second child")
+        #expect(throws: (any Error).self) { try BookmarkRoutedClient.legacyBatches(Data("not json".utf8)) }
     }
 }

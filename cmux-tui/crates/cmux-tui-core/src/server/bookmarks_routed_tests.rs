@@ -513,23 +513,153 @@ fn a_source_import_says_what_its_undo_puts_back() {
     mux.shutdown();
 }
 
+/// An older build's file, `count` rows in tree order (parents first): a folder on the bar per
+/// 200 rows, then its links, each with its `index` among its siblings as the app sends it; every
+/// third link has a last use.
+fn legacy_rows(count: usize) -> Vec<Value> {
+    let mut rows = Vec::with_capacity(count);
+    let (mut folder, mut folders, mut links) = (String::new(), 0, 0);
+    for n in 0..count {
+        let id = format!("bm_{n:032x}");
+        if n % 200 == 0 {
+            rows.push(json!({"id": id, "parent": "bar", "kind": "folder", "index": folders,
+                             "title": format!("Folder {folders}"), "created_ms": 1}));
+            (folder, folders, links) = (id, folders + 1, 0);
+            continue;
+        }
+        let mut row = json!({"id": id, "parent": folder, "kind": "url", "index": links,
+                             "title": format!("Bookmark {n} with a longer title"),
+                             "url": format!("https://example.test/{n}/a/somewhat/long/path?q={n}"),
+                             "created_ms": 2});
+        if n % 3 == 0 {
+            row["last_used_ms"] = json!(3);
+        }
+        rows.push(row);
+        links += 1;
+    }
+    rows
+}
+
+/// The app's byte budget for one migration request (`BookmarkRoutedClient.legacyBatchBytes`).
+const LEGACY_BATCH_BYTES: usize = 1 << 20;
+
+/// `rows` as the app sends them: in order, at most 256 rows and [`LEGACY_BATCH_BYTES`] each.
+fn legacy_batches(rows: &[Value]) -> Vec<Value> {
+    let mut batches = Vec::new();
+    let (mut batch, mut bytes) = (Vec::new(), 0);
+    for row in rows {
+        let size = row.to_string().len() + 1;
+        if !batch.is_empty() && (batch.len() == 256 || bytes + size > LEGACY_BATCH_BYTES - 256) {
+            batches.push(json!({"browser_profile_id": "default", "nodes": batch}));
+            (batch, bytes) = (Vec::new(), 0);
+        }
+        batch.push(row.clone());
+        bytes += size;
+    }
+    if !batch.is_empty() {
+        batches.push(json!({"browser_profile_id": "default", "nodes": batch}));
+    }
+    batches
+}
+
+fn ids(listing: &Value) -> Vec<String> {
+    listing["bookmarks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| node["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
 #[test]
 fn an_older_builds_file_copies_in_once() {
     let (mux, conn) = app();
-    let document = json!({"version": 1, "profiles": {"default": [
-        {"id": FOLDER, "parent": "bar", "kind": "folder", "title": "Work", "created_ms": 1},
-        {"id": "bm_00000000000000000000000000000002", "parent": FOLDER, "kind": "url",
-         "title": "A", "url": "https://a.test/", "created_ms": 2, "last_used_ms": 3},
-    ]}})
-    .to_string();
-    let params = json!({"document": document});
+    let rows = legacy_rows(3);
+    let params = json!({"browser_profile_id": "default", "nodes": rows});
     let copied = ok(send(&mux, &conn, "bookmarks.import_legacy_file", params.clone(), Some("m1")));
     assert_eq!(copied["ops"], 3);
     // A copy that runs again (it stopped before the file was deleted) adds nothing.
     ok(send(&mux, &conn, "bookmarks.import_legacy_file", params, Some("m2")));
     let listing =
         ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
-    assert_eq!(titles(&listing), ["Work", "A"]);
-    assert_eq!(listing["bookmarks"][1]["last_used_ms"], 3);
+    assert_eq!(
+        titles(&listing),
+        ["Folder 0", "Bookmark 1 with a longer title", "Bookmark 2 with a longer title"]
+    );
+    assert_eq!(listing["bookmarks"][0]["browser_profile_id"], "default");
+    mux.shutdown();
+}
+
+/// Review F1 (P1): a 20,000-bookmark file no longer goes in one request past the 4 MiB cap; its
+/// bounded batches all land, in order, with their last uses.
+#[test]
+fn a_twenty_thousand_bookmark_file_lands_in_bounded_batches() {
+    let (mux, conn) = app();
+    let rows = legacy_rows(20_000);
+    let whole = json!({"browser_profile_id": "default", "nodes": rows}).to_string().len();
+    assert!(whole > crate::resource::MAX_MESSAGE_BYTES, "the fixture is past the cap: {whole}");
+    let batches = legacy_batches(&rows);
+    assert_eq!(batches.len(), 20_000_usize.div_ceil(256));
+    let mut ops = 0;
+    for (n, batch) in batches.into_iter().enumerate() {
+        assert!(batch.to_string().len() <= LEGACY_BATCH_BYTES, "batch {n}");
+        let copied =
+            ok(send(&mux, &conn, "bookmarks.import_legacy_file", batch, Some(&format!("b{n}"))));
+        ops += copied["ops"].as_u64().unwrap();
+    }
+    let used = rows.iter().filter(|row| row.get("last_used_ms").is_some()).count() as u64;
+    assert_eq!(ops, 20_000 + used);
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    let expected =
+        rows.iter().map(|row| row["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(ids(&listing), expected);
+    assert_eq!(listing["bookmarks"][3]["last_used_ms"], 3);
+    mux.shutdown();
+}
+
+/// A copy interrupted after batch k (and half way through batch k + 1) resumes on the next
+/// launch from the first batch, with fresh envelope keys: exactly the file's set, no duplicate.
+#[test]
+fn an_interrupted_file_copy_resumes_with_no_duplicate_and_no_loss() {
+    let (mux, conn) = app();
+    let rows = legacy_rows(3_000);
+    let batches = legacy_batches(&rows);
+    let k = 5;
+    for (n, batch) in batches.iter().take(k).enumerate() {
+        ok(send(
+            &mux,
+            &conn,
+            "bookmarks.import_legacy_file",
+            batch.clone(),
+            Some(&format!("a{n}")),
+        ));
+    }
+    let half = json!({"browser_profile_id": "default",
+                      "nodes": batches[k]["nodes"].as_array().unwrap()[..100].to_vec()});
+    ok(send(&mux, &conn, "bookmarks.import_legacy_file", half, Some("a-half")));
+    let partial =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert_eq!(ids(&partial).len(), k * 256 + 100);
+    for (n, batch) in batches.into_iter().enumerate() {
+        ok(send(&mux, &conn, "bookmarks.import_legacy_file", batch, Some(&format!("r{n}"))));
+    }
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    let expected =
+        rows.iter().map(|row| row["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(ids(&listing), expected);
+    mux.shutdown();
+}
+
+#[test]
+fn a_migration_batch_past_256_nodes_is_refused() {
+    let (mux, conn) = app();
+    let params = json!({"browser_profile_id": "default", "nodes": legacy_rows(257)});
+    let reply = send(&mux, &conn, "bookmarks.import_legacy_file", params, Some("big"));
+    assert_eq!(reply["ok"], false, "{reply}");
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert!(ids(&listing).is_empty());
     mux.shutdown();
 }

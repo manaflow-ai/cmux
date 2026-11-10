@@ -162,17 +162,22 @@ fn an_import_undo_draft_is_the_source_folder_as_it_is() {
 
 #[test]
 fn an_older_files_copy_keeps_ids_order_and_last_use_with_stable_keys() {
-    let document = format!(
-        r#"{{"version":1,"profiles":{{"default":[
-            {{"id":"{f}","parent":"bar","kind":"folder","title":"Work","created_ms":1}},
-            {{"id":"{a}","parent":"{f}","kind":"url","title":"A","url":"https://a.example/","created_ms":2,"last_used_ms":3}},
-            {{"id":"{b}","parent":"{f}","kind":"url","title":"B","url":"https://b.example/","created_ms":4}}
-        ]}}}}"#,
-        f = id(1),
-        a = id(2),
-        b = id(3)
-    );
-    let ops = lookup::legacy_file(&document).unwrap();
+    let at = |mut node: Bookmark, index: usize| {
+        node.index = index;
+        node
+    };
+    let mut used = node(2, &id(1), "url", "A", Some("https://a.example/"));
+    used.last_used_ms = Some(3);
+    let nodes = vec![
+        at(node(1, "bar", "folder", "Work", None), 0),
+        at(used, 0),
+        at(node(3, &id(1), "url", "B", Some("https://b.example/")), 1),
+    ];
+    // The app sends the file in batches: the ops of each batch, in turn, are the file's ops.
+    let ops = [nodes[..2].to_vec(), nodes[2..].to_vec()]
+        .into_iter()
+        .flat_map(|batch| lookup::legacy_nodes("default", batch))
+        .collect::<Vec<_>>();
     let keys = ops.iter().map(|op| op.key.clone()).collect::<Vec<_>>();
     assert_eq!(
         keys,
@@ -185,6 +190,7 @@ fn an_older_files_copy_keeps_ids_order_and_last_use_with_stable_keys() {
     );
     let BookmarkOp::Create(input) = &ops[3].op else { panic!("a create") };
     assert_eq!((input.id.as_deref(), input.index), (Some(id(3).as_str()), Some(1)));
+    assert_eq!(input.browser_profile_id, "default");
     // Applying them builds the same tree, and applying them again changes nothing.
     let mut tree = Tree::new("default");
     let mut mint = || id(99);
@@ -194,5 +200,4 @@ fn an_older_files_copy_keeps_ids_order_and_last_use_with_stable_keys() {
     let titles = tree.listing().into_iter().map(|node| node.title).collect::<Vec<_>>();
     assert_eq!(titles, ["Work", "A", "B"]);
     assert_eq!(tree.get(&id(2)).unwrap().last_used_ms, Some(3));
-    assert!(lookup::legacy_file("not json").is_err());
 }

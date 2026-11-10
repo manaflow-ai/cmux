@@ -54,9 +54,13 @@
 //!   previous}` (`skipped`: items whose URL the store would refuse;
 //!   `previous`: the source's folder before, as one import node that puts it
 //!   back, or null, on a removal too); a removal also has `deleted`.
-//! - `bookmarks.import_legacy_file {document}` (mutation): an older build's
-//!   `bookmarks.json`, node by node with its ids and a stable key per node,
-//!   so a copy that stopped resumes. `{ops}`.
+//! - `bookmarks.import_legacy_file {browser_profile_id, nodes}` (mutation):
+//!   one batch of an older build's `bookmarks.json`, at most 256 of its rows
+//!   (each with its `index` among its siblings in the file), node by node
+//!   with its ids and a stable key per node. The app reads the file and sends
+//!   it as an ordered stream of these batches, parents first, each well under
+//!   the 4 MiB message cap, and deletes the file after the last one: a copy
+//!   that stopped resumes from the start with no duplicate. `{ops}`.
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -157,9 +161,11 @@ struct Resolve {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LegacyFile {
-    document: String,
+    browser_profile_id: String,
+    /// At most [`MAX_OPS`] rows of the file, in its order.
+    nodes: Vec<cmux_bookmarks_core::Bookmark>,
     /// Every mutation carries one; this op keys each node by its id instead
-    /// (`lookup::legacy_file`), so a copy that stopped replays what it did.
+    /// (`lookup::legacy_nodes`), so a copy that stopped replays what it did.
     #[serde(rename = "idempotency_key")]
     _idempotency_key: String,
 }
@@ -408,10 +414,14 @@ pub(super) fn routed(
             Ok(result)
         }
         "bookmarks.import_legacy_file" => {
-            let LegacyFile { document, .. } = parse(params)?;
-            let ops = lookup::legacy_file(&document).map_err(|error| {
-                ResourceError::validation_invalid(Some("document"), error.to_string())
-            })?;
+            let LegacyFile { browser_profile_id, nodes, .. } = parse(params)?;
+            if nodes.len() > MAX_OPS {
+                return Err(ResourceError::validation_invalid(
+                    Some("nodes"),
+                    format!("at most {MAX_OPS} nodes at once"),
+                ));
+            }
+            let ops = lookup::legacy_nodes(&browser_profile_id, nodes);
             let actor = super::origin_gate::connection_actor(mux, client);
             let count = ops.len();
             // Each node has its own stable key: a copy that stopped replays what it did.

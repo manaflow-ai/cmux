@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::search::{display_text, parse_typed, rank, search, url_key};
@@ -243,13 +243,6 @@ fn draft(tree: &Tree, node: &Bookmark, depth: usize) -> BookmarkImportNode {
     }
 }
 
-/// The local file an older build wrote: every profile's nodes in tree order.
-#[derive(Debug, Deserialize)]
-struct LegacyDocument {
-    #[serde(default)]
-    profiles: HashMap<String, Vec<Bookmark>>,
-}
-
 /// One op of an older build's file copy, with its replay key.
 #[derive(Debug, Clone)]
 pub struct LegacyOp {
@@ -257,35 +250,27 @@ pub struct LegacyOp {
     pub op: BookmarkOp,
 }
 
-/// The ops that copy an older build's `bookmarks.json` into the store, node
-/// by node in tree order (parents first) with the same ids, so a copy that
-/// stopped resumes: a create with a stored id changes nothing, and each op
-/// has a stable key (`migrate-file-<id>`, `<id>.used` for its last use).
-/// Profiles go in name order.
-pub fn legacy_file(document: &str) -> Result<Vec<LegacyOp>, serde_json::Error> {
-    let document: LegacyDocument = serde_json::from_str(document)?;
-    let mut profiles = document.profiles.into_iter().collect::<Vec<_>>();
-    profiles.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut ops = Vec::new();
-    for (profile, nodes) in profiles {
-        let mut indexes = HashMap::<String, usize>::new();
-        for node in nodes {
-            let slot = indexes.entry(node.parent.clone()).or_default();
-            let index = *slot;
-            *slot += 1;
-            let key = format!("migrate-file-{}", node.id);
-            ops.push(LegacyOp { key: format!("{key}.create"), op: create(&profile, &node, index) });
-            if let Some(used) = node.last_used_ms {
-                let update =
-                    BookmarkUpdate { last_used_ms: Some(Some(used)), ..BookmarkUpdate::default() };
-                ops.push(LegacyOp {
-                    key: format!("{key}.used"),
-                    op: BookmarkOp::Update { bookmark: node.id.clone(), update },
-                });
-            }
+/// The ops that copy one batch of an older build's `bookmarks.json` into
+/// `profile`, node by node in the batch's order with the same ids and each
+/// node's `index` among its siblings in the file (the app reads the file and
+/// sends it in bounded batches, parents first). A copy that stopped resumes
+/// whatever its batches: a create with a stored id changes nothing, and each
+/// op has a stable key (`migrate-file-<id>.create`, `.used` for its last use).
+pub fn legacy_nodes(profile: &str, nodes: Vec<Bookmark>) -> Vec<LegacyOp> {
+    let mut ops = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let key = format!("migrate-file-{}", node.id);
+        ops.push(LegacyOp { key: format!("{key}.create"), op: create(profile, &node, node.index) });
+        if let Some(used) = node.last_used_ms {
+            let update =
+                BookmarkUpdate { last_used_ms: Some(Some(used)), ..BookmarkUpdate::default() };
+            ops.push(LegacyOp {
+                key: format!("{key}.used"),
+                op: BookmarkOp::Update { bookmark: node.id.clone(), update },
+            });
         }
     }
-    Ok(ops)
+    ops
 }
 
 fn create(profile: &str, node: &Bookmark, index: usize) -> BookmarkOp {

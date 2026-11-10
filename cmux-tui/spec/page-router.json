@@ -204,7 +204,7 @@
     },
     "bookmarks": {
       "owner": "bookmarks.tree",
-      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, children, search, the omnibar rank, the Netscape export, and the app's get, status (the omnibar star and the bar), folders (the edit bubble) and resolve (CLI and MCP names) as reads; apply (the bookmark ops in turn, each replay-keyed), import_html, import_source and import_legacy_file (an older build's bookmarks.json) as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, children, search, the omnibar rank, the Netscape export, and the app's get, status (the omnibar star and the bar), folders (the edit bubble) and resolve (CLI and MCP names) as reads; apply (the bookmark ops in turn, each replay-keyed), import_html, import_source and import_legacy_file (an older build's bookmarks.json, sent as ordered batches of at most 256 rows) as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
       "read": [
         "bookmarks.list",
         "bookmarks.children",

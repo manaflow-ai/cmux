@@ -278,11 +278,65 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
         }
     }
 
-    /// An older build's `bookmarks.json` (its text) into the daemon, node by node with its ids;
-    /// a copy that stopped resumes. Returns how many ops it ran.
+    /// The most bytes of one migration batch's rows (``legacyBatches(_:)``): well under the
+    /// protocol's 4 MiB message cap, whatever the library's size.
+    public static let legacyBatchBytes = 1 << 20
+
+    /// One `bookmarks.import_legacy_file` request: at most ``maxOps`` rows of one profile.
+    public nonisolated struct LegacyBatch: Sendable, Equatable {
+        public var profile: String
+        public var nodes: [JSONValue]
+
+        /// The request's params as sent.
+        public var params: [String: JSONValue] { ["browser_profile_id": .string(profile), "nodes": .array(nodes)] }
+    }
+
+    /// An older build's `bookmarks.json` as ordered migration batches: profiles in name order,
+    /// each profile's rows in the file's tree order (parents first), each row given its `index`
+    /// among its siblings in the file; a batch holds at most ``maxOps`` rows and
+    /// ``legacyBatchBytes`` of them. A file that is no JSON object throws.
+    public static func legacyBatches(_ document: Data) throws -> [LegacyBatch] {
+        let file = try JSONDecoder().decode(JSONValue.self, from: document)
+        guard file.objectValue != nil else {
+            throw DecodingError.typeMismatch(JSONValue.self, .init(codingPath: [], debugDescription: "bookmarks.json is no object"))
+        }
+        let encoder = JSONEncoder()
+        var batches: [LegacyBatch] = []
+        for (profile, rows) in (file["profiles"]?.objectValue ?? [:]).sorted(by: { $0.key < $1.key }) {
+            var indexes: [String: Int] = [:]
+            var batch = LegacyBatch(profile: profile, nodes: [])
+            var bytes = 0
+            for row in rows.arrayValue ?? [] {
+                guard var members = row.objectValue else { continue }
+                let parent = members["parent"]?.stringValue ?? ""
+                let index = indexes[parent, default: 0]
+                indexes[parent] = index + 1
+                members["index"] = .number(Double(index))
+                let node = JSONValue.object(members)
+                let size = try encoder.encode(node).count + 1
+                if !batch.nodes.isEmpty, batch.nodes.count == maxOps || bytes + size > legacyBatchBytes {
+                    batches.append(batch)
+                    (batch.nodes, bytes) = ([], 0)
+                }
+                batch.nodes.append(node)
+                bytes += size
+            }
+            if !batch.nodes.isEmpty { batches.append(batch) }
+        }
+        return batches
+    }
+
+    /// An older build's `bookmarks.json` into the daemon as ``legacyBatches(_:)``, each after the
+    /// one before answered, node by node with its ids and a stable key per node: a copy that
+    /// stopped (the app quit, a refusal) resumes from the first batch at the next launch with no
+    /// duplicate, so the caller deletes the file only after this returns. Returns how many ops ran.
     @discardableResult
     public func importLegacyFile(_ document: String) async throws -> Int {
-        try await send("bookmarks.import_legacy_file", ["document": .string(document)], mutation: true)["ops"]?.intValue ?? 0
+        var ops = 0
+        for batch in try Self.legacyBatches(Data(document.utf8)) {
+            ops += try await send("bookmarks.import_legacy_file", batch.params, mutation: true)["ops"]?.intValue ?? 0
+        }
+        return ops
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
