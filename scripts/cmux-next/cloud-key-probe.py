@@ -27,6 +27,7 @@ Usage: python3 -I cloud-key-probe.py [--root DIR] [--budget-s N]
 import json
 import os
 import re
+import stat
 import sys
 import time
 
@@ -47,7 +48,7 @@ SHAPES = [
     ("a Hugging Face token", re.compile(r"\bhf_[A-Za-z0-9]{30,}")),
     ("an AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     # A ChatGPT sign-in (Codex's auth.json) and other OAuth logins: a refresh token in JSON.
-    ("an OAuth refresh token", re.compile(r'"refresh_token"\s*:\s*"[^"\s]{20,}"')),
+    ("an OAuth refresh token", re.compile(r'"refresh_token"\s*:\s*"([^"\s]{20,})"')),
 ]
 
 # Variables that hold a provider credential by name, whatever their value's shape.
@@ -87,10 +88,14 @@ SHIPPED = re.compile(r"^/opt/|/\.codex/\.tmp/plugins/|/\.claude/plugins/")
 PUBLIC_VALUE = re.compile(r"EXAMPLE")
 
 FILE_ROOTS = ["home", "root", "etc", "opt", "srv", "tmp", "var/tmp", "run/user", "workspace"]
-# Pseudo file systems only: a key in node_modules or a repository is still a key on the machine.
-SKIP_DIRS = {"proc", "sys", "dev"}
+# The walk skips only pseudo file systems, by their mount points (a folder named `dev` in a project is walked), and
+# follows symbolic links, each real folder and file once: a key behind a link is still a key on the machine.
+PSEUDO_FS = {"proc", "sysfs", "devtmpfs", "devpts", "cgroup", "cgroup2", "securityfs", "debugfs", "tracefs", "configfs",
+             "fusectl", "mqueue", "pstore", "bpf", "binfmt_misc", "hugetlbfs", "autofs", "efivarfs", "rpc_pipefs", "nsfs"}
 CHUNK = 4 << 20
 OVERLAP = 256
+# How far past a prefilter hit a binary file's shapes are checked: longer than any key the shapes need to see.
+HIT_SPAN = 512
 
 # Cheap byte prefilter: a line or chunk without one of these holds no finding, so only those get the full checks.
 PREFILTER = re.compile(
@@ -103,9 +108,25 @@ ARG_NAME = re.compile(r"^-{1,2}([A-Za-z][A-Za-z0-9_-]*)$")
 INLINE_ASSIGN = re.compile(r"(?:^|[\s;&|(`])(?:export\s+)?([A-Z][A-Z0-9_]*)=([^\s;&|)`]*)")
 
 
+# Every value the probe judged a key by its context (a key name's value, a refresh token in JSON), whatever its shape:
+# the shapes below cannot redact those, so each is replaced wherever it shows up in the report. Held in memory only.
+# A value shorter than SECRET_MIN is no key, and replacing it everywhere would garble every path.
+FOUND = set()
+SECRET_MIN = 6
+
+
+def found(value):
+    """Records a value the probe judged a key, for redaction."""
+    v = value.strip().strip("'\"")
+    if len(v) >= SECRET_MIN:
+        FOUND.add(v)
+
+
 def redact(text):
-    """`text` (a path, a process name: anything the machine controls) with every key-shaped part replaced, so no
-    finding's place can carry a key out."""
+    """`text` (a path, a process name: anything the machine controls) with every key-shaped part and every value
+    found as a key replaced, so no finding's place can carry a key out."""
+    for value in sorted(FOUND, key=len, reverse=True):
+        text = text.replace(value, "[a secret]")
     for kind, pattern in SHAPES:
         text = pattern.sub(f"[{kind}]", text)
     return text
@@ -120,6 +141,9 @@ def redacted(value):
     if isinstance(value, dict):
         return {redact(k): redacted(v) for k, v in value.items()}
     return value
+
+
+REFRESH = dict(SHAPES)["an OAuth refresh token"]
 
 
 def shape_kinds(text):
@@ -142,6 +166,7 @@ def scan_env(entries):
         if not sep:
             continue
         if name in KEY_NAMES and value.strip() not in PLACEHOLDERS:
+            found(value)
             out.append((name, value_finding(value) or "a value"))
         else:
             kind = value_finding(value)
@@ -171,12 +196,15 @@ def scan_args(args):
             out.add(kind)
         m = ARG_ASSIGN.match(arg)
         if m and key_name(m.group(1)) and real_value(m.group(2)):
+            found(m.group(2))
             out.add(key_name(m.group(1)))
         m = ARG_NAME.match(arg)
         if m and key_name(m.group(1)) and i + 1 < len(args) and real_value(args[i + 1]):
+            found(args[i + 1])
             out.add(key_name(m.group(1)))
         for m in INLINE_ASSIGN.finditer(arg):
             if m.group(1) in KEY_NAMES and real_value(m.group(2)):
+                found(m.group(2))
                 out.add(m.group(1))
     return sorted(out)
 
@@ -193,7 +221,10 @@ def scan_text(text):
         seen = shape_kinds(line)
         for m in ASSIGN.finditer(line):
             if m.group(1) in KEY_NAMES and literal_secret(m.group(2)):
+                found(m.group(2))
                 seen.add(m.group(1))
+        for m in REFRESH.finditer(line):
+            found(m.group(1))
         out.extend((n, what) for what in sorted(seen))
     return out
 
@@ -204,8 +235,9 @@ def read(path, limit=1 << 20):
 
 
 def scan_file(path):
-    """Findings in one whole file: (line number or None, what). A text file is read line by line, a binary one
-    in overlapping chunks (shapes only; a binary has no lines)."""
+    """Findings in one whole file: (line number or None, what). A binary file is read in overlapping chunks (shapes
+    only; a binary has no lines). In a text file only the lines the prefilter hits are checked: most hold none of the
+    prefixes, and a Python loop over every line of every file was the walk's cost."""
     out = []
     with open(path, "rb") as f:
         head = f.read(4096)
@@ -218,14 +250,36 @@ def scan_file(path):
                 if not chunk:
                     break
                 window = tail + chunk
-                if PREFILTER.search(window):
-                    text = window.decode("latin-1")
-                    seen.update(shape_kinds(text))
+                # Every shape starts at a prefilter prefix (a quote before refresh_token, a word boundary before the
+                # rest), so only a short stretch from each hit is checked, not the whole chunk with every shape.
+                for hit in PREFILTER.finditer(window):
+                    at = hit.start()
+                    near = window[max(0, at - 2):at + HIT_SPAN].decode("latin-1")
+                    seen.update(shape_kinds(near))
+                    for m in REFRESH.finditer(near):
+                        found(m.group(1))
                 tail = window[-OVERLAP:]
             return [(None, what) for what in sorted(seen)]
-        for n, raw in enumerate(f, 1):
-            if PREFILTER.search(raw):
-                out.extend((n, what) for _, what in scan_text(raw.decode("utf-8", "replace")))
+        # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
+        # hits are decoded and checked, and their numbers are counted from the newlines before them.
+        line, rest = 1, b""
+        while True:
+            chunk = f.read(CHUNK)
+            block = rest + chunk
+            cut = len(block) if not chunk else block.rfind(b"\n") + 1
+            whole, rest = block[:cut], block[cut:]
+            seen_to, last = 0, -1
+            for hit in PREFILTER.finditer(whole):
+                start = whole.rfind(b"\n", 0, hit.start()) + 1
+                if start == last:
+                    continue
+                line += whole.count(b"\n", seen_to, start)
+                seen_to = last = start
+                end = whole.find(b"\n", hit.start())
+                out.extend((line, what) for _, what in scan_text(whole[start:len(whole) if end < 0 else end].decode("utf-8", "replace")))
+            line += whole.count(b"\n", seen_to)
+            if not chunk:
+                return out
     return out
 
 
@@ -261,25 +315,69 @@ def scan_processes(root, me, report):
         report["findings"].append({"place": place, "where": f"process {comm} ({len(ids)} pid{'s' if len(ids) > 1 else ''})", "what": what})
 
 
+def pseudo_devices():
+    """The device ids of the pseudo file systems mounted here (their contents are the kernel's, not stored files). A
+    folder or file on one, however it was reached (a link into /proc, say), is skipped by its device."""
+    found = {"/proc", "/sys", "/dev"}
+    try:
+        with open("/proc/self/mounts", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                fields = line.split()
+                if len(fields) >= 3 and fields[2] in PSEUDO_FS:
+                    found.add(fields[1].replace("\\040", " "))
+    except OSError:
+        pass
+    devices = set()
+    for mount in found:
+        try:
+            devices.add(os.stat(mount).st_dev)
+        except OSError:
+            pass
+    return devices
+
+
 def scan_files(root, deadline, report):
+    pseudo = pseudo_devices()
+    seen_dirs, seen_files = set(), set()
+
+    def fresh(seen, st):
+        """Whether a folder or file (stat followed through links) is on stored media and not walked yet."""
+        key = (st.st_dev, st.st_ino)
+        if st.st_dev in pseudo or key in seen:
+            return False
+        seen.add(key)
+        return True
+
     for top in FILE_ROOTS:
         start = os.path.join(root, top)
         if not os.path.isdir(start):
             continue
-        for dirpath, dirnames, filenames in os.walk(start, onerror=lambda e: report["unreadable"].append(shown(root, e.filename))):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not os.path.islink(os.path.join(dirpath, d))]
+        for dirpath, dirnames, filenames in os.walk(start, followlinks=True, onerror=lambda e: report["unreadable"].append(shown(root, e.filename))):
+            try:
+                if not fresh(seen_dirs, os.stat(dirpath)):
+                    dirnames[:] = []
+                    continue
+            except OSError:
+                report["unreadable"].append(shown(root, dirpath))
+                dirnames[:] = []
+                continue
             for name in filenames:
                 if time.monotonic() > deadline:
                     report["truncated"] = True
                     return
                 path = os.path.join(dirpath, name)
-                if path == os.path.abspath(__file__) or os.path.islink(path):
+                if path == os.path.abspath(__file__):
                     continue
                 where = shown(root, path)
                 try:
-                    if not os.path.isfile(path):
-                        continue  # a socket, fifo or device holds no stored key
-                    size = os.path.getsize(path)
+                    try:
+                        st = os.stat(path)
+                    except FileNotFoundError:
+                        continue  # a link to nothing, or a file gone since the listing, holds nothing
+                    # A socket, fifo or device, a kernel file, or a file already read holds no new stored key.
+                    if not stat.S_ISREG(st.st_mode) or not fresh(seen_files, st):
+                        continue
+                    size = st.st_size
                     found = scan_file(path)
                 except OSError:
                     if os.path.lexists(path):

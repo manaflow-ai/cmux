@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
@@ -917,6 +917,8 @@ describe("clean-room provider key probe", () => {
   const GEMINI = "AQ.Ab8RN6Jq2ZkVd0wXyP4s";
   const REFRESH = tok("rt_", 30);
   const GEMINI_SHAPE = `AIza${"Q".repeat(35)}`;
+  const MISTRAL = "opaqueMistral7Kq2Zr9Lw4";
+  const MISTRAL_ARG = "opaqArg8Hx3Np";
   const plant = (files: Record<string, string>): string => {
     const root = mkdtempSync(join(tmpdir(), "key-probe-"));
     for (const [rel, text] of Object.entries(files)) {
@@ -955,6 +957,13 @@ describe("clean-room provider key probe", () => {
       "proc/106/comm": `${GEMINI_SHAPE}\n`,
       "proc/106/environ": `CLAUDE_CODE_OAUTH_TOKEN=${OAUTH}\0`,
       "proc/106/cmdline": "x\0",
+      // Keys found by context, not shape (a refresh token in JSON, an opaque value of a key's name), named in a path
+      // or a process name: found, and the name never prints them either.
+      [`home/cmux/cache/${REFRESH}`]: JSON.stringify({ refresh_token: REFRESH }),
+      [`home/cmux/cache/${MISTRAL}.env`]: `MISTRAL_API_KEY=${MISTRAL}\n`,
+      "proc/107/comm": `${MISTRAL_ARG}\n`,
+      "proc/107/environ": "",
+      "proc/107/cmdline": `tool\0--mistral-api-key\0${MISTRAL_ARG}\0`,
       // A key inside node_modules and inside a binary file still counts.
       "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
       "home/cmux/bin/blob": `\0\0ELF${PROJ}\0\0`,
@@ -972,9 +981,10 @@ describe("clean-room provider key probe", () => {
     });
     try {
       const { out, probe } = run(root);
-      for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
+      for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, MISTRAL, MISTRAL_ARG, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
       const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
       expect(got).toEqual([
+        "cmdline process [a secret] (1 pid): MISTRAL_API_KEY",
         "cmdline process env (1 pid): OPENAI_API_KEY",
         "cmdline process node (1 pid): an OpenAI project key",
         "cmdline process sh (1 pid): XAI_API_KEY",
@@ -991,13 +1001,15 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
         "file /home/cmux/aws.txt:2: an AWS access key id",
         "file /home/cmux/bin/blob: an OpenAI project key",
+        "file /home/cmux/cache/[a secret].env:1: MISTRAL_API_KEY",
+        "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[an OpenAI project key]:1: an OpenAI project key",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/.codex/.tmp/plugins/p/skills/api.md:1: an OAuth refresh token",
         "file /opt/tool/bin/blob: an OpenAI project key",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("17 findings: ");
+      expect(keyProbeDetail(probe)).toStartWith("20 findings: ");
       expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
@@ -1021,6 +1033,39 @@ describe("clean-room provider key probe", () => {
       expect(probe.complete).toBe(true);
       expect(keyProbeDetail(probe)).toStartWith("no provider key (");
       expect(keyProbeStatus(probe, true)).toBe("pass");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("walks folders named like pseudo file systems and follows links, each folder and file once", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/project/dev/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
+      "home/cmux/project/proc/notes": `${PROJ}\n`,
+      "home/cmux/project/sys/x": "nothing here\n",
+      // Outside every walked root, reached only through links.
+      "usr/share/secret/key.env": `${PROJ}\n`,
+      "usr/k": `${PROJ}\n`,
+    });
+    symlinkSync(join(root, "usr/share/secret"), join(root, "home/cmux/linked"));
+    symlinkSync(join(root, "usr/k"), join(root, "home/cmux/k.txt"));
+    // A loop back to an ancestor, a second link to the same folder, and a link to nothing.
+    symlinkSync(join(root, "home/cmux"), join(root, "home/cmux/project/loop"));
+    symlinkSync(join(root, "usr/share/secret"), join(root, "home/cmux/project/again"));
+    symlinkSync(join(root, "gone"), join(root, "home/cmux/dangling"));
+    try {
+      const { probe } = run(root);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/k.txt:1: an OpenAI project key",
+        "file /home/cmux/linked/key.env:1: an OpenAI project key",
+        "file /home/cmux/project/dev/.env:1: ANTHROPIC_API_KEY",
+        "file /home/cmux/project/dev/.env:1: an Anthropic API key",
+        "file /home/cmux/project/proc/notes:1: an OpenAI project key",
+      ]);
+      expect(probe.complete).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
