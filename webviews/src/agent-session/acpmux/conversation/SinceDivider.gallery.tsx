@@ -3,8 +3,8 @@
 // reply the person had seen and the turns that ended while they were away, in three themes: light,
 // dark, and a dark theme over a background image (the pane's glass over a wallpaper). The palettes
 // stand in for what the app's applyTheme sets (--cmux-app-* from cmux-theme-tokens app_theme.rs):
-// the component reads only those tokens. References: Discord's unread line (a red rule with a NEW
-// tag at its end) and its "N new messages since" bar; Slack's red "New" line and its "New messages"
+// the component reads only those tokens. References: chat apps' unread line (a rule with a NEW
+// tag at its end), their "N new messages since" bar, and the accent "New" line with a "New messages"
 // pill; the glass of Jump to latest (cmux-design-references cmux-next/live/
 // transcript-jump-to-latest-glass-too-transparent). The whole pane with the jump pair is
 // agent-pane.unread-marker.
@@ -111,11 +111,11 @@ export default componentEntry<Props>({
   load: async () => UnreadLooks,
   variants: {
     "line-tag": {
-      note: "Chosen: an accent hairline across the column with a filled New tag at its end (Discord); the recap under it.",
+      note: "Chosen: an accent hairline across the column with a filled New tag at its end; the recap under it.",
       props: { part: "line", theme: "dark", look: "tag" },
     },
     "line-text": {
-      note: "The hairline with New in accent text at its end, no fill (Slack); quieter, but the tag's fill is what the eye finds.",
+      note: "The hairline with New in accent text at its end, no fill; quieter, but the tag's fill is what the eye finds.",
       props: { part: "line", theme: "dark", look: "text" },
     },
     "line-labelled": {

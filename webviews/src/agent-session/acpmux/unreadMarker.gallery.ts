@@ -116,7 +116,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/SinceDivider.tsx",
     "agent-session/acpmux/VirtualTranscript.tsx#JumpUp",
   ],
-  keywords: ["unread", "new since", "jump up", "jump to bottom", "discord", "slack", "banner"],
+  keywords: ["unread", "new since", "jump up", "jump to bottom", "banner"],
   variants: {
     "banner-expanded": {
       note: "Chosen: back in a chat that kept working, the banner at the top left reads 9 new turns since the time, with Mark read; Jump up waits over the composer.",

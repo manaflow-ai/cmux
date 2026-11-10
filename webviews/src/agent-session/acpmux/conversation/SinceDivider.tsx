@@ -1,14 +1,14 @@
 // The unread marker (design/transcript-overlays.md). Leo, 2026-11-10: "you can take a lot of
-// inspiration from, say, like Discord or Slack ... make it look integrated". Two parts:
+// inspiration from, say, like [other chat apps] ... make it look integrated". Two parts:
 //
 // - The static view, `SinceDivider`: where the person left a chat that kept working (acpmux
 //   `seenSeq`, `hub/seen.rs`), a hairline in the theme's accent across the text column with a small
-//   "New" tag pinned to its end, as Discord draws it. Its row keeps the transcript's 28px rhythm
+//   "New" tag pinned to its end, as chat apps draw it. Its row keeps the transcript's 28px rhythm
 //   (model.ts), placed when the chat opens and kept until another chat is selected, so it never
 //   appears or goes under the reader. Once read it fades in place: the row stays, nothing moves.
 //   The recap the daemon made for the same return (`hub/away_recap.rs`) draws under it.
 // - The moving view, `UnreadBanner`: "3 new turns since 3:42 · Mark read" in the transcript's
-//   top-start zone (overlayLayout.ts) while the line is off screen, as Slack's and Discord's bars.
+//   top-start zone (overlayLayout.ts) while the line is off screen, as chat apps' unread bars.
 //   Expanded or collapsed to a small pill, hidden until the next return by Mark read, or off from
 //   its right-click (the `agentPane.display.unreadBanner` setting); the line's right-click brings
 //   it back.
@@ -65,8 +65,8 @@ function useSinceObserver(mark: string) {
 }
 
 /// How the line is drawn; the gallery compares them. `tag` (chosen): the accent hairline with a
-/// filled "New" tag at its end (Discord). `text`: the hairline with "New" in accent text at its end
-/// (Slack). `labelled`: "New since you looked · 3 turns" leading the hairline (the first look,
+/// filled "New" tag at its end. `text`: the hairline with "New" in accent text at its end.
+/// `labelled`: "New since you looked · 3 turns" leading the hairline (the first look,
 /// on theme tokens).
 export type SinceLook = "tag" | "text" | "labelled";
 

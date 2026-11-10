@@ -83,7 +83,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.unreadBannerDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "unread", "new", "banner", "since", "jump", "mark", "read", "discord", "slack", "collapse", "expand", "hide"]
+                keywords: ["agent", "chat", "acp", "display", "reading", "unread", "new", "banner", "since", "jump", "mark", "read", "collapse", "expand", "hide"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.senderIconLeadPath,

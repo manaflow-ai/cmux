@@ -14,8 +14,8 @@
   --unread-separator: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
 
-/* The static view: a hairline across the text column with a small "New" tag pinned to its end
-   (Discord's line). One control row tall (--ds-control-row, the 28px model.ts estimates), its
+/* The static view: a hairline across the text column with a small "New" tag pinned to its end.
+   One control row tall (--ds-control-row, the 28px model.ts estimates), its
    recap's card under it, so it sits in the message rhythm and never overlaps or moves a row. */
 .cv-since {
   display: grid;
@@ -46,7 +46,7 @@
   color: var(--unread-on-accent);
   font-weight: var(--weight-emphasis);
 }
-/* Text: "New" in the accent at the line's end, no fill (Slack's line). */
+/* Text: "New" in the accent at the line's end, no fill. */
 .cv-since[data-look="text"] .cv-since__tag {
   padding: 0;
   background: none;

@@ -32,11 +32,11 @@ follows the composer card's center while Session Info pushes.
 ## The unread marker
 
 Leo, 2026-11-10: "everybody likes it, likes the feature itself, but ... it looks a little bad. Like the
-line is weird and the placement is weird ... you can take a lot of inspiration from, say, like Discord or
-Slack." It has two parts. Prior art: Discord's red rule with a NEW tag at its end and its "N new messages
-since 3:42 PM, Mark as read" bar; Slack's red "New" line and its "New messages" pill; teamleaderleo/tact
-case-studies/cmux-real-surface-microcraft ("let arrival yell; let unread state persist quietly") and
-notes/spatial-memory-overview-and-edge-bookmarks ("preserve geography; adapt salience").
+line is weird and the placement is weird ... you can take a lot of inspiration from, say, like [other chat
+apps]." It has two parts. Prior art: the common chat-app unread rule with a filled NEW tag at its end, its
+"N new messages since 3:42 PM, Mark as read" bar, and the accent "New" line with a "New messages" pill; and two
+design notes of ours: "let arrival yell; let unread state persist quietly" and "preserve geography; adapt
+salience".
 
 ### The static view: the New line
 
@@ -50,7 +50,7 @@ notes/spatial-memory-overview-and-edge-bookmarks ("preserve geography; adapt sal
 - Read (Mark read, or the line seen and then the latest message reached by the reader): the rule and the tag
   fade in place over `--agent-motion-calm`. The row keeps its height, so nothing jumps; the recap stays.
 - Right-click: Mark read, and Hide unread banner or Show unread banner (the setting).
-- Looks compared: `tag` (chosen), `text` (Slack: accent words, no fill), `labelled` (the first look on
+- Looks compared: `tag` (chosen), `text` (accent words, no fill), `labelled` (the first look on
   tokens: "New since you looked · 3 turns" leading the rule).
 
 ### The moving view: the unread banner
