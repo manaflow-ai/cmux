@@ -258,6 +258,13 @@ class LargeChurn(threading.Thread):
         self.builder.stop_title_streams()
 
 
+def join_groups(ids, groups, add):
+    """Setup: 3 of each 4 workspaces go in a sidebar group, round robin (`add(group, workspace)`)."""
+    for index, ws in enumerate(ids):
+        if index % 4 != 3:
+            add(groups[index % len(groups)], ws)
+
+
 def missed_while_typing(frames, rows):
     """Display frame intervals over 1.5 refreshes that overlap a key's window (its event time to the frame that shows
     its echo), from a raw `debug.frames` reply (`first_frame_s`, `intervals_ms`, `refresh_ms`) and typing probe rows
@@ -600,9 +607,7 @@ def main():
                     made.append(ref)
             by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
             ids = [by_name[n] for n in (f"churn {i:04d}" for i in range(opts.workspaces)) if by_name.get(n)]
-        for index, ws in enumerate(ids):
-            if index % 4 != 3:
-                cli("workspace", "group", groups[index % len(groups)], "add", "--workspace", ws)
+        join_groups(ids, groups, lambda group, ws: cli("workspace", "group", group, "add", "--workspace", ws))
         note(f"{opts.session}: {len(ids)} churned workspaces in {len(groups)} groups in {time.monotonic() - t0:.1f} s")
         if builder:
             # The typed terminal: the selected terminal of the measured workspace's last pane (the busy output runs
