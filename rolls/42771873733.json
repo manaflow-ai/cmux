@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42771873733",
+  "recorded_at": "2026-11-10T07:09:50Z",
+  "reason": "cmux-tui 27ea9f2103a6 changes the image's cmux-tui (pinned 3e04c80b7d70)",
+  "dry_run": false,
+  "cmux_tui": "27ea9f2103a62e51e404ca27fadb8c4596e56944",
+  "fixes": [
+    {
+      "sha": "27ea9f2103a62e51e404ca27fadb8c4596e56944",
+      "mergedAt": "2026-11-09T22:42:01-08:00",
+      "subject": "acpmux: a true cold archive for old agent chats (#39141)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T07:09:50Z",
+    "snapshot_id": "sh-290a9f0a089c4297adc85029c2b3c96e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42771873733): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1ce6ffc8165d188d383b54ba92dee414a93373a0",
+    "image": "cloud-native-auto-27ea9f21-42771873733-1",
+    "revision": "ci-42771873733-1",
+    "at": "2026-11-10T07:09:50Z"
+  },
+  "rolled_back": false
+}
