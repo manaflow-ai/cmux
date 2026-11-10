@@ -16,6 +16,9 @@ public import os
     let now: () -> ContinuousClock.Instant
     private let record: CloudStartStepRecord?
     private var last: ContinuousClock.Instant
+    /// Each step done so far and its whole milliseconds, in order: a start's answer carries them as `stages_ms`, so the
+    /// caller (`cmux cloud start-chat`) names where a long start went without reading the app's log.
+    public private(set) var recorded: [(step: String, ms: Int64)] = []
 
     public init(log: @escaping (String) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         (self.log, self.now) = (log, now)
@@ -30,7 +33,8 @@ public import os
     public func done(_ name: String) {
         let end = now(), elapsed = last.duration(to: end)
         log(Self.line(name, elapsed))
-        record?.add(name, Self.milliseconds(elapsed))
+        recorded.append((name, Self.milliseconds(elapsed)))
+        record?.add(name, Int(Self.milliseconds(elapsed)))
         last = end
     }
 
@@ -39,10 +43,10 @@ public import os
         "\(prefix)\(name) \(milliseconds(elapsed)) ms"
     }
 
-    /// Whole milliseconds, never negative.
-    public nonisolated static func milliseconds(_ elapsed: Duration) -> Int {
+    /// Whole milliseconds of `elapsed`, never negative.
+    public nonisolated static func milliseconds(_ elapsed: Duration) -> Int64 {
         let (seconds, attoseconds) = elapsed.components
-        return Int(max(0, seconds * 1000 + attoseconds / 1_000_000_000_000_000))
+        return max(0, seconds * 1000 + attoseconds / 1_000_000_000_000_000)
     }
 }
 
@@ -68,7 +72,7 @@ public import os
         // concurrency-allow: the async overload of withValue binds inside the calling task (always current in an async
         // function), never in the thread's fallback storage that cx-bpcj is about (the shared-package rule exempts it too).
         let value = try await $current.withValue(record) { try await body() }
-        record.total = CloudStartSteps.milliseconds(began.duration(to: .now))
+        record.total = Int(CloudStartSteps.milliseconds(began.duration(to: .now)))
         return (value, record)
     }
 

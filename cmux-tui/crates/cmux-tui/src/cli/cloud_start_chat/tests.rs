@@ -324,9 +324,13 @@ fn made() -> Ran {
 }
 
 fn started() -> Ran {
-    ok(json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
-              "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-              "tab_id": "tab-1", "target": "machine:vm-1"}))
+    ok(started_value())
+}
+
+fn started_value() -> Value {
+    json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
+           "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
+           "tab_id": "tab-1", "target": "machine:vm-1"})
 }
 
 #[test]
@@ -518,7 +522,7 @@ fn the_answer_times_each_step_it_ran() {
 }
 
 /// Leo, 2026-11-10: "have we figured out where the 26.5 seconds were yet?". The app's own split of
-/// `cloud start-session` (its steps and the machine's start phases) rides under that step as `app`; an
+/// `cloud start-session` (its steps and the machine's start phases) rides under that step as `detail`; an
 /// app that reports none leaves the step as it was.
 #[test]
 fn the_start_sessions_own_split_rides_under_its_step() {
@@ -526,7 +530,7 @@ fn the_start_sessions_own_split_rides_under_its_step() {
                        "machine": {"session_new": 1800}, "total": 22_826});
     let mut with_split = started();
     let mut answer: Value = serde_json::from_str(&with_split.stdout).unwrap();
-    answer["result"]["stages_ms"] = split.clone();
+    answer["result"]["stages_detail_ms"] = split.clone();
     with_split.stdout = answer.to_string();
     let mut fake = Fake::new(vec![
         signed_in(),
@@ -539,8 +543,31 @@ fn the_start_sessions_own_split_rides_under_its_step() {
     };
     let steps = answer["stages_ms"]["steps"].as_array().unwrap();
     assert_eq!(steps[1]["step"], "cloud start-session");
-    assert_eq!(steps[1]["app"], split);
-    assert!(steps[0].get("app").is_none() && steps[2].get("app").is_none(), "{steps:?}");
+    assert_eq!(steps[1]["detail"], split);
+    assert!(steps[0].get("detail").is_none() && steps[2].get("detail").is_none(), "{steps:?}");
+}
+
+/// `cloud start-session`'s own split (the app's `stages_ms`) goes under that step's `parts`, so its 20-odd seconds
+/// name the machine, the connect, the login, the tab and the start (cmuxterm-hq#8658: "no breakdown of it yet").
+#[test]
+fn the_start_sessions_own_stages_are_its_parts() {
+    let parts = json!([{"step": "machine", "ms": 8_100}, {"step": "connect", "ms": 9_400},
+                       {"step": "login", "ms": 2_100}, {"step": "tab", "ms": 700}, {"step": "start", "ms": 2_500}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts.clone();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["parts"], parts);
+    assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
 }
 
 #[test]
@@ -604,7 +631,13 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
 #[test]
 fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     for wait in [false, true] {
-        let mut fake = Fake::new(vec![signed_in(), started()]);
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started(),
+            exec_out(
+                "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
+            ),
+        ]);
         let mut words = vec!["--login", "machine"];
         if wait {
             words.push("--wait");
@@ -613,8 +646,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
             panic!("{:?}", fake.ran)
         };
         assert_eq!(
-            fake.ran,
-            vec![
+            fake.ran[..2],
+            [
                 strings(&["cloud", "list-machines", "--json"]),
                 strings(&[
                     "cloud",
@@ -629,6 +662,15 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 ]),
             ]
         );
+        // A folderless start with no prompt still says where the chat runs (review #39939 F1): one read
+        // of the machine's sessions, after the chat is ready, so `ready_ms` does not count it.
+        assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+        assert!(
+            fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd")
+        );
+        assert!(!fake.ran[2][5].contains("acp send"), "nothing is sent: {}", fake.ran[2][5]);
+        assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+        assert_eq!(answer["folder"], "fresh");
         for (key, value) in [
             ("machine_id", "vm-1"),
             ("machine_name", "chat-fresh"),
@@ -681,8 +723,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "python-dev"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 4);
-    // No prompt: new-machine and start-session only.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    // No prompt: new-machine and start-session, then the read of where the chat runs.
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--environment", "env_1", "--wait"]))
     else {
         panic!("{:?}", fake.ran)
@@ -690,7 +732,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(answer["sent"], false);
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(fake.ran[2], on_vm_1);
-    assert_eq!(fake.ran.len(), 3);
+    assert_eq!(fake.ran.len(), 4);
+    assert!(answer.get("cwd").is_none(), "an unread folder is left out: {answer}");
     // --wait with a prompt: the chat on the machine made in the environment, its turn waited on, and no
     // second machine.
     let mut fake = Fake::new(vec![
@@ -711,7 +754,7 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran.iter().filter(|step| step[1] == "new-machine").count(), 1);
     assert_eq!(fake.ran.len(), 5);
     // --name of no machine yet: that name, in the environment.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let asked = request(&["--name", "py-1", "--environment", "env_1"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(fake.ran[1], new_machine(&["--name", "py-1", "--environment", "env_1"]));
@@ -1061,22 +1104,60 @@ fn an_unanswered_read_of_the_turn_is_asked_again() {
     assert_eq!(fake.paused, NOT_STARTED_PAUSE);
 }
 
-/// READ_TRIES unanswered reads in a row are the machine not answering; a read the machine answers in between
-/// starts the count again.
+/// Unanswered reads are asked again, with backoff, until `--timeout` runs out: only then is the chat
+/// `chat.unreachable` (a fixed three tries failed a slow-but-working machine with most of the deadline left).
 #[test]
-fn reads_unanswered_read_tries_times_in_a_row_are_chat_unreachable() {
+fn unanswered_reads_are_asked_again_until_the_deadline() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"running\"}]}\n";
     let mut answers = vec![signed_in(), started(), exec_out(SENT), unanswered(), exec_out(running)];
-    answers.extend((0..READ_TRIES).map(|_| unanswered()));
+    answers.extend((0..40).map(|_| unanswered()));
     let mut fake = Fake::new(answers);
-    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    let began = fake.clock;
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
-    assert!(error["message"].as_str().unwrap().contains("didn't answer in time"), "{error}");
+    // The deadline's own answer: the read that found it passed (`chat.unreachable`) or the wait that had none of it
+    // left (`chat.wait_timeout`), whichever came first.
+    let code = error["code"].as_str();
+    assert!(matches!(code, Some("chat.unreachable" | "chat.wait_timeout")), "{error}");
+    assert!(exit == 1 || exit == 3, "{exit}");
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
-    assert_eq!(fake.ran.len(), 5 + READ_TRIES as usize, "{:?}", fake.ran);
+    // Far more than three reads, and the failure comes only once the deadline has passed.
+    assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
+    assert!(
+        fake.clock.duration_since(began) >= Duration::from_secs(120),
+        "{:?}",
+        fake.clock.duration_since(began)
+    );
+}
+
+/// The machine's daemon comes back 30 s into the wait (a receiver or acpmux that starts late): every read until then
+/// goes unanswered, and the reply is still read back inside `--timeout`.
+#[test]
+fn a_machine_that_answers_after_30_s_of_unanswered_reads_gets_its_reply_read() {
+    let mut answers = vec![signed_in(), started(), exec_out(SENT)];
+    // Each fake step takes 5 s; with the pauses between them, these reads span over 30 s.
+    answers.extend((0..5).map(|_| unanswered()));
+    answers.push(exec_out(REPLIED));
+    let mut fake = Fake::new(answers);
+    let Outcome::Done(answer) =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["unanswered_reads"], 5);
+    let unanswered_span = Duration::from_secs(5 * 5) + fake.paused;
+    assert!(unanswered_span >= Duration::from_secs(30), "{unanswered_span:?}");
+}
+
+/// The pauses between unanswered reads grow from 2 s and stop growing at 15 s.
+#[test]
+fn unanswered_pauses_back_off_to_a_cap() {
+    let pauses: Vec<u64> = (1..=6).map(|n| unanswered_pause(n).as_secs()).collect();
+    assert_eq!(pauses, [2, 4, 8, 15, 15, 15]);
 }
 
 /// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
@@ -2279,4 +2360,57 @@ fn an_unreachable_read_of_the_turn_is_asked_again() {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(answer["unanswered_reads"], 1);
+}
+
+/// Leo (2026-11-09): "this no folder selected should be, like, good as well". A start with no
+/// `--cwd` and no `--from-folder` is a first-class one: the answer says the chat runs in a fresh
+/// folder of its own (`folder: fresh`), names that folder as the machine reports it (`cwd`, read in
+/// the send's own exec, so no extra round trip), and gives the way to a repository later
+/// (`follow_up.cd`). Nothing waits on a folder: the same steps as any start.
+#[test]
+fn a_folderless_start_is_fresh_and_reports_the_folder_the_machine_made() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(
+            "@@cwd\n{\"sessions\":[{\"sessionId\":\"other\",\"cwd\":\"/home/cmux/work/api\"},\
+             {\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n\
+             @@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd sess-1 DIR|--repo OWNER/NAME");
+    // start-session gets no folder, and the send reads where the chat runs in the same exec.
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "chat-fresh", "--agent", "claude", "--json"])
+    );
+    assert_eq!(fake.ran.len(), 3, "no step waits on a folder: {:?}", fake.ran);
+    assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+}
+
+#[test]
+fn the_folder_kind_and_the_session_folder_read() {
+    assert_eq!(folder_kind(None, None), "fresh");
+    assert_eq!(folder_kind(Some("/home/cmux/work/api"), None), "given");
+    assert_eq!(folder_kind(None, Some("/Users/you/src/cmux")), "copied");
+    let rows = "[{\"id\":\"s-2\",\"cwd\":\"/root/chats/s-2\"}]".to_owned();
+    assert_eq!(session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
+    assert_eq!(session_cwd(Some(&rows), "s-3"), None);
+    assert_eq!(session_cwd(Some(&"not json".to_owned()), "s-2"), None);
+    assert_eq!(session_cwd(None, "s-2"), None);
+    // A start with no read (an older machine's ls) still answers: given keeps its --cwd.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let given = request(&["--prompt", "hi", "--cwd", "/home/cmux/work/api"]);
+    let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["folder"], "given");
+    assert_eq!(answer["cwd"], "/home/cmux/work/api");
 }
