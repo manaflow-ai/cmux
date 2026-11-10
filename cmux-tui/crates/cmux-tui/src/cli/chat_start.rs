@@ -100,7 +100,7 @@ const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
                  [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [-w]
-                 [--timeout SECONDS] [--json] [[--prompt] TEXT]
+                 [--timeout DURATION] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -133,7 +133,8 @@ Starts an agent chat, right here unless --on names another target:
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
   -w, --wait         Wait for the chat's turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
+  --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
+                     default 15m, at most 4h)
 
 EXAMPLES
   cmux chat 'Summarize README.md'
@@ -909,12 +910,7 @@ pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
         };
     }
     let Some(text) = &start.timeout else { return Ok(Some(turn::DEFAULT_TIMEOUT)) };
-    let seconds = text
-        .parse::<u64>()
-        .ok()
-        .filter(|seconds| *seconds > 0)
-        .ok_or_else(|| UsageError::new(format!("--timeout {text}: give seconds")))?;
-    Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
+    Ok(Some(super::chat_send::timeout_value(text)?.min(turn::MAX_TIMEOUT)))
 }
 
 /// Every check a chat here makes of its arguments before it starts, run before `--repo` clones

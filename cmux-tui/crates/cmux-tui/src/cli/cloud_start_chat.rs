@@ -329,12 +329,7 @@ pub(super) fn parse(
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let seconds =
-                    text.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
-                        UsageError::new(format!("--timeout {text}: give seconds"))
-                    })?;
-                timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
+                timeout = super::chat_send::timeout_value(&value()?)?.min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
             "--no-wait" => wait = false,
