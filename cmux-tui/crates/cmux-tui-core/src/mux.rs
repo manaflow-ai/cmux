@@ -654,6 +654,10 @@ pub struct Mux {
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a session journal stream that caught up on its database
+    /// reader, just before it moves to the shared ring (tests).
+    #[cfg(test)]
+    pub(crate) journal_stream_before_ring_switch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
