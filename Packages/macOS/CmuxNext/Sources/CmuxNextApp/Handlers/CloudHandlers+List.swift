@@ -104,8 +104,8 @@ extension CloudHandlers {
     typealias Resize = (cpu: Int?, memoryMb: Int?, storageMb: Int?, fields: [String: ActionResultValue])
 
     /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
-    static func resizeArgs(_ request: Resize, machine: String) -> [String: JSONValue] {
-        var size: [String: JSONValue] = [:]
+    static func resizeArgs(_ request: Resize, machine: String) -> [String: CmuxNextDaemon.JSONValue] {
+        var size: [String: CmuxNextDaemon.JSONValue] = [:]
         if let cpu = request.cpu { size["cpu"] = .number(Double(cpu)) }
         if let memoryMb = request.memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
         if let storageMb = request.storageMb { size["disk_mb"] = .number(Double(storageMb)) }
