@@ -270,9 +270,9 @@ mod launcher_modes {
     /// A start from the Web passes the mode gate as `claude`'s does: both get the same outcome,
     /// and neither reads "no reviewed asking mode". (A Web start of a `claude-stdio` profile then
     /// runs the remote chain's sandbox canary, which this test binary cannot pass on Linux, so the
-    /// outcome there is `remote.sandbox_refused` for both.) A chat the unix socket started is moved
-    /// by the Web between `default` and `plan`, and refused `acceptEdits`, `auto` and
-    /// `bypassPermissions`, as `claude` is.
+    /// outcome there is `remote.sandbox_refused` for both. On macOS the canary passes and the test
+    /// requires the chat, so the Web moves run there: the focused macOS job runs this test.) A chat the unix socket started gets
+    /// the same Web answer on both profiles for every mode, and its mode stays.
     #[tokio::test]
     async fn from_the_web_a_launcher_profile_gets_claudes_asking_modes_and_no_others() {
         let (hub, d) = web_hub("web");
@@ -288,13 +288,35 @@ mod launcher_modes {
                 .await;
             let message = r["error"]["message"].as_str().unwrap_or_default();
             assert!(!message.contains("no reviewed asking mode"), "{harness} from the Web: {r}");
+            // On macOS the Seatbelt canary passes, so the start gives a chat and the move part
+            // below runs: a macOS pass of this test is the proof that it ran.
+            #[cfg(target_os = "macos")]
+            assert!(
+                r["result"]["sessionId"].is_string(),
+                "{harness} from the Web on macOS starts a sandboxed chat: {r}"
+            );
             let outcome = match r["result"]["sessionId"].as_str() {
+                // A Web-started chat (where the sandbox runs: a host whose canary passes; not the
+                // Linux CI runner, where the start is `remote.sandbox_refused`) moves between
+                // `default` and `plan` from the Web and is refused the loose modes.
                 Some(id) => {
                     assert_eq!(
                         cli.mode(id).await,
                         "default",
                         "{harness} starts in Claude's asking default"
                     );
+                    for mode in ["plan", "default"] {
+                        let set = web
+                            .call("session/set_mode", json!({"sessionId": id, "modeId": mode}))
+                            .await;
+                        assert!(set.get("error").is_none(), "{harness} {mode} from the Web: {set}");
+                    }
+                    for mode in ["acceptEdits", "auto", "bypassPermissions"] {
+                        let set = web
+                            .call("session/set_mode", json!({"sessionId": id, "modeId": mode}))
+                            .await;
+                        assert!(set.get("error").is_some(), "{harness} {mode} from the Web: {set}");
+                    }
                     "started".to_owned()
                 }
                 None => r["error"]["data"]["reason"].as_str().unwrap_or(message).to_owned(),
@@ -302,8 +324,11 @@ mod launcher_modes {
             starts.push(outcome);
         }
         assert_eq!(starts[0], starts[1], "claude-sr2 starts from the Web as claude does");
+        // A chat the unix socket started is local: the Web may not control a local Claude Code
+        // chat on any mode (D13, `remote.local_claude_session`: it runs with the Mac's Claude
+        // permissions). `claude-sr2` gets the same answer as `claude` for every mode.
+        let mut answers = Vec::new();
         for harness in ["claude", "claude-sr2"] {
-            // In `default` (with no mode a CLI start runs in the person's start mode, `auto`).
             let r = cli
                 .call(
                     "session/new",
@@ -314,31 +339,22 @@ mod launcher_modes {
                 .as_str()
                 .unwrap_or_else(|| panic!("{harness}: {r}"))
                 .to_owned();
-            assert_eq!(
-                cli.mode(&id).await,
-                "default",
-                "{harness} starts in Claude's asking default"
-            );
-            for mode in ["plan", "default"] {
+            assert_eq!(cli.mode(&id).await, "default", "{harness} starts in default");
+            let mut answer = Vec::new();
+            for mode in ["plan", "default", "acceptEdits", "auto", "bypassPermissions"] {
                 let set =
                     web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
-                assert!(
-                    set.get("error").is_none(),
-                    "{harness} set_mode {mode} from the Web: {set}"
-                );
-                assert_eq!(cli.mode(&id).await, mode);
-            }
-            for mode in ["acceptEdits", "auto", "bypassPermissions"] {
-                let set =
-                    web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
-                let message = set["error"]["message"].as_str().unwrap_or_default();
-                assert!(
-                    message.contains("never from a remote WebSocket"),
+                assert_eq!(
+                    set["error"]["data"]["reason"],
+                    json!("remote.local_claude_session"),
                     "{harness} {mode} from the Web: {set}"
                 );
+                answer.push(set["error"]["data"]["reason"].clone());
+                assert_eq!(cli.mode(&id).await, "default", "{harness} {mode} from the Web: {set}");
             }
-            assert_eq!(cli.mode(&id).await, "default", "{harness} stays in default");
+            answers.push(answer);
         }
+        assert_eq!(answers[0], answers[1], "claude-sr2 answers the Web as claude does");
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
     }
