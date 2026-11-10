@@ -24,7 +24,7 @@ import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import { rowsByKey } from "../schema";
-import { managedOf, valueOf } from "../store";
+import { managedOf, valueOf, type WriteResult } from "../store";
 import { t, text } from "../strings";
 import {
   configThemeColors,
@@ -253,6 +253,14 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       store.previewEnd(APP_THEME_KEY, owner);
     }
   };
+  // A whole-app pick resets the App Theme only once the terminal theme is written, so a refused
+  // write leaves both as they were.
+  const pickWholeApp =
+    (onPick: (name: string | null) => void | Promise<unknown>) => async (name: string | null) => {
+      const result = (await onPick(name)) as WriteResult | undefined;
+      if (result && !result.ok) return result;
+      return writeApp(null);
+    };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
   const picker = (id: string, value: string | null, onPick: (name: string | null) => void | Promise<unknown>) => (
@@ -264,7 +272,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       disabled={disabled}
       configLabel={configLabel}
       configColors={configColors}
-      onPick={wholeAppOn ? (name) => Promise.all([onPick(name), writeApp(null)]) : onPick}
+      onPick={wholeAppOn ? pickWholeApp(onPick) : onPick}
       onPreview={previewTerminal}
       custom={custom}
       favorites={starred.favorites}
