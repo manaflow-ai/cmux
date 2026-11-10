@@ -36,6 +36,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
+            make_room: false,
         }
     );
     let parsed = request(&[
@@ -1774,6 +1775,115 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     assert_eq!(cap_of("app.unreachable", "no app"), None);
 }
 
+/// The held cap's refusal, with the machine the platform offers to free (`details.free_up`).
+fn held_refusal(free_up: Value) -> Ran {
+    Ran {
+        code: 1,
+        stderr: json!({"code": "cmux.cloud.quota_exceeded",
+                       "message": "VM API: this team has its limit of 3 machines (paused ones count)",
+                       "details": {"resource": "machines", "free_up": free_up}})
+        .to_string(),
+        ..Ran::default()
+    }
+}
+
+fn three_machines() -> Ran {
+    listed_machines(json!([
+        {"machine_id": "vm-a", "title": "api", "status": "running"},
+        {"machine_id": "vm-b", "title": "web", "status": "paused", "last_active_at": 20},
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "last_active_at": 10},
+    ]))
+}
+
+#[test]
+fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "never_used"});
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(free)]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.machine_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains("Make room: `cmux cloud start-chat --prompt TEXT --json --make-room` deletes web first"),
+        "{message}"
+    );
+    assert_eq!(error["details"]["make_room"]["how"], "delete");
+    assert_eq!(
+        error["details"]["make_room"]["command"],
+        "cmux cloud kill-machine --target machine:vm-b --confirm"
+    );
+    // Nothing was deleted without --make-room.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_the_offered_machine_and_starts_again_once() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "failed_create"});
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(free),
+        ok(json!({"deleted": true})),
+        three_machines(),
+        started(),
+        sent,
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(
+        fake.ran[2],
+        strings(&["cloud", "kill-machine", "--target", "machine:vm-b", "--confirm", "--json"])
+    );
+}
+
+#[test]
+fn make_room_with_nothing_named_archives_the_oldest_paused_machine_and_says_to_ask_again() {
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), ok(json!({"machine": {}}))]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_archiving");
+    assert_eq!(
+        fake.ran[2],
+        strings(&["cloud", "archive-machine", "--target", "machine:vm-c", "--confirm", "--json"])
+    );
+    assert!(error["message"].as_str().unwrap().starts_with("archiving old:"), "{error}");
+}
+
+#[test]
+fn make_room_that_is_refused_says_so_and_starts_nothing() {
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "cloud.gesture_required", "message": "archive and delete needs a person"})
+            .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), refused]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_failed");
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+}
+
+#[test]
+fn the_running_cap_offers_make_room_only_for_a_machine_the_platform_names() {
+    use super::cap::{Cap, room};
+    let listed = json!({"machines": [{"machine_id": "vm-c", "title": "old", "status": "paused"}]});
+    assert_eq!(room(Cap::Running, "this plan allows 5 active machines", &json!({}), &listed), None);
+    let named = room(Cap::Running, "x", &json!({"free_up": {"machine": "vm-c", "name": null}}), &listed);
+    assert_eq!(named.map(|room| (room.name, room.archive)), Some(("old".to_owned(), false)));
+    // The provider's own words name the machine to delete.
+    let words = "limit of 20 machines (paused ones count). You can delete old (paused 70 days).";
+    assert_eq!(room(Cap::Held, words, &json!({}), &listed).map(|room| room.archive), Some(false));
+    // A kept machine is never archived to make room.
+    let kept = json!({"machines": [{"machine_id": "vm-c", "status": "paused", "keep": true}]});
+    assert_eq!(room(Cap::Held, "x", &json!({}), &kept), None);
+}
+
 #[test]
 fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fresh_name() {
     let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
@@ -1869,6 +1979,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
+        make_room: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -1903,6 +2014,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),
+        make_room: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
