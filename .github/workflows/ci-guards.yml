@@ -728,6 +728,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
 
+      - name: Check that path-filtered workflows start for their tests' inputs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_paths_cover_inputs.py
+
       - name: Validate the backend migration flow (append-only plan, push-safe guards)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_backend_migration_flow.py

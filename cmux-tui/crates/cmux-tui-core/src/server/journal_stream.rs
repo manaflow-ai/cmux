@@ -50,10 +50,11 @@ pub(super) struct SessionJournalStreamStart {
     pub(super) reader: Option<crate::workspace_registry::SessionJournalReader>,
     pub(super) shared_fanout: bool,
     pub(super) remote_redacted: bool,
-    /// Held for the stream's life when it follows the journal and its kind
-    /// filter can match the rows of hook reports that change no durable
-    /// state: while it lives they are appended (`mux/agent_hooks_at_rest.rs`).
-    pub(super) _agent_rows: Option<crate::mux::JournalRowFollower>,
+    /// Held for the stream's life when it follows the journal: while it
+    /// lives, a report that changes no durable state is still appended when
+    /// the stream's filter would let its row through
+    /// (`mux/agent_hooks_at_rest.rs`).
+    pub(super) _follower: Option<crate::mux::JournalRowFollower>,
 }
 
 fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
@@ -523,14 +524,24 @@ pub(super) fn prepare_session_journal_stream(
         &outbound,
         "session.journal.subscribe",
     )?;
-    // A stream that follows gets every row from here on: a hook report that
-    // changes no durable state is appended while it lives. A bounded read
-    // ends at the head it found and follows nothing. Taken last, so a
-    // refused request leaves nothing behind.
-    let agent_rows = through_sequence
-        .is_none()
-        .then(|| mux.follow_journal_agent_rows(|kind| filter.may_match_kind(kind)))
-        .flatten();
+    // A stream that follows is sent every row its filter lets through from
+    // here on: while it lives, a report that changes no durable state is
+    // still appended when the stream would be sent its row (its kind, at its
+    // sensitivity). A bounded read ends at the head it found and follows
+    // nothing. Taken last, so a refused request leaves nothing behind.
+    let follower = through_sequence.is_none().then(|| {
+        let gate = filter.row_gate();
+        mux.follow_journal(
+            crate::mux::JournalFollowerFilter {
+                client,
+                stream_id: stream_id.as_str().to_string(),
+                remote: remote_redacted,
+                kinds: gate.kinds(),
+                max_sensitivity: gate.max_sensitivity(),
+            },
+            move |kind, sensitivity| gate.may_send(kind, sensitivity),
+        )
+    });
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionJournalStreamStart {
@@ -548,7 +559,7 @@ pub(super) fn prepare_session_journal_stream(
             reader,
             shared_fanout,
             remote_redacted,
-            _agent_rows: agent_rows,
+            _follower: follower,
         },
     ))
 }

@@ -165,7 +165,10 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
-pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
+pub(crate) use resource_store::{
+    load_live_terminal_resource_ids, load_resource_topology_scoped, load_session_panes,
+    load_session_tabs, load_terminal_tabs, load_topology_frame,
+};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -180,6 +183,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use terminal_snapshot_read::load_terminal_rows;
 pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
@@ -2414,16 +2418,21 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     }
 }
 
+/// Prepared statements each registry connection keeps compiled
+/// (`Connection::prepare_cached`, least recently used out first). The journal
+/// append, hook and journal read paths run the same few dozen statements for
+/// every agent hook; compiling them each time was about a fifth of the
+/// daemon's SQLite time on that path. A statement costs a few KiB.
+pub(crate) const REGISTRY_STATEMENT_CACHE_CAPACITY: usize = 128;
+
 fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
     let path = sqlite_filesystem_path(path)?;
     #[cfg(windows)]
-    {
-        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
-    }
+    let connection = Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?;
     #[cfg(not(windows))]
-    {
-        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
-    }
+    let connection = Connection::open_with_flags(path.as_ref(), flags)?;
+    connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
+    Ok(connection)
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
@@ -2481,6 +2490,7 @@ impl WorkspaceRegistry {
 
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
+        connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2628,7 +2638,14 @@ impl WorkspaceRegistry {
                 open_once(&mut session_guard, &mut lease)
             }
             Err(error) => Err(error),
-        }?;
+        }
+        .inspect_err(|error| {
+            // Still under the session locks: the files of the quarantined
+            // registry follow it before the next start can misuse them.
+            if let Some(quarantined) = error.downcast_ref::<RegistryQuarantined>() {
+                open_guard::keep_with_quarantined(&db_path, quarantined);
+            }
+        })?;
         // A roster the next build folded beside the previous owner.
         premigrate::adopt(&registry);
         Ok(registry)
@@ -2699,12 +2716,20 @@ impl WorkspaceRegistry {
         if fresh_database {
             connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
         }
+        // temp_store=MEMORY: the journal writer applies each intent in a
+        // savepoint, and a savepoint journals every page it changes. Past
+        // 64 KiB (16 pages, an ordinary terminal write) SQLite spilled that
+        // journal to a new file in the temp directory: open, write, unlink
+        // and close on every commit, before the reply. In memory, it is
+        // bounded by the pages one writer batch changes. VACUUM keeps its
+        // whole-database copy on disk ([`vacuum_with_file_temp_store`]).
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
+             PRAGMA temp_store=MEMORY;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -2998,7 +3023,7 @@ impl WorkspaceRegistry {
         timings.lap("registry.migrations.foreign_key_check");
         if needs_sensitive_receipt_cleanup {
             checkpoint_and_truncate_wal(&connection)?;
-            connection.execute_batch("VACUUM;")?;
+            vacuum_with_file_temp_store(&connection, "VACUUM;")?;
             checkpoint_and_truncate_wal(&connection)?;
             let tx = connection.unchecked_transaction()?;
             tx.execute(
@@ -3831,9 +3856,20 @@ fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<AutoVa
         return Ok(AutoVacuumMigration::Deferred { live_bytes });
     }
     eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
-    connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    vacuum_with_file_temp_store(connection, "PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
     mark_journal_auto_vacuum_migrated(connection)?;
     Ok(AutoVacuumMigration::Converted)
+}
+
+/// Runs `sql` (a VACUUM) with the temp store on disk, then puts the
+/// connection's memory temp store back. VACUUM builds a copy of the whole
+/// database in the temp store; the registry connection keeps it in memory
+/// for savepoint journals only (see `initialize`).
+fn vacuum_with_file_temp_store(connection: &Connection, sql: &str) -> anyhow::Result<()> {
+    connection.execute_batch("PRAGMA temp_store=FILE;")?;
+    let result = connection.execute_batch(sql);
+    connection.execute_batch("PRAGMA temp_store=MEMORY;")?;
+    Ok(result?)
 }
 
 fn require_resource_effect_pepper_id(
@@ -6411,6 +6447,9 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod open_cost_tests;
+
+#[cfg(test)]
+mod temp_store_tests;
 
 #[cfg(test)]
 mod personal_tests;
