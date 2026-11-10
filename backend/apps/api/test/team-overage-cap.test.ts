@@ -110,7 +110,8 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     // A per-team mark (a personal plan) gets the same default: twice its pool (Leo 2026-11-10, no machine-count cap, so
     // the spending cap is the stop for every account).
     const other = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "a1b2c3d4-0e0f-4a1b-8c2d-000000000003")
-    await stub(other).record(other, [modelFact(30)])
+    // 33 of models on a 20 pool: 20 + 13 x 1.1 = 34.3 billed, past 80% of 40.
+    await stub(other).record(other, [modelFact(33)])
     await markBillable(other, "per_team", 1, 20)
     expect(await stub(other).teamCap(other, true, "v2")).toMatchObject({ state: "near", cap_usd: 40 })
     await stub(other).record(other, [modelFact(10)])
