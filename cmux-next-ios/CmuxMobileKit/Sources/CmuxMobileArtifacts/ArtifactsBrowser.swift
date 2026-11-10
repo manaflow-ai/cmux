@@ -79,7 +79,8 @@ public struct ArtifactsBrowser: View {
             Group {
                 if state.grid {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                        // Two square tiles across a phone; a wider screen (an unfolded foldable) adds columns.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
                                     .buttonStyle(.plain)

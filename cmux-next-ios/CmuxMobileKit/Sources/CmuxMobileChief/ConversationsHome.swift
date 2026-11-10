@@ -184,7 +184,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         List {
             let tiles = pinnedTiles(list)
             if !tiles.isEmpty {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .bottom), count: 3), spacing: 4) {
+                // Messages' three across a phone (any width under 480 pt); a wider screen (an
+                // unfolded foldable) adds columns instead of stretching three tiles.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 160), spacing: 0, alignment: .bottom)], spacing: 4) {
                     ForEach(tiles) { $0 }
                 }
                 .padding(.horizontal, 8)

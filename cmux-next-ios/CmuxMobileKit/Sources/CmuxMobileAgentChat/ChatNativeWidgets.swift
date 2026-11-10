@@ -86,10 +86,10 @@ struct ChatNativeWidgets {
     // MARK: Prompt
 
     /// `UserBubble`: body text with 4 pt line spacing in the bubble color, 16/11 pt padding,
-    /// radius 20, at most 80% of the column, on the trailing edge.
+    /// radius 20, at most 80% of the column (`UserBubble.maxWidth`), on the trailing edge.
     private func prompt(_ prompt: String) -> Layout {
         let attributed = text(prompt, styles.font(.body), .label, lineBreak: .byWordWrapping, lineSpacing: 4)
-        let maxText = width * 0.8 - 32
+        let maxText = UserBubble.maxWidth(in: width) - 32
         let measured = size(attributed, width: maxText)
         // SwiftUI's height: n lines 4 pt apart (TextKit also counts the spacing under the last line).
         let lines = Layout.lineCount(attributed, width: maxText)
