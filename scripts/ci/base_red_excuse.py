@@ -940,8 +940,10 @@ def lines_of(log: str) -> list[str]:
     return found
 
 
-# The runner's own last line of a step whose command failed.
-EXIT_LINE = re.compile(r"^##\[error\]Process completed with exit code \d+\.?$")
+# The line the runner opens each step's section of a job log with, after "Set up job" (the log's first lines): `Run
+# <script's first line>` for a run: step, `Run owner/action@ref` for a uses: step (and a job hook's `Run '/setup.sh'`),
+# `Post job cleanup.` for a post step. "Complete job" opens with no such line.
+STEP_START = re.compile(r"^(?:##\[group\]Run |Post job cleanup\.$)")
 
 
 def _stamp_time(value) -> datetime | None:
@@ -959,57 +961,51 @@ def failed_steps_log(job: dict, log: str) -> str:
     translation" (feat-cmux-next runs 42820823641, 42820590433), and the excuse quoted that digest line, sending an
     agent after the wrong cause.
 
-    A step passed when the jobs API says success and its section has no live `##[error]` line: a continue-on-error
-    step that failed also reads as a success there, but the runner still ends its section with `##[error]Process
-    completed with exit code N.`, and the job's rollup step names it. Only such passing steps' lines are dropped;
-    any line that cannot be placed in one is kept. `gh run view --log` names each line's step in a column. The job-log
-    endpoint (GitHub.log) has only timestamps: a line is a step's when its stamp is in that step's [started_at,
-    completed_at + 1s) window (the metadata rounds to seconds), and it is dropped only when every window it is in is
-    a passing step's. With a step that has no timestamps the whole log is read, as before.
+    A line's step is told by the log's own order, never by a step's name (names repeat) or by whole-second step times
+    (steps share seconds: cmux#40497 and cmux#40542's Codex reviews). The steps that ran (the jobs API's steps[], by
+    number, without skipped ones) and the log's sections match by index: "Set up job" holds the lines before the first
+    STEP_START line, each STEP_START line opens the next step's section, and "Complete job", which prints no such line,
+    shares the last section with the step before it. Timestamps only cross-check that match: every stamped line must
+    fall within its section's steps' [started_at - 1s, completed_at + 1s] (the metadata keeps whole seconds).
 
-    Those windows overlap when a step ends in the second the next one starts. A line in such a second belongs to the
-    failing steps among its windows only, and never takes a step out of "passed" (cmux#40497's Codex P2: the
-    failing step's annotation there brought back the passing license step's whole log). The one exception is the
-    runner's own `##[error]Process completed with exit code N.`: it is the last line of the step that failed, so when
-    exactly one of its windows ends in its second, it is that step's end (a continue-on-error step that failed stays
-    compared)."""
-    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    A step passed when the jobs API says success and its section has no `##[error]` line: a continue-on-error step
+    that failed also reads as a success there, but its section still ends with `##[error]Process completed with exit
+    code N.`. Only a section whose every step passed is dropped. When the sections cannot be matched one to one with
+    the steps (a composite action prints a STEP_START line per inner step, a step that printed nothing, a step with no
+    times, a line outside its steps' times), nothing can be placed and the whole log is kept."""
+    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    if all(isinstance(step.get("number"), int) for step in steps):
+        steps.sort(key=lambda step: step["number"])
+    windows = []
+    for step in steps:
+        start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
+        if start is None or end is None or end < start:
+            return log
+        windows.append((start - timedelta(seconds=1), end + timedelta(seconds=1)))
     lines, texts = log.splitlines(), lines_of(log)
-    live = [text.startswith("##[error]") for text in texts]
-    columns = [line.split("\t", 2) for line in lines]
-    if any(len(parts) == 3 and STAMP.match(parts[2].lstrip("\ufeff")) for parts in columns):
-        owners = [{parts[1]} if len(parts) == 3 else set() for parts in columns]
-    else:
-        windows = []
-        for step in metadata:
-            start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
-            if start is None or end is None or end < start:
+    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
+    if len(steps) < 2 or len(starts) != len(steps) - 2:
+        return log
+    bounds = [0, *starts, len(lines)]
+    # Section k is step k's; the last is also "Complete job"'s.
+    owners = [{k} for k in range(len(bounds) - 1)]
+    owners[-1].add(len(steps) - 1)
+    passed = [step.get("conclusion") == "success" for step in steps]
+    for k, steps_here in enumerate(owners):
+        low = min(windows[i][0] for i in steps_here)
+        high = max(windows[i][1] for i in steps_here)
+        for n in range(bounds[k], bounds[k + 1]):
+            parts = lines[n].replace("\ufeff", "").split("\t", 2)
+            stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
+            at = _stamp_time(stamp.group()) if stamp else None
+            # A section's first line must carry its stamp; a continuation line may not.
+            if (at is None and (stamp or n == bounds[k] > 0)) or (at is not None and not low <= at <= high):
                 return log
-            windows.append((step.get("name"), start, end))
-        owners, times, at = [], [], None
-        for line in lines:
-            stamp = STAMP.match(line.lstrip("\ufeff"))
-            # A line with no stamp of its own continues the line before it.
-            at = _stamp_time(stamp.group()) if stamp else at
-            times.append(at)
-            owners.append({name for name, start, end in windows
-                           if at is not None and start <= at < end + timedelta(seconds=1)})
-        passed = {step.get("name") for step in metadata if step.get("conclusion") == "success"}
-        # A line one window holds is that step's: an `##[error]` there takes the step out of "passed".
-        passed -= {name for names, error in zip(owners, live) if error and len(names) == 1 for name in names}
-        for n, names in enumerate(owners):
-            if len(names) > 1 and EXIT_LINE.match(texts[n]):
-                ending = {name for name, start, end in windows
-                          if name in names and end <= times[n] < end + timedelta(seconds=1)}
-                if len(ending) == 1:
-                    passed -= ending
-                    owners[n] = ending
-        # Any other line of a shared second is the failing steps' among its windows, when there are any.
-        owners = [names - passed or names if len(names) > 1 else names for names in owners]
-        return "\n".join(line for line, names in zip(lines, owners) if not names or not names <= passed)
-    passed = {step.get("name") for step in metadata if step.get("conclusion") == "success"}
-    passed -= {name for names, error in zip(owners, live) if error for name in names}
-    return "\n".join(line for line, names in zip(lines, owners) if not names or not names <= passed)
+            if texts[n].startswith("##[error]"):
+                for i in steps_here:
+                    passed[i] = False
+    return "\n".join(line for k, steps_here in enumerate(owners) if not all(passed[i] for i in steps_here)
+                     for line in lines[bounds[k]:bounds[k + 1]])
 
 
 def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
