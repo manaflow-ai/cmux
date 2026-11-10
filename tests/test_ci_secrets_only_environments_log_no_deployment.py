@@ -9,6 +9,7 @@ protection rules). A job that mints an OIDC token keeps its plain environment, s
 """
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -47,6 +48,14 @@ def records_deployment(workflow: dict, job: object) -> str | None:
     return name
 
 
+def named_environments(name: object) -> list[object]:
+    """The environments a name can resolve to: itself, or each quoted result (after && or ||) of a `${{ ... }}`
+    expression (cloud-chat-proof.yml picks one per matrix leg)."""
+    if isinstance(name, str) and name.strip().startswith("${{"):
+        return re.findall(r"(?:&&|\|\|)\s*'([^']*)'", name) or [name]
+    return [name]
+
+
 def offenders() -> list[str]:
     found = []
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
@@ -69,8 +78,14 @@ class SecretsOnlyEnvironmentsLogNoDeployment(unittest.TestCase):
             for name, job in (workflow.get("jobs") or {}).items():
                 environment = job.get("environment") if isinstance(job, dict) else None
                 if isinstance(environment, dict) and environment.get("deployment") is False:
-                    self.assertIn(environment.get("name"), SECRETS_ONLY, f"{path.name} {name}")
+                    for each in named_environments(environment.get("name")):
+                        self.assertIn(each, SECRETS_ONLY, f"{path.name} {name}")
                     self.assertFalse(mints_oidc(workflow, job), f"{path.name} {name} mints an OIDC token")
+
+    def test_an_expression_name_is_checked_by_each_environment_it_names(self) -> None:
+        self.assertEqual(named_environments("${{ matrix.backend == 'prod' && 'ci-bot' || 'sentry-dsyms' }}"),
+                         ["ci-bot", "sentry-dsyms"])
+        self.assertEqual(named_environments("ci-bot"), ["ci-bot"])
 
     def test_each_form_that_still_records_a_deployment_is_caught(self) -> None:
         self.assertEqual(records_deployment({}, {"environment": "ci-bot"}), "ci-bot")
