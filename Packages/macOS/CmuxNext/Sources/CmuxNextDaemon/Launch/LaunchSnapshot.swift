@@ -78,9 +78,10 @@ public struct LaunchSnapshot: Sendable {
     /// none or it cannot be used (logged: the launch then shows the connecting state).
     ///
     /// The path comes from the last handshake (`location`), else from the daemon's state directory
-    /// (`stateDirectory`, a tagged build's), so cleared defaults do not lose the snapshot. Each read from disk
-    /// is a checked blocking call, so the blocking detector reports this on the main thread: the app runs it on
-    /// `BackgroundWork`'s files lane (``readAtLaunch(work:build:)``) and hands `DaemonService.start` the result.
+    /// (`stateDirectory`, a tagged build's), so cleared defaults do not lose the snapshot. The read of the file
+    /// is a checked blocking call (the search of the state directory is not), so the blocking detector reports
+    /// this on the main thread: the app runs it on `BackgroundWork`'s files lane
+    /// (``readAtLaunch(work:build:)``) and hands `DaemonService.start` the result.
     public static func saved(session: String, stateDirectory: URL?,
                              location: LaunchSnapshotLocation = LaunchSnapshotLocation()) -> LaunchSnapshot? {
         guard let path = location.path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return nil }
@@ -91,28 +92,43 @@ public struct LaunchSnapshot: Sendable {
     }
 
     /// ``saved(session:stateDirectory:location:)`` for the app daemon's session of `build`
-    /// (``DaemonLauncher/appNames(build:applicationSupport:log:)``), started at once on `work`'s files lane, from
-    /// `main`: the read and the decode overlap AppKit's start, and the launch awaits the task (no thread waits)
-    /// before `DaemonService.start`. The launch mark `daemon.launch_snapshot_read` says when the read ended.
+    /// (``DaemonLauncher/appNames(build:applicationSupport:log:)``), put on `work`'s files lane before this
+    /// returns, from `main`: the read and the decode overlap AppKit's start, and the launch awaits the task (no
+    /// thread waits) before `DaemonService.start`. The launch mark `daemon.launch_snapshot_read` says when the
+    /// read ended.
     ///
     /// ```swift
-    /// let snapshot = LaunchSnapshot.readAtLaunch(work: work, build: build)   // in `main`
+    /// let snapshot = LaunchSnapshot.readAtLaunch(work: work, build: build)   // in `main`, before the other launch reads
     /// daemon.start(..., launchSnapshot: await snapshot.value)
     /// ```
     public static func readAtLaunch(work: BackgroundWork, build: BuildIdentity) -> Task<LaunchSnapshot?, Never> {
+        readAtLaunch(work: work) { DaemonLauncher.appNames(build: build) }
+    }
+
+    /// ``readAtLaunch(work:build:)`` for the session `names` gives (called on the lane thread).
+    ///
+    /// The item is posted here, in the caller's turn, so it is first on the lane's slot: the launch window waits
+    /// for this read, and `main` posts the pages' and the terminals' saved frames (megabytes, decoded) on the
+    /// same slot right after it. A read that entered the lane only when its task first ran queued behind them.
+    static func readAtLaunch(work: BackgroundWork, location: LaunchSnapshotLocation = LaunchSnapshotLocation(),
+                             names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchSnapshot?, Never> {
+        let (results, result) = AsyncStream<LaunchSnapshot?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // `.blockShutdown`: the launch awaits the result, so the item runs also when quit comes first.
+        work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
+            let names = names()
+            result.yield(Self.saved(session: names.session, stateDirectory: names.stateDirectory, location: location))
+            result.finish()
+            DaemonLaunchTimings.shared.mark("daemon.launch_snapshot_read")
+        }
         // task-owner: AppDelegate.launchSnapshot; awaited once by its launch task, which then drops it.
-        Task.detached(priority: .userInitiated) {
-            // Nil too when quit dropped the read before it started.
-            try? await work.run(.userBlocking, mayBlock: .files) {
-                let names = DaemonLauncher.appNames(build: build)
-                let snapshot = saved(session: names.session, stateDirectory: names.stateDirectory)
-                DaemonLaunchTimings.shared.mark("daemon.launch_snapshot_read")
-                return snapshot
-            }
+        return Task.detached(priority: .userInitiated) {
+            for await snapshot in results { return snapshot }
+            return nil
         }
     }
 
-    private static let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+    // The subsystem and category of `DaemonService.logger`, which wrote this line before the read moved here.
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
     /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`): a blocking read, checked.
     static func load(path: String, session: String) throws(Skip) -> LaunchSnapshot {

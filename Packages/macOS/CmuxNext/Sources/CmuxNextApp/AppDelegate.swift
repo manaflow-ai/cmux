@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
-         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>? = nil, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.daemonPrestart = daemonPrestart; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()

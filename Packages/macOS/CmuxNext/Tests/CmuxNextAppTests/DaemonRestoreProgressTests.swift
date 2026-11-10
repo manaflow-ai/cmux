@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 @testable import CmuxNextDaemonRecovery
 @testable import CmuxNextDaemonService
 import Observation
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
+import os
 import Testing
 
 /// Leo, 2026-11-08: after a restart the session owner restored for 30 minutes, the window said only
@@ -126,6 +127,25 @@ struct DaemonRestoreProgressTests {
                      prestart: prestart)
         #expect(!daemon.store.isProvisional && daemon.store.workspaces.isEmpty,
                 "DaemonService.start read and decoded the launch snapshot file on the main actor: \(daemon.store.workspaces.count) workspaces show")
+    }
+
+    /// The launch window waits for the launch snapshot, so its read is first on the files lane: `main` posts the
+    /// pages' and the terminals' saved frames (megabytes, decoded) on the same slot right after `readAtLaunch`
+    /// returns. A read that entered the lane only when its task first ran queued behind them (review of #40660).
+    @Test func theLaunchSnapshotReadIsOnTheFilesLaneBeforeTheReadsPostedAfterIt() async throws {
+        let prepared = try Self.prepare(waits: [0], gap: "0", snapshot: ["alpha", "beta"])
+        defer { prepared.launched.stop() }
+        let names = prepared.launcher.configuration
+        let work = BackgroundWork(label: "test.launch-snapshot")
+        let order = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let read = LaunchSnapshot.readAtLaunch(work: work) {
+            order.withLock { $0.append("snapshot") }
+            return (names.session, names.stateDirectory)
+        }
+        work.post(.userBlocking, mayBlock: .files) { order.withLock { $0.append("frames") } }  // as `main`'s next launch read
+        let snapshot = await read.value
+        #expect(order.withLock { $0 }.first == "snapshot", "the launch snapshot read waited behind a read posted after it")
+        #expect(snapshot?.tree.workspaces.map(\.name) == ["alpha", "beta"], "the read gave another snapshot")
     }
 
     @Test func theRestoreShowsWhileTheEnsureWaitsAndGoesWhenItAnswers() async throws {
