@@ -1,9 +1,12 @@
 //! `acpmux desktop link | unlink | status`: give the Claude desktop app, Claude Code (its own
-//! CLI and Claude desktop's Code tab) and Codex (its desktop app and CLI) this machine's acpmux
-//! MCP server, so a chat there reaches every session, machine and Cloud machine acpmux reaches.
+//! CLI and Claude desktop's Code tab), Codex (its desktop app and CLI), OpenCode, Gemini CLI,
+//! Qwen Code and pi this machine's acpmux tools, so a chat there reaches every session, machine
+//! and Cloud machine acpmux reaches: list the agents, message one by name, read its reply.
 //! Leo, 2026-11-09: "even if somebody say still wants to keep using [the Codex desktop app] and/or claude
 //! desktop, to be always saying "yeah i want to keep using cmux-next :) they give a good
-//! transport between everybody :)"".
+//! transport between everybody :)""; and on Claude Code's own cross-session messaging, "we
+//! should offer it for codex too! ... ppl care somewhat about pi and opencode and stuff like qwen
+//! and deepseek and glm" (Qwen, DeepSeek and GLM models run in OpenCode, pi or Qwen Code).
 //!
 //! Each app gets one MCP server entry named [`SERVER_KEY`] in its own user-scope config:
 //!
@@ -15,6 +18,15 @@
 //! - Codex: `[mcp_servers.cmux]` in `$CODEX_HOME/config.toml` (`~/.codex`), which the Codex
 //!   desktop app and CLI share, edited with `toml_edit` so comments and order stay, under the
 //!   lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`).
+//! - OpenCode: `mcp.cmux` in `$XDG_CONFIG_HOME/opencode/opencode.json` (`~/.config`, on macOS
+//!   too), a `local` server whose `command` is one array and whose env is `environment`.
+//!   OpenCode merges that file with an `opencode.jsonc` beside it, so a person's JSONC stays theirs.
+//! - Gemini CLI and Qwen Code (a Gemini CLI fork): `mcpServers` in `~/.gemini/settings.json` and
+//!   `~/.qwen/settings.json`, without Claude's `type`.
+//! - pi, which has no MCP by design: a `cmux` skill (`<PI_CODING_AGENT_DIR or
+//!   ~/.pi/agent>/skills/cmux/SKILL.md`) that runs the same requests through this acpmux CLI
+//!   (`ls`, `send --no-wait --from pi`, `last`, `wait`), with [`GUEST_ENV`] set so the daemon
+//!   takes them for a guest's. The file is ours while it carries that line.
 //!
 //! The entry runs this acpmux binary as `acpmux acpmux-mcp` with [`GUEST_ENV`] set to the app's
 //! id: the server's guest mode (`acpmux_mcp_guest.rs`), which lists the tools that make sense
@@ -46,10 +58,22 @@ pub enum App {
     ClaudeDesktop,
     ClaudeCode,
     Codex,
+    OpenCode,
+    GeminiCli,
+    QwenCode,
+    Pi,
 }
 
 impl App {
-    pub const ALL: [App; 3] = [App::ClaudeDesktop, App::ClaudeCode, App::Codex];
+    pub const ALL: [App; 7] = [
+        App::ClaudeDesktop,
+        App::ClaudeCode,
+        App::Codex,
+        App::OpenCode,
+        App::GeminiCli,
+        App::QwenCode,
+        App::Pi,
+    ];
 
     /// The id the CLI takes and the entry's [`GUEST_ENV`] carries.
     pub fn id(self) -> &'static str {
@@ -57,6 +81,10 @@ impl App {
             App::ClaudeDesktop => "claude-desktop",
             App::ClaudeCode => "claude-code",
             App::Codex => "codex",
+            App::OpenCode => "opencode",
+            App::GeminiCli => "gemini",
+            App::QwenCode => "qwen",
+            App::Pi => "pi",
         }
     }
 
@@ -66,6 +94,10 @@ impl App {
             App::ClaudeDesktop => "Claude desktop",
             App::ClaudeCode => "Claude Code",
             App::Codex => "Codex desktop and CLI",
+            App::OpenCode => "OpenCode",
+            App::GeminiCli => "Gemini CLI",
+            App::QwenCode => "Qwen Code",
+            App::Pi => "pi",
         }
     }
 
@@ -79,6 +111,10 @@ impl App {
             App::ClaudeDesktop => "quit and reopen Claude desktop",
             App::ClaudeCode => "new Claude Code sessions have it",
             App::Codex => "new Codex threads have it; restart the Codex app if it is open",
+            App::OpenCode => "new OpenCode sessions have it",
+            App::GeminiCli => "new Gemini CLI sessions have it",
+            App::QwenCode => "new Qwen Code sessions have it",
+            App::Pi => "new pi sessions have the cmux skill",
         }
     }
 }
@@ -93,8 +129,10 @@ pub struct Env {
     pub claude_config_dir: Option<PathBuf>,
     /// `CODEX_HOME`, when set.
     pub codex_home: Option<PathBuf>,
-    /// `XDG_CONFIG_HOME`, when set (Linux only).
+    /// `XDG_CONFIG_HOME`, when set (Claude desktop reads it on Linux only, OpenCode everywhere).
     pub xdg_config_home: Option<PathBuf>,
+    /// `PI_CODING_AGENT_DIR`, when set.
+    pub pi_dir: Option<PathBuf>,
     /// The acpmux binary the entry runs.
     pub exe: PathBuf,
     /// Its arguments: the binary's prefix (`acp` in the cmux binary) and `acpmux-mcp`.
@@ -124,6 +162,7 @@ impl Env {
             claude_config_dir: var("CLAUDE_CONFIG_DIR"),
             codex_home: var("CODEX_HOME"),
             xdg_config_home: var("XDG_CONFIG_HOME"),
+            pi_dir: var("PI_CODING_AGENT_DIR"),
             args: me.args_lossy(&[SERVER_ARG]),
             exe: me.exe,
             acpmux_home,
@@ -144,15 +183,27 @@ impl Env {
                 .clone()
                 .unwrap_or_else(|| self.home.join(".codex"))
                 .join("config.toml"),
+            App::OpenCode => self.xdg_config().join("opencode/opencode.json"),
+            App::GeminiCli => self.home.join(".gemini/settings.json"),
+            App::QwenCode => self.home.join(".qwen/settings.json"),
+            App::Pi => self.pi_agent_dir().join("skills/cmux/SKILL.md"),
         }
+    }
+
+    fn xdg_config(&self) -> PathBuf {
+        self.xdg_config_home.clone().unwrap_or_else(|| self.home.join(".config"))
     }
 
     fn claude_desktop_dir(&self) -> PathBuf {
         if cfg!(target_os = "macos") {
             self.home.join("Library/Application Support/Claude")
         } else {
-            self.xdg_config_home.clone().unwrap_or_else(|| self.home.join(".config")).join("Claude")
+            self.xdg_config().join("Claude")
         }
+    }
+
+    fn pi_agent_dir(&self) -> PathBuf {
+        self.pi_dir.clone().unwrap_or_else(|| self.home.join(".pi/agent"))
     }
 
     /// Whether the app is on this machine: its config folder is there (Claude Code: its CLI or
@@ -161,7 +212,10 @@ impl Env {
         match app {
             App::ClaudeDesktop => self.claude_desktop_dir().is_dir(),
             App::ClaudeCode => self.claude_cli.is_some() || self.config_path(app).is_file(),
-            App::Codex => self.config_path(app).parent().is_some_and(Path::is_dir),
+            App::Codex | App::OpenCode | App::GeminiCli | App::QwenCode => {
+                self.config_path(app).parent().is_some_and(Path::is_dir)
+            }
+            App::Pi => self.pi_agent_dir().is_dir(),
         }
     }
 
@@ -174,7 +228,8 @@ impl Env {
         env
     }
 
-    /// The entry for `app`, as the JSON both Claude configs take.
+    /// The entry for `app`, as the JSON both Claude configs take: the shape every other app's
+    /// entry is read back into ([`canonical`]).
     pub fn entry_json(&self, app: App) -> Value {
         let env: serde_json::Map<String, Value> =
             self.entry_env(app).into_iter().map(|(k, v)| (k.to_owned(), json!(v))).collect();
@@ -185,6 +240,91 @@ impl Env {
             "env": env,
         })
     }
+
+    /// The entry as `app`'s own config spells it.
+    fn native_entry(&self, app: App) -> Value {
+        let entry = self.entry_json(app);
+        match app {
+            App::GeminiCli | App::QwenCode => {
+                json!({"command": entry["command"], "args": entry["args"], "env": entry["env"]})
+            }
+            App::OpenCode => {
+                let mut command = vec![entry["command"].clone()];
+                command.extend(entry["args"].as_array().cloned().unwrap_or_default());
+                json!({
+                    "type": "local",
+                    "command": command,
+                    "environment": entry["env"],
+                    "enabled": true,
+                })
+            }
+            _ => entry,
+        }
+    }
+
+    /// pi's `cmux` skill: the acpmux CLI, as a guest, for what the MCP tools do elsewhere.
+    pub fn pi_skill(&self) -> String {
+        use crate::harness_health::channel::quote;
+        let mut cli: Vec<String> =
+            self.entry_env(App::Pi).into_iter().map(|(k, v)| format!("{k}={}", quote(&v))).collect();
+        cli.push(quote(&self.exe.to_string_lossy()));
+        cli.extend(self.args.iter().filter(|a| *a != SERVER_ARG).map(|a| quote(a)));
+        let cli = cli.join(" ");
+        [
+            "---",
+            "name: cmux",
+            "description: Reach other coding agents through cmux (Claude Code, Codex, OpenCode, Gemini CLI, pi and the rest, on this machine and its paired and Cloud machines) - list them, message one by name, read its reply, wait until it is done. Use when the task names another agent or session, or needs one to answer or do something.",
+            "---",
+            "",
+            "# Reaching other agents through cmux",
+            "",
+            "cmux wrote this skill (`acpmux desktop link`; `acpmux desktop unlink --app pi` removes it).",
+            "Run these in a shell, where `cmux-agents` stands for:",
+            "",
+            &format!("    {cli}"),
+            "",
+            "- List the agent sessions, newest first: `cmux-agents ls` (add words to filter by name or title).",
+            "- Message one by name, id or host/name: `cmux-agents send --no-wait --from pi -- NAME 'TEXT'`.",
+            "  It arrives in that chat as pi's message, never as the person's, and does not wait. Make the",
+            "  text self-contained and say how to answer you.",
+            "- Read its last reply: `cmux-agents last NAME`.",
+            "- Learn when it is done instead of polling: `cmux-agents wait NAME --timeout 1800` returns when",
+            "  its turn ends or it asks for permission (exit 0 done, 2 permission, 3 timeout).",
+            "",
+        ]
+        .join("\n")
+    }
+}
+
+/// An entry as `app`'s config holds it, in the shape of [`Env::entry_json`].
+fn canonical(app: App, entry: &Value) -> Value {
+    match app {
+        App::OpenCode => {
+            let command = entry["command"].as_array().cloned().unwrap_or_default();
+            let mut v = json!({
+                "command": command.first().cloned().unwrap_or(Value::Null),
+                "args": command.get(1..).unwrap_or_default(),
+            });
+            if let Some(env) = entry.get("environment") {
+                v.set("env", env.clone());
+            }
+            v
+        }
+        _ => entry.clone(),
+    }
+}
+
+/// The key of `app`'s MCP servers in its JSON config.
+fn servers_key(app: App) -> &'static str {
+    match app {
+        App::OpenCode => "mcp",
+        _ => SERVERS_KEY,
+    }
+}
+
+/// The line that marks pi's skill as one cmux wrote.
+fn pi_mark() -> String {
+    format!("{GUEST_ENV}=")
 }
 
 /// An app's entry as found.
@@ -246,6 +386,17 @@ pub fn status(env: &Env, app: App) -> Row {
     let config = env.config_path(app);
     let state = if !env.installed(app) {
         State::NotInstalled
+    } else if app == App::Pi {
+        match std::fs::read_to_string(&config) {
+            Ok(text) if text == env.pi_skill() => State::Linked,
+            Ok(text) if text.contains(&pi_mark()) => State::Stale,
+            Ok(_) => State::Foreign,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::NotLinked,
+            Err(e) => {
+                let note = Some(format!("reading {}: {e}", config.display()));
+                return Row { app, state: State::NotLinked, config, note };
+            }
+        }
     } else {
         match read_entry(env, app) {
             Ok(entry) => classify(env, app, entry.as_ref()),
@@ -301,10 +452,8 @@ impl std::error::Error for ForeignEntry {}
 
 /// The note of a row whose entry is not ours.
 fn foreign_note(config: &Path) -> String {
-    format!(
-        "a server named {SERVER_KEY} that cmux did not write is in {}; left alone",
-        config.display()
-    )
+    let what = if config.ends_with("SKILL.md") { "a skill" } else { "a server" };
+    format!("{what} named {SERVER_KEY} that cmux did not write is in {}; left alone", config.display())
 }
 
 /// Give `app` the entry. An entry of ours that runs another binary is replaced; one we did not
@@ -363,14 +512,21 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
     match app {
-        App::ClaudeDesktop | App::ClaudeCode => {
+        App::ClaudeDesktop
+        | App::ClaudeCode
+        | App::OpenCode
+        | App::GeminiCli
+        | App::QwenCode => {
             if text.trim().is_empty() {
                 return Ok(None);
             }
             let doc: Value = serde_json::from_str(&text)
                 .with_context(|| format!("{} is not JSON", path.display()))?;
-            Ok(doc.pointer(&format!("/{SERVERS_KEY}/{SERVER_KEY}")).cloned())
+            let entry = doc.pointer(&format!("/{}/{SERVER_KEY}", servers_key(app)));
+            Ok(entry.map(|e| canonical(app, e)))
         }
+        // `status` reads pi's skill itself; it has no entry.
+        App::Pi => Ok(None),
         App::Codex => {
             let doc: toml::Table =
                 toml::from_str(&text).with_context(|| format!("{} is not TOML", path.display()))?;
@@ -385,7 +541,15 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
 
 fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
     match app {
-        App::ClaudeDesktop => edit_json(&env.config_path(app), link_json(env, app)),
+        App::ClaudeDesktop | App::OpenCode | App::GeminiCli | App::QwenCode => {
+            edit_json(&env.config_path(app), servers_key(app), link_json(env, app))
+        }
+        App::Pi => edit_file(&env.config_path(app), None, |text| {
+            if !text.is_empty() && !text.contains(&pi_mark()) {
+                return Err(ForeignEntry.into());
+            }
+            Ok(env.pi_skill())
+        }),
         App::ClaudeCode => {
             // `claude mcp` edits the file itself, so this is checked just before it runs.
             refuse_foreign_claude_code(env)?;
@@ -401,7 +565,22 @@ fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
 
 fn remove_entry(env: &Env, app: App) -> Result<()> {
     match app {
-        App::ClaudeDesktop => edit_json(&env.config_path(app), unlink_json),
+        App::ClaudeDesktop | App::OpenCode | App::GeminiCli | App::QwenCode => {
+            edit_json(&env.config_path(app), servers_key(app), unlink_json(app))
+        }
+        App::Pi => {
+            let path = env.config_path(app);
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            if !text.contains(&pi_mark()) {
+                return Err(ForeignEntry.into());
+            }
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+            // The skill's own folder, when nothing else is in it.
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::remove_dir(dir);
+            }
+            Ok(())
+        }
         App::ClaudeCode => {
             refuse_foreign_claude_code(env)?;
             claude_cli(env, &["mcp", "remove", "--scope", "user", SERVER_KEY])
@@ -418,25 +597,27 @@ fn refuse_foreign_claude_code(env: &Env) -> Result<()> {
     }
 }
 
-/// Link's change of Claude desktop's `mcpServers`, as found in the text of this round: our entry
-/// in, unless one named [`SERVER_KEY`] there is not ours.
+/// Link's change of a JSON config's servers (`mcpServers`, OpenCode's `mcp`), as found in the
+/// text of this round: our entry in, unless one named [`SERVER_KEY`] there is not ours.
 fn link_json(env: &Env, app: App) -> impl Fn(&mut Ordered<Value>) -> Result<()> + '_ {
     move |servers: &mut Ordered<Value>| {
-        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(entry)) {
+        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(&canonical(app, entry))) {
             return Err(ForeignEntry.into());
         }
-        servers.insert(SERVER_KEY, env.entry_json(app));
+        servers.insert(SERVER_KEY, env.native_entry(app));
         Ok(())
     }
 }
 
 /// Unlink's: our entry out; one that is not ours stays, refused.
-fn unlink_json(servers: &mut Ordered<Value>) -> Result<()> {
-    if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(entry)) {
-        return Err(ForeignEntry.into());
+fn unlink_json(app: App) -> impl Fn(&mut Ordered<Value>) -> Result<()> {
+    move |servers: &mut Ordered<Value>| {
+        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(&canonical(app, entry))) {
+            return Err(ForeignEntry.into());
+        }
+        servers.remove(SERVER_KEY);
+        Ok(())
     }
-    servers.remove(SERVER_KEY);
-    Ok(())
 }
 
 /// The same for Codex's `[mcp_servers]`.
@@ -470,16 +651,21 @@ fn unlink_toml(servers: &mut toml_edit::Table) -> Result<()> {
     Ok(())
 }
 
-/// Read `path` as JSON (none or empty: `{}`), change its `mcpServers`, and write it back whole
-/// ([`edit_file`]). The top level and `mcpServers` keep the person's key order (serde_json's own
-/// map would sort them).
-fn edit_json(path: &Path, change: impl Fn(&mut Ordered<Value>) -> Result<()>) -> Result<()> {
-    edit_file(path, None, |text| render_json(path, text, &change))
+/// Read `path` as JSON (none or empty: `{}`), change its servers under `key`, and write it back
+/// whole ([`edit_file`]). The top level and the servers keep the person's key order (serde_json's
+/// own map would sort them).
+fn edit_json(
+    path: &Path,
+    key: &str,
+    change: impl Fn(&mut Ordered<Value>) -> Result<()>,
+) -> Result<()> {
+    edit_file(path, None, |text| render_json(path, key, text, &change))
 }
 
-/// `text` with `change` made to its `mcpServers`; `change` refuses what it must not touch.
+/// `text` with `change` made to its servers under `key`; `change` refuses what it must not touch.
 fn render_json(
     path: &Path,
+    key: &str,
     text: &str,
     change: &impl Fn(&mut Ordered<Value>) -> Result<()>,
 ) -> Result<String> {
@@ -489,16 +675,14 @@ fn render_json(
     let Some(top) = doc.as_object() else {
         bail!("{} is not a JSON object", path.display());
     };
-    if top.get(SERVERS_KEY).is_some_and(|s| !s.is_object()) {
-        bail!("{SERVERS_KEY} in {} is not an object", path.display());
+    if top.get(key).is_some_and(|s| !s.is_object()) {
+        bail!("{key} in {} is not an object", path.display());
     }
-    let top: Ordered<Value> = serde_json::from_str(text)?;
-    #[derive(serde::Deserialize)]
-    struct Servers {
-        #[serde(rename = "mcpServers")]
-        servers: Option<Ordered<Value>>,
-    }
-    let mut servers = serde_json::from_str::<Servers>(text)?.servers.unwrap_or(Ordered(Vec::new()));
+    let top: Ordered<Box<serde_json::value::RawValue>> = serde_json::from_str(text)?;
+    let mut servers = match top.get(key) {
+        Some(raw) => serde_json::from_str::<Ordered<Value>>(raw.get())?,
+        None => Ordered(Vec::new()),
+    };
     change(&mut servers)?;
     #[derive(serde::Serialize)]
     #[serde(untagged)]
@@ -511,22 +695,22 @@ fn render_json(
         .0
         .into_iter()
         .map(|(k, v)| {
-            let node = match servers.take_if(|_| k == SERVERS_KEY) {
+            let node = match servers.take_if(|_| k == key) {
                 Some(s) => Node::Servers(s),
-                None => Node::Plain(v),
+                None => Node::Plain(serde_json::from_str(v.get())?),
             };
-            (k, node)
+            Ok((k, node))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     if let Some(s) = servers {
-        out.push((SERVERS_KEY.to_owned(), Node::Servers(s)));
+        out.push((key.to_owned(), Node::Servers(s)));
     }
     let mut out = serde_json::to_string_pretty(&Ordered(out))?;
     out.push('\n');
     Ok(out)
 }
 
-/// The key of Claude's MCP servers.
+/// The key of the MCP servers of Claude's, Gemini CLI's and Qwen Code's configs.
 const SERVERS_KEY: &str = "mcpServers";
 
 /// A JSON object read and written in its own key order.
