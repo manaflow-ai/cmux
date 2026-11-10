@@ -189,7 +189,7 @@ final class AppServices {
     let blocking = BlockingDetector.forProcess()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
-    /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
+    /// The app's file picker: agent panes, page file inputs and Home's "+" take a new panel from it; it keeps none.
     let openPanel = MadeAheadOpenPanel()
     /// Live code's watcher (Debug and bench, CMUX_LIVE_CODE_DIR or Labs > Live Code); windows show its badge.
     let liveCode = LiveCode.fromEnvironment()

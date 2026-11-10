@@ -339,7 +339,7 @@ extension WebKitTab: WKUIDelegate {
             completionHandler(offered.isEmpty ? nil : offered)
             return
         }
-        // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
+        // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app its file picker.
         // A tab whose engine is gone ends the input as a cancel.
         guard let engine else {
             completionHandler(nil)

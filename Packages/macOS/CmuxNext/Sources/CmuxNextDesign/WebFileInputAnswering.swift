@@ -1,7 +1,7 @@
 public import AppKit
 
 /// Answers a WebKit page's `<input type="file">` with a file picker: the one path every WebKit view takes, whether a
-/// cmux page on WebKit (`PageOpenPanel`) or a WebKit browser tab (`WebKitTab`), so the made-ahead panel and its
+/// cmux page on WebKit (`PageOpenPanel`) or a WebKit browser tab (`WebKitTab`), so the picker's warm-up and its
 /// dead-panel guard apply to every WebKit file input. ``MadeAheadOpenPanel`` is the app's answerer; a test passes a
 /// stand-in, since a test host cannot make an `NSOpenPanel` without its view service.
 ///

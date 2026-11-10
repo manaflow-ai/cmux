@@ -80,7 +80,7 @@ public final class AgentPaneView: NSView {
     var peerApprovalsReason: AgentPanePeerApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let savePanel = AgentPaneSavePanel()
-    /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
+    /// The app's file picker (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
     /// The app's table of processes that post input (`AppServices.personInput.sources`): whether a key or click
     /// is the person's (``AgentPanePersonInput``) is read from it, never by a system call per event.
@@ -193,7 +193,7 @@ public final class AgentPaneView: NSView {
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     ///   - terminations: The record of agent page ends (``AgentPageTerminations``), shared by the
     ///     panes so one Reload reaches every chat that ended with it; nil: ``processGroups``' (tests pass their own).
-    ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
+    ///   - openPanel: The app's file picker (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     ///   - eventSources: The app's table of processes that post input (`AppServices.personInput.sources`); tests get their own.
     ///   - flickerLog: The app's flicker ring file (``AgentPaneShared/flickerLog``); nil (tests) writes none.
@@ -637,7 +637,7 @@ public final class AgentPaneView: NSView {
             // at the same frame), it tells the new window afresh.
             lastToastAvoidance = .zero
         } else {
-            // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
+            // The composer's + > Attach files or images does not pay the process's first panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
             // The window's toasts stay clear of its composer.
             toastAvoidanceMoved()

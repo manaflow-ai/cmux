@@ -7,12 +7,14 @@ import CmuxNextControl
 /// `debug.open_panel_bench` (DEBUG builds): one file-picker open as a click runs it (Home's "+", an agent
 /// composer's Attach), timed to the display frame that shows the sheet, then cancelled.
 ///
-/// Params: `mode` — `made` (default: the panel made ahead, ``MadeAheadOpenPanel``, warmed first, as Home's
-/// "+" takes it), `fresh` (a new `NSOpenPanel()` per open: the on-demand path when none was made ahead) or
+/// Params: `mode` — `made` (default: the app's path, ``MadeAheadOpenPanel``: its warm-up first, then a new panel
+/// for the open, as Home's "+" takes it), `fresh` (a bare `NSOpenPanel()` per open, with no warm-up before it) or
 /// `window` (`begin(completionHandler:)`, a separate panel window instead of a sheet); `window` (default: the
 /// first window).
 ///
-/// Reports, in ms from the click: `init_ms` (getting the panel: `NSOpenPanel()` or the reuse),
+/// Reports `made_ahead_before` (whether the process's first panel was paid before this open),
+/// `live_panels_before` (the app's panels alive before it: 0 at rest), `directory` (the folder the panel shows)
+/// and, in ms from the click: `init_ms` (getting the panel: `NSOpenPanel()`),
 /// `begin_ms` (the `beginSheetModal` / `begin` call), `sync_ms` (both: the click's main-thread time),
 /// `visible_ms` (the first display frame with the panel on screen), `frames` (the display-link intervals
 /// from 120 ms before the click until 300 ms after it showed: `max_ms` is the longest the main thread held a frame;
@@ -27,13 +29,14 @@ enum DebugOpenPanelBench {
         guard let window = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
         guard window.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
         let shared = services.openPanel
-        if mode == "made", !shared.isMade {
+        if mode == "made", !shared.isWarm {
             shared.warmWhenIdle()
             frames.start()
-            _ = await frames.settled(until: { shared.isMade || !shared.isWarming }, start: .now, window: 0, deadline: 8_000)
+            _ = await frames.settled(until: { shared.isWarm || !shared.isWarming }, start: .now, window: 0, deadline: 8_000)
             _ = frames.stop()
         }
-        let madeBefore = shared.isMade
+        let madeBefore = shared.isWarm
+        let liveBefore = shared.livePanels
         // Quiet frames first, so the click starts from an idle main thread, and the display link keeps ticking into
         // the click: a stall of the click's own main-thread work then shows as one long frame interval (frames.max_ms),
         // while a nested run loop (a sheet animating inside the call) keeps the frames coming.
@@ -66,6 +69,8 @@ enum DebugOpenPanelBench {
         return .object([
             "mode": .string(mode),
             "made_ahead_before": .bool(madeBefore),
+            "live_panels_before": .number(Double(liveBefore)),
+            "directory": .string(panel.directoryURL?.path ?? ""),
             "prompt_nil": .bool(panel.prompt == nil),
             "init_ms": .number(BenchSpans.ms(made - start)),
             "begin_ms": .number(BenchSpans.ms(begun - made)),

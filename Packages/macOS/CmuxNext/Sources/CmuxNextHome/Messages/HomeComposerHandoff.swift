@@ -96,8 +96,8 @@ public struct HomeComposerHandoff {
     /// How long a closing page may take to settle.
     public static let settleDeadline: Duration = .seconds(6)
 
-    /// The file picker as a sheet on the page's window (the app's panel made ahead of the click,
-    /// shared with an agent composer's attach); the chosen files go to the composer, and the person
+    /// The file picker as a sheet on the page's window (a new panel from the app's picker, the one
+    /// an agent composer's attach takes); the chosen files go to the composer, and the person
     /// goes back to typing in the box. A window that already shows a sheet opens none.
     public func pickFiles(openPanel: MadeAheadOpenPanel) {
         guard let window = window(), window.attachedSheet == nil, let panel = openPanel.panel() else { return }

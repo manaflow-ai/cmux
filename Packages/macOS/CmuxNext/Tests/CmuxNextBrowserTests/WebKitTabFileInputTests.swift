@@ -6,11 +6,11 @@ import Testing
 import CmuxNextTestSupport
 
 /// A WebKit browser tab's `<input type="file">` goes through the engine's one file-input path
-/// (`WebKitEngine.fileInput`, in the app the made-ahead `MadeAheadOpenPanel`), as an agent composer page's does
+/// (`WebKitEngine.fileInput`, in the app its file picker, `MadeAheadOpenPanel`), as an agent composer page's does
 /// (`PageOpenPanel`). The tab had its own copy of the handler that called `NSOpenPanel()` itself (deep review of
-/// fleet-gui, finding 2): no panel made ahead (a cold 160 to 830 ms panel per click), and no dead-panel guard, so
+/// fleet-gui, finding 2): no warm-up (a cold first panel on the click), and no dead-panel guard, so
 /// with no view service the page's file input could wait forever on a sheet handler that never came. The shared path
-/// removes that wait-forever (a dead panel ends the input as a cancel) and reuses a panel made ahead; it does not
+/// removes that wait-forever (a dead panel ends the input as a cancel) and shares the picker's warm-up; it does not
 /// remove the main-thread block of a click that has to make its panel (up to about 40 s with a hung or absent panel
 /// service: `MadeAheadOpenPanel+WebFileInputAnswering`).
 ///

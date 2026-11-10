@@ -6407,11 +6407,9 @@ CmuxNextDesign	struct	TweenValue	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextDesign	extension	NSImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSImage+MenuSymbol.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSObject	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSObject+Deallocation.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	let	allowsWeakReferenceSelector	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSObject+Deallocation.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	NSOpenPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSOpenPanel+ReusableOpenPanel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSSavePanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSSavePanel+OpenPanelLabels.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSWindow+BackgroundBlurRadius.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	NightSkyView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NightSky/NightSkyView.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	struct	OpenPanelDefaults	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelDefaults.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	protocol	OpenPanelLabels	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelLabels.swift	from protocol OpenPanelLabels:7: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	OpenPanelWarmCheck	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelWarmCheck.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	func	personPausedOutsideTrackingLoop	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelWarmGate.swift	from struct OpenPanelWarmGate:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6529,7 +6527,6 @@ CmuxNextDesign	protocol	PaneMotionSettling	0	PLATFORM	0	0	Packages/macOS/CmuxNex
 CmuxNextDesign	protocol	PaneMotionTargeting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/RestingPlacement.swift	from protocol RestingPlacement:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	protocol	PaneResizeGestureFollowing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/RestingPlacement.swift	from protocol RestingPlacement:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	protocol	RestingPlacement	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/RestingPlacement.swift	from protocol RestingPlacement:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	protocol	ReusableOpenPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ReusableOpenPanel.swift	from protocol ReusableOpenPanel:6: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ScrollEdgeFadeView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ScrollEdgeFade.swift	from struct ScrollEdges:5: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	ScrollEdges	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ScrollEdgeFade.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ScrollFitElasticity	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ScrollFitElasticity.swift	from class ScrollFitElasticity:10: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing

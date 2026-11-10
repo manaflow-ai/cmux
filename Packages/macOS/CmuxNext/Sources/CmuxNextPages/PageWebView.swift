@@ -83,7 +83,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
-    /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
+    /// The app's file picker for a page's `<input type="file">`; the app sets it once at startup with
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// Inspect Element in this page's menu (``PageDeveloperTools``): the person's setting and the

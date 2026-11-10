@@ -4,12 +4,12 @@ public import CmuxNextDesign
 /// Add Files to Project's open panel (cx-ncc.67): a sheet on the pane's window for files, several
 /// at a time. None when the user cancels, the pane has no window, or the panel came back dead (no
 /// GUI session: no sheet is shown, so nothing waits on it). The model asks for it only
-/// after a real gesture. Both sheets take the app's panel made ahead (`MadeAheadOpenPanel`).
+/// after a real gesture. Each sheet takes a new panel from the app's picker (`MadeAheadOpenPanel`).
 @MainActor
 public struct AgentPaneFilePicker {
     private let openPanel: MadeAheadOpenPanel
 
-    /// - Parameter openPanel: The app's made-ahead panel (`AppServices.openPanel`).
+    /// - Parameter openPanel: The app's file picker (`AppServices.openPanel`).
     public init(openPanel: MadeAheadOpenPanel) {
         self.openPanel = openPanel
     }
@@ -38,8 +38,8 @@ public struct AgentPaneFilePicker {
         return await sheet(panel, on: window)
     }
 
-    /// The chosen files, read in the sheet's own handler: once it ends, the shared panel is free
-    /// for the next picker, which would reconfigure it before an `await` resumed here.
+    /// The chosen files, read in the sheet's own handler; the handler is the panel's last owner, so the
+    /// panel goes when its sheet ended.
     private func sheet(_ panel: NSOpenPanel, on window: NSWindow) async -> [URL] {
         await withCheckedContinuation { done in
             panel.beginSheetModal(for: window) { response in done.resume(returning: response == .OK ? panel.urls : []) }

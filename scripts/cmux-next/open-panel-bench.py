@@ -5,8 +5,9 @@ Launches a tagged DEV app (bench_launch.py), then times file-picker opens throug
 (DebugOpenPanelBench.swift) in three modes, each `--rounds` times, light (one window) and STRESS
 (perf-stress-session.py):
 
-  made    the panel made ahead (MadeAheadOpenPanel), as Home's "+" and an agent composer's Attach take it
-  fresh   a new NSOpenPanel() per open: the on-demand path when none was made ahead
+  made    the app's path (MadeAheadOpenPanel: its warm-up first, then a new panel per open), as Home's "+" and an
+          agent composer's Attach take it
+  fresh   a bare NSOpenPanel() per open, with no warm-up before it
   window  begin(completionHandler:): a separate panel window instead of a sheet
 
 Per open: init_ms (getting the panel), begin_ms (beginSheetModal / begin), sync_ms (their sum: the click's
@@ -15,7 +16,8 @@ frame interval from the click until 300 ms after it showed (frames.max_ms) with 
 
 The first open of each session (right after the launch, right after the STRESS build) may still run during launch or
 build work: no app-side signal says that work has ended. It is marked `first_open`, printed on its own OPEN-PANEL-FIRST
-row and kept in `first_opens` (the whole run but its frame intervals: times, error, made_ahead_before, prompt_nil,
+row and kept in `first_opens` (the whole run but its frame intervals: times, error, made_ahead_before (the process's
+first panel was paid before the open), live_panels_before (the app's panels alive before it: 0 at rest), prompt_nil,
 missed), and left out of the session's percentiles; each OPEN-PANEL row says how many opens it summarizes (`n`). Later opens can still overlap launch work that lasts longer than one open.
 
 Usage: open-panel-bench.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 5]
@@ -76,7 +78,8 @@ def measure(app, session, report, opts):
             reply = app.rpc("debug.open_panel_bench", {"mode": mode}, timeout=90) or {}
             stuck.cancel()
             frames = reply.get("frames") or {}
-            run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "init_ms", "begin_ms", "sync_ms", "visible_ms", "error")}
+            run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "live_panels_before", "init_ms", "begin_ms",
+                                             "sync_ms", "visible_ms", "error")}
             run.update(frame_max_ms=frames.get("max_ms"), missed=frames.get("missed"), refresh_ms=frames.get("refresh_ms"),
                        intervals_ms=frames.get("intervals_ms"), prompt_nil=reply.get("prompt_nil"),
                        session=session, round=index, first_open=first_open)
