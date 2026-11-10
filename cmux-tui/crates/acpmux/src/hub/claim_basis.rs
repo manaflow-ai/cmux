@@ -715,6 +715,102 @@ mod tests {
         assert_eq!(judge(&absolute, cwd, &system_path()), None);
     }
 
+    /// The folder a launch reads, for the review cases of #40158 (w5l-158-rev-2): `agent.py`,
+    /// `agent.js` and a `package.json` script `agent`.
+    fn review_folder() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for file in ["agent.py", "agent.js"] {
+            std::fs::write(dir.path().join(file), "").unwrap();
+        }
+        std::fs::write(dir.path().join("package.json"), r#"{"scripts":{"agent":"node agent.js"}}"#)
+            .unwrap();
+        dir
+    }
+
+    fn assert_reads(cwd: &Path, argv: &[&str], env: &[(&str, &str)]) {
+        let why = judge(&launch(argv, env), cwd, &system_path());
+        assert_eq!(why, Some("launch_reads_folder"), "{argv:?} {env:?}");
+    }
+
+    /// A program acpmux does not know may be a wrapper that runs the next words: an unknown wrapper
+    /// does not hide `python3 -m agent` (w5l-158-rev-2, item 1).
+    #[test]
+    fn an_unknown_wrapper_does_not_hide_a_module_run() {
+        let dir = review_folder();
+        for argv in [
+            &["pyenv", "exec", "python3", "-m", "agent"][..],
+            &["mise", "exec", "--", "python3", "-m", "agent"],
+            &["sandbox-exec", "-f", "/etc/p.sb", "python3", "-m", "agent"],
+            &["op", "run", "--", "python3", "-m", "agent"],
+        ] {
+            assert_reads(dir.path(), argv, &[]);
+        }
+    }
+
+    /// `env`'s own `KEY=VALUE` words are env, judged as the entry's env is (item 2).
+    #[test]
+    fn env_words_are_judged_as_env() {
+        let dir = review_folder();
+        assert_reads(dir.path(), &["env", "PYTHONPATH=.", "python3", "/opt/agent.py"], &[]);
+        assert_reads(
+            dir.path(),
+            &["env", "NODE_OPTIONS=--require hook", "node", "/opt/agent.js"],
+            &[],
+        );
+    }
+
+    /// A wrapper that drops the env (`env -u`, `env -i`, `sudo`) drops `PYTHONSAFEPATH` too (item 2).
+    #[test]
+    fn a_wrapper_that_drops_the_env_drops_the_safe_path() {
+        let dir = review_folder();
+        let safe = [("PYTHONSAFEPATH", "1")];
+        assert_reads(
+            dir.path(),
+            &["env", "-u", "PYTHONSAFEPATH", "python3.12", "-m", "agent"],
+            &safe,
+        );
+        assert_reads(dir.path(), &["env", "-i", "python3.12", "-m", "agent"], &safe);
+        assert_reads(dir.path(), &["sudo", "python3.12", "-m", "agent"], &safe);
+    }
+
+    /// Node finds `agent.js` for a script named `agent`, and `--run` runs a `package.json` script
+    /// (item 3).
+    #[test]
+    fn node_finds_a_folder_script_by_its_bare_name() {
+        let dir = review_folder();
+        assert_reads(dir.path(), &["node", "agent"], &[]);
+        assert_reads(dir.path(), &["node", "--run", "agent"], &[]);
+    }
+
+    /// PyPy runs modules from the folder as CPython does (w5l-158-rev-2, non-blocking).
+    #[test]
+    fn pypy_reads_the_folder() {
+        let dir = review_folder();
+        assert_reads(dir.path(), &["pypy3", "-m", "agent"], &[]);
+        assert_reads(dir.path(), &["pypy3", "-c", "import agent"], &[]);
+    }
+
+    /// A shell's command string is code of the command line, which acpmux does not read (lead).
+    #[test]
+    fn a_shell_command_string_reads_the_folder() {
+        let dir = review_folder();
+        assert_reads(dir.path(), &["sh", "-c", "python3 -m agent"], &[]);
+        assert_reads(dir.path(), &["/bin/bash", "-lc", "agent acp"], &[]);
+    }
+
+    /// `PYTHONSAFEPATH` exists only from Python 3.11: a Python whose version acpmux cannot tell
+    /// (`python3`, which a folder's `.python-version` may choose) gets no credit for it (lead).
+    #[test]
+    fn the_safe_path_counts_only_on_a_python_known_to_have_it() {
+        let dir = review_folder();
+        let safe = [("PYTHONSAFEPATH", "1")];
+        assert_reads(dir.path(), &["python3", "-m", "agent"], &safe);
+        assert_reads(dir.path(), &["python3.10", "-m", "agent"], &safe);
+        for argv in [&["python3.12", "-m", "agent"][..], &["/usr/bin/python3.11", "-um", "agent"]] {
+            assert_eq!(judge(&launch(argv, &safe), dir.path(), &system_path()), None, "{argv:?}");
+        }
+    }
+
     #[test]
     fn a_command_that_skips_approvals_carries_no_claim() {
         let cwd = Path::new("/w");
