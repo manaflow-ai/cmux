@@ -108,17 +108,27 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         [] => {
             let message =
                 "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
-            return super::app::failure("usage.invalid", message, output, 2);
+            return usage_error(message, output);
         }
         [other, ..] => {
             let message = format!(
                 "cmux: completion takes zsh, bash or fish, not {other:?}; run `cmux completion --help`"
             );
-            return super::app::failure("usage.invalid", &message, output, 2);
+            return usage_error(&message, output);
         }
     };
     print!("{text}");
     0
+}
+
+/// A usage error, printed through `wire` rather than the unix-only `app`, so the Windows build of
+/// `cmux completion` compiles too.
+fn usage_error(message: &str, output: OutputMode) -> i32 {
+    super::wire::print_local_error(
+        &serde_json::json!({ "code": "usage.invalid", "message": message, "details": {}, "retryable": false }),
+        output,
+        2,
+    )
 }
 
 /// The completions of the last word of `words` (the word being typed, maybe empty), with `help`
