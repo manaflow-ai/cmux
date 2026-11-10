@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixture data, not shipped UI.
 // Fixture projects for the project-caps gallery: cmux is long (37 chats) with one pinned chat,
 // one waiting on you (yellow), two unread (blue) and one running mid-list; ghostty fits under the
-// cap; hq has an unread chat; cmux-tui is long enough for its own "Show more".
+// cap; hq has one unread and one waiting chat; cmux-tui is long enough for its own "Show more".
 import type { CapChat, CapProject, ChatState } from "./projectCapsModel";
 
 const harnesses = ["claude", "codex", "opencode", "pi"];
