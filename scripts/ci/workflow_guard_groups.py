@@ -91,6 +91,9 @@ PATH_OWNERS = {
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
+    # test_ios_app_review_gate.py loads the gate by path and reads the history.
+    "cmux-next-ios/scripts/app_review_gate.py": frozenset(("release-ios",)),
+    "cmux-next-ios/AppStoreReview/rejection-history.json": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
