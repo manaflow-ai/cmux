@@ -40,7 +40,11 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   }
   ensure(sql)
   const row = sql.exec<{ vm_plan: string | null; checked_at: number }>(`SELECT vm_plan, checked_at FROM cloud_vm_plan WHERE id = 1`).toArray()[0]
-  if (row && now - Number(row.checked_at) < VM_PLAN_FRESH_MS) return { ok: true, vm_plan: row.vm_plan }
+  // A person holding a carried grant is read fresh every time (review F2 at 28f85c71): the answer depends on their
+  // paid plan, and a cached comparison would hide a paid upgrade (cloudPlanId("max", "go") is go). Only such people
+  // pay the extra reads; the cached copy stays the answer when the service fails.
+  const carrying = stackUser !== undefined && carriedVmPlan(sql) !== null
+  if (row && !carrying && now - Number(row.checked_at) < VM_PLAN_FRESH_MS) return { ok: true, vm_plan: row.vm_plan }
   try {
     if (!stack) throw new Error("stack server not configured")
     const vm_plan = await read(stack)

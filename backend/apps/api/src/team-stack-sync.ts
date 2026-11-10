@@ -7,7 +7,7 @@ import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
 import { storeVmPlan } from "./cloud-vm-plan.ts"
-import { carryGrantOnDelete } from "./team-grant-carry.ts"
+import { deliverPendingCarry, pendingCarryAt, planCarryOnDelete } from "./team-grant-carry.ts"
 import type { StackMember, StackServer } from "./stack-server.ts"
 
 /**
@@ -208,6 +208,15 @@ export class StackTeamSync {
       if (deps.stack) await (this.queue = this.queue.then(run, run))
     }
     this.drainDeleted(deps, now)
+    await this.deliverCarry(deps, now)
+  }
+
+  /** A deleted team's pending Cloud grant transfer, when due (team-grant-carry.ts); never throws. */
+  private async deliverCarry(deps: StackSyncDeps, now: number) {
+    if (!deps.carryTo || deps.state().team?.deleted_at === undefined) return
+    await deliverPendingCarry({ sql: deps.sql, state: deps.state(), rows: deps.rows(), carryTo: deps.carryTo, now }, deps.team).catch((e: unknown) =>
+      console.error(JSON.stringify({ msg: "cloud grant carry failed", team: deps.team, error: String(e).slice(0, 160) }))
+    )
   }
 
   /** When the alarm should run next for this work, or null. */
@@ -215,10 +224,12 @@ export class StackTeamSync {
     if (state.team?.kind === "personal") return null
     const deps = this.deps()
     if (this.pendingRemovals(state, deps.rows(), 1).length > 0) return Math.max(now, this.drainRetryAt ?? now)
+    const carryAt = state.team?.deleted_at !== undefined && deps.carryTo ? pendingCarryAt(deps.sql) : null
     // Without a Stack client a due re-check could not run (no hot alarm loop).
-    if (!deps.stack) return null
+    if (!deps.stack) return carryAt === null ? null : Math.max(now, carryAt)
     ensureTables(deps.sql)
-    const next = deps.sql.exec<{ at: number | null }>(`SELECT MIN(due_at) AS at FROM stack_team_recheck`).one().at
+    const recheck = deps.sql.exec<{ at: number | null }>(`SELECT MIN(due_at) AS at FROM stack_team_recheck`).one().at
+    const next = recheck === null ? carryAt : carryAt === null ? recheck : Math.min(recheck, carryAt)
     return next === null ? null : Math.max(now, next)
   }
 
@@ -278,9 +289,12 @@ export class StackTeamSync {
     if (team === null) {
       // Only Stack's own team.deleted, confirmed by this read, deletes the team.
       if (ev.type === "team.deleted") {
-        // The team's Cloud grant moves to its owner first (ask-7b9075082b); a failed write throws, so the delete waits and retries.
-        if (deps.carryTo) await carryGrantOnDelete({ sql: deps.sql, state: deps.state(), rows: deps.rows(), carryTo: deps.carryTo, now: Date.now() }, ev.stack_team)
-        return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
+        // The team's Cloud grant transfer is recorded first (ask-7b9075082b), with no remote call, so the tombstone
+        // and the members' revocation never wait on it; it is delivered after, and from the alarm until it lands.
+        if (deps.carryTo) planCarryOnDelete({ sql: deps.sql, state: deps.state(), rows: deps.rows(), now: Date.now() }, ev.stack_team)
+        const out = commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
+        if (out === "team_deleted") await this.deliverCarry(deps, Date.now())
+        return out
       }
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
