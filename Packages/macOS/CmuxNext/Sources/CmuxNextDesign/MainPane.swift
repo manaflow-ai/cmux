@@ -92,9 +92,9 @@ extension Metrics {
     /// still rounds its own corners). A Debug Settings override wins.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
-        // The flush corner: 12 pt, concentric with the 16 pt window across its 4 pt gap.
+        // The flush corner: concentric with the window across its 4 pt gap (12 pt in a 16 pt window).
         let flush = CornerFlush.current
-        if flush.isOn { return windowCornerRadius > 0 ? min(flush.cardRadius, windowCornerRadius) : flush.cardRadius }
+        if flush.isOn { return windowCornerRadius > 0 ? max(0, windowCornerRadius - flush.gap) : flush.cardRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
         return windowConcentricCornerRadius(windowCornerRadius: windowCornerRadius, edgeInset: max(gutter, PaneTabRowRim.height),

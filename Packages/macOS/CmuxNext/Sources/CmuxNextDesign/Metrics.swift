@@ -127,8 +127,9 @@ public struct Metrics {
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
-        // The flush corner parts the sidebar from the card by the frame's tone, not a straight line.
-        if CornerFlush.current.isOn { return 0 }
+        // The flush corner picked in Debug Settings parts the sidebar from the card by the frame's
+        // tone, not a straight line; by default `sidebar.border` still decides.
+        if CornerFlush.isChosen { return 0 }
         return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
     public static var dividerHitWidth: CGFloat { MetricTunables.dividerHitWidth.value }
