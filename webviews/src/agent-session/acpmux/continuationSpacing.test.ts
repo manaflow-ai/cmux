@@ -16,6 +16,7 @@ import {
   MARK_PROMPT,
   MARK_STATUS,
   MARK_STEP,
+  MARK_WORKED,
   transcriptGap,
 } from "./transcriptGrid";
 
@@ -257,20 +258,22 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line, 4 to its rule, then 8 to the next row, with no stack gap after it
-    // (Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the after").
-    expect(layout.heights[0]).toBe(34);
-    expect(layout.gaps?.[1]).toBe(0);
+    // The turn's rule opens the line (#40062: the previous turn's footer, the rule, then "Worked
+    // for"): 4 from the rule to the 22px activity line, and nothing of its own under the words.
+    expect(layout.heights[0]).toBe(26);
     const replyIndex = rows.length - 1;
-    // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
-    const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
-    expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(34);
+    // Under the words it is a step row: a reply right under it stands the run gap away, the opened
+    // fold's first run sits flush on the 22 pitch.
+    expect(layout.gaps?.[1]).toBe(rows.length === 2 ? TRANSCRIPT_RUN_GAP : 0);
+    expect(layout.gaps?.[replyIndex]).toBe(TRANSCRIPT_RUN_GAP);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(26);
     const placed = placeRows(layout, () => 22);
-    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
+    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(TRANSCRIPT_RUN_GAP);
   }
   const prompt = row("prompt", "user", { text: "Go" });
   expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);
+  // Over the rule, the previous turn's footer row stands the block gap away, as over any step row.
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_WORKED)).toBe(transcriptGap(MARK_FOOTER_ROW, MARK_STEP));
 });
 
 // Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and
