@@ -840,6 +840,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::LeaveIntent { user_id }) => {
+            crate::cli::cloud_join::record_leave_intent(&user_id).await?;
+            if json_out {
+                print_json(&json!({ "recorded": true }));
+            } else {
+                println!("recorded");
+            }
+            Ok(())
+        }
         Command::Host(PeerCmd::Leave { local_only }) => {
             crate::cli::cloud_join::leave(local_only, json_out).await
         }
@@ -1160,6 +1169,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Join { .. }
                 | PeerCmd::Leave { .. }
+                | PeerCmd::LeaveIntent { .. }
                 | PeerCmd::EnrollSelf { .. }
                 | PeerCmd::Consent { .. }
                 | PeerCmd::Tunnel { .. }

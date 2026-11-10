@@ -73,7 +73,7 @@ fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
 pub(super) fn retire_sign_in_pending_at(
     home: &Path,
     current: Option<&str>,
-    account: Option<&str>,
+    accounts: &[String],
 ) -> Result<()> {
     let path = home.join(FILE);
     if std::fs::symlink_metadata(&path).is_err() {
@@ -89,8 +89,8 @@ pub(super) fn retire_sign_in_pending_at(
     if copied || p.joined_by.as_deref() != Some(super::enroll::JOINED_BY_SIGN_IN) {
         return Ok(());
     }
-    // Only the signing-out account's own proposal: another's, or one naming none, stays.
-    if super::enroll::owner_of(p.owner.as_deref(), account) != super::enroll::Owner::Mine {
+    // Only a signing-out account's own proposal: another's, or one naming none, stays.
+    if super::enroll::owner_among(p.owner.as_deref(), accounts) != super::enroll::Owner::Mine {
         return Ok(());
     }
     if load_at(home)?.is_none_or(|record| record.credential != p.credential) {

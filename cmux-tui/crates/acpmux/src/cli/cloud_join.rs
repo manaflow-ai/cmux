@@ -14,7 +14,7 @@ mod to_revoke;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, LeaveOutcome, enroll_self, finish_leave_at_start, leave_if_auto,
-    leave_pending, relay_may_start,
+    leave_pending, record_leave_intent, relay_may_start,
 };
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";

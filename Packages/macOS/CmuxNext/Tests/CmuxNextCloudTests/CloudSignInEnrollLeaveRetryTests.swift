@@ -13,6 +13,12 @@ struct CloudSignInEnrollLeaveRetryTests {
         var calls: [String] = []
         /// The account each leave named (nil: none).
         var leaveAccounts: [String?] = []
+        /// Whether recording a sign-out's account works (the CLI ran).
+        var records = true
+        func record(_ userId: String) -> Bool {
+            calls.append("record:\(userId)")
+            return records
+        }
         func call(_ method: String, _ params: [String: Any]) -> [String: Any]? {
             calls.append(method)
             if method == "_acpmux/machine_leave_if_auto" { leaveAccounts.append(params["userId"] as? String) }
@@ -28,7 +34,8 @@ struct CloudSignInEnrollLeaveRetryTests {
     }
 
     private func enroll(over acpmux: FakeAcpmux) -> CloudSignInEnroll {
-        CloudSignInEnroll(person: { .restoring }, accessToken: { "access" }, hub: nil, buildTag: nil) { method, params in
+        CloudSignInEnroll(person: { .restoring }, accessToken: { "access" }, hub: nil, buildTag: nil,
+                          recordLeave: { acpmux.record($0) }) { method, params in
             acpmux.call(method, params)
         }
     }
@@ -117,6 +124,31 @@ struct CloudSignInEnrollLeaveRetryTests {
         enroll.changed(to: .signedOut)
         await enroll.settled()
         #expect(acpmux.leaveAccounts == [nil, "user_a", "user_a", "user_a", "user_b"])
+    }
+
+    @Test func theSigningOutAccountIsRecordedBeforeTheLeaveAndResentFromIt() async {
+        let acpmux = FakeAcpmux()
+        let enroll = enroll(over: acpmux)
+        enroll.changed(to: .signedIn("user_a"))
+        await enroll.settled()
+        // acpmux is down: the account is still recorded (the CLI needs no daemon), before the leave.
+        acpmux.up = false
+        enroll.changed(to: .signedOut)
+        await enroll.settled()
+        #expect(acpmux.calls.suffix(2) == ["record:user_a", "_acpmux/machine_leave_if_auto"])
+        // Back: the leave is resent as A's, recorded again first.
+        acpmux.up = true
+        enroll.acpmuxReturned()
+        await enroll.settled()
+        #expect(acpmux.calls.suffix(2) == ["record:user_a", "_acpmux/machine_leave_if_auto"])
+        #expect(acpmux.leaveAccounts == ["user_a", "user_a"])
+        // Signed out at launch, no account known: nothing is recorded, and acpmux leaves as recorded.
+        let relaunched = FakeAcpmux()
+        let next = self.enroll(over: relaunched)
+        next.changed(to: .signedOut)
+        await next.settled()
+        #expect(relaunched.calls == ["_acpmux/machine_leave_if_auto"])
+        #expect(relaunched.leaveAccounts == [nil])
     }
 
     @Test func aReturnWithNoLeavePendingSendsNothing() async {
