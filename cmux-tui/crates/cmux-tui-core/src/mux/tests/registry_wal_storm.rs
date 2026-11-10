@@ -15,14 +15,15 @@
 //! Bytes, not times. Arms: 1, 60 and 826 workspaces (the session size rule).
 
 use super::*;
-use crate::workspace_registry::wal_durability::WAL_SIZE_LIMIT_BYTES;
+use crate::workspace_registry::WORKSPACE_REGISTRY_FILE;
+use crate::workspace_registry::wal_durability::{WAL_SIZE_LIMIT_BYTES, wal_index_frames};
 
 /// WAL frame bytes the storm writes: the limit three times.
 const STORM_FRAME_BYTES: u64 = 3 * WAL_SIZE_LIMIT_BYTES;
-/// The WAL file's bound this test asserts: the limit and 16 MiB. The rule's
-/// own bound is the limit plus one commit; the margin lets two tries in a
-/// row end late on a busy disk (their steps: 4 MiB, then 8 MiB).
-const WAL_FILE_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + 16 * 1024 * 1024;
+/// The WAL file's bound this test asserts: the limit and 4 MiB, the step to
+/// the next try when a reader of another thread stopped one checkpoint. The
+/// rule's own bound is the limit plus one commit.
+const WAL_FILE_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + 4 * 1024 * 1024;
 /// A storm that needs more changes than this writes too little per change
 /// for this test: it then says so and does not pass.
 const MAX_CHANGES: u64 = 50_000;
@@ -103,4 +104,40 @@ fn a_change_storm_keeps_the_wal_file_under_its_bound_on_60_workspaces() {
 #[test]
 fn a_change_storm_keeps_the_wal_file_under_its_bound_on_826_workspaces() {
     a_change_storm_keeps_the_wal_file_under_its_bound(826);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_clean_stop_copies_the_registrys_wal_into_the_database() {
+    // `Mux::shutdown` ends with one checkpoint of the registry's WAL, so
+    // the next start finds every commit in the database file. A small WAL:
+    // no checkpoint ran before the stop.
+    let root = std::env::temp_dir()
+        .join(format!("cmux-wal-stop-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("wal-stop", &root);
+    mux.stop_journal_maintenance();
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let target = mux.with_state(|state| state.workspaces[0].id);
+    for change in 0..8 {
+        assert!(mux.rename_workspace(target, format!("stop {change}")), "rename {change}");
+    }
+    let database = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path().join(WORKSPACE_REGISTRY_FILE))
+        .find(|path| path.exists())
+        .expect("the registry database");
+    let (frames_before, copied_before) = wal_index_frames(&database);
+    mux.shutdown();
+    let (frames, copied) = wal_index_frames(&database);
+    println!(
+        "registry_wal_stop: wal_frames_before={frames_before} copied_before={copied_before} \
+         wal_frames={frames} copied={copied}"
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        copied_before < frames_before,
+        "the WAL was already copied before the stop ({copied_before} of {frames_before} frames)"
+    );
+    assert_eq!(copied, frames, "the stop copied {copied} of {frames} WAL frames");
 }

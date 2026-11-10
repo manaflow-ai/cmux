@@ -99,8 +99,9 @@ pub struct WritePathSnapshot {
     /// The registry's WAL file size now. It stays at or under 64 MiB plus one commit: the commit that takes
     /// it past 64 MiB waits (at most 250 ms) for a checkpoint of the whole WAL, and the next commit restarts
     /// the WAL and cuts the file to 64 MiB. A read transaction open at that moment delays the cut until it
-    /// ends, and the file grows by what commits write meanwhile (`workspace_registry::wal_durability`). An
-    /// idle registry keeps its size.
+    /// ends, and the file grows by what commits write meanwhile; so does a checkpoint slower than 250 ms, or
+    /// a commit of a thread that holds the mux state lock, which never waits
+    /// (`workspace_registry::wal_durability`). An idle registry keeps its size.
     pub registry_wal_file_bytes: u64,
     /// The largest registry WAL file size seen since the daemon started.
     pub registry_wal_file_high_water_bytes: u64,
