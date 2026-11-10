@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { configState, documentedRows, FAULTS, leftoversOf, machineToml, PATHS, percentile, requestId, summaryTable } from "./vm-hassle";
+import { spawnSync } from "node:child_process";
+import { applyScript, configState, documentedRows, FAULTS, leftoverReport, leftoversOf, linkIdOf, machineToml, PATHS, percentile, requestId, summaryTable } from "./vm-hassle";
 
 describe("vm-hassle", () => {
   test("the documented paths count every step, and the cuts shorten setup and redo only", () => {
@@ -53,7 +54,44 @@ describe("vm-hassle", () => {
     expect(md).toContain("| 4 / 4 (p50 / max, 3 runs) | 80.0 / 120.5 |");
     expect(Object.keys(FAULTS)).toEqual(["kill the agent daemon", "fill the disk", "corrupt the machine config state"]);
     expect(FAULTS["kill the agent daemon"]).toContain("kill -9");
-    expect(FAULTS["kill the agent daemon"]).toContain("${pid:-none}");
+  });
+
+  test("each fault checks its own effect and exits non-zero when it did not take", () => {
+    expect(FAULTS["kill the agent daemon"]).toContain("kill -9");
+    expect(FAULTS["kill the agent daemon"]).toContain("kill -0");
+    expect(FAULTS["kill the agent daemon"]).not.toContain("${pid:-none}");
+    expect(FAULTS["fill the disk"]).toContain("51200");
+    expect(FAULTS["corrupt the machine config state"]).toContain("json.load");
+    for (const [name, command] of Object.entries(FAULTS)) {
+      const r = spawnSync("bash", ["-n", "-c", command]);
+      expect({ name, code: r.status, err: String(r.stderr) }).toEqual({ name, code: 0, err: "" });
+      expect(command).toMatch(/exit 1/);
+    }
+  });
+
+  test("the config apply script parses as shell (no `&;` after the background start)", () => {
+    const script = applyScript("1700000000000-0123abcd", "/tmp/vm-hassle-t-1700000000000-0123abcd");
+    expect(script).not.toMatch(/&\s*;/);
+    const r = spawnSync("bash", ["-n", "-c", script]);
+    expect({ code: r.status, err: String(r.stderr) }).toEqual({ code: 0, err: "" });
+    expect(spawnSync("bash", ["-n", "-c", script.split("\n").join("; ")]).status).not.toBe(0);
+  });
+
+  test("a preview link's id is link.linkId", () => {
+    expect(linkIdOf({ link: { linkId: "pl_1", url: "https://x" } })).toBe("pl_1");
+    expect(linkIdOf({ link: { id: "pl_1" } })).toBeNull();
+    expect(linkIdOf({})).toBeNull();
+  });
+
+  test("a failed or malformed list check is reported unknown, never none", () => {
+    const ids = new Set(["m1"]);
+    expect(leftoverReport(ids, [], { snapshots: [] }, { status: 200, body: { previews: [] } })).toEqual([]);
+    const bad = leftoverReport(ids, null, null, { status: 500, body: {} }, ["unknown: cloud.machine.list failed (boom)"]);
+    expect(bad).toContain("unknown: cloud.machine.list failed (boom)");
+    expect(bad).toContain("unknown: GET /v1/cloud/previews HTTP 500");
+    expect(leftoverReport(ids, [], {}, { status: 200, body: {} })).toEqual([
+      "unknown: cloud.snapshot.list answered no snapshots list", "unknown: GET /v1/cloud/previews answered no previews list",
+    ]);
   });
 
   test("no step keeps a machine running for its own sake (no soak)", () => {

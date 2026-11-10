@@ -326,16 +326,7 @@ const OPS: Record<Exclude<OpName, "none">, (ctx: Ctx) => Promise<string>> = {
     };
     await write(`${stage}.apply`, readFileSync(APPLIER));
     await write(`${stage}.toml`, Buffer.from(machineToml(ctx.tag)));
-    const out = await execOk(ctx, [
-      "set -eu", ROOT, "u=cmux", 'h=$(getent passwd "$u" | cut -d: -f6)', 'd="$h/.cmux/machine-config"', `r=${id}`, `s=${stage}`,
-      'root mkdir -p "$d/requests" && root chown "$u:$u" "$h/.cmux" "$d" "$d/requests" && root chmod 700 "$d" "$d/requests"',
-      'root install -o "$u" -g "$u" -m 700 "$s.apply" "$d/apply"',
-      'root install -o "$u" -g "$u" -m 600 "$s.toml" "$d/requests/$r.toml"',
-      `printf '{"source":"uploaded"}\\n' > "$s.json" && root install -o "$u" -g "$u" -m 600 "$s.json" "$d/requests/$r.json"`,
-      'root rm -f "$s.apply" "$s.toml" "$s.json"',
-      'root runuser -u "$u" -- env HOME="$h" setsid nohup python3 -I "$d/apply" >/dev/null 2>&1 </dev/null &',
-      "echo started",
-    ].join("; "));
+    const out = await execOk(ctx, applyScript(id, stage));
     return `config apply ${out.trim()} (request ${id})`;
   },
   async waitConfig(ctx) {
@@ -434,7 +425,7 @@ async function use(ctx: Ctx, log: (s: string) => void): Promise<void> {
     await execOk(ctx, `cd /tmp && (setsid nohup python3 -m http.server ${PREVIEW_PORT} >/dev/null 2>&1 </dev/null &) ; sleep 1; curl -fsS -m 3 -o /dev/null http://127.0.0.1:${PREVIEW_PORT}/ && echo up`);
     await ctx.api.raw("POST", `/v1/cloud/machines/${ctx.machine}/previews/refresh`, {});
     const r = await ctx.api.raw("POST", `/v1/cloud/machines/${ctx.machine}/previews/${PREVIEW_PORT}/links`, {});
-    const id = r.body?.link?.id ?? r.body?.id ?? r.body?.value?.link?.id ?? r.body?.value?.id;
+    const id = linkIdOf(r.body);
     if (r.status >= 300 || !id) throw new Error(`HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
     ctx.links.push({ machine: ctx.machine!, port: PREVIEW_PORT, id: String(id) });
     log(`use: preview link ${id} on ${ctx.machine}:${PREVIEW_PORT}`);
@@ -458,12 +449,36 @@ async function use(ctx: Ctx, log: (s: string) => void): Promise<void> {
   }
 }
 
+/** A created preview link's id: the API's link object names it `linkId`. */
+export function linkIdOf(body: any): string | null {
+  const id = body?.link?.linkId ?? body?.value?.link?.linkId;
+  return typeof id === "string" && id ? id : null;
+}
+
+/** What the list calls still show of `ids`. A list call that fails is never read as empty: it becomes an `unknown` entry. */
 async function listLeftovers(ctx: Ctx, ids: Set<string>): Promise<string[]> {
-  const machines = await listAllMachines((p) => ctx.api.read("cloud.machine.list", p)).catch(() => []);
-  const snaps = (await ctx.api.read("cloud.snapshot.list", {}).catch(() => null))?.snapshots ?? [];
-  const pv = await ctx.api.raw("GET", "/v1/cloud/previews").catch(() => null);
-  const previews: any[] = pv?.body?.previews ?? pv?.body?.publications ?? pv?.body?.items ?? (Array.isArray(pv?.body) ? pv.body : []);
-  return leftoversOf(ids, machines, snaps, previews);
+  const unknown: string[] = [];
+  const failed = (what: string) => (e: unknown) => {
+    unknown.push(`unknown: ${what} failed (${String((e as Error)?.message ?? e).slice(0, 160)})`);
+    return null;
+  };
+  const machines = await listAllMachines((p) => ctx.api.read("cloud.machine.list", p)).catch(failed("cloud.machine.list"));
+  const snaps = await ctx.api.read("cloud.snapshot.list", {}).catch(failed("cloud.snapshot.list"));
+  const pv = await ctx.api.raw("GET", "/v1/cloud/previews").catch(failed("GET /v1/cloud/previews"));
+  return leftoverReport(ids, machines, snaps, pv, unknown);
+}
+
+/** Leftovers of `ids` from the three list answers (null for a call that threw); a malformed or non-2xx answer is unknown, never "none". */
+export function leftoverReport(ids: Set<string>, machines: any[] | null, snapsAnswer: any, pv: { status: number; body: any } | null, unknown: string[] = []): string[] {
+  const out = [...unknown];
+  if (machines !== null && !Array.isArray(machines)) out.push("unknown: cloud.machine.list answered no machine list");
+  const snaps = Array.isArray(snapsAnswer?.snapshots) ? snapsAnswer.snapshots : null;
+  if (snapsAnswer !== null && !snaps) out.push("unknown: cloud.snapshot.list answered no snapshots list");
+  let previews: any[] = [];
+  if (pv && (pv.status < 200 || pv.status >= 300)) out.push(`unknown: GET /v1/cloud/previews HTTP ${pv.status}`);
+  else if (pv && !Array.isArray(pv.body?.previews)) out.push("unknown: GET /v1/cloud/previews answered no previews list");
+  else if (pv) previews = pv.body.previews;
+  return [...out, ...leftoversOf(ids, Array.isArray(machines) ? machines : [], snaps ?? [], previews)];
 }
 
 type StepsRun = { steps: number; seconds: number; error?: string; ids: Set<string> };
@@ -535,12 +550,29 @@ async function runPath(p: PathName, ctx: Ctx, measured: Measured[], log: (s: str
  */
 export const FAULTS: Record<string, string> = {
   // The agent daemon dies hard: the process holding acpmux's socket, by the pid the socket names.
-  "kill the agent daemon": `${'root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }'}; s=/home/cmux/.acpmux/acpmux.sock; pid=$(root ss -xlpn 2>/dev/null | grep -F "$s" | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2); [ -n "$pid" ] && root kill -9 "$pid"; echo "killed \${pid:-none}"`,
+  "kill the agent daemon": `${'root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }'}; s=/home/cmux/.acpmux/acpmux.sock; pid=$(root ss -xlpn 2>/dev/null | grep -F "$s" | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2); [ -n "$pid" ] || { echo "no process holds $s"; exit 1; }; root kill -9 "$pid"; sleep 1; if root kill -0 "$pid" 2>/dev/null; then echo "pid $pid still alive"; exit 1; fi; echo "killed $pid"`,
   // The disk full: one file takes all but ~20 MB of the home volume.
-  "fill the disk": `f=/home/cmux/vm-hassle-fill; avail=$(df --output=avail -k /home/cmux | tail -1); fallocate -l $(( (avail - 20000) * 1024 )) "$f" 2>/dev/null || dd if=/dev/zero of="$f" bs=1M count=$(( avail / 1024 - 20 )) 2>/dev/null; df -h /home/cmux | tail -1`,
+  "fill the disk": `f=/home/cmux/vm-hassle-fill; avail=$(df --output=avail -k /home/cmux | tail -1); fallocate -l $(( (avail - 20000) * 1024 )) "$f" 2>/dev/null || dd if=/dev/zero of="$f" bs=1M count=$(( avail / 1024 - 20 )) 2>/dev/null; left=$(df --output=avail -k /home/cmux | tail -1); [ "$left" -lt 51200 ] || { echo "still $left KiB free"; exit 1; }; echo "$left KiB free"`,
   // The machine config's state corrupted: status, setup state and the applied machine.toml are garbage.
-  "corrupt the machine config state": `${'root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }'}; d=/home/cmux/.cmux/machine-config; for f in status.json state.json machine.toml; do printf 'garbage{\\0[' | root tee "$d/$f" >/dev/null; done; echo corrupted`,
+  "corrupt the machine config state": `${'root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }'}; d=/home/cmux/.cmux/machine-config; for f in status.json state.json machine.toml; do printf 'garbage{\\0[' | root tee "$d/$f" >/dev/null; done; if root python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/status.json" 2>/dev/null; then echo "status.json still parses"; exit 1; fi; echo corrupted`,
 };
+
+/**
+ * The shell that stages one apply request and starts the applier detached. One statement per line: a "; " join
+ * puts `&;` after the background start, a shell syntax error.
+ */
+export function applyScript(id: string, stage: string): string {
+  return [
+    "set -eu", ROOT, "u=cmux", 'h=$(getent passwd "$u" | cut -d: -f6)', 'd="$h/.cmux/machine-config"', `r=${id}`, `s=${stage}`,
+    'root mkdir -p "$d/requests" && root chown "$u:$u" "$h/.cmux" "$d" "$d/requests" && root chmod 700 "$d" "$d/requests"',
+    'root install -o "$u" -g "$u" -m 700 "$s.apply" "$d/apply"',
+    'root install -o "$u" -g "$u" -m 600 "$s.toml" "$d/requests/$r.toml"',
+    `printf '{"source":"uploaded"}\\n' > "$s.json" && root install -o "$u" -g "$u" -m 600 "$s.json" "$d/requests/$r.json"`,
+    'root rm -f "$s.apply" "$s.toml" "$s.json"',
+    'root runuser -u "$u" -- env HOME="$h" setsid nohup python3 -I "$d/apply" >/dev/null 2>&1 </dev/null &',
+    "echo started",
+  ].join("\n");
+}
 
 export function percentile(values: number[], p: number): number {
   if (!values.length) return 0;
@@ -559,10 +591,12 @@ async function faultLeg(p: PathName, rounds: number, newCtx: (name: string) => C
       try {
         // Not counted: a configured machine with an agent session, the state REDO has to bring back.
         log(`${p} ${label}: prep ${await OPS.create(ctx)}; ${await OPS.waitConfig(ctx)}; ${await OPS.deliverSecrets(ctx)}; ${await OPS.startSession(ctx)}`);
+        // Each fault checks its own effect and exits non-zero when it did not take; such a run measures no recovery.
         const r = await ctx.exec!(command, 120_000);
-        log(`${p} ${label}: broke it (exit ${r.code}) ${r.stdout.trim().slice(-200)}`);
+        if (r.code !== 0) throw new Error(`fault not injected (exit ${r.code}): ${`${r.stdout} ${r.stderr ?? ""}`.trim().slice(-200)}`);
+        log(`${p} ${label}: broke it: ${r.stdout.trim().slice(-200)}`);
       } catch (e) {
-        failures.push(`${fault}: prep ${String((e as Error).message).slice(0, 200)}`);
+        failures.push(`${fault}: ${String((e as Error).message).slice(0, 200)}`);
         return null;
       }
       const run = await runSteps(label, p, PATHS[p].redo, ctx, measured, log);
