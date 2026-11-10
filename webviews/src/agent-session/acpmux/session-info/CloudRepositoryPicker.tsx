@@ -39,13 +39,22 @@ async function syncRepoCatalog(_session: string): Promise<string | undefined> {
   }
 }
 
-/// The last list each chat's search answered (by chat and query): the picker opened again draws it
-/// at once, with no "Searching" line, and lists again behind it.
-const lastRepos = new LastKnown<{ repos: CloudRepo[]; connectUrl?: string }>(16);
+type KnownRepos = { repos: CloudRepo[]; connectUrl?: string };
+
+/// The last list each chat's search answered (by chat and query), per request function (the host's
+/// `postNative`; a gallery's or test's own stub keeps its own lists): the picker opened again draws
+/// it at once, with no "Searching" line, and lists again behind it.
+let lastReposByRequest = new WeakMap<object, LastKnown<KnownRepos>>();
+
+function knownRepos(request: object): LastKnown<KnownRepos> {
+  let known = lastReposByRequest.get(request);
+  if (!known) lastReposByRequest.set(request, (known = new LastKnown<KnownRepos>(16)));
+  return known;
+}
 
 /// Drops every last-known list (tests).
 export function resetLastKnownReposForTests(): void {
-  lastRepos.clear();
+  lastReposByRequest = new WeakMap();
 }
 
 function reposOf(value: unknown): CloudRepo[] {
@@ -115,6 +124,7 @@ export function CloudRepositoryPicker({
     if (!open) return;
     const id = ++generation.current;
     const key = `${session}\u0000${query.trim()}`;
+    const lastRepos = knownRepos(request);
     const known = lastRepos.get(key);
     if (known) {
       setRepos(known.repos);
