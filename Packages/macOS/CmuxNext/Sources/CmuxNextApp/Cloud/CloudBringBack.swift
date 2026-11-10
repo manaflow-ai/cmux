@@ -165,11 +165,14 @@ struct CloudBringBack {
         var again = CloudMoveRetries.Retry.move(machineID: pinned ?? entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
-            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted, retry: pinned.map { _ in again }) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(entry.machineID), retry: again)
         }
         let name = machine.machine.title
-        guard FileManager.default.fileExists(atPath: entry.localRoot) else { throw Failure(message: CloudBringBackStrings.noFolder(entry.localRoot)) }
+        // A pin stays through every stop until its transfer is settled.
+        guard FileManager.default.fileExists(atPath: entry.localRoot) else {
+            throw Failure(message: CloudBringBackStrings.noFolder(entry.localRoot), retry: pinned.map { _ in again })
+        }
         // A connect's stop names its own machine; this run's Retry (a kept pin above all) stays.
         let connected = { [again] (session: CloudMachineSession) async throws -> CloudMachineSession in
             do { return try await CloudMove.connected(session, invocation) } catch let failure as Failure { throw Failure(message: failure.message, retry: again) }
@@ -246,7 +249,10 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
         }
         guard moved.ok, let session = moved.sessionID else {
-            throw Self.failure(moving: moved, machine: name, retry: again, askedFirst: askFirst)
+            var failure = Self.failure(moving: moved, machine: name, retry: again, askedFirst: askFirst)
+            // A move to another machine keeps its pin through any stop of the transfer.
+            if target != nil, failure.retry == nil { failure.retry = again }
+            throw failure
         }
         if let target, let onto { return try await landed(on: target, onto.remote, session: session, entry: entry, key: moved.transferID, tab: tab) }
         // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
