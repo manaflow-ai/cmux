@@ -48,30 +48,45 @@ struct ScreenSwitchFollowUpTests {
         LayoutScreen(id: ScreenID(id), name: id, layout: layout)
     }
 
+    /// The center mode pinned to `.never`, whatever the process-wide design settings another test left.
+    static let never: (LayoutModel) -> Void = { $0.centerFocusedColumnOverride = .never }
+
     static func same(_ a: CGRect, _ b: CGRect) -> Bool {
         abs(a.minX - b.minX) < 1 && abs(a.minY - b.minY) < 1 && abs(a.width - b.width) < 1 && abs(a.height - b.height) < 1
     }
 
-    /// The screens in a window, the first one shown, pane animations on.
+    /// The screens in a window, the first one shown (or `active`), pane animations on. Every screen is laid out at the
+    /// root's size, the hidden ones too, as in the app (a workspace's root has its size before its screens are made).
     final class Layout {
         let provider = Panes()
         let model: LayoutModel
         let root: LayoutRootView
         let window: NSWindow
 
-        init(_ screens: [LayoutScreen], focused: PaneID, overlayHost: Bool = false, configure: (LayoutModel) -> Void = { _ in }) {
-            model = LayoutModel(screens: screens, activeScreenID: screens[0].id, focusedPane: focused)
+        init(_ screens: [LayoutScreen], active: ScreenID? = nil, focused: PaneID, width: CGFloat = 1200, overlayHost: Bool = false,
+             configure: (LayoutModel) -> Void = { _ in }) {
+            model = LayoutModel(screens: screens, activeScreenID: active ?? screens[0].id, focusedPane: focused)
             model.splitSizingOverride = .even
             configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)
             // Motion allowed and pane layout animated (`LayoutContext.animatesPaneLayout`), whatever the host's settings.
             root.context.reduceMotionOverride = false
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             if overlayHost { _ = WindowOverlayHost.host(for: window) }
             window.contentView = root
             root.layoutSubtreeIfNeeded()
+            // The root was made with no size, so its hidden screens wait for their first show to lay out at the
+            // window's size (`needsReconcileOnShow`). In the app they are made at the root's size: the same here, or
+            // each first show in a test would be a show after a resize (`aScreenResizedWhileHidden...` is that case).
+            root.screenViews.values.forEach { $0.reconcileIfDeferred() }
             root.driver.isManual = true
+        }
+
+        /// Resizes the window, as a person does while another screen shows.
+        func resize(width: CGFloat) {
+            window.setContentSize(NSSize(width: width, height: 800))
+            root.layoutSubtreeIfNeeded()
         }
 
         func view(_ screen: ScreenID) throws -> ScreenContentView { try #require(root.screenViews[screen]) }
@@ -142,7 +157,7 @@ struct ScreenSwitchFollowUpTests {
 
     /// A center request that shows a hidden screen (focus lands on its column) lands in the same turn.
     @Test func aCenterRequestThatShowsAHiddenScreenLandsAtRest() throws {
-        let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], focused: "a-p1")
+        let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], focused: "a-p1", configure: Self.never)
         defer { layout.tearDown() }
         let strip = try layout.view("b")
         try #require(strip.isHidden && layout.root.context.animatesPaneLayout)
@@ -155,11 +170,22 @@ struct ScreenSwitchFollowUpTests {
                 "the camera is on a spring after the screen shows (\(strip.scroll.value) -> \(strip.scroll.target))")
         #expect(!strip.hasMotion)
         #expect(layout.root.driver.startRequests == asked, "the change asked for display frames")
+
+        // Where the same request puts the camera of a screen that shows already.
+        let shown = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], active: "b", focused: "b-p1", configure: Self.never)
+        defer { shown.tearDown() }
+        try #require(shown.model.centerColumn(containing: "b-p3"))
+        shown.root.syncWithModel()
+        let other = try shown.view("b")
+        let centered = other.scroll.target
+        try #require(centered > 1 && centered < other.geometry.maxOffset - 1,
+                     "the centered column is at an end of the strip: the test could not tell a center from a reveal")
+        #expect(abs(strip.scroll.target - centered) < 1, "the camera is at \(strip.scroll.target), the centered column is at \(centered)")
     }
 
     /// A reveal request with the switch that shows its screen lands in the same turn.
     @Test func aRevealRequestWithTheSwitchThatShowsItsScreenLandsAtRest() throws {
-        let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], focused: "a-p1")
+        let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], focused: "a-p1", configure: Self.never)
         defer { layout.tearDown() }
         let strip = try layout.view("b")
         try #require(strip.isHidden && layout.root.context.animatesPaneLayout)
@@ -173,6 +199,71 @@ struct ScreenSwitchFollowUpTests {
                 "the camera is on a spring after the screen shows (\(strip.scroll.value) -> \(strip.scroll.target))")
         #expect(!strip.hasMotion)
         #expect(layout.root.driver.startRequests == asked, "the change asked for display frames")
+
+        // Where the same request puts the camera of a screen that shows already.
+        let shown = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], active: "b", focused: "b-p1", configure: Self.never)
+        defer { shown.tearDown() }
+        shown.model.revealColumn(containing: "b-p4")
+        shown.root.syncWithModel()
+        let revealed = try shown.view("b").scroll.target
+        try #require(revealed > 1)
+        #expect(abs(strip.scroll.target - revealed) < 1, "the camera is at \(strip.scroll.target), the revealed column is at \(revealed)")
+    }
+
+    /// A screen resized while hidden lays out at its new size before a request that comes with its switch: the
+    /// request ran on the old size, and the layout the show ran after it put the camera somewhere else.
+    @Test func aScreenResizedWhileHiddenCentersItsColumnAtTheSizeItShowsWith() throws {
+        let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], focused: "a-p1", configure: Self.never)
+        defer { layout.tearDown() }
+        let strip = try layout.view("b")
+        layout.resize(width: 1000)
+        try #require(strip.isHidden && layout.root.bounds.width == 1000 && strip.frame.width == 1000)
+        let asked = layout.root.driver.startRequests
+
+        try #require(layout.model.centerColumn(containing: "b-p3"))
+        layout.root.syncWithModel()
+        try #require(!strip.isHidden)
+        #expect(strip.scroll.value == strip.scroll.target && !strip.hasMotion, "the screen is not at rest")
+        #expect(layout.root.driver.startRequests == asked, "the change asked for display frames")
+
+        // The same request on a screen made at that size.
+        let made = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", Self.columns("b"))], focused: "a-p1", width: 1000, configure: Self.never)
+        defer { made.tearDown() }
+        try #require(made.model.centerColumn(containing: "b-p3"))
+        made.root.syncWithModel()
+        let other = try made.view("b")
+        let centered = other.scroll.target
+        try #require(centered > 1 && centered < other.geometry.maxOffset - 1)
+        #expect(abs(strip.scroll.target - centered) < 1,
+                "the camera is at \(strip.scroll.target); the column centered at the size the screen shows with is at \(centered)")
+    }
+
+    /// A screen that hides while its camera springs lands the camera in that turn: it gets no frames while hidden, and
+    /// the camera went on from the middle of its way after the screen showed again.
+    @Test func aScreenThatHidesMidCameraSpringLandsItAndShowsAgainAtRest() throws {
+        let layout = Layout([Self.screen("a", Self.columns("a")), Self.screen("b", .splits(.leaf("b-p1")))], focused: "a-p1", configure: Self.never)
+        defer { layout.tearDown() }
+        let strip = try layout.view("a")
+        try #require(layout.root.context.animatesPaneLayout)
+        layout.model.focus("a-p4")
+        layout.root.syncWithModel()
+        _ = layout.root.advanceFrame(1.0 / 120)
+        try #require(strip.scroll.value != strip.scroll.target, "the focus move did not put the camera on a spring")
+        let target = strip.scroll.target
+
+        layout.select("b")
+        try #require(strip.isHidden)
+        #expect(strip.scroll.value == target && strip.scroll.target == target,
+                "the screen that hid keeps its camera mid-spring (\(strip.scroll.value) -> \(strip.scroll.target), was going to \(target))")
+        #expect(!strip.hasMotion)
+
+        let asked = layout.root.driver.startRequests
+        layout.select("a")
+        try #require(!strip.isHidden)
+        #expect(strip.scroll.value == strip.scroll.target && !strip.hasMotion,
+                "the camera moves after the screen shows again (\(strip.scroll.value) -> \(strip.scroll.target))")
+        #expect(layout.root.driver.startRequests == asked, "the switch back asked for display frames")
+        #expect(!layout.root.isInLayoutMotion)
     }
 
     /// The chrome of the screen a switch shows is at rest when it shows: its panes hear their new emphasis with no
@@ -225,7 +316,7 @@ struct ScreenSwitchFollowUpTests {
     /// What a screen missed while it stayed hidden (other switches, a new center mode) it has when it shows, at rest.
     @Test func aScreenThatStayedHiddenShowsWithItsCameraOnItsFocusedColumn() throws {
         let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", .splits(.leaf("b-p1"))),
-                             Self.screen("c", Self.columns("c"))], focused: "a-p1") { $0.centerFocusedColumnOverride = .never }
+                             Self.screen("c", Self.columns("c"))], focused: "a-p1", configure: Self.never)
         defer { layout.tearDown() }
         let strip = try layout.view("c")
         layout.select("b")
@@ -240,11 +331,21 @@ struct ScreenSwitchFollowUpTests {
         try #require(layout.model.activeScreenID == "c")
         #expect(!strip.isHidden && strip.frame == layout.root.bounds)
         #expect(strip.scrollState.mode == .always, "the screen did not get the center mode set while it was hidden")
-        // Centered, not only in view: 45 % columns, so the third one centered is past half of the strip's range.
-        #expect(strip.scroll.target > strip.geometry.maxOffset / 2, "the camera did not center the focused column (\(strip.scroll.target))")
         #expect(strip.scroll.value == strip.scroll.target, "the camera is on a spring after the screen shows")
         #expect(!strip.hasMotion)
         #expect(layout.root.driver.startRequests == asked, "the switch asked for display frames")
+
+        // Centered, not only in view: where the same focus move puts the camera of a screen that shows, in that mode.
+        let shown = Layout([Self.screen("a", Self.pair("a")), Self.screen("c", Self.columns("c"))], active: "c", focused: "c-p1") {
+            $0.centerFocusedColumnOverride = .always
+        }
+        defer { shown.tearDown() }
+        shown.model.focus("c-p3")
+        shown.root.syncWithModel()
+        let other = try shown.view("c")
+        let centered = other.scroll.target
+        try #require(centered > 1 && centered < other.geometry.maxOffset - 1)
+        #expect(abs(strip.scroll.target - centered) < 1, "the camera is at \(strip.scroll.target), the centered column is at \(centered)")
     }
 
     // MARK: What follows the panes
@@ -258,6 +359,22 @@ struct ScreenSwitchFollowUpTests {
         layout.root.onFramePlaced = { placed.value += 1 }
 
         layout.select("b")
+        #expect(placed.value == 1, "the switch told what follows the panes \(placed.value) time(s)")
+    }
+
+    /// The same for a switch that comes in a key's held turn (a close that removes the shown screen,
+    /// `syncWithModelForNextFrame`): when every screen snapped, no frame tick follows the hold.
+    @Test func aScreenSwitchInAHeldTurnTellsWhatFollowsThePanes() throws {
+        let layout = Layout([Self.screen("a", Self.pair("a")), Self.screen("b", .splits(.leaf("b-p1")))], focused: "a-p1")
+        defer { layout.tearDown() }
+        try #require(layout.root.isLive && layout.root.driver.isAttached, "the root runs no frames: the hold is not taken")
+        let placed = Count()
+        layout.root.onFramePlaced = { placed.value += 1 }
+
+        let next = try layout.view("b")
+        layout.model.selectScreen("b")
+        layout.root.syncWithModelForNextFrame()
+        try #require(!next.isHidden && !layout.root.driver.isRunning, "a frame tick follows: it tells them")
         #expect(placed.value == 1, "the switch told what follows the panes \(placed.value) time(s)")
     }
 
