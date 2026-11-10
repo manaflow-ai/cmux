@@ -40,6 +40,8 @@ import {
   type OffloadKind,
   type OffloadReasons,
 } from "./environments";
+import type { PeerLinkDetail } from "./linkState";
+import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -105,6 +107,7 @@ type Computer = Location & {
   kind: EnvironmentKind;
   connected?: boolean;
   state?: string;
+  downSince?: number;
   cloudMachine?: CloudMachine;
   resources?: MachineResources;
 };
@@ -112,6 +115,7 @@ const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
@@ -127,6 +131,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
   onProject,
@@ -167,6 +172,8 @@ export function ComposerContext({
   extraFolders,
   cloudEnvironment: cloudEnvironmentSeam,
   cloudEnvironmentDropUp,
+  unavailableGroup,
+  unavailableExpanded,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -180,6 +187,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
+  /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
+  peerLinks?: Record<string, PeerLinkDetail>;
   /// The computer control is the environment picker (EnvironmentPicker.tsx), with Local, SSH and
   /// Cloud sections and ⌥⌘1–9. The agent page always passes it (not behind Labs, Leo 2026-10-30);
   /// off, the plain Computer menu, for surfaces that pass nothing.
@@ -285,6 +295,10 @@ export function ComposerContext({
   cloudEnvironment?: CloudEnvironmentControl;
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
+  /// Gallery seam: how the machine lists show the machines acpmux cannot reach (`collapsed` ships),
+  /// and whether that group starts open.
+  unavailableGroup?: UnavailableGroup;
+  unavailableExpanded?: boolean;
 }) {
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
   // unread, title or cost changing leaves the list they are made from as it is, so they are not made
@@ -308,7 +322,17 @@ export function ComposerContext({
     // A Cloud machine acpmux has no link to that the account says is paused or resuming reads so,
     // not as a lost link; in a new chat a paused one is a pick that resumes it.
     const listed = withCloudSleep(
-      availableComputers(summary, sessions, peers, peerKinds, ownName, peerConnected, peerStates, peerResources),
+      availableComputers(
+        summary,
+        sessions,
+        peers,
+        peerKinds,
+        ownName,
+        peerConnected,
+        peerStates,
+        peerResources,
+        peerLinks,
+      ),
       shownMachines,
       newChat,
     );
@@ -325,6 +349,7 @@ export function ComposerContext({
     peerConnected,
     peerStates,
     peerResources,
+    peerLinks,
     ownName,
     newChat,
     shownMachines,
@@ -721,6 +746,8 @@ export function ComposerContext({
   const layout: StripLayout = readOnly || offload ? "combined" : stripLayout;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
   const pickerProps = {
+    ...(unavailableGroup ? { unavailableGroup } : {}),
+    ...(unavailableExpanded ? { unavailableExpanded } : {}),
     environments: pickerComputers,
     current: selectedComputer,
     onPick: pickEnvironment,
@@ -1194,6 +1221,7 @@ function availableComputers(
   peerConnected: Record<string, boolean>,
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
+  peerLinks: Record<string, PeerLinkDetail>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1201,10 +1229,13 @@ function availableComputers(
   const current = summary ? [summary] : [];
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
+    const link = peerLinks[machine.id];
+    const downSince = link && link.link !== "connected" ? link.since : undefined;
     computers.push({
       ...machine,
       detail,
       ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
+      ...(downSince !== undefined ? { downSince } : {}),
     });
   }
   return computers;
