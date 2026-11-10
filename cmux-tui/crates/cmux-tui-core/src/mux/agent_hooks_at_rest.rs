@@ -479,8 +479,12 @@ impl Mux {
     /// since the last one, at most one per `ACTIVITY_ROW_INTERVAL_MS`, and
     /// one at a clean stop (`at_stop`). No row when no agent reported.
     ///
-    /// Called with no lock held, after a report was answered at rest: the
-    /// row is one registry commit on that caller, once per interval.
+    /// Called with no lock held, after a report was answered at rest (never
+    /// for a report that became a row): the table lock of the answer and the
+    /// activity lock are both released before the append, so the registry
+    /// commit runs under neither. One commit on that caller, once per
+    /// interval. The row asks no roster fold (`fold_agent_roster`), so it
+    /// makes no later report a row.
     pub(super) fn save_agent_activity(&self, at_stop: bool) {
         let now_ms = self.agent_activity_now_ms();
         let stamps = self.agent_hooks_at_rest.take_unsaved_activity(now_ms, at_stop);
@@ -814,6 +818,17 @@ impl Mux {
         *cached = Some(reads);
         reads
     }
+}
+
+/// Whether `ingress` is the daemon's coalesced activity row: the roster, the
+/// hook projector and presence have nothing to do for it.
+pub(super) fn is_agent_activity_row(ingress: &crate::JournalIngress) -> bool {
+    ingress.producer_id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+        && ingress.kind == AT_REST_KIND
+        && ingress.payload.pointer("/adapter/id").and_then(Value::as_str) == Some("cmux")
+        && ingress.payload.get("native_event").and_then(Value::as_str)
+            == Some(ACTIVITY_NATIVE_EVENT)
+        && !ingress.subjects.iter().any(|subject| subject.kind == "terminal")
 }
 
 /// The coalesced activity row: the agent hook envelope with the `cmux`
