@@ -2963,7 +2963,7 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 mod tree_json;
 pub(crate) use tree_json::selection_changed_json;
 #[cfg(all(test, unix))]
-pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench;
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
