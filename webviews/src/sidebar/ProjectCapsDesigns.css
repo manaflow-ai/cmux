@@ -19,7 +19,7 @@
   --pcd-chip: var(--grid-icon-box, 16px);
   --pcd-fade: 12px;
   --pcd-pill-inset: var(--grid-pill-inset, 2px);
-  --pcd-lift: 0 6px 10px -6px rgb(0 0 0 / 45%);
+  --pcd-lift: var(--elevation-2); /* the raised-surface shadow token (desktop.css) */
   --pcd-motion: var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
   --pcd-quick: var(--cmux-motion-quick, 80ms) ease;
   width: 260px;

@@ -592,9 +592,12 @@ def _scheme_phase_rust_inputs(root: Path) -> list[str]:
 
 def matches(path: str, pattern: str) -> bool:
     """A trailing / is a directory; a `*` is a test target's pattern read (ci-target-graph.py
-    glob_read: fnmatch, whose `*` also crosses /, so it matches at least what the test reads)."""
+    glob_read: fnmatch, whose `*` also crosses /, so it matches at least what the test reads). A `/**/`
+    is zero or more folders, as in the generator's pathlib glob: `Sources/**/*.swift` reads
+    `Sources/A.swift` too, which fnmatch alone would miss."""
     if "*" in pattern:
-        return fnmatch.fnmatchcase(path, pattern + "*" if pattern.endswith("/") else pattern)
+        pattern = pattern + "*" if pattern.endswith("/") else pattern
+        return fnmatch.fnmatchcase(path, pattern) or ("/**/" in pattern and fnmatch.fnmatchcase(path, pattern.replace("/**/", "/")))
     return under(path, pattern) if pattern.endswith("/") else path == pattern
 
 

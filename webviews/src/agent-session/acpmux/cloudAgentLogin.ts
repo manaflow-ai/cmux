@@ -6,19 +6,32 @@ import type { AcpmuxDirectClient } from "./direct";
 // agent's own login ON the machine (acpmux `_acpmux/agent_login/*`), never a copy of this Mac's
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
 
-/// The harnesses whose login acpmux runs on the machine (Cursor's too, Leo 2026-11-10: "if somebody
-/// has a ChatGPT subscription or a Cursor subscription").
-export type LoginAgent = "claude" | "codex" | "cursor";
+/// The harnesses whose login acpmux runs on the machine. Gemini CLI signs in there with an API key
+/// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
+/// --device-auth`: a page and a code, like Codex), its key coming from the person's vault; Cursor
+/// with its sign-in page only (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
+/// subscription").
+export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor";
 
-/// Whether `agent` is one acpmux signs in on the machine.
-function loginAgent(agent: string | undefined): agent is LoginAgent {
-  return agent === "claude" || agent === "codex" || agent === "cursor";
+/// The agents ``cloudAgentLogin`` offers a sign-in for.
+export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor"];
+
+/// `value` as a ``LoginAgent``; else undefined.
+export function loginAgent(value: string | undefined): LoginAgent | undefined {
+  return LOGIN_AGENTS.find((agent) => agent === value);
 }
 
-/// Whether `agent`'s card offers Use an API key: Cursor's key goes in as the Cloud secret
-/// `CURSOR_API_KEY` (acpmux `agent_login` refuses one here), so its card offers only Sign in.
+/// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
+/// agent but Gemini, which takes a key only.
+export function signsInByPage(agent: LoginAgent): boolean {
+  return agent !== "gemini";
+}
+
+/// Whether the agent takes an API key saved on the machine (`_acpmux/agent_login/api_key`): every
+/// agent but Grok, which reads `XAI_API_KEY` from the person's vault, and Cursor, whose key goes in
+/// as the Cloud secret `CURSOR_API_KEY` (acpmux `agent_login` refuses one here).
 export function takesApiKey(agent: LoginAgent): boolean {
-  return agent !== "cursor";
+  return agent !== "grok" && agent !== "cursor";
 }
 
 /// `_acpmux/agent_login/start`'s answer: the page to open, Codex's device code, whether the page
@@ -57,6 +70,8 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "console.anthropic.com",
   "auth.anthropic.com",
   "auth.openai.com",
+  "accounts.x.ai",
+  "auth.x.ai",
   "cursor.com",
 ]);
 
@@ -206,8 +221,8 @@ type LoginOptions = {
 };
 
 /// The sign-in a Cloud chat's sign-in failure offers, or undefined where there is none: a chat
-/// not connected, not on a Cloud machine, not Claude or Codex, or on an acpmux that does not
-/// advertise `agent_login`.
+/// not connected, not on a Cloud machine, not Claude, Codex, Gemini or Grok, or on an acpmux that
+/// does not advertise `agent_login`.
 export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined {
   return options.machineID ? agentLogin(options) : undefined;
 }
@@ -225,13 +240,13 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
   return agentLogin(options);
 }
 
-/// The agent's own login on the chat's machine, or undefined for a chat not connected, not Claude or
-/// Codex, or on an acpmux that does not advertise `agent_login`.
+/// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
+/// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
-  const agent = agentKey(harness?.split("/").pop());
-  if (!connected || !sessionId || !supported || !loginAgent(agent)) return undefined;
+  const agent = loginAgent(agentKey(harness?.split("/").pop()));
+  if (!connected || !sessionId || !supported || !agent) return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");

@@ -104,7 +104,8 @@ public final class DaemonService {
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
-        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
+        // Each batch is a recorded frame task of `daemon.store.drain` (main-thread-scheduling.md G4).
+        drainScheduler = FrameBatcher(owner: "daemon.store.drain", frameOn: mainWork)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none

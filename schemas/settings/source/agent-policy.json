@@ -931,6 +931,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
+      "keys": [
+        "cloud.turnCheckpoints"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
       "keys": [

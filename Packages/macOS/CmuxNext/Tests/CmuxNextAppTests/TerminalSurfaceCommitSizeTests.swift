@@ -10,61 +10,43 @@ import GhosttyNextKit
 import IOSurface
 import Testing
 
-/// FRAME OWNER REFACTOR S4 (terminals ready-or-keep, switch `motion.frameOwner.terminals`): for every terminal, in
-/// every commit, the layer's size and its pixels change together, or neither changes. Films P2: a new-size frame of a
-/// host-sized Ghostty surface came 2-4 refreshes after its view's new bounds, so those commits showed the old frame in
-/// the new bounds (cropped or beside a gap), and two terminals landed 2 refreshes apart.
-///
 /// A real Ghostty surface (MANUAL_MIRROR, the daemon's mode) in a window whose layout resizes it in AppKit's display
-/// cycle, as a pane's layout does. An observer right after Core Animation's commit (``CommitBoundary/order``) reads, at
-/// the end of every main run-loop turn, the surface layer's bounds in pixels and the size of the IOSurface it shows.
-/// No clock and no sleep: the test waits for commits.
+/// cycle, as a pane's layout does, and two terminals in a real Reduce Motion layout. An observer right after Core
+/// Animation's commit (``CommitBoundary/order``) reads, at the end of every main run-loop turn, the surface layer's bounds
+/// in pixels and the size of the frame it shows. No clock and no sleep: the tests wait for commits.
+///
+/// GI RENDERER SYNC 2 (#40174) ported this suite to the renderer's resize sync (`GHOSTTY_HOST_PRESENT_RENDERER_SYNCED`,
+/// ghostty-integration.md 4.1): the frame presenter's "ready-or-keep" commit (the layer's size and its frame change in one
+/// commit) is gone. Ghostty now keeps the last frame top-left (never stretched) until the new size's frame is drawn, so
+/// a turn may end with the layer at the new size and the old frame in it; the fork's tests own that rule
+/// (`src/renderer/Metal.zig` "resize sync:", `src/renderer/metal/IOSurfaceLayer.zig` "host present:"). What stays the
+/// app's is here: the newest size of a hidden terminal, a new size's frame through main's present, a key turn that never
+/// holds the main thread for its terminals, and a new display scale end to end (P12, Ghostty's rule since fork 0efdef967).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)))
 struct TerminalSurfaceCommitSizeTests {
-    /// Narrowing steps of a drag: the terminal's width at each step, in points (whole pixels at 1x and 2x).
-    static let widths: [CGFloat] = [580, 560, 540, 520, 500, 480]
-
-    /// A divider drag's sizes, one layout per step: no turn ever ends with the layer's bounds and the shown frame at
-    /// different sizes, and the last size shows its own frame.
-    @Test func aResizeCommitNeverCarriesALayerSizeOtherThanItsIOSurface() async throws {
-        let fixture = try await Fixture()
-        defer { fixture.close() }
-        for width in Self.widths {
-            await fixture.resize(to: width)
-            await fixture.commits(2)
-        }
-        let last = try #require(Self.widths.last)
-        let landed = await fixture.waitShown(width: last)
-        #expect(landed, "the last size never showed its own frame (shown \(fixture.shownPixels.map { "\($0)" } ?? "nothing"))")
-        #expect(fixture.samples > 0, "no turn was sampled")
-        #expect(fixture.mismatches.isEmpty,
-                "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
-        let stats = TerminalFramePresenter.forWindow(fixture.window).stats
-        #expect(stats.presented > 0, "presenter: \(stats)")
-    }
-
     /// Its window moved to a display of another scale (1x and 2x): the terminal keeps its layer's scale and its frame
     /// until the frame drawn at the new scale is ready, and both change in that one commit (Codex review of
     /// b9bafbda1e0: the new `contentsScale` went to the layer at once, so the old frame showed at the new scale for
-    /// 1-4 refreshes). The landing's commit is then reported, so output goes to the screen off the main thread again.
+    /// 1-4 refreshes). After the landing's commit output goes to the screen off the main thread again.
+    ///
+    /// The rule is Ghostty's since fork 0efdef967 (ghostty-integration.md P12: `ghostty_surface_set_content_scale` on a
+    /// host-sized surface; `IOSurfaceLayer.zig` "host present: a new content scale ..."): the app's scale hold
+    /// (`holdsScale`) went with the frame presenter, and the app no longer sets the layer's `contentsScale`.
     @Test func aNewDisplayScaleLandsWithTheFrameDrawnAtIt() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
         let view = fixture.session.surfaceView
         let old = try #require(view.layer?.contentsScale, "the terminal has no layer")
         let new: CGFloat = old == 2 ? 1 : 2
-        let presenter = TerminalFramePresenter.forWindow(fixture.window)
-        let presentedBefore = presenter.stats.presented
         // What AppKit does when the window moves to a display of another scale.
         view.backingScaleOverride = new
         view.viewDidChangeBackingProperties()
         let landed = await fixture.waitShown(width: 600, scale: new)
         #expect(landed, "the frame drawn at \(new)x never showed (shown \(fixture.shownPixels.map { "\($0)" } ?? "nothing"))")
         #expect(view.layer?.contentsScale == new, "the layer's scale is \(view.layer?.contentsScale ?? 0), the display's is \(new)")
+        // The width does not change, so no turn may show a frame at a scale other than the layer's.
         #expect(fixture.mismatches.isEmpty,
-                "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
-        #expect(presenter.stats.presented > presentedBefore, "the new scale's frame did not come through the presenter: \(presenter.stats)")
-        // The landing's commit is reported: output at the new scale goes to the screen off the main thread again.
+                "\(fixture.mismatches.count) turns ended with the layer at one scale and its frame at another: \(fixture.mismatches.prefix(8))")
         let offMain = fixture.offMainPresents
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         var line = 0
@@ -77,126 +59,18 @@ struct TerminalSurfaceCommitSizeTests {
                 "no frame went to the screen off the main thread after the new scale landed (host_off_main_presents stays \(offMain))")
     }
 
-    /// FRAME OWNER S3 + S4 in a key resize (cmux-ad m6; first found as S4 defect (b), red step d509169a15477622073341e5):
-    /// the host follows its pane (S3, ``PaneMotionHoldFollowing``) on a hold that keeps the pane's trailing or bottom
-    /// edge still, and the pane's size changes while the terminal's new size waits for its frame. The kept frame is
-    /// anchored top-left (the lead's m6 contract: the previous size's frame, clipped and anchored top-left, never
-    /// stretched): its top-left stays on the area's top-left, and the new size lands with its frame. Before, the kept
-    /// frame rode another edge than the pane's content did for the refreshes until the new size showed.
-    @Test func aKeptFrameStaysOnTheEdgesItsHoldNames() async throws {
-        let fixture = try await Fixture()
-        defer { fixture.close() }
-        let host = fixture.session.view
-        let surface = fixture.session.surfaceView
-        let presenter = TerminalFramePresenter.forWindow(fixture.window)
-        let rest = surface.frame
-        try #require(rest.width > 200 && rest.height > 100, "the terminal's rest frame is \(rest)")
-
-        // A trailing hold: the pane's trailing edge stands still and the pane narrows (its left edge moves).
-        host.followPaneMotion(PaneMotionHold(trailing: true, bottom: false), heldSize: host.bounds.size)
-        fixture.layoutNow()
-        fixture.container.terminalWidth -= 80
-        fixture.layoutNow()
-        try #require(presenter.isWaiting(surface), "the narrower size did not wait for its frame (frame \(surface.frame))")
-        #expect(surface.frame.size == rest.size, "while its new size waits the terminal is \(surface.frame.size), it keeps \(rest.size)")
-        #expect(surface.frame.minX == host.bounds.minX && surface.frame.maxY == host.bounds.maxY,
-                "a trailing hold: the kept frame \(surface.frame) is not anchored on its area's top-left \(host.bounds)")
-        let narrowShown = await fixture.waitShown(width: rest.width - 80)
-        #expect(narrowShown, "the narrower size never showed its own frame")
-        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width - 80, height: rest.height),
-                "the landed frame is \(surface.frame)")
-        host.followPaneMotion(nil, heldSize: nil)
-        fixture.container.terminalWidth += 80
-        fixture.layoutNow()
-        let restShown = await fixture.waitShown(width: rest.width)
-        #expect(restShown, "the rest size never showed again")
-
-        // A bottom hold: the pane's bottom edge stands still and the pane gets shorter (its top edge moves).
-        host.followPaneMotion(PaneMotionHold(trailing: false, bottom: true), heldSize: host.bounds.size)
-        fixture.layoutNow()
-        fixture.container.terminalHeight -= 40
-        fixture.layoutNow()
-        try #require(presenter.isWaiting(surface), "the shorter size did not wait for its frame (frame \(surface.frame))")
-        #expect(surface.frame.size == rest.size, "while its new size waits the terminal is \(surface.frame.size), it keeps \(rest.size)")
-        #expect(surface.frame.minX == host.bounds.minX && surface.frame.maxY == host.bounds.maxY,
-                "a bottom hold: the kept frame \(surface.frame) is not anchored on its area's top-left \(host.bounds)")
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < deadline, presenter.isWaiting(surface) { await fixture.commits(1) }
-        #expect(!presenter.isWaiting(surface), "the shorter size still waits for its frame after 2 s")
-        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width, height: rest.height - 40),
-                "the landed frame is \(surface.frame)")
-        host.followPaneMotion(nil, heldSize: nil)
-        fixture.container.terminalHeight += 40
-        fixture.layoutNow()
-        #expect(fixture.mismatches.isEmpty,
-                "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
-    }
-
-    /// Switch on, a window that draws: a host that follows its pane gives its surface the area's frame whatever hold the
-    /// surface has (a low prompt's bottom hold, as a join sets one before its area hands it the follow), so a frame kept
-    /// while a new size waits rides the area's top-left like the content of every other frame.
-    /// - Review of #35914 at 03c050e893f (H1): a bottom hold not taller than its area kept the hold's bottom edge; as the
-    ///   area got shorter its top rows were cut and the text moved up by the height the area lost, then down again when
-    ///   the frame landed.
-    /// - cmux-ad m14: a bottom hold taller than its area kept the surface on the bottom edge (F2): the surface was taller
-    ///   than its pane and its top rows were cut. Now it takes the area's frame too and asks for no other size; its reflow
-    ///   preview keeps the prompt in view at the area's grid (TerminalKeyResizeFrameTests).
-    @Test func aFollowedSurfaceTakesItsAreasFrameWhateverItsHold() async throws {
-        let fixture = try await Fixture()
-        defer { fixture.close() }
-        let host = fixture.session.view
-        let surface = fixture.session.surfaceView
-        let presenter = TerminalFramePresenter.forWindow(fixture.window)
-        let rest = surface.frame
-        try #require(rest.width > 200 && rest.height > 100, "the terminal's rest frame is \(rest)")
-
-        // The pane's top edge stands still; the surface has a bottom hold below the area's height (a low prompt's hold),
-        // then the pane gets shorter (a reverse press) while that size waits for its frame.
-        host.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: host.bounds.size)
-        host.holdSurface(size: CGSize(width: rest.width, height: rest.height - 60), anchor: .bottom)
-        fixture.layoutNow()
-        #expect(surface.frame == rest, "a hold not taller than the area: the surface is \(surface.frame), its area \(rest)")
-        fixture.container.terminalHeight -= 30
-        fixture.layoutNow()
-        try #require(presenter.isWaiting(surface), "the shorter size did not wait for its frame (frame \(surface.frame))")
-        #expect(surface.frame.size == rest.size, "while its new size waits the terminal is \(surface.frame.size), it keeps \(rest.size)")
-        #expect(surface.frame.minX == host.bounds.minX && surface.frame.maxY == host.bounds.maxY,
-                "the kept frame \(surface.frame) is not on its area's top-left \(host.bounds): its text moved with the bottom edge")
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < deadline, presenter.isWaiting(surface) { await fixture.commits(1) }
-        #expect(!presenter.isWaiting(surface), "the shorter size still waits for its frame after 2 s")
-        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width, height: rest.height - 30),
-                "the landed frame is \(surface.frame)")
-
-        // A hold taller than the area: the surface keeps the area's frame and asks for no other size.
-        let area = surface.frame
-        let taller = CGSize(width: rest.width, height: rest.height + 40)
-        host.holdSurface(size: taller, anchor: .bottom)
-        fixture.layoutNow()
-        #expect(!presenter.isWaiting(surface), "a hold taller than its area asked for a frame at \(surface.frameOwnership.inFlight.map { "\($0)" } ?? "?")")
-        let held = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < held, presenter.isWaiting(surface) { await fixture.commits(1) }
-        #expect(surface.frame == area, "a hold taller than its area: the surface is \(surface.frame), its area \(area)")
-        host.releaseSurfaceHold()
-        host.followPaneMotion(nil, heldSize: nil)
-        fixture.container.terminalHeight += 30
-        fixture.layoutNow()
-        #expect(fixture.mismatches.isEmpty,
-                "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
-    }
-
-    /// A terminal hidden while its new size waits for its frame (a tab switched away mid-drag) takes the size its
-    /// host gives it then, and keeps it: the pass that sees it hidden never puts back the older size it had asked
-    /// for (review of 114c5ef217d).
+    /// A terminal hidden while its new size has no frame yet (a tab switched away mid-drag) takes the size its host
+    /// gives it then, and keeps it: nothing puts back the older size (review of 114c5ef217d).
     @Test func aTerminalHiddenWhileASizeWaitsKeepsItsNewestSize() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
-        // A size goes to Ghostty and waits for this turn's commit; the terminal hides in the same turn and its host
-        // lays it out at another size.
+        // A size goes to Ghostty in this turn; its frame can come only after this turn (a new size's frame goes through
+        // main's present). The terminal hides in the same turn and its host lays it out at another size.
         fixture.container.terminalWidth = 520
         fixture.layoutNow()
         let surface = fixture.session.surfaceView
-        try #require(TerminalFramePresenter.forWindow(fixture.window).isWaiting(surface), "520 pt did not wait for its frame")
+        let scale = surface.layer?.contentsScale ?? 2
+        try #require(fixture.shownPixels?.width != Int((520 * scale).rounded()), "520 pt showed its frame in its own turn")
         fixture.session.view.isHidden = true
         fixture.container.terminalWidth = 460
         fixture.layoutNow()
@@ -205,22 +79,24 @@ struct TerminalSurfaceCommitSizeTests {
         fixture.session.view.isHidden = false
         await fixture.commits(3)
         #expect(surface.frame.width == 460, "shown again, the terminal is \(surface.frame.width) pt wide, its host gave it 460")
+        let landed = await fixture.waitShown(width: 460)
+        #expect(landed, "shown again, 460 pt never showed its own frame (shown \(fixture.shownPixels.map { "\($0)" } ?? "nothing"))")
     }
 
-    /// One resize: the first turn whose layer has the new bounds shows the frame drawn at that size, and Ghostty
-    /// presented it in that commit (`host_fresh_presents`), not the renderer on its own afterwards.
-    @Test func aReadyFrameIsPresentedInTheCommitThatChangesItsBounds() async throws {
+    /// One resize of a primary-screen terminal: the new size's frame reaches the screen through main's present
+    /// (`host_size_presents`), and the layer shows it at its own size (GI RENDERER SYNC: no hold on the primary screen).
+    /// Before #40174 the presenter presented it in the commit that changed the bounds (`host_fresh_presents`).
+    @Test func aNewSizesFrameReachesTheScreenThroughMainsPresent() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
         let before = fixture.session.diagnostics.renderCounters
         await fixture.resize(to: 520)
         let landed = await fixture.waitShown(width: 520)
         #expect(landed, "520 pt never showed its own frame")
-        let first = try #require(fixture.firstTurnAt(width: 520), "no turn had the layer at 520 pt")
-        #expect(first.frame == first.layer, "the first turn with the new bounds showed a frame of \(first.frame), the layer is \(first.layer)")
         let after = fixture.session.diagnostics.renderCounters
-        #expect((after?.hostFreshPresents ?? 0) > (before?.hostFreshPresents ?? 0),
-                "the new size's frame was not presented in a commit (host_fresh_presents \(before?.hostFreshPresents ?? 0) -> \(after?.hostFreshPresents ?? 0))")
+        #expect((after?.hostSizePresents ?? 0) > (before?.hostSizePresents ?? 0),
+                "the new size's frame did not go through main's present (host_size_presents \(before?.hostSizePresents ?? 0) -> \(after?.hostSizePresents ?? 0))")
+        #expect(fixture.layerPixels == fixture.shownPixels, "at rest the layer is \(fixture.layerPixels.map { "\($0)" } ?? "?"), its frame \(fixture.shownPixels.map { "\($0)" } ?? "?")")
     }
 
     /// Reduce Motion, one Ctrl-Shift-H/L press at a time (films px-keys-single-3k-s1r-reduce: 6 refreshes missed per 4
@@ -228,12 +104,10 @@ struct TerminalSurfaceCommitSizeTests {
     /// - the key turn, timed with `ContinuousClock` from `PaneResize.press` to the end of that turn's Core Animation
     ///   commit (stamped inside ``CommitBoundary``; a boundary that missed the commit is not a sample), is at most one
     ///   120 Hz refresh (8.33 ms) at the median of 6 presses (one slow press on a shared host is not the code's);
-    /// - each press resized both terminals and both frames came through the presenter (`stats.presented` grows by 2,
-    ///   no fallback);
     /// - Ghostty runs no display pass and draws no frame on main for the new sizes (render counters
-    ///   `host_display_passes`, `host_main_draws`: a display pass of a new size waits up to 4 ms for the renderer's
-    ///   frame);
-    /// - every turn keeps ready-or-keep (no commit with the layer at one size and its frame at another).
+    ///   `host_display_passes`, `host_main_draws`; fork test "host present: a new host size asks a display pass only
+    ///   while nothing is shown", `src/renderer/Metal.zig`);
+    /// - each press ends with both terminals at their own frames.
     @Test func aReduceMotionKeyResizeNeverHoldsTheMainThreadForTheTerminals() async throws {
         let screen = try await KeyScreen()
         defer { screen.close() }
@@ -242,22 +116,18 @@ struct TerminalSurfaceCommitSizeTests {
         let before = screen.counters
         var turns: [Double] = []
         for direction in [LayoutDirection.right, .left, .right, .left, .right, .left] {
-            let presentedBefore = screen.presented
             let pressed = await screen.press(direction)
             #expect(pressed.moved, "the press moved nothing")
-            // Both terminals change size on each press: both new frames come through the presenter.
-            #expect(screen.presented >= presentedBefore + 2, "a press's frames did not both come through the presenter (\(presentedBefore) -> \(screen.presented))")
             if let ms = pressed.turnMs { turns.append(ms) }
         }
-        print("S4 m26 Reduce Motion presses: presenter \(TerminalFramePresenter.forWindow(screen.window).stats)")
         try #require(turns.count >= 4, "too few key turns were timed (\(turns.count) of 6: the boundary missed the rest)")
         let median = turns.sorted()[turns.count / 2]
         let after = screen.counters
+        print("GI RENDERER SYNC Reduce Motion presses: key turns \(turns) ms, display passes \(after.displayPasses - before.displayPasses), main draws \(after.mainDraws - before.mainDraws)")
         #expect(after.displayPasses == before.displayPasses,
                 "Ghostty ran \(after.displayPasses - before.displayPasses) display passes on main for the key's new sizes")
         #expect(after.mainDraws == before.mainDraws, "Ghostty drew \(after.mainDraws - before.mainDraws) frames on main")
         #expect(median <= 1000.0 / 120, "the key turn's median is longer than one 120 Hz refresh (ms per press): \(turns)")
-        #expect(screen.mismatches.isEmpty, "turns with the layer and its frame at different sizes: \(screen.mismatches.prefix(6))")
     }
 
     /// Two terminals side by side in a real layout (p1 | p2, Reduce Motion), in a window on screen; the presses are
@@ -279,8 +149,6 @@ struct TerminalSurfaceCommitSizeTests {
         var sessions: [TerminalSession] = []
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
-        private var sampler: MainRunLoopObserver?
-        private(set) var mismatches: [String] = []
 
         init() async throws {
             _ = NSApplication.shared
@@ -325,27 +193,12 @@ struct TerminalSurfaceCommitSizeTests {
             if !drawn || !counted { close() }
             try #require(drawn, "a terminal never showed its first frame")
             try #require(counted, "a terminal has no render counters")
-            // Every turn ends after Core Animation's commit with what it committed.
-            sampler = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: CommitBoundary.order,
-                                          drawsNothingAfterCommit: true) { [weak self] _ in self?.sample() }
         }
 
         func close() {
-            sampler = nil
             for io in ios { io.finish() }
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-        }
-
-        private func sample() {
-            for session in sessions {
-                guard let layer = session.surfaceView.layer, let frame = session.surfaceView.presentedFrame else { continue }
-                let scale = layer.contentsScale
-                let width = Int((layer.bounds.width * scale).rounded()), height = Int((layer.bounds.height * scale).rounded())
-                if width != frame.width || height != frame.height {
-                    mismatches.append("layer \(width)x\(height) frame \(frame.width)x\(frame.height)")
-                }
-            }
         }
 
         /// Ghostty's main-thread display passes and draws, summed over the terminals (``init()`` requires counters).
@@ -356,13 +209,9 @@ struct TerminalSurfaceCommitSizeTests {
             }
         }
 
-        /// Frames the window's presenter showed with their bounds, and passes that kept a frame long (data, m26).
-        var presented: Int { TerminalFramePresenter.forWindow(window).stats.presented }
-        var longKeeps: Int { TerminalFramePresenter.forWindow(window).stats.longKeeps }
-
         /// One press: whether p2 moved, and the key turn's main-thread time, from the press to the end of that turn's
-        /// Core Animation commit (nil when the boundary missed it). Then commits until neither terminal waits for its
-        /// frame (at most 2 s), so each press's presents count for that press.
+        /// Core Animation commit (nil when the boundary missed it). Then commits until both terminals show their own frames
+        /// (at most 2 s), so each press's render counters count for that press.
         func press(_ direction: LayoutDirection) async -> (moved: Bool, turnMs: Double?) {
             let frame = root.context.hosts["p2"]?.frame
             let pressed = ContinuousClock.now
@@ -370,18 +219,14 @@ struct TerminalSurfaceCommitSizeTests {
             let committed = await withCheckedContinuation { (done: CheckedContinuation<ContinuousClock.Instant?, Never>) in
                 CommitBoundary().after { outcome in done.resume(returning: outcome == .committed ? .now : nil) }
             }
-            // The real signal: the presenter's waiting state of both terminals, read after each commit. A Reduce Motion
-            // press shows at the next frame tick (RESIZE P0 13, KEY SNAP GRID): until then its presentation waits.
-            let presenter = TerminalFramePresenter.forWindow(window)
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
             let screen = root.screenViews["s"]
             while ContinuousClock.now < deadline,
-                  screen?.frameInput.presentationWaiting == true || sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
+                  screen?.frameInput.presentationWaiting == true || !sessions.allSatisfy(TerminalKeyResizeFrameTests.showsItsOwnFrame) {
                 await Self.commit()
             }
-            for (index, session) in sessions.enumerated() where presenter.isWaiting(session.surfaceView) {
-                let size = session.surfaceView.frameOwnership.inFlight.map { "\($0.width)x\($0.height) pt" } ?? "unknown"
-                Issue.record("after \(direction) the terminal of p\(index + 1) still waits for its frame at \(size) after 2 s")
+            for (index, session) in sessions.enumerated() where !TerminalKeyResizeFrameTests.showsItsOwnFrame(session) {
+                Issue.record("after \(direction) the terminal of p\(index + 1) does not show its own frame after 2 s")
             }
             let ms = committed.map { end -> Double in
                 let turn = pressed.duration(to: end)

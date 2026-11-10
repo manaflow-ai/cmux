@@ -12,8 +12,13 @@
 //! else is refused before any request, so the call reads or writes no other file of the user's.
 //! The caller removes its file afterwards; a read that fails removes the destination it made.
 
-use std::fs::{File, OpenOptions};
-use std::io::{Read as _, Seek as _, Write as _};
+use std::fs::File;
+#[cfg(unix)]
+use std::fs::OpenOptions;
+#[cfg(unix)]
+use std::io::Read as _;
+use std::io::{Seek as _, Write as _};
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -54,12 +59,14 @@ fn darwin_user_temp() -> Option<PathBuf> {
         .then(|| PathBuf::from(text.trim_end_matches('/')))
 }
 
+#[cfg(unix)]
 fn uid() -> u32 {
     // SAFETY: geteuid has no preconditions.
     unsafe { libc::geteuid() }
 }
 
 /// `path`, when it names a file directly in `dir` and `dir` is a private folder of this user's.
+#[cfg(unix)]
 fn in_folder(dir: &Path, path: &str) -> Result<PathBuf, String> {
     let meta = std::fs::symlink_metadata(dir)
         .map_err(|_| "the transfer folder does not exist".to_owned())?;
@@ -79,6 +86,7 @@ fn in_folder(dir: &Path, path: &str) -> Result<PathBuf, String> {
 
 /// A write's source: the bytes of `path`, a regular 0600 file of this user's with one link in
 /// `dir`, at most [`LIMIT`] bytes.
+#[cfg(unix)]
 pub(crate) fn read_source(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
     let path = in_folder(dir, path)?;
     // O_NOFOLLOW refuses a symlink; O_NONBLOCK keeps a FIFO from blocking the open (it is
@@ -106,6 +114,7 @@ pub(crate) fn read_source(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
 }
 
 /// A read's destination: `path` in `dir`, new, created 0600.
+#[cfg(unix)]
 pub(crate) fn create_destination(dir: &Path, path: &str) -> Result<(PathBuf, File), String> {
     let path = in_folder(dir, path)?;
     // create_new is O_CREAT|O_EXCL, which never follows a symlink at the path.
@@ -117,6 +126,19 @@ pub(crate) fn create_destination(dir: &Path, path: &str) -> Result<(PathBuf, Fil
         .open(&path)
         .map_err(|e| format!("the local file could not be created: {}", e.kind()))?;
     Ok((path, file))
+}
+
+/// The path form is a Unix one (file modes, owners, links, `O_NOFOLLOW`): refused elsewhere,
+/// where [`transfer_dir`] is none anyway.
+#[cfg(not(unix))]
+pub(crate) fn read_source(_dir: &Path, _path: &str) -> Result<Vec<u8>, String> {
+    Err("local_path is not served on this platform".into())
+}
+
+/// Refused off Unix, as [`read_source`] is.
+#[cfg(not(unix))]
+pub(crate) fn create_destination(_dir: &Path, _path: &str) -> Result<(PathBuf, File), String> {
+    Err("local_path is not served on this platform".into())
 }
 
 /// Moves a 2xx read's bytes into `out`: the direct route's spooled file, or the proxy's

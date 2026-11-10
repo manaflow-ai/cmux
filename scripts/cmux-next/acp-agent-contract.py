@@ -212,12 +212,25 @@ def expand(value: str) -> str:
     return os.path.expandvars(value)
 
 
+# What a cell inherits from this shell: the program path and locale only. Every login, key and config
+# home stays out, so a signed-out cell is signed out and a no-login cell cannot pass on a host login.
+INHERITED = ("PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS")
+
+
 def cell_env(cell: Cell, home: str) -> dict[str, str]:
-    env = dict(os.environ)
+    env = {k: os.environ[k] for k in INHERITED if k in os.environ}
+    env.update({
+        "HOME": home,
+        "XDG_CONFIG_HOME": os.path.join(home, ".config"),
+        "XDG_DATA_HOME": os.path.join(home, ".local/share"),
+        "XDG_CACHE_HOME": os.path.join(home, ".cache"),
+        "XDG_STATE_HOME": os.path.join(home, ".local/state"),
+        "NO_BROWSER": "true",
+        "BROWSER": "true",
+    })
+    # Only the login this cell asks for: its env_needed keys, and its own env (a login home).
+    env.update({k: os.environ[k] for k in cell.env_needed if k in os.environ and not k.startswith("CMUX_MATRIX_")})
     env.update({k: expand(v) for k, v in cell.env})
-    env.setdefault("HOME", home)
-    env["NO_BROWSER"] = "true"
-    env["BROWSER"] = "true"
     return env
 
 
