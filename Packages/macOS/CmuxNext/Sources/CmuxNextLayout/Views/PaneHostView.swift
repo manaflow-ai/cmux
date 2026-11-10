@@ -364,7 +364,7 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The content's rounded corners and the ring's shape from the current
-    /// clip frame and the content's header and footer. Changes no frame.
+    /// clip frame and the content's header and footer, and the ground under held content. Changes no frame of the content.
     func applyChromeShape() {
         let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
@@ -388,6 +388,13 @@ final class PaneHostView: NSView, RestingPlacement {
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
+        // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
+        // pane shows that content's own ground there, under its header, in this same frame (SPLIT OPEN CHAT). A key
+        // hold and a closing pane have their own rules.
+        guard heldContentSize != nil, !holdsUntilAfterLanding, !showsClosingGround else { return clipView.showHeldGround(nil) }
+        // Under the header also in a whole card: no backing behind the tabs (Leo 2026-11-03). The clip rounds a whole card.
+        let under = PaneChromeGeometry.roundedRect(inPadded: clipView.bounds, headerHeight: headerHeight, footerHeight: footerHeight)
+        clipView.showHeldGround(content.paneGroundColor, cornerRadius: reporter != nil && !wholeCard ? radius : 0, in: under)
     }
 
     /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than
@@ -517,32 +524,5 @@ final class PaneHostView: NSView, RestingPlacement {
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
                       focused: focused, flashesFocus: flashesFocus, animated: animated)
-    }
-}
-
-/// The rounded clip around a pane's content. `masksToBounds` with a corner
-/// radius clips every sublayer, Metal layers included. Corners are circular
-/// (not continuous) so the Chromium page mask, a circular-arc path built
-/// from this layer's radius, matches them exactly.
-final class PaneClipView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    func setCornerRadius(_ radius: CGFloat) {
-        guard let layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
     }
 }
