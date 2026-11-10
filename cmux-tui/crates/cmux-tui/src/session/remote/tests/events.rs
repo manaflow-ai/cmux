@@ -550,3 +550,28 @@ fn a_title_event_caches_its_text_not_the_spinner_frame() {
     }));
     assert_eq!(session.tree.lock().unwrap().view.surface(7).unwrap().title, "Fix it");
 }
+
+/// A daemon from before the split sends no `text`. A page's title then shows
+/// as is: the terminal rule would cut a page's own leading mark (an editor
+/// page's `● notes.md` for unsaved changes). A terminal still loses its glyph.
+#[cfg(unix)]
+#[test]
+fn an_old_daemons_page_title_event_keeps_its_leading_mark() {
+    let (client, _server) = UnixStream::pair().unwrap();
+    let session = socket_test_session(client);
+    session.tree.lock().unwrap().replace(
+        parse_tree(&json!({"workspaces": [{"id": 1, "active": true, "screens": [{
+            "id": 2, "active": true, "layout": {"type": "leaf", "pane": 3},
+            "panes": [{"id": 3, "tabs": [
+                {"surface": 7, "kind": "pty", "title": "zsh"},
+                {"surface": 8, "kind": "browser", "title": "Docs"}
+            ]}]
+        }]}]})),
+        0,
+    );
+    session.handle_line(json!({"event": "title-changed", "surface": 8, "title": "● notes.md"}));
+    session.handle_line(json!({"event": "title-changed", "surface": 7, "title": "⠂ Fix it"}));
+    let tree = session.tree.lock().unwrap();
+    assert_eq!(tree.view.surface(8).unwrap().title, "● notes.md");
+    assert_eq!(tree.view.surface(7).unwrap().title, "Fix it");
+}
