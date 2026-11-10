@@ -75,6 +75,14 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.background.ownTurn !== true &&
   (row.background.running || row.background.quiet === true || backgroundWeight(row.background) === "silent");
 
+/// Whether a background turn's reply says nothing: only dots, middle dots, bullets or an ellipsis
+/// ("·", ".", "…"), which Claude answers a task's end with (Leo, 2026-11-02: "why do you still do
+/// these"). Such a reply is never the agent's own turn: its task's call keeps its mark and the turn
+/// folds as quiet (direct.ts `settleReaction`).
+export function saysNothing(reply: string): boolean {
+  return /^[\s.·•…]*$/u.test(reply);
+}
+
 /// Whether a background turn draws its line: one that folds, while it runs or once it has a row of
 /// its own to open to. A quiet one that ended with none has nothing to show (Leo, 2026-11-03: "these
 /// background updates don't really expand out to anything? idk what those are even for").
