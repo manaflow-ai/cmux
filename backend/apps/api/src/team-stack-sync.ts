@@ -56,8 +56,8 @@ export interface StackSyncDeps {
    * no urgent flag takes a token here first, then one of `pace`. Absent: no low cap.
    */
   readonly lowPace?: () => Promise<boolean>
-  /** A member's own sign-in service user id (UserDO.stackUserOf): a deleted team's grant goes to its owner (team-grant-carry.ts). Absent: nothing is carried. */
-  readonly stackUserOf?: (user: string) => Promise<string | null>
+  /** Records a deleted team's Cloud grant in its owner's personal TeamDO (team-grant-carry.ts). Absent: nothing is carried. */
+  readonly carryTo?: (personalTeam: string, fromTeam: string, vmPlan: string) => Promise<void>
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
@@ -279,7 +279,7 @@ export class StackTeamSync {
       // Only Stack's own team.deleted, confirmed by this read, deletes the team.
       if (ev.type === "team.deleted") {
         // The team's Cloud grant moves to its owner first (ask-7b9075082b); a failed write throws, so the delete waits and retries.
-        if (deps.stackUserOf) await carryGrantOnDelete({ sql: deps.sql, state: deps.state(), rows: deps.rows(), stack, stackUserOf: deps.stackUserOf, now: Date.now() }, ev.stack_team)
+        if (deps.carryTo) await carryGrantOnDelete({ sql: deps.sql, state: deps.state(), rows: deps.rows(), carryTo: deps.carryTo, now: Date.now() }, ev.stack_team)
         return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
       }
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"

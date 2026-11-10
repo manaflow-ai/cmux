@@ -21,7 +21,15 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   if (stackUser !== undefined) {
     // A personal team may not be mirrored here yet; the Worker checked the id is the caller's own.
     if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, vm_plan: null }
-    read = async (s) => ((v) => ("gone" in v ? null : v.vm_plan))(await s.getUserVmPlan(stackUser))
+    read = async (s) => {
+      const v = await s.getUserVmPlan(stackUser)
+      const own = "gone" in v ? null : v.vm_plan
+      // A grant carried here from a deleted shared team (team-grant-carry.ts) is compared, never written to the record.
+      const carried = carriedVmPlan(sql)
+      if (carried === null || (own !== null && grantRank(own) === 0)) return own
+      const paid = await s.getUserPlan(stackUser)
+      return higherGrant(own, paid === "user_gone" ? null : paid, carried)
+    }
   } else {
     if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, vm_plan: null }
     const stackTeam = team.stack_team
@@ -60,4 +68,39 @@ export const storedVmPlan = (sql: SqlStorage): string | null | undefined => {
   ensure(sql)
   const row = sql.exec<{ vm_plan: string | null }>(`SELECT vm_plan FROM cloud_vm_plan WHERE id = 1`).toArray()[0]
   return row ? row.vm_plan : undefined
+}
+
+/** Paid grants by their machine limits (domains/cloud-plan.ts PAID_PLAN_LIMITS): Plus, then Pro, Founders and Team, then Max. */
+const RANK: Readonly<Record<string, number>> = { go: 1, pro: 2, founders: 2, team: 2, max: 3 }
+/** A grant's rank; 0 for anything that grants no paid limits (blank, "free", unknown: a restriction when set). */
+export const grantRank = (vmPlan: string): number => RANK[vmPlan.trim().toLowerCase()] ?? 0
+
+/**
+ * The person's grant read with a carried grant: their own override when it is a restriction (an operator's
+ * "free" or blank still wins), else the carried grant only when it is higher than both their paid cmuxPlan and
+ * their override (CloudDO's cloudPlanId lets the answer win over cmuxPlan, so a lower one would lower them),
+ * else their own override unchanged.
+ */
+export const higherGrant = (own: string | null, paid: string | null, carried: string | null): string | null => {
+  if (carried === null || (own !== null && grantRank(own) === 0)) return own
+  const mine = Math.max(paid === null ? 0 : grantRank(paid), own === null ? 0 : grantRank(own))
+  return grantRank(carried) > mine ? carried : own
+}
+
+const ensureCarried = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan_carried_in (from_team TEXT PRIMARY KEY, vm_plan TEXT NOT NULL, at INTEGER NOT NULL)`)
+
+/** The highest grant carried into this personal team from deleted shared teams, or null. */
+export const carriedVmPlan = (sql: SqlStorage): string | null => {
+  ensureCarried(sql)
+  let best: string | null = null
+  for (const r of sql.exec<{ vm_plan: string }>(`SELECT vm_plan FROM cloud_vm_plan_carried_in`).toArray()) if (best === null || grantRank(r.vm_plan) > grantRank(best)) best = r.vm_plan
+  return best
+}
+
+/** Records a deleted team's grant in its owner's personal TeamDO (once per team) and drops the cached answer, so the next read compares it. */
+export const storeCarriedVmPlan = (sql: SqlStorage, fromTeam: string, vmPlan: string, at: number) => {
+  ensureCarried(sql)
+  sql.exec(`INSERT OR IGNORE INTO cloud_vm_plan_carried_in (from_team, vm_plan, at) VALUES (?, ?, ?)`, fromTeam, vmPlan, at)
+  ensure(sql)
+  sql.exec(`DELETE FROM cloud_vm_plan`)
 }
