@@ -2175,7 +2175,9 @@ jobs:
       - name: Settings source copies
         id: settings-sources
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
+        run: |
+          python3 -I scripts/cmux-next/gen-settings-sources.py --check
+          python3 -I scripts/cmux-next/tests/test_settings_export_keys.py
 
       # The phone daemon lane's per-command field allowlist, generated from the daemon's request
       # schema and the lane's command allowlist (DaemonLanePolicy+Fields.generated.swift).

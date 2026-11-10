@@ -43,7 +43,8 @@ const TITLES = [
 const AGES = ["2m", "14m", "1h", "3h", "5h", "1d", "2d", "6d"];
 const HARNESSES = ["claude-code", "codex"];
 
-/** `count` chats, newest first; every fifth one from a harness no mark knows. */
+/** `count` chats, newest first; every fifth one from a harness no mark knows, whose mark takes a theme colour
+ * (the host sends its group colour as CSS). */
 export function fixtureRows(count: number, offset = 0): SidebarChatRow[] {
   return Array.from({ length: count }, (_, index) => {
     const n = index + offset;
@@ -53,7 +54,7 @@ export function fixtureRows(count: number, offset = 0): SidebarChatRow[] {
       title: TITLES[n % TITLES.length]!,
       meta: AGES[Math.min(n, AGES.length - 1)]!,
       harness: unknown ? "acme-agent" : HARNESSES[n % 2]!,
-      markColor: unknown ? "rgba(52, 168, 83, 1)" : null,
+      markColor: unknown ? "var(--cmux-app-success)" : null,
     };
   });
 }
