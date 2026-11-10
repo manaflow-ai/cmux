@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { keyProbeCommand, keyProbeDetail, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
+import { keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
@@ -926,7 +926,7 @@ describe("clean-room provider key probe", () => {
     return root;
   };
   const run = (root: string) => {
-    const r = spawnSync("bash", ["-c", keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--root", root, "--budget-s", "20"])], { encoding: "utf8" });
+    const r = spawnSync("bash", ["-c", keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--root", root, "--budget-s", "20", "--as-root"])], { encoding: "utf8" });
     expect(r.status).toBe(0);
     return { out: r.stdout, probe: parseKeyProbe(r.stdout) };
   };
@@ -939,6 +939,19 @@ describe("clean-room provider key probe", () => {
       "proc/102/comm": "node\n",
       "proc/102/environ": "HOME=/home/cmux\0",
       "proc/102/cmdline": `node\0--key\0${PROJ}\0`,
+      // A key named on a command line, in each form: NAME=value, --name=value, --name value, and inside sh -c.
+      "proc/103/comm": "env\n",
+      "proc/103/environ": "",
+      "proc/103/cmdline": "env\0OPENAI_API_KEY=opaque-secret-one\0tool\0",
+      "proc/104/comm": "tool\n",
+      "proc/104/environ": "",
+      "proc/104/cmdline": "tool\0--openai-api-key=opaque2\0--GEMINI_API_KEY\0opaque3\0",
+      "proc/105/comm": "sh\n",
+      "proc/105/environ": "",
+      "proc/105/cmdline": "sh\0-c\0cd /w && XAI_API_KEY=opaque4 run; echo OPENAI_API_KEY=$OPENAI_API_KEY\0",
+      // A key inside node_modules and inside a binary file still counts.
+      "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
+      "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
       "home/cmux/.codex/auth.json": JSON.stringify({ tokens: { refresh_token: REFRESH } }),
       "home/cmux/.bashrc": `export PATH=$HOME/bin:$PATH\nexport GEMINI_API_KEY=${GEMINI}\n`,
@@ -948,18 +961,27 @@ describe("clean-room provider key probe", () => {
     });
     try {
       const { out, probe } = run(root);
-      for (const v of [OAUTH, PROJ, GEMINI, REFRESH, OAUTH.slice(13, 30)]) expect(out).not.toContain(v);
+      for (const v of [OAUTH, PROJ, GEMINI, REFRESH, OAUTH.slice(13, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
       const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
       expect(got).toEqual([
+        "cmdline process env (1 pid): OPENAI_API_KEY",
         "cmdline process node (1 pid): an OpenAI project key",
+        "cmdline process sh (1 pid): XAI_API_KEY",
+        "cmdline process tool (1 pid): GEMINI_API_KEY",
+        "cmdline process tool (1 pid): OPENAI_API_KEY",
         "env process claude (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
         "file /home/cmux/.bashrc:2: GEMINI_API_KEY",
         "file /home/cmux/.claude/.credentials.json: a Claude login file",
         "file /home/cmux/.claude/.credentials.json:1: an Anthropic OAuth token",
         "file /home/cmux/.codex/auth.json: a Codex login file",
         "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
+        "file /home/cmux/app/node_modules/x/.env:1: ANTHROPIC_API_KEY",
+        "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
+        "file /opt/tool/bin/blob: an OpenAI project key",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("7 findings: ");
+      expect(keyProbeDetail(probe)).toStartWith("14 findings: ");
+      expect(keyProbeStatus(probe, true)).toBe("fail");
+      expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -977,8 +999,44 @@ describe("clean-room provider key probe", () => {
       const { probe } = run(root);
       expect(probe.findings).toEqual([]);
       expect(probe.scanned.processes).toBe(1);
+      expect(probe.complete).toBe(true);
       expect(keyProbeDetail(probe)).toStartWith("no provider key (");
+      expect(keyProbeStatus(probe, true)).toBe("pass");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("no finding with a gap in what was read is unknown: a clean check fails it", () => {
+    const root = plant({ "proc/9/comm": "bash\n", "proc/9/environ": "HOME=/root\0", "proc/9/cmdline": "bash\0", "home/cmux/locked": "x" });
+    try {
+      // Not root: a gap on its own.
+      // python3 straight, not keyProbeCommand: that one takes sudo where it can, and root reads every file.
+      const direct = (...args: string[]) => spawnSync("python3", ["-I", KEY_PROBE_PY, "--root", root, ...args], { encoding: "utf8" });
+      const notRoot = direct();
+      const a = parseKeyProbe(notRoot.stdout);
+      if (process.getuid?.() !== 0) {
+        expect(a.findings).toEqual([]);
+        expect(a.complete).toBe(false);
+        expect(a.gaps).toContain("not run as root");
+        expect(keyProbeStatus(a, true)).toBe("fail");
+        expect(keyProbeStatus(a, false)).toBe("skip");
+        expect(keyProbeDetail(a)).toContain("unknown");
+      }
+      // A process still there whose environment cannot be read, and a file that cannot be read.
+      spawnSync("chmod", ["000", join(root, "proc/9/environ"), join(root, "home/cmux/locked")]);
+      const b = parseKeyProbe(direct("--as-root").stdout);
+      if (process.getuid?.() !== 0) {
+        expect(b.complete).toBe(false);
+        expect(b.gaps).toEqual(["1 processes unreadable", "1 files unreadable"]);
+        expect(keyProbeStatus(b, true)).toBe("fail");
+      }
+      // A walk that runs out of budget.
+      const c = parseKeyProbe(direct("--as-root", "--budget-s", "0").stdout);
+      expect(c.truncated).toBe(true);
+      expect(keyProbeStatus(c, true)).toBe("fail");
+    } finally {
+      spawnSync("chmod", ["-R", "u+rwX", root]);
       rmSync(root, { recursive: true, force: true });
     }
   });

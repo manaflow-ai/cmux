@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """The clean-room provider key probe: run on a Cloud machine, it says where a model provider's key sits.
 
-It reads every process's environment and command line, and the files under the homes, /etc, /opt, /srv
-and the temp folders, and prints one JSON line (after the `@@keyprobe ` marker) naming each finding by
-place and kind: `env` (a process's variable), `cmdline` (a process's arguments) or `file` (a path and
-line). It never prints, hashes or sends a value: a finding is the variable's name or the key's kind
-("an Anthropic OAuth token"), never any of its characters.
+It reads every process's environment and command line, and every file under the homes, /etc, /opt, /srv
+and the temp folders (whole, binary ones too), and prints one JSON line (after the `@@keyprobe ` marker)
+naming each finding by place and kind: `env` (a process's variable), `cmdline` (a process's arguments) or
+`file` (a path, and the line in a text file). It never prints, hashes or sends a value: a finding is the
+variable's name or the key's kind ("an Anthropic OAuth token"), never any of its characters.
 
-Run as root (the journey runs it under `sudo -n` when the machine allows it) to read every process and
-home; as another user it reads what that user may, and says so (`as_root`, `unreadable`).
+`complete` says whether "no finding" means "no key": it is true only when the probe ran as root, read
+every live process's environment and command line, read every file and directory, and finished the walk
+inside its budget. Anything less is listed (`gaps`), and a clean check must treat it as unknown.
 
 Usage: python3 -I cloud-key-probe.py [--root DIR] [--budget-s N]
   --root DIR    read DIR/proc, DIR/home, DIR/etc ... instead of the real ones (the tests plant keys there)
-  --budget-s N  stop the file walk after N seconds and say so (`truncated`); default 40
+  --budget-s N  stop the file walk after N seconds and say so (`truncated`); default 90
+  --as-root     count the run as root (the tests' planted tree is read as its owner)
 """
 
 import json
@@ -73,8 +75,20 @@ LOGIN_FILES = {
 }
 
 FILE_ROOTS = ["home", "root", "etc", "opt", "srv", "tmp", "var/tmp", "run/user", "workspace"]
-SKIP_DIRS = {"node_modules", ".git", "__pycache__", "proc", "sys", "dev"}
-MAX_FILE = 1 << 20
+# Pseudo file systems only: a key in node_modules or a repository is still a key on the machine.
+SKIP_DIRS = {"proc", "sys", "dev"}
+CHUNK = 4 << 20
+OVERLAP = 256
+
+# Cheap byte prefilter: a line or chunk without one of these holds no finding, so only those get the full checks.
+PREFILTER = re.compile(
+    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|" + b"|".join(re.escape(n.encode()) for n in sorted(KEY_NAMES))
+)
+# A key's name as a command-line word: `NAME=value`, `--name=value`, or `--name` then the value as the next word,
+# in any case, with `-` for `_`. Inside a longer word (a `sh -c` script) only the `NAME=value` form.
+ARG_ASSIGN = re.compile(r"^-{0,2}([A-Za-z][A-Za-z0-9_-]*)=(.*)$", re.S)
+ARG_NAME = re.compile(r"^-{1,2}([A-Za-z][A-Za-z0-9_-]*)$")
+INLINE_ASSIGN = re.compile(r"(?:^|[\s;&|(`])(?:export\s+)?([A-Z][A-Z0-9_]*)=([^\s;&|)`]*)")
 
 
 def value_finding(value):
@@ -102,6 +116,37 @@ def scan_env(entries):
     return out
 
 
+def key_name(word):
+    """The key name a command-line word spells (`--openai-api-key` is OPENAI_API_KEY), or None."""
+    name = word.upper().replace("-", "_")
+    return name if name in KEY_NAMES else None
+
+
+def real_value(value):
+    """A value after a key's name in an environment or argument: anything but empty, the placeholder or a reference."""
+    v = value.strip().strip("'\"")
+    return v not in PLACEHOLDERS and not v.startswith("$")
+
+
+def scan_args(args):
+    """Findings in one command line: kinds, or key names given a value."""
+    out = set()
+    for i, arg in enumerate(args):
+        kind = value_finding(arg)
+        if kind:
+            out.add(kind)
+        m = ARG_ASSIGN.match(arg)
+        if m and key_name(m.group(1)) and real_value(m.group(2)):
+            out.add(key_name(m.group(1)))
+        m = ARG_NAME.match(arg)
+        if m and key_name(m.group(1)) and i + 1 < len(args) and real_value(args[i + 1]):
+            out.add(key_name(m.group(1)))
+        for m in INLINE_ASSIGN.finditer(arg):
+            if m.group(1) in KEY_NAMES and real_value(m.group(2)):
+                out.add(m.group(1))
+    return sorted(out)
+
+
 def literal_secret(value):
     """Whether a value written after a key's name in a file looks like the key itself."""
     return bool(SECRET_LITERAL.match(value)) and not STAND_IN.search(value)
@@ -122,9 +167,35 @@ def scan_text(text):
     return out
 
 
-def read(path, limit=MAX_FILE):
+def read(path, limit=1 << 20):
     with open(path, "rb") as f:
         return f.read(limit)
+
+
+def scan_file(path):
+    """Findings in one whole file: (line number or None, what). A text file is read line by line, a binary one
+    in overlapping chunks (shapes only; a binary has no lines)."""
+    out = []
+    with open(path, "rb") as f:
+        head = f.read(4096)
+        f.seek(0)
+        if b"\0" in head:
+            seen = set()
+            tail = b""
+            while True:
+                chunk = f.read(CHUNK)
+                if not chunk:
+                    break
+                window = tail + chunk
+                if PREFILTER.search(window):
+                    text = window.decode("latin-1")
+                    seen.update(kind for kind, pattern in SHAPES if pattern.search(text))
+                tail = window[-OVERLAP:]
+            return [(None, what) for what in sorted(seen)]
+        for n, raw in enumerate(f, 1):
+            if PREFILTER.search(raw):
+                out.extend((n, what) for _, what in scan_text(raw.decode("utf-8", "replace")))
+    return out
 
 
 def scan_processes(root, me, report):
@@ -136,29 +207,25 @@ def scan_processes(root, me, report):
         return
     grouped = {}
     for pid in pids:
-        if int(pid) in me:
-            continue
         base = os.path.join(proc, pid)
         try:
             comm = read(os.path.join(base, "comm"), 64).decode("utf-8", "replace").strip() or "?"
+            env = read(os.path.join(base, "environ"), 1 << 24).decode("utf-8", "replace").split("\0")
+            args = read(os.path.join(base, "cmdline"), 1 << 24).decode("utf-8", "replace").split("\0")
         except OSError:
+            # A process that ended while the probe read it holds nothing now; one still there is a gap.
+            if os.path.isdir(base):
+                report["scanned"]["procs_unreadable"] += 1
             continue
         report["scanned"]["processes"] += 1
-        try:
-            env = read(os.path.join(base, "environ")).decode("utf-8", "replace").split("\0")
-        except OSError:
-            report["scanned"]["env_unreadable"] += 1
-            env = []
         for name, kind in scan_env(env):
             grouped.setdefault(("env", comm, f"{name} ({kind})"), set()).add(pid)
-        try:
-            args = read(os.path.join(base, "cmdline")).decode("utf-8", "replace").split("\0")
-        except OSError:
-            args = []
-        for arg in args:
-            kind = value_finding(arg)
-            if kind:
-                grouped.setdefault(("cmdline", comm, kind), set()).add(pid)
+        # This probe's own command line (and its sudo's and shell's) is its source and arguments, never a key;
+        # their environments are still read above.
+        if int(pid) in me:
+            continue
+        for what in scan_args(args):
+            grouped.setdefault(("cmdline", comm, what), set()).add(pid)
     for (place, comm, what), ids in sorted(grouped.items()):
         report["findings"].append({"place": place, "where": f"process {comm} ({len(ids)} pid{'s' if len(ids) > 1 else ''})", "what": what})
 
@@ -178,26 +245,35 @@ def scan_files(root, deadline, report):
                 if path == os.path.abspath(__file__) or os.path.islink(path):
                     continue
                 where = shown(root, path)
-                for suffix, what in LOGIN_FILES.items():
-                    if where.endswith("/" + suffix):
-                        try:
-                            if os.path.getsize(path) > 0:
-                                report["findings"].append({"place": "file", "where": where, "what": what})
-                        except OSError:
-                            pass
                 try:
-                    if os.path.getsize(path) > MAX_FILE:
-                        report["scanned"]["files_too_big"] += 1
-                        continue
-                    data = read(path)
+                    if not os.path.isfile(path):
+                        continue  # a socket, fifo or device holds no stored key
+                    size = os.path.getsize(path)
+                    found = scan_file(path)
                 except OSError:
-                    report["scanned"]["files_unreadable"] += 1
+                    if os.path.lexists(path):
+                        report["scanned"]["files_unreadable"] += 1
                     continue
                 report["scanned"]["files"] += 1
-                if b"\0" in data[:4096]:
-                    continue
-                for line, what in scan_text(data.decode("utf-8", "replace")):
-                    report["findings"].append({"place": "file", "where": f"{where}:{line}", "what": what})
+                for suffix, what in LOGIN_FILES.items():
+                    if where.endswith("/" + suffix) and size > 0:
+                        report["findings"].append({"place": "file", "where": where, "what": what})
+                for line, what in found:
+                    report["findings"].append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})
+
+
+def own_chain():
+    """This probe's pid and its ancestors' (sudo, the exec shell): their command lines carry this source."""
+    chain = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in chain and len(chain) < 8:
+        chain.add(pid)
+        try:
+            with open(f"/proc/{pid}/stat", "rb") as f:
+                pid = int(f.read().rsplit(b")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return chain
 
 
 def shown(root, path):
@@ -208,9 +284,14 @@ def shown(root, path):
 
 def main(argv):
     root = "/"
-    budget = 40.0
+    budget = 90.0
+    as_root = os.geteuid() == 0
     i = 0
     while i < len(argv):
+        if argv[i] == "--as-root":
+            as_root = True
+            i += 1
+            continue
         if argv[i] == "--root":
             root = argv[i + 1]
             i += 2
@@ -222,17 +303,30 @@ def main(argv):
             return 2
     t0 = time.monotonic()
     report = {
-        "as_root": os.geteuid() == 0,
+        "as_root": as_root,
         "findings": [],
-        "scanned": {"processes": 0, "env_unreadable": 0, "files": 0, "files_unreadable": 0, "files_too_big": 0},
+        "scanned": {"processes": 0, "procs_unreadable": 0, "files": 0, "files_unreadable": 0},
         "unreadable": [],
         "truncated": False,
     }
-    # This probe and the shell that started it carry no key, and their command lines hold this source.
-    me = {os.getpid(), os.getppid()}
+    me = own_chain()
     scan_processes(root, me, report)
     scan_files(root, t0 + budget, report)
-    report["unreadable"] = sorted(set(report["unreadable"]))[:20]
+    unreadable = sorted(set(report["unreadable"]))
+    gaps = []
+    if not as_root:
+        gaps.append("not run as root")
+    if report["scanned"]["procs_unreadable"]:
+        gaps.append(f"{report['scanned']['procs_unreadable']} processes unreadable")
+    if report["scanned"]["files_unreadable"]:
+        gaps.append(f"{report['scanned']['files_unreadable']} files unreadable")
+    if unreadable:
+        gaps.append(f"{len(unreadable)} folders or /proc unreadable")
+    if report["truncated"]:
+        gaps.append(f"the file walk ran past its {budget:g} s budget")
+    report["unreadable"] = unreadable[:20]
+    report["gaps"] = gaps
+    report["complete"] = not gaps
     report["ms"] = int((time.monotonic() - t0) * 1000)
     print("@@keyprobe " + json.dumps(report, sort_keys=True))
     return 0

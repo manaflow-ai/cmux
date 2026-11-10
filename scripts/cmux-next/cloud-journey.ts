@@ -77,9 +77,10 @@
  *
  * Clean room: after the chat, the journey runs cloud-key-probe.py on the chat machine (as root when sudo asks no
  * password): every process's environment and command line, and the files under the homes, /etc, /opt, /srv and the
- * temp folders, searched for a model provider's key. The step names each finding by place and kind, never a value.
- * With --gateway, --gateway-local or --keys-clean a finding fails the step; otherwise the step is report-only and is
- * recorded as a skip that lists the findings (the login copy puts the person's login on the machine by design).
+ * temp folders, searched for a model provider's key. The step names each finding by place and kind, never a value;
+ * a run that could not read everything (not root, an unreadable file or process, the walk past its budget) is unknown.
+ * With --gateway, --gateway-local or --keys-clean a finding or an unknown fails the step; otherwise it is report-only,
+ * a skip that lists the findings (the login copy puts the person's login on the machine by design).
  * --keys-probe-out FILE writes the probe's whole answer with the run's tag and mode; --skip keys leaves it out.
  *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
@@ -875,7 +876,7 @@ export function swiftRawString(source: string, name: string): string {
 export const KEY_PROBE_PY = fileURLToPath(new URL("./cloud-key-probe.py", import.meta.url));
 export const KEY_PROBE_STEP = "clean room: no provider key on the machine";
 export type KeyFinding = { place: "env" | "cmdline" | "file"; where: string; what: string };
-export type KeyProbe = { as_root: boolean; findings: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
+export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
 
 /** The probe sent as one exec: as root when sudo asks no password, so it reads every process and home. */
 export function keyProbeCommand(source: string, args: string[] = []): string {
@@ -889,17 +890,26 @@ export function parseKeyProbe(stdout: string): KeyProbe {
   const line = stdout.split("\n").find((l) => l.startsWith("@@keyprobe "));
   if (!line) throw new Error(`the probe printed no answer: ${stdout.slice(-300)}`);
   const p = JSON.parse(line.slice("@@keyprobe ".length));
-  if (!Array.isArray(p?.findings)) throw new Error(`the probe's answer has no findings list: ${line.slice(0, 300)}`);
+  if (!Array.isArray(p?.findings) || typeof p?.complete !== "boolean" || !Array.isArray(p?.gaps)) throw new Error(`the probe's answer has no findings list or coverage: ${line.slice(0, 300)}`);
   return p as KeyProbe;
+}
+
+/**
+ * The step's result: a finding fails a clean check and is reported otherwise; no finding passes only when the probe
+ * read everything (`complete`), since a gap in what it read is "unknown", never "no key".
+ */
+export function keyProbeStatus(p: KeyProbe, clean: boolean): Status {
+  if (p.findings.length || !p.complete) return clean ? "fail" : "skip";
+  return "pass";
 }
 
 /** The findings, one `place where: what` each, then what the probe could read. Names and places only. */
 export function keyProbeDetail(p: KeyProbe): string {
   const s = p.scanned ?? {};
   const cover =
-    `${p.as_root ? "as root" : "not as root"}, ${s.processes ?? 0} processes (${s.env_unreadable ?? 0} environments unreadable), ` +
-    `${s.files ?? 0} files (${s.files_unreadable ?? 0} unreadable) in ${p.ms} ms${p.truncated ? ", the file walk ran out of time" : ""}`;
-  if (!p.findings.length) return `no provider key (${cover})`;
+    `${p.as_root ? "as root" : "not as root"}, ${s.processes ?? 0} processes, ${s.files ?? 0} files in ${p.ms} ms; ` +
+    (p.complete ? "everything read" : `incomplete: ${p.gaps.join(", ")}`);
+  if (!p.findings.length) return p.complete ? `no provider key (${cover})` : `no finding, but not everything was read, so unknown (${cover})`;
   const list = p.findings.map((f) => `${f.place} ${f.where}: ${f.what}`);
   return `${p.findings.length} finding${p.findings.length > 1 ? "s" : ""}: ${list.join("; ")} (${cover})`;
 }
@@ -2427,11 +2437,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const t0 = Date.now();
       const mode = gatewayAny ? "gateway" : only.has("login") || !login || !provider ? "no login passed" : "login copy";
       try {
-        const r = await exec(keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8")), 120_000);
+        // The walk gets 240 s of the exec route's 300 s; a walk cut short reads as incomplete, never clean.
+        const r = await exec(keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--budget-s", "240"]), 290_000);
         const probe = parseKeyProbe(r.stdout);
         if (keysProbeOut) writeFileSync(keysProbeOut, `${JSON.stringify({ tag, backend: backend.name, mode, machine: created.id, at: new Date().toISOString(), ...probe })}\n`);
         const detail = keyProbeDetail(probe);
-        const status = !probe.findings.length ? "pass" : keysClean ? "fail" : "skip";
+        const status = keyProbeStatus(probe, keysClean);
         J.record({ step: KEY_PROBE_STEP, status, ms: Date.now() - t0, detail: status === "skip" ? `report only (${mode}; --keys-clean fails it): ${detail}` : `${mode}: ${detail}` });
       } catch (e) {
         J.record({ step: KEY_PROBE_STEP, status: keysClean ? "fail" : "skip", ms: Date.now() - t0, detail: `the probe did not run: ${(e as Error).message}` });
