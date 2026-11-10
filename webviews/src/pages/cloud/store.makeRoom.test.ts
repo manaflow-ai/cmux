@@ -114,6 +114,9 @@ test("a pause that fails keeps the limit notice and the offer, and a second try 
   expect(store.getSnapshot().create?.offer).toMatchObject({ kind: "pause", machine: "vm_d4" });
   expect(store.getSnapshot().create?.submitting).toBe(false);
   expect(store.getSnapshot().create?.errorCode).toBe("cmux.cloud.upstream_error");
+  expect(store.getSnapshot().create?.error).toBeTruthy();
+  expect(store.getSnapshot().error).toBeUndefined();
+  expect(store.getSnapshot().connection).toBe("connected");
   expect(creates(provider)).toHaveLength(1);
   await store.makeRoom();
   for (let i = 0; i < 4; i++) await flush();
@@ -131,5 +134,17 @@ test("a pause that finds the machine already stopped goes on to the create", asy
   // The create is sent (the mock's machine still runs, so its answer is the mock's own).
   expect(creates(provider)).toHaveLength(2);
   expect(store.getSnapshot().create?.error).toBeUndefined();
+  expect(store.getSnapshot().create?.refusal?.kind).toBe("quota_exceeded");
+  unsubscribe();
+});
+
+test("a lost link during the pause shows the page disconnected", async () => {
+  const { store, provider, unsubscribe } = await atLimit();
+  provider.offline = true;
+  await store.makeRoom();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(store.getSnapshot().connection).toBe("disconnected");
+  expect(store.getSnapshot().create?.offer).toMatchObject({ kind: "pause" });
+  expect(creates(provider)).toHaveLength(1);
   unsubscribe();
 });

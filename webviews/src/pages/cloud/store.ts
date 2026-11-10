@@ -562,7 +562,7 @@ export class CloudStore {
           : CloudOps.machineArchiveDelete;
     const key = this.key();
     this.pushIntent({ key, kind: offer.kind, machine: offer.machine });
-    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined } });
+    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined, errorCode: undefined } });
     const back = (patch: Partial<CreateDraft>) => {
       const now = this.state.create;
       if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
@@ -587,6 +587,7 @@ export class CloudStore {
       if (!freed && offer.kind === "pause") {
         // A pause that failed took nothing: the limit notice and the offer stay for another try, and
         // the sheet says why.
+        if (connectionFailure(error) === "disconnected") this.set(failure(error));
         return back({ refusal: draft.refusal, error: message(error), errorCode: codeOf(error) });
       }
       if (!freed) {
