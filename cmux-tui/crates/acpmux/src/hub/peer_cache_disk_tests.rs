@@ -242,3 +242,37 @@ fn a_torn_line_and_an_older_daemons_snapshot_are_read_safely() {
     let saved = super::peer_cache_disk::saved_json(&peers, "builder");
     assert_eq!(saved["sessions"][0]["status"], "idle", "{saved}");
 }
+
+/// A snapshot replaced by one of the same length is still found, and the next save writes a
+/// snapshot rather than a journal line naming the old one.
+#[test]
+fn a_same_length_snapshot_replacement_is_found() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pcd");
+    let hub = hub_at(dir.path());
+    let peer = add_idle_peer(&hub, "builder");
+    let rows = vec![listed("a", "idle"), listed("b", "idle")];
+    hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(rows));
+    hub.save_peer_cache("builder", peer.generation, true);
+    let peers = dir.path().join("peers");
+    let snap = peers.join("builder.json");
+    let before = std::fs::read_to_string(&snap).unwrap();
+    // Another writer: same bytes count, no journal id (as an older daemon's would be).
+    let replaced = before.replace("\"journal\":", "\"jxurnal\":");
+    assert_eq!(replaced.len(), before.len());
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&snap, &replaced).unwrap();
+    hub.apply_peer_notice(
+        "builder",
+        peer.generation,
+        PeerNotice::SessionChanged {
+            session: listed("a", "running"),
+            kind: "status".into(),
+            seq: 1,
+        },
+    );
+    hub.save_peer_cache("builder", peer.generation, true);
+    assert!(!peers.join("builder.journal").exists(), "a line was appended to a foreign snapshot");
+    let saved = super::peer_cache_disk::saved_json(&peers, "builder");
+    let a = saved["sessions"].as_array().unwrap().iter().find(|s| s["sessionId"] == "a").unwrap();
+    assert_eq!(a["status"], "running");
+}

@@ -46,7 +46,7 @@ impl Hub {
     /// It also holds what this writer last left on disk (`peer_cache_disk.rs`).
     pub(super) fn peer_cache_writer(&self, peer: &str) -> Arc<StdMutex<OnDisk>> {
         let mut writers = self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner());
-        writers.entry(peer.to_owned()).or_insert_with(Default::default).clone()
+        writers.entry(peer.to_owned()).or_default().clone()
     }
 
     /// Save `peer`'s rows, while `generation` is the instance registered
