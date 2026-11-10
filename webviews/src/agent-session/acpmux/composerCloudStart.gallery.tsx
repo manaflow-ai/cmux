@@ -66,6 +66,8 @@ export default componentEntry<Props>({
             handle={handle}
             snapshot={snapshot}
             locked={cloudStartLocksComposer(start)}
+            // App.tsx `cloudSendHeld`: Send waits while the start is out, stalled too.
+            blockSend={start.state === "starting"}
             chips={() => null}
             onSend={() => false}
             onStop={() => {}}
@@ -89,7 +91,7 @@ export default componentEntry<Props>({
     },
     stalled: {
       props: { state: "stalled" },
-      note: "No word from the host for five minutes: the card says where it stopped, and the person types again.",
+      note: "No word from the host for five minutes: the card says where it stopped, the person types again, and Send waits for the start to end.",
     },
     failed: {
       props: { state: "failed" },
