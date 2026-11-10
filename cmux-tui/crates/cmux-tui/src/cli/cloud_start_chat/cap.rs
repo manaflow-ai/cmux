@@ -97,3 +97,80 @@ pub(super) fn at_cap(
     };
     (lines.join("\n"), json!({"cap": cap, "machines": machines}))
 }
+
+/// What `--make-room` frees at a cap (cmux-platform Retention.ts `freeUpCandidate`): the machine the
+/// refusal names (`details.free_up`, or "You can delete NAME (" in the provider's own words) is
+/// deleted; with none named, the paused machine used longest ago is archived and deleted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Room {
+    pub machine: String,
+    pub name: String,
+    /// Archive its disk first (`cloud archive-machine`), else delete it (`cloud kill-machine`).
+    pub archive: bool,
+}
+
+impl Room {
+    /// The command that frees it.
+    pub(super) fn command(&self) -> Vec<String> {
+        let verb = if self.archive { "archive-machine" } else { "kill-machine" };
+        let target = format!("machine:{}", self.machine);
+        ["cloud", verb, "--target", target.as_str(), "--confirm", "--json"].map(str::to_owned).to_vec()
+    }
+
+    pub(super) fn json(&self) -> Value {
+        json!({
+            "machine_id": self.machine, "name": self.name,
+            "how": if self.archive { "archive" } else { "delete" },
+            "command": format!("cmux {}", self.command()[..5].join(" ")),
+        })
+    }
+}
+
+/// The machine `--make-room` would free for the refusal at cap `cap` (its words `message` and the
+/// app error's `details`), from the account's machines in `listed`; `None` when there is nothing to
+/// free. The plan's running cap is freed by a pause, not a delete: only a `free_up` the platform
+/// named counts there.
+pub(super) fn room(cap: Cap, message: &str, details: &Value, listed: &Value) -> Option<Room> {
+    let rows: Vec<&Value> = at(listed, "machines").as_array().into_iter().flatten().collect();
+    let name_of = |id: &str| {
+        rows.iter()
+            .find(|row| at(row, "machine_id").as_str() == Some(id))
+            .and_then(|row| at(row, "title").as_str())
+            .filter(|title| !title.is_empty())
+            .unwrap_or(id)
+            .to_owned()
+    };
+    let free = at(details, "free_up");
+    if let Some(id) = free.get("machine").and_then(Value::as_str) {
+        let name = free.get("name").and_then(Value::as_str).filter(|name| !name.is_empty());
+        return Some(Room {
+            machine: id.to_owned(),
+            name: name.map_or_else(|| name_of(id), str::to_owned),
+            archive: false,
+        });
+    }
+    if cap != Cap::Held {
+        return None;
+    }
+    if let Some(named) = message.split("You can delete ").nth(1).and_then(|rest| rest.split(" (").next())
+        && let Some(row) = rows.iter().find(|row| {
+            at(row, "title").as_str() == Some(named) || at(row, "machine_id").as_str() == Some(named)
+        })
+        && let Some(id) = at(row, "machine_id").as_str()
+    {
+        return Some(Room { machine: id.to_owned(), name: named.to_owned(), archive: false });
+    }
+    let used = |row: &Value| {
+        ["last_active_at", "lastActiveAt", "created_at", "createdAt"]
+            .iter()
+            .find_map(|key| row.get(*key).and_then(Value::as_f64))
+            .unwrap_or(f64::MAX)
+    };
+    rows.iter()
+        .filter(|row| at(row, "status").as_str() == Some("paused") && row.get("keep") != Some(&json!(true)))
+        .min_by(|a, b| used(a).total_cmp(&used(b)))
+        .and_then(|row| {
+            let id = at(row, "machine_id").as_str()?;
+            Some(Room { machine: id.to_owned(), name: name_of(id), archive: true })
+        })
+}

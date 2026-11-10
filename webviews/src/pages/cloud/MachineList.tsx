@@ -1,14 +1,18 @@
 // The machine list in two prototype layouts (Debug setting `cloud.machines.layout`): dense rows
 // (default) and cards. Both draw the same rows: status dot, title, a "Classic" badge for a machine
 // from cmux Cloud classic (read-only until upgraded: no inline actions), status or pending intent,
-// size (cards), the cost line the sidebar shows (cost.ts), and an inline Pause or Resume. Plain Up/Down select, Return connects (not a classic
-// machine); chords are ignored.
+// size (cards), the cost line the sidebar shows (cost.ts), and an inline Pause or Resume. Automatic
+// cleanup (retention.ts) adds a quiet "Deletes in N days" to the status line, a Keep pin, "Archive and
+// delete" on a paused machine, and the one-time notice inline under its row (Keep or Dismiss; no
+// banner, no modal). Plain Up/Down select, Return connects (not a classic machine); chords are ignored.
 import type { KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { costLine, costTicks, useCostClock } from "./cost";
 import {
   canPause,
   canResume,
+  changeable,
+  formatDate,
   formatMegabytes,
   IntentLabel,
   moveSelection,
@@ -18,7 +22,15 @@ import {
   type MachineLayout,
   type MachineRow,
 } from "./model";
-import { L } from "./strings";
+import { archiving, canArchive, canKeep, deleteDate, shownNotice, type DeleteDate } from "./retention";
+import { format, L } from "./strings";
+
+/** The row's quiet delete line ("Deletes in 12 days"). */
+export function deleteText(date: DeleteDate, t: (key: string) => string): string {
+  if (date.kind === "today") return t(L.deletesToday);
+  if (date.kind === "tomorrow") return t(L.deletesTomorrow);
+  return format(t(L.deletesInDays), { count: date.days });
+}
 
 const revealOnSelect = (node: HTMLDivElement | null) => node?.scrollIntoView({ block: "nearest" });
 
@@ -31,6 +43,11 @@ export interface MachineListProps {
   onOpen: (id: string) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
+  /** Retention notices dismissed in this browser (`machine:notice.at`). */
+  dismissed?: ReadonlySet<string>;
+  onKeep?: (id: string, keep: boolean) => void;
+  onArchive?: (id: string) => void;
+  onDismissNotice?: (id: string, at: number) => void;
 }
 
 export function MachineList({
@@ -42,6 +59,10 @@ export function MachineList({
   onOpen,
   onPause,
   onResume,
+  dismissed = new Set<string>(),
+  onKeep,
+  onArchive,
+  onDismissNotice,
 }: MachineListProps) {
   const { t, language } = strings;
   const now = useCostClock(rows.some((row) => costTicks(row.machine)));
@@ -67,6 +88,16 @@ export function MachineList({
         const cost = row.machine && !row.pending ? costLine(row.machine, now, t, language) : undefined;
         const label = row.pending ? t(IntentLabel[row.pending]) : t(StatusLabel[row.status]);
         const status = cost && costTicks(row.machine) ? cost : cost ? `${label} · ${cost}` : label;
+        // Kept shows at once on a toggle (a quick intent); the platform's record follows.
+        const machine = row.machine && row.keep !== undefined ? { ...row.machine, keep: row.keep } : row.machine;
+        const date = row.pending ? undefined : deleteDate(machine, now);
+        const leaving = !row.pending && archiving(machine);
+        const notice = row.pending || row.classic ? undefined : shownNotice(machine, dismissed);
+        const kept = !!machine?.keep;
+        const keepable = !row.pending && !row.classic && canKeep(machine);
+        const archivable = changeable(row) && canArchive(machine);
+        // The disk is what a paused machine is paid for; the platform answers no storage price yet.
+        const disk = row.machine?.size?.disk_mb ?? 0;
         const memory = row.machine?.size?.memory_mb;
         const size = memory ? formatMegabytes(memory, t, language) : "";
         return (
@@ -99,8 +130,55 @@ export function MachineList({
               <span className="cloud-machine-subtitle">
                 {status}
                 {size && layout === "cards" ? ` · ${size}` : ""}
+                {date && <span className="cloud-machine-deletes">{` · ${deleteText(date, t)}`}</span>}
+                {leaving && <span className="cloud-machine-deletes">{` · ${t(L.archivingNote)}`}</span>}
               </span>
+              {notice && (
+                // The one notice before a delete, once: Keep, or Dismiss (remembered per notice).
+                <span className="cloud-machine-notice" role="status">
+                  <span className="cloud-machine-notice-text">
+                    {format(t(notice.kind === "heads_up" ? L.noticeHeadsUp : L.noticeLastNote), {
+                      date: formatDate(notice.delete_at, language, false),
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    className="cloud-link-button cloud-notice-keep"
+                    onClick={(event) => (event.stopPropagation(), onKeep?.(row.id, true))}
+                  >
+                    {t(L.keep)}
+                  </button>
+                  <button
+                    type="button"
+                    className="cloud-link-button cloud-notice-dismiss"
+                    onClick={(event) => (event.stopPropagation(), onDismissNotice?.(row.id, notice.at))}
+                  >
+                    {t(L.dismissError)}
+                  </button>
+                </span>
+              )}
             </span>
+            {keepable && !notice && (
+              <button
+                type="button"
+                className={`cloud-link-button cloud-machine-keep${kept ? " on" : ""}`}
+                aria-pressed={kept}
+                title={t(L.keepHint)}
+                onClick={(event) => (event.stopPropagation(), onKeep?.(row.id, !kept))}
+              >
+                {t(kept ? L.kept : L.keep)}
+              </button>
+            )}
+            {archivable && (
+              <button
+                type="button"
+                className="cloud-link-button cloud-machine-archive"
+                title={disk ? format(t(L.archiveHint), { size: formatMegabytes(disk, t, language) }) : undefined}
+                onClick={(event) => (event.stopPropagation(), onArchive?.(row.id))}
+              >
+                {t(L.archiveDelete)}
+              </button>
+            )}
             {canPause(row) && (
               <button
                 type="button"
