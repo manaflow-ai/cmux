@@ -13,7 +13,15 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const KEYS = ["window", "document", "navigator", "localStorage", "IntersectionObserver", "IS_REACT_ACT_ENVIRONMENT"];
+const KEYS = [
+  "window",
+  "document",
+  "navigator",
+  "localStorage",
+  "HTMLElement",
+  "IntersectionObserver",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -42,6 +50,7 @@ async function mount() {
     document: dom.window.document,
     navigator: dom.window.navigator,
     localStorage: dom.window.localStorage,
+    HTMLElement: dom.window.HTMLElement,
     IntersectionObserver: class {
       observe() {}
       disconnect() {}
