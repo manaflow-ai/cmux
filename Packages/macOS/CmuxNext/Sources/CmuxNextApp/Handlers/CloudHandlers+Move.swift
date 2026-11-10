@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCloudUI
 
 extension CloudHandlers {
@@ -51,9 +53,37 @@ extension CloudHandlers {
             guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
             try CloudBringBack(services: services).start(invocation, context: context, toMachine: true)
         }
+        bindSSHMove(into: registry, context: context)
         // A chat that cannot move now (no first message yet) shows its rows disabled with why, and every run refuses with it.
         let refusal: @MainActor (ActionInvocation) -> String? = { CloudMove(services: services).refusal($0, context: context) }
         context.setTargetReason(CloudMove.action, refusal)
         ActionTargetTitles.setPaletteReason(CloudMove.action, in: registry) { [weak registry] in registry?.withoutRefusals { refusal(ActionInvocation()) } }
+    }
+
+    /// Move to SSH Machine (`agent.moveToMachine`): a started chat to a machine added over SSH, between
+    /// two, or back to this Mac, through acpmux's own transfer (``SSHChatMoveRun``; Rust decides the
+    /// targets and the call). This reads the chat, runs the move, opens the chat where it went (as a
+    /// moved-in chat opens) and closes the old tab, whose chat moved away.
+    static func bindSSHMove(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        registry.bindEffect("agent.moveToMachine") { invocation in
+            guard !CloudMoveAsks.isAgent(invocation) else { return .refused(SSHChatMoveStrings.personOnly) }
+            guard let (tab, _) = context.daemonTab(invocation) else { return .done }
+            let key = services.agentTabs.tabKey(of: tab)
+            guard let acpmux = QuitAgents.environment(services), var record = services.agentTabs.record(for: key)?.record else { return .refused(SSHChatMoveStrings.failed) }
+            record.session = record.session ?? services.agentTabs.sessions[key]
+            guard let chat = CloudMoveTargets.chat(record: record, machine: key.machine, services: services) else { return .refused(SSHChatMoveStrings.failed) }
+            let target = invocation["machine"]?.stringValue
+            // action-wait-allow: acpmux moves the chat over ssh (another process); where it went is known only once the move answers
+            return .waiting(.externalProcess) {
+                let peers = ((try? await AcpmuxPeerList(socketPath: acpmux.socketPath).peers()) ?? []).map { CloudMoveTargetRules.Peer(name: $0.name, url: $0.url ?? "") }
+                let run = SSHChatMoveRun(executable: acpmux.executable, environment: await SSHService.environment().merging(acpmux.childEnvironment) { $1 })
+                let outcome = await run.run(chat, to: target, peers: peers)
+                guard case .moved(let moved) = outcome else { return ActionWorkFailure(SSHChatMoveStrings.message(outcome)) }
+                guard (try? await services.sessionTransfer.openChat(moved, title: tab.titleText)) != nil else { return ActionWorkFailure(SSHChatMoveStrings.tabFailed) }
+                try? await services.machines.daemon(forTab: tab).connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
+                return nil
+            }
+        }
     }
 }

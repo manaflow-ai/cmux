@@ -714,6 +714,48 @@ test("Move to…: a chat that started on a Cloud machine gets the row with no ot
   expect(moved).toEqual(["vm-gpu"]);
 });
 
+// Leo, 2026-11-10: remote is "something that I do certainly care about". A machine added over SSH
+// is a Move to… target too, and a chat on one moves to the other SSH machines or back to this Mac.
+test("Move to…: SSH machines list with their labels and the SSH icon, and a chat on one moves back here", async () => {
+  const moved: string[] = [];
+  await mount(true, {
+    ...startedOn("local"),
+    onOffload: () => undefined,
+    moveTargets: [
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+      { id: "ssh-mini", label: "mini", kind: "ssh" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  await act(async () => newRows()[0]!.click());
+  expect(newRows().map(rowText)).toEqual(["gpu-box", "mini"]);
+  expect(newRows()[1]!.querySelector(".acpmux-env-icon")?.getAttribute("data-kind")).toBe("ssh");
+  await act(async () => newRows()[1]!.click());
+  expect(moved).toEqual(["ssh-mini"]);
+});
+
+test("Move to…: a chat on an SSH machine lists This Mac and the other SSH machines", async () => {
+  const moved: string[] = [];
+  await mount(true, {
+    ...startedOn("ssh"),
+    moveTargets: [
+      { id: "local", label: "", kind: "local" },
+      { id: "peer:box", label: "box", kind: "ssh" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  await act(async () =>
+    newRows()
+      .find((row) => rowText(row) === t("composer.moveToMenu"))!
+      .click(),
+  );
+  expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "box"]);
+  await act(async () => newRows()[0]!.click());
+  expect(moved).toEqual(["local"]);
+});
+
 test("a started Cloud chat's picker keeps its machine's load warning", async () => {
   const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings(DEFAULT_COMPOSER);

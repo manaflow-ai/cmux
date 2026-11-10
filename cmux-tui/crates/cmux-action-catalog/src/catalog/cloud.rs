@@ -208,6 +208,21 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "agent.moveToMachine",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.moveToMachine", "Move to SSH Machine"),
+        description: Some("Moves a started chat to a machine added over SSH (--machine <id>, else the first one that is up), from one such machine to another, or back to this Mac (--machine local), with its history, queue and draft, and its folder made there: acpmux's own transfer, as `cmux acp session move` runs it. The tab then shows the chat where it went. Only a person runs it: an agent's run is refused."),
+        keywords: &["move", "machine", "ssh", "remote", "peer", "host", "chat", "agent", "back", "local", "transfer"],
+        category: "cloud",
+        symbol: "arrow.left.arrow.right",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::MACHINE.optional()],
+        targets: &["tab"],
+        cli_name: "acp session move",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "cloudSSH",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudSSH", "Open Cloud SSH Terminal"),

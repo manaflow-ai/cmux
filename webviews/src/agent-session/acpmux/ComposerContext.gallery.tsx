@@ -1396,6 +1396,76 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openMoveTo,
     },
+    // Move to… an SSH machine (Leo, 2026-11-10: remote is "something that I do certainly care about"):
+    // machines added over SSH list beside the Cloud ones with the SSH icon, and a chat on one lists
+    // This Mac (back) and the other SSH machines. Three arms: both kinds, a chat on an SSH machine,
+    // and SSH machines only (signed out of Cloud).
+    "started-move-to-ssh": {
+      note: "Preview, a started chat on this Mac with a Cloud machine and two SSH machines: each SSH machine is a row with its name.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+          { id: "ssh-studio", label: "studio", kind: "ssh" },
+          { id: "peer:linux-box", label: "linux-box", kind: "ssh" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-ssh",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-from-ssh": {
+      note: "Preview, a chat on the SSH machine studio: Move to… lists This Mac and the other SSH machine.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        moveTargets: [
+          { id: "local", label: "", kind: "local" },
+          { id: "peer:linux-box", label: "linux-box", kind: "ssh" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-from-ssh",
+          harness: "claude",
+          cwd: "/home/you/src/project",
+          host: "studio",
+          hostKind: "ssh",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-ssh-only": {
+      note: "Preview, signed out of Cloud: a started chat on this Mac still moves to its SSH machines.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        moveTargets: [
+          { id: "ssh-studio", label: "studio", kind: "ssh" },
+          { id: "peer:linux-box", label: "linux-box", kind: "ssh" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-ssh-only",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
+    },
     "started-move-to-cloud-only": {
       note: "Preview, a chat that started on a Cloud machine: its one other machine is Move to…'s only row.",
       props: {
