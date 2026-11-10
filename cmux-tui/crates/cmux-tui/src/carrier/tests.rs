@@ -684,3 +684,77 @@ fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_ses
     assert_eq!(refused.step, Step::Service);
     assert!(!refused.fresh_session);
 }
+
+/// A park whose asks answer, in turn, from `replies` (the last one repeats),
+/// counting them; `None` is an answer without the key.
+fn asks(
+    replies: Vec<Result<Option<[u8; 32]>, Failure>>,
+) -> (
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    impl Fn() -> std::future::Ready<Result<super::answer::CarrierAnswer, Failure>>,
+) {
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = count.clone();
+    let ask = move || {
+        let n = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let reply = replies[n.min(replies.len() - 1)].clone().map(|key| {
+            let mut value = answer_value();
+            value["daemon_key"] = key.map_or(Value::Null, |key| json!(key_text(&key)));
+            parse_answer(&value).unwrap()
+        });
+        std::future::ready(reply)
+    };
+    (count, ask)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_ends_at_a_refusal_for_good_not_at_the_deadline() {
+    use super::client::{PARKED_ASK_EVERY, park_for_key};
+    // A machine bound by an image older than the carrier: the ask before its bind
+    // has no key, the next is refused for good, and its daemon never registers.
+    let refused = Failure::fatal(
+        Step::Ticket,
+        "cmux-platform answered 409 cloud.carrier.image_unsupported: this machine runs an image older than the Cloud carrier",
+    );
+    let (count, ask) = asks(vec![Ok(None), Err(refused.clone())]);
+    let started = tokio::time::Instant::now();
+    let parked = tokio::time::timeout(
+        Duration::from_secs(180),
+        park_for_key(std::future::pending::<Result<(), Failure>>(), ask, PARKED_ASK_EVERY),
+    )
+    .await
+    .expect("the park ends before the deadline");
+    assert_eq!(parked.unwrap_err(), refused);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(started.elapsed() <= PARKED_ASK_EVERY, "{:?}", started.elapsed());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_keeps_asking_through_retryable_failures_and_stops_once_it_has_the_key() {
+    use super::client::park_for_key;
+    let every = Duration::from_secs(3);
+    let busy = Failure::retry(Step::Ticket, "cmux-platform answered 503 http: ");
+    let (count, ask) = asks(vec![Ok(None), Err(busy), Ok(Some([9; 32]))]);
+    let open = async {
+        tokio::time::sleep(Duration::from_secs(20)).await;
+        Ok::<_, Failure>("link")
+    };
+    let (link, daemon) = park_for_key(open, ask, every).await.unwrap();
+    assert_eq!((link, daemon), ("link", [9; 32]));
+    // At 0, 3 and 6 s; none after the key, nor once the link is allocated.
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_park_allocated_before_any_key_asks_once_more_and_pins_only_a_key() {
+    use super::client::park_for_key;
+    let every = Duration::from_secs(3);
+    let allocated = || async { Ok::<_, Failure>("link") };
+    let (count, ask) = asks(vec![Ok(None), Ok(Some([5; 32]))]);
+    assert_eq!(park_for_key(allocated(), ask, every).await.unwrap().1, [5; 32]);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    // Still no key once allocated: the handshake never runs unpinned.
+    let (_, keyless) = asks(vec![Ok(None)]);
+    let failure = park_for_key(allocated(), keyless, every).await.unwrap_err();
+    assert_eq!(failure, Failure::fatal(Step::Ticket, "the machine has no daemon key"));
+}
