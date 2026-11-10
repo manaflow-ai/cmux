@@ -18,15 +18,21 @@ public final class ScreenTrackpadLink {
 /// press drags), two fingers tap to right-click and drag to scroll.
 struct ScreenTrackpadPad: UIViewRepresentable {
     let link: ScreenTrackpadLink
+    /// The drawer is open. Closed, the pad stays laid out under the handle but
+    /// takes no touches and is hidden from VoiceOver and UI tests (SwiftUI's
+    /// `accessibilityHidden` does not reach a hosted UIKit view).
+    let active: Bool
 
     func makeUIView(context: Context) -> ScreenTrackpadPadView {
         let view = ScreenTrackpadPadView()
         view.link = link
+        view.setActive(active)
         return view
     }
 
     func updateUIView(_ view: ScreenTrackpadPadView, context: Context) {
         view.link = link
+        view.setActive(active)
     }
 }
 
@@ -62,6 +68,12 @@ final class ScreenTrackpadPadView: UIView, UIGestureRecognizerDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func setActive(_ active: Bool) {
+        isUserInteractionEnabled = active
+        isAccessibilityElement = active
+        accessibilityElementsHidden = !active
+    }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {

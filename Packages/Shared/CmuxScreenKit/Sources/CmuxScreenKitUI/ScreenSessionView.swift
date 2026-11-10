@@ -225,7 +225,7 @@ public struct ScreenSessionView: View {
         return VStack(spacing: 10) {
             trackpadHandle
             VStack(spacing: 10) {
-                ScreenTrackpadPad(link: trackpadLink)
+                ScreenTrackpadPad(link: trackpadLink, active: trackpadOpen)
                     .frame(maxWidth: .infinity)
                     .frame(height: 180)
                     .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
