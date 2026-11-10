@@ -1303,12 +1303,12 @@ mod bg_steer_tests {
     /// to run long commands there; one without it is not (acpmux docs/hibernation.md).
     #[test]
     fn the_exec_description_steers_long_commands_to_bg_start_only_where_it_is() {
-        let with = descriptors(&[json!({"name": BG_START}), json!({"name": "pane_split"})]);
+        let with = descriptors(&[json!({"name": BG_START}), json!({"name": "pane_split"})], false);
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
         assert!(text.contains("as one batch of independent tool calls"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
+        let without = descriptors(&[json!({"name": "pane_split"})], false);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
     }
 }
@@ -1321,10 +1321,10 @@ mod github_steer_tests {
     /// description; one without it is not.
     #[test]
     fn the_exec_description_names_github_status_only_where_it_is() {
-        let with = descriptors(&[json!({"name": GITHUB_STATUS})]);
+        let with = descriptors(&[json!({"name": GITHUB_STATUS})], false);
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
+        let without = descriptors(&[json!({"name": "pane_split"})], false);
         assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
     }
 }
@@ -1337,10 +1337,10 @@ mod wrap_up_steer_tests {
     /// description, since code mode shows no other tool; one without it is not.
     #[test]
     fn the_exec_description_names_wrap_up_only_where_it_is() {
-        let with = descriptors(&[json!({"name": WRAP_UP})]);
+        let with = descriptors(&[json!({"name": WRAP_UP})], false);
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
+        let without = descriptors(&[json!({"name": "pane_split"})], false);
         assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
     }
 
@@ -1348,11 +1348,13 @@ mod wrap_up_steer_tests {
     /// (`sessions_offer_session`) in `cmux_exec`'s description; one without it is not.
     #[test]
     fn the_exec_description_names_the_session_offer_only_where_it_is() {
-        let with =
-            descriptors(&[json!({"name": OFFER}), json!({"name": "sessions_suggest_tasks"})]);
+        let with = descriptors(
+            &[json!({"name": OFFER}), json!({"name": "sessions_suggest_tasks"})],
+            false,
+        );
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.sessions_offer_session({title, prompt, worktree?})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
+        let without = descriptors(&[json!({"name": "pane_split"})], false);
         assert!(!without[0]["description"].as_str().unwrap().contains("offer_session"));
     }
 }

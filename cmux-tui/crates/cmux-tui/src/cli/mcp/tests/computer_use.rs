@@ -188,7 +188,7 @@ fn one_script_drives_a_multi_step_computer_use_task() {
         match (call["name"].as_str().unwrap(), index) {
             ("click", 12) => assert_eq!(observe, &json!(true), "{call}"),
             ("click" | "set_value" | "perform_action", _) => {
-                assert_eq!(observe, &json!(false), "{call}")
+                assert_eq!(observe, &json!(false), "{call}");
             }
             _ => assert!(observe.is_null(), "a reading call gets no observe: {call}"),
         }
