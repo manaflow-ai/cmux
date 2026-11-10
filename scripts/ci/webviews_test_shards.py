@@ -6,6 +6,8 @@
     webviews_test_shards.py order-triples TRIPLES DURATIONS desc         # xargs -n 3 triples, by their first item
     webviews_test_shards.py record LINES OUT                            # the runner's `SECONDS FILE` lines as JSON
     webviews_test_shards.py merge OUT PRIOR MEASURED...                 # the next duration manifest
+    webviews_test_shards.py dev-servers FILE_LIST [--rest]              # the files that start a dev server (or the rest)
+    webviews_test_shards.py vite-configs FILE_LIST                      # NUL-separated CONFIG FILE pairs: the cache each warms
 
 The shards used to take files by index mod 4: one new file moved every file after it, and the
 heavy dev-server files fell together by chance (run 40815704587 on 32 vCPU: shards of 18.6, 9.9,
@@ -32,8 +34,10 @@ with the prior manifest, so one noisy run moves a file's weight by half.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 import sys
@@ -87,12 +91,78 @@ def stable_shard(name: str, count: int) -> int:
     return int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % count
 
 
-def vite_config(name: str) -> str:
-    """The Vite config whose cache a dev-server file warms, as run-webviews-tests.sh's vite_config reads it."""
+# A dev-server file: one that starts a Vite dev server, whose optimizer writes dependencies into
+# the config's cache directory. Two at once on one cache lose each other's files (composer-mention
+# beside composer-send-stop on node_modules/.vite), so the runner gives each its own
+# (CMUX_VITE_CACHE_DIR). The marks: a dev config by name, `"dev",` (the argument a file passes when it
+# spawns `vp dev` itself), or Vite's createServer with a config (`configFile: …`).
+DEV_SERVER_MARK = re.compile(
+    r'vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config')
+# Vite's createServer called in a module that imports Vite: `createServer({` with any config path
+# (`path.join(root, "vite.config.ts")`, `path.resolve(…)`), not only the `webviews` spelling above.
+# Without it the gallery control audit's parts all took one `.vite-dev-deps-0` (port 0, no
+# CMUX_VITE_CACHE_DIR) in the browser pool, two at once on one shard (#40720).
+VITE_CREATE_SERVER = re.compile(r"\bcreateServer\(\{")
+VITE_IMPORT = re.compile(r'from "vite"|import\("vite"\)')
+# A local module a file imports (`from "./support/x"`, `import("../support/x")`, `export … from`).
+LOCAL_IMPORT = re.compile(r'(?:\bfrom|\bimport\s*\(?)\s*"(\.\.?/[^"]+)"')
+MODULE_SUFFIXES = ("", ".ts", ".tsx", ".mts", ".mjs", ".js", "/index.ts")
+
+
+@functools.cache
+def _text(path: str) -> str:
     try:
-        text = Path(name).read_text(encoding="utf-8", errors="replace")
+        return Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return "default"
+        return ""
+
+
+@functools.cache
+def _helpers_imported(path: str) -> tuple[str, ...]:
+    """The test support modules PATH imports itself: files under a `test` directory that are not
+    test files. Only these are followed, so a test's import of app code never makes it a
+    dev-server file."""
+    found = []
+    for spec in LOCAL_IMPORT.findall(_text(path)):
+        for suffix in MODULE_SUFFIXES:
+            candidate = os.path.normpath(os.path.join(os.path.dirname(path), spec + suffix))
+            if os.path.isfile(candidate):
+                if "test" in Path(candidate).parts and ".test." not in os.path.basename(candidate):
+                    found.append(candidate)
+                break
+    return tuple(found)
+
+
+def _modules(name: str) -> list[str]:
+    """FILE and each test support module it imports, directly or through another."""
+    seen: list[str] = []
+    pending = [os.path.normpath(name)]
+    while pending:
+        path = pending.pop()
+        if path not in seen:
+            seen.append(path)
+            pending.extend(_helpers_imported(path))
+    return seen
+
+
+@functools.cache
+def _module_starts_server(path: str) -> bool:
+    text = _text(path)
+    # Module by module: a createServer in one helper and a Vite type import in another are no server.
+    return DEV_SERVER_MARK.search(text) is not None or (
+        VITE_CREATE_SERVER.search(text) is not None and VITE_IMPORT.search(text) is not None)
+
+
+def starts_dev_server(name: str) -> bool:
+    """Whether FILE, or a test support module it imports, starts a Vite dev server: a file that
+    starts its server through a helper (test/support/papercutChat.ts, galleryControlSurfaces.ts)
+    holds no mark itself, and must still get a Vite cache of its own."""
+    return any(_module_starts_server(path) for path in _modules(name))
+
+
+def vite_config(name: str) -> str:
+    """The Vite config whose cache a dev-server file warms, read from the file and its helpers."""
+    text = "\n".join(_text(path) for path in _modules(name))
     for config, marker in (("pane", "vite.config.acpmux-pane.mjs"), ("gallery", "vite.config.gallery-dev.ts"),
                            ("settings", "vite.config.settings-page.mjs")):
         if marker in text:
@@ -238,6 +308,13 @@ def main(argv: list[str]) -> int:
         for triple in triples:
             by_file.setdefault(triple[0], []).append(triple)
         write_nul([item for name in ranked for item in by_file[name].pop(0)])
+        return 0
+    if len(argv) in (2, 3) and argv[0] == "dev-servers" and argv[2:] in ([], ["--rest"]):
+        rest = argv[2:] == ["--rest"]
+        write_nul([name for name in read_nul(argv[1]) if starts_dev_server(name) != rest])
+        return 0
+    if len(argv) == 2 and argv[0] == "vite-configs":
+        write_nul([item for name in read_nul(argv[1]) for item in (vite_config(name), name)])
         return 0
     if len(argv) == 3 and argv[0] == "record":
         try:

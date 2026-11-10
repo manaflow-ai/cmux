@@ -246,6 +246,12 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
   const selected = [...wanted]
     .sort((a, b) => `${a.id}/${a.variant}`.localeCompare(`${b.id}/${b.variant}`))
     .filter((_, index) => index % parts === part - 1);
+  // A local filter of a few entries leaves some parts nothing: those skip, with no server started.
+  // Unfiltered (CI), every part holds entries, and an empty one still fails the length check below.
+  if (filter && selected.length === 0) {
+    test.skip(`part ${part}/${parts}: GALLERY_CONTROL_ENTRIES selects none of this part's entries`, () => {});
+    return;
+  }
   // Both phases share the part's file limit (its header). Measured on Linux CI with 372 web entries
   // in one file (runs 41601401847, 41601405383): the warm-up took 269 s with 4 workers and 267 s with
   // 8 (Vite's transforms bound it, not the browser), and the audit 240 s.

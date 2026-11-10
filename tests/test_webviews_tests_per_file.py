@@ -8,6 +8,7 @@ file and fail the step instead of hanging the job. A fake `bun` stands in for
 the real one, so no web test runs here.
 """
 
+import contextlib
 import os
 import json
 import hashlib
@@ -33,6 +34,10 @@ printf '%s\\n' "$file" >> "$BUN_CALLS"
 # What a browser file would see: whether the lane is on, and where Playwright looks for engines.
 if [ -n "${BUN_ENV_LOG:-}" ]; then
   printf '%s|%s|%s\\n' "$file" "${CMUX_BROWSER_TESTS-unset}" "${PLAYWRIGHT_BROWSERS_PATH-unset}" >> "$BUN_ENV_LOG"
+fi
+# Every file's Vite cache, as its dev server would read it: unset is Vite's shared default.
+if [ -n "${BUN_CACHE_LOG:-}" ]; then
+  printf '%s %s\\n' "$file" "${CMUX_VITE_CACHE_DIR:-unset}" >> "$BUN_CACHE_LOG"
 fi
 # A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
 # at once on one cache lose each other's files, and a cold cache is the slow first bundle.
@@ -624,6 +629,56 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
 
+    def test_a_file_that_starts_its_dev_server_through_a_helper_gets_its_own_cache(self):
+        """The gallery control audit's four parts call a support helper that starts the server
+        (createServer with `path.join(root, "vite.config.ts")`, port 0): no part holds a mark itself,
+        so all four ran in the browser pool without CMUX_VITE_CACHE_DIR, on one
+        node_modules/.vite-dev-deps-0, two at once on one shard (#40720). The runner reads the
+        support modules a file imports, through each other too, and runs these as dev server files."""
+        helper = ('import path from "node:path";\n'
+                  'export async function audit(part: number) {\n'
+                  '  const { createServer } = await import("vite");\n'
+                  '  const vite = await createServer({\n'
+                  '    configFile: path.join(root, "vite.config.ts"),\n'
+                  '    server: { port: 0, host: "127.0.0.1" },\n'
+                  '  });\n'
+                  '}\n')
+        # A helper of a helper, as papercutChat.ts is to the session-info files.
+        pane_helper = 'const config = "vite.config.acpmux-pane.mjs";\nexport const open = () => config;\n'
+        contents = {
+            "test/support/audit.ts": helper,
+            "test/support/pane.ts": pane_helper,
+            "test/support/paneChat.ts": 'export { open } from "./pane";\n',
+            # A type-only Vite import and a playwright helper start no server.
+            "test/support/typesOnly.ts": 'import type { ViteDevServer } from "vite";\nexport const x = 1;\n',
+        }
+        parts = {f"test/browser/audit-{n}.test.ts":
+                 'import { audit } from "../support/audit";\n'
+                 'import { requireBrowserLane } from "../support/requireBrowserLane";\n'
+                 f'await requireBrowserLane("audit-{n}.test.ts", () => audit({n}));\n' for n in range(1, 5)}
+        pane_files = {f"test/pane-{n}.test.ts": 'import { open } from "./support/paneChat";\nopen();\n'
+                      for n in range(1, 3)}
+        plain = {"test/types.test.ts": 'import { x } from "./support/typesOnly";\n',
+                 # A createServer of another library (no Vite import) is no dev server.
+                 "test/http.test.ts": 'import net from "node:net";\nnet.createServer({ allowHalfOpen: true });\n'}
+        contents.update({**parts, **pane_files, **plain})
+        tests = [*parts, *pane_files, *plain]
+        cache_log = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "caches"
+        cache_log.write_text("", encoding="utf-8")
+        result, _, calls = self.run_runner(list(contents), contents=contents,
+                                           extra_env={"BUN_CACHE_LOG": str(cache_log)})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in tests))
+        caches = dict(line.split(" ", 1) for line in cache_log.read_text(encoding="utf-8").splitlines())
+        dev = [f"./{name}" for name in [*parts, *pane_files]]
+        for name in dev:
+            self.assertNotEqual(caches[name], "unset", f"{name} runs on Vite's shared cache: {caches}")
+        self.assertEqual(len({caches[name] for name in dev}), len(dev), f"each part has its own cache: {caches}")
+        for name in plain:
+            self.assertEqual(caches[f"./{name}"], "unset", f"{name} starts no dev server: {caches}")
+        self.assertIn(f"({len(dev)} dev server files after", output)
+
     def test_a_failed_warming_file_hands_warming_to_the_next_file_of_its_config(self):
         # One red pane file warmed first, and every other pane file then ran one at a time on a
         # cold cache: about 7 minutes of a 13-minute shard (react-apps-check 4/4, job 118973285057).
@@ -918,6 +973,41 @@ class ShardHelper(unittest.TestCase):
         without = next(shard for shard in split if b"test/plain.test.ts" not in shard)
         # Counted on 32 plain lanes, all 32 went beside nothing: (0, 32).
         self.assertEqual((len(with_plain) - 1, len(without)), (15, 17), split)
+
+    def test_dev_server_files_are_read_through_the_support_modules_they_import(self):
+        spec = importlib.util.spec_from_file_location("webviews_test_shards", SHARDS)
+        shards = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shards)
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "test" / "support").mkdir(parents=True)
+        (temp / "src").mkdir()
+        files = {
+            "test/support/gallery.ts": ('const { createServer } = await import("vite");\n'
+                                        'await createServer({ configFile: path.join(root, "vite.config.ts") });\n'),
+            "test/support/pane.ts": 'export const config = "vite.config.acpmux-pane.mjs";\n',
+            "test/support/chat.ts": 'import { config } from "./pane";\nimport "./chat";\n',  # a cycle ends
+            "test/support/types.ts": 'import type { ViteDevServer } from "vite";\n',
+            # App code is never followed: a component naming a config is not a test's dev server.
+            "src/app.ts": 'export const config = "vite.config.acpmux-pane.mjs";\n',
+            "test/gallery.test.ts": 'import { audit } from "./support/gallery";\n',
+            "test/chat.test.ts": 'import { open } from "./support/chat.ts";\n',
+            "test/types.test.ts": 'import "./support/types";\n',
+            "test/app.test.ts": 'import { config } from "../src/app";\n',
+            "test/net.test.ts": 'net.createServer({ allowHalfOpen: true });\n',
+        }
+        for name, text in files.items():
+            (temp / name).write_text(text, encoding="utf-8")
+        # Relative names from webviews/, as the runner passes them.
+        self.enterContext(contextlib.chdir(temp))
+        found = {name: (shards.starts_dev_server(name), shards.vite_config(name))
+                 for name in files if name.endswith(".test.ts")}
+        self.assertEqual(found, {
+            "test/gallery.test.ts": (True, "default"),
+            "test/chat.test.ts": (True, "pane"),
+            "test/types.test.ts": (False, "default"),
+            "test/app.test.ts": (False, "default"),
+            "test/net.test.ts": (False, "default"),
+        })
 
     def test_the_plan_runs_browser_files_beside_plain_files(self):
         spec = importlib.util.spec_from_file_location("webviews_test_shards", SHARDS)
