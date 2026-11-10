@@ -272,6 +272,8 @@ extension SettingsSchema {
         "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
         "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
+        // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.
+        "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.
         "agents.hiddenChats.discard", "agents.hiddenChats.discardAfterMinutes",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
