@@ -1,6 +1,6 @@
 // Every machine the plan runs at once is running: the storefront's Get and the sheet's Create still work,
 // because a create there makes room by pausing a machine (the platform pauses an idle one of the person's,
-// else the host asks which to pause). Nothing on the page tells the person to delete a machine.
+// else the sheet offers to pause one). Nothing on the page tells the person to delete a machine.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -30,6 +30,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+// The machine list reveals its selected row; jsdom has no layout to scroll.
+dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const { createRoot } = await import("react-dom/client");
 const strings = createStrings(table);
 const settle = async () => {
@@ -66,7 +68,22 @@ test("at the running-machines limit, Get opens the create sheet and Create is en
     });
     expect(store.getSnapshot().create?.memoryMb).toBeGreaterThan(0);
     expect(document.querySelector(".cloud-plan-limit.reached")).not.toBeNull();
-    expect(document.querySelector<HTMLButtonElement>(".cloud-create-submit")?.disabled).toBe(false);
+    const submit = document.querySelector<HTMLButtonElement>(".cloud-create-submit");
+    expect(submit?.getAttribute("aria-disabled")).toBe("false");
+    // Nothing is idle: Create is refused with the offer to pause the running machine, and that creates.
+    await act(async () => {
+      submit!.click();
+      await settle();
+    });
+    const offer = document.querySelector<HTMLButtonElement>(".cloud-create-make-room");
+    expect(offer?.textContent).toBe("Pause old-box and create");
+    await act(async () => {
+      offer!.click();
+      await settle();
+    });
+    expect(store.getSnapshot().create).toBeUndefined();
+    expect(store.getSnapshot().machines.find((machine) => machine.id === "vm_d4")?.status).toBe("paused");
+    expect(store.getSnapshot().machines.some((machine) => machine.id.startsWith("vm_new"))).toBe(true);
   } finally {
     await act(async () => root.unmount());
     rootElement.remove();
@@ -74,8 +91,19 @@ test("at the running-machines limit, Get opens the create sheet and Create is en
 });
 
 test("no language tells the person at the limit to delete a machine", () => {
-  const english = (table as Record<string, Record<string, string>>).en!;
-  expect(english["create.limitReached"]).not.toMatch(/delete/i);
+  const languages = table as Record<string, Record<string, string>>;
+  const english = languages.en!;
   expect(english["create.limitReached"]).toMatch(/paus/i);
   expect(english["store.availabilityFull"]).toMatch(/paus/i);
+  expect(Object.keys(languages).length).toBeGreaterThan(1);
+  for (const [language, words] of Object.entries(languages)) {
+    for (const key of ["create.limitReached", "store.availabilityFull", "cap.pauseAndCreate"]) {
+      // A language that has not translated the sentence yet shows the English one: never the old one.
+      const text = words[key] ?? english[key]!;
+      expect(`${language} ${key}: ${text}`).not.toMatch(
+        /delete|löschen|supprim|elimin|borrar|削除|删除|刪除|삭제|удал/i,
+      );
+    }
+    expect(words["cap.pauseAndCreate"] ?? english["cap.pauseAndCreate"]).toContain("{name}");
+  }
 });

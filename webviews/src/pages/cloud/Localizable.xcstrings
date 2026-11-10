@@ -2648,127 +2648,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جميع الأجهزة الـ{limit} التي تشغّلها خطة {plan} في وقت واحد قيد التشغيل ({used}). لإفساح المجال، يوقف cmux مؤقتًا أحد أجهزتك الخاملة أو يسألك أي جهاز توقفه. الجهاز المتوقف مؤقتًا يحتفظ بملفاته وعملياته."
+            "value": "جميع الأجهزة الـ{limit} التي تشغّلها خطة {plan} في وقت واحد قيد التشغيل ({used}). لإفساح المجال، يوقف cmux مؤقتًا أحد أجهزتك الخاملة أو يعرض عليك إيقاف أحدها مؤقتًا. الجهاز المتوقف مؤقتًا يحتفظ بملفاته وعملياته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svih {limit} mašina koje plan {plan} pokreće istovremeno radi ({used}). Da napravi mjesta, cmux pauzira vašu neaktivnu mašinu ili pita koju da pauzira. Pauzirana mašina zadržava svoje datoteke i procese."
+            "value": "Svih {limit} mašina koje plan {plan} pokreće istovremeno radi ({used}). Da napravi mjesta, cmux pauzira vašu neaktivnu mašinu ili nudi da pauzira jednu. Pauzirana mašina zadržava svoje datoteke i procese."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner, som {plan}-abonnementet kører samtidig, kører ({used}). For at gøre plads sætter cmux en af dine inaktive maskiner på pause eller spørger, hvilken der skal på pause. En maskine på pause beholder sine filer og processer."
+            "value": "Alle {limit} maskiner, som {plan}-abonnementet kører samtidig, kører ({used}). For at gøre plads sætter cmux en af dine inaktive maskiner på pause eller tilbyder at sætte en på pause. En maskine på pause beholder sine filer og processer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} Maschinen, die der Tarif {plan} gleichzeitig ausführt, laufen ({used}). Um Platz zu schaffen, pausiert cmux eine deiner inaktiven Maschinen oder fragt, welche pausiert werden soll. Eine pausierte Maschine behält ihre Dateien und Prozesse."
+            "value": "Alle {limit} Maschinen, die der Tarif {plan} gleichzeitig ausführt, laufen ({used}). Um Platz zu schaffen, pausiert cmux eine deiner inaktiven Maschinen oder bietet an, eine zu pausieren. Eine pausierte Maschine behält ihre Dateien und Prozesse."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All {limit} machines the {plan} plan runs at once are running ({used}). To make room, cmux pauses an idle machine of yours or asks which one to pause. A paused machine keeps its files and processes."
+            "value": "All {limit} machines the {plan} plan runs at once are running ({used}). To make room, cmux pauses an idle machine of yours or offers to pause one. A paused machine keeps its files and processes."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las {limit} máquinas que el plan {plan} ejecuta a la vez están en ejecución ({used}). Para hacer sitio, cmux pausa una de tus máquinas inactivas o te pregunta cuál pausar. Una máquina en pausa conserva sus archivos y procesos."
+            "value": "Las {limit} máquinas que el plan {plan} ejecuta a la vez están en ejecución ({used}). Para hacer sitio, cmux pausa una de tus máquinas inactivas o te ofrece pausar una. Una máquina en pausa conserva sus archivos y procesos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les {limit} machines que le forfait {plan} fait tourner en même temps sont en marche ({used}). Pour faire de la place, cmux met en pause l’une de vos machines inactives ou vous demande laquelle mettre en pause. Une machine en pause conserve ses fichiers et ses processus."
+            "value": "Les {limit} machines que le forfait {plan} fait tourner en même temps sont en marche ({used}). Pour faire de la place, cmux met en pause l’une de vos machines inactives ou vous propose d’en mettre une en pause. Une machine en pause conserve ses fichiers et ses processus."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutte le {limit} macchine che il piano {plan} esegue contemporaneamente sono in esecuzione ({used}). Per fare spazio, cmux mette in pausa una tua macchina inattiva o ti chiede quale mettere in pausa. Una macchina in pausa conserva file e processi."
+            "value": "Tutte le {limit} macchine che il piano {plan} esegue contemporaneamente sono in esecuzione ({used}). Per fare spazio, cmux mette in pausa una tua macchina inattiva o ti propone di metterne una in pausa. Una macchina in pausa conserva file e processi."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "{plan} プランで同時に稼働できる {limit} 台がすべて稼働中です（{used}）。空きを作るため、cmux はアイドル状態のあなたのマシンを一時停止するか、どれを一時停止するかを確認します。一時停止したマシンのファイルとプロセスは保持されます。"
+            "state": "needs_review",
+            "value": "{plan} プランで同時に稼働できる {limit} 台がすべて稼働中です（{used}）。空きを作るため、cmux はアイドル状態のあなたのマシンを一時停止するか、1 台の一時停止を提案します。一時停止したマシンのファイルとプロセスは保持されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនទាំង {limit} ដែលគម្រោង {plan} ដំណើរការក្នុងពេលតែមួយ កំពុងដំណើរការ ({used})។ ដើម្បីទុកកន្លែង cmux ផ្អាកម៉ាស៊ីនទំនេររបស់អ្នក ឬសួរថាត្រូវផ្អាកមួយណា។ ម៉ាស៊ីនដែលបានផ្អាករក្សាឯកសារ និងដំណើរការរបស់វា។"
+            "value": "ម៉ាស៊ីនទាំង {limit} ដែលគម្រោង {plan} ដំណើរការក្នុងពេលតែមួយ កំពុងដំណើរការ ({used})។ ដើម្បីទុកកន្លែង cmux ផ្អាកម៉ាស៊ីនទំនេររបស់អ្នក ឬស្នើឱ្យផ្អាកមួយ។ ម៉ាស៊ីនដែលបានផ្អាករក្សាឯកសារ និងដំណើរការរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 요금제에서 동시에 실행할 수 있는 머신 {limit}대가 모두 실행 중입니다({used}). 자리를 만들기 위해 cmux가 유휴 상태인 내 머신을 일시 정지하거나 어떤 머신을 일시 정지할지 묻습니다. 일시 정지된 머신은 파일과 프로세스를 그대로 유지합니다."
+            "value": "{plan} 요금제에서 동시에 실행할 수 있는 머신 {limit}대가 모두 실행 중입니다({used}). 자리를 만들기 위해 cmux가 유휴 상태인 내 머신을 일시 정지하거나 머신 하나를 일시 정지하도록 제안합니다. 일시 정지된 머신은 파일과 프로세스를 그대로 유지합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner som {plan}-abonnementet kjører samtidig, kjører ({used}). For å gjøre plass setter cmux en av dine inaktive maskiner på pause eller spør hvilken som skal settes på pause. En maskin på pause beholder filene og prosessene sine."
+            "value": "Alle {limit} maskiner som {plan}-abonnementet kjører samtidig, kjører ({used}). For å gjøre plass setter cmux en av dine inaktive maskiner på pause eller tilbyr å sette en på pause. En maskin på pause beholder filene og prosessene sine."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Działają wszystkie maszyny, które plan {plan} uruchamia jednocześnie: {limit} ({used}). Aby zrobić miejsce, cmux wstrzymuje Twoją bezczynną maszynę albo pyta, którą wstrzymać. Wstrzymana maszyna zachowuje pliki i procesy."
+            "value": "Działają wszystkie maszyny, które plan {plan} uruchamia jednocześnie: {limit} ({used}). Aby zrobić miejsce, cmux wstrzymuje Twoją bezczynną maszynę albo proponuje wstrzymanie jednej. Wstrzymana maszyna zachowuje pliki i procesy."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todas as {limit} máquinas que o plano {plan} executa ao mesmo tempo estão em execução ({used}). Para abrir espaço, o cmux pausa uma máquina sua que esteja ociosa ou pergunta qual pausar. Uma máquina pausada mantém seus arquivos e processos."
+            "value": "Todas as {limit} máquinas que o plano {plan} executa ao mesmo tempo estão em execução ({used}). Para abrir espaço, o cmux pausa uma máquina sua que esteja ociosa ou oferece pausar uma. Uma máquina pausada mantém seus arquivos e processos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Работают все машины, которые тариф {plan} запускает одновременно: {limit} ({used}). Чтобы освободить место, cmux приостановит вашу простаивающую машину или спросит, какую приостановить. Приостановленная машина сохраняет файлы и процессы."
+            "value": "Работают все машины, которые тариф {plan} запускает одновременно: {limit} ({used}). Чтобы освободить место, cmux приостановит вашу простаивающую машину или предложит приостановить одну. Приостановленная машина сохраняет файлы и процессы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องทั้ง {limit} เครื่องที่แพ็กเกจ {plan} ทำงานพร้อมกันได้กำลังทำงานอยู่ ({used}) เพื่อให้มีที่ว่าง cmux จะหยุดเครื่องของคุณที่ไม่ได้ใช้งานไว้ชั่วคราว หรือถามว่าจะหยุดเครื่องใด เครื่องที่หยุดชั่วคราวยังเก็บไฟล์และโปรเซสไว้"
+            "value": "เครื่องทั้ง {limit} เครื่องที่แพ็กเกจ {plan} ทำงานพร้อมกันได้กำลังทำงานอยู่ ({used}) เพื่อให้มีที่ว่าง cmux จะหยุดเครื่องของคุณที่ไม่ได้ใช้งานไว้ชั่วคราว หรือเสนอให้หยุดเครื่องหนึ่งชั่วคราว เครื่องที่หยุดชั่วคราวยังเก็บไฟล์และโปรเซสไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} planının aynı anda çalıştırdığı {limit} makinenin tümü çalışıyor ({used}). Yer açmak için cmux boştaki bir makinenizi duraklatır veya hangisinin duraklatılacağını sorar. Duraklatılan makine dosyalarını ve işlemlerini korur."
+            "value": "{plan} planının aynı anda çalıştırdığı {limit} makinenin tümü çalışıyor ({used}). Yer açmak için cmux boştaki bir makinenizi duraklatır veya birini duraklatmayı önerir. Duraklatılan makine dosyalarını ve işlemlerini korur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Працюють усі машини, які тариф {plan} запускає одночасно: {limit} ({used}). Щоб звільнити місце, cmux призупинить вашу неактивну машину або запитає, яку призупинити. Призупинена машина зберігає файли та процеси."
+            "value": "Працюють усі машини, які тариф {plan} запускає одночасно: {limit} ({used}). Щоб звільнити місце, cmux призупинить вашу неактивну машину або запропонує призупинити одну. Призупинена машина зберігає файли та процеси."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cả {limit} máy mà gói {plan} chạy cùng lúc đều đang chạy ({used}). Để lấy chỗ, cmux tạm dừng một máy đang rảnh của bạn hoặc hỏi nên tạm dừng máy nào. Máy tạm dừng vẫn giữ tệp và tiến trình."
+            "value": "Cả {limit} máy mà gói {plan} chạy cùng lúc đều đang chạy ({used}). Để lấy chỗ, cmux tạm dừng một máy đang rảnh của bạn hoặc đề nghị tạm dừng một máy. Máy tạm dừng vẫn giữ tệp và tiến trình."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 套餐可同时运行的 {limit} 台机器都在运行（{used}）。为腾出位置，cmux 会暂停你的一台空闲机器，或询问要暂停哪一台。暂停的机器会保留文件和进程。"
+            "value": "{plan} 套餐可同时运行的 {limit} 台机器都在运行（{used}）。为腾出位置，cmux 会暂停你的一台空闲机器，或提议暂停其中一台。暂停的机器会保留文件和进程。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 方案可同時執行的 {limit} 台機器都在執行中（{used}）。為了騰出位置，cmux 會暫停你的一台閒置機器，或詢問要暫停哪一台。暫停的機器會保留檔案和處理程序。"
+            "value": "{plan} 方案可同時執行的 {limit} 台機器都在執行中（{used}）。為了騰出位置，cmux 會暫停你的一台閒置機器，或提議暫停其中一台。暫停的機器會保留檔案和處理程序。"
           }
         }
       }
@@ -31149,6 +31149,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "刪除 {name} 並建立"
+          }
+        }
+      }
+    },
+    "cap.pauseAndCreate": {
+      "comment": "Create sheet at the running-machines limit when none of the person's machines is idle: pause the named running machine (its files and processes are kept), then create",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause {name} and create"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أوقف {name} مؤقتًا ثم أنشئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pauziraj {name} i kreiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sæt {name} på pause, og opret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} pausieren und erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar {name} y crear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre {name} en pause et créer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metti in pausa {name} e crea"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} を一時停止して作成"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្អាក {name} ហើយបង្កើត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} 일시 중지 후 만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett {name} på pause, og opprett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wstrzymaj {name} i utwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar {name} e criar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приостановить {name} и создать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุด {name} ชั่วคราวแล้วสร้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} duraklat ve oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Призупинити {name} і створити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạm dừng {name} rồi tạo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂停 {name} 并创建"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫停 {name} 並建立"
           }
         }
       }
