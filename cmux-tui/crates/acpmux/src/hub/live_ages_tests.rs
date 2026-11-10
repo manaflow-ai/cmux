@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 fn hub() -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let cfg: crate::config::Config = serde_json::from_value(json!({
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({
         "harnesses": {
             "claude": {"kind": "claude-stdio", "argv": ["claude"]},
             "fake": {"argv": ["python3", fake]},
@@ -11,6 +11,7 @@ fn hub() -> Arc<Hub> {
         "defaultHarness": "claude",
     }))
     .unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
