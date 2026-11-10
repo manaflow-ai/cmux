@@ -156,6 +156,8 @@ extension HomeService {
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
         source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
+        // Every Home view reads its deleted conversations again (TopHomePageView observes it).
+        source.onHiddenChanged = { [weak self] in self?.hiddenRevision &+= 1 }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed
             Task { _ = await self?.startConversation([.contact(contact)], title: "") }

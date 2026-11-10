@@ -7,7 +7,7 @@ public import Foundation
 public struct HomeCachedSend: Hashable, Sendable, Codable {
     public var key: IdempotencyKey
     public var conversation: ConversationID
-    /// Text parts only (with their mentions).
+    /// Text parts (with their mentions), and attachment parts of a send that reached its owner.
     public var parts: [MessagePart]
     public var issuedAt: Date
     public var failed: Bool
@@ -31,11 +31,21 @@ public struct HomeCachedSend: Hashable, Sendable, Codable {
         self.init(key: key, conversation: conversation, parts: [.text(text)], issuedAt: issuedAt, failed: failed)
     }
 
-    /// The cached form of a logged send, nil for one the cache does not keep
-    /// (acknowledged, still uploading, or with a non-text part).
+    /// The cached form of a logged send, nil for one the cache does not keep: acknowledged, still
+    /// uploading, or with a part other than text and attachments. A send with attachments is kept
+    /// only once it may have reached its owner (`mayHaveBeenDelivered`): the owner holds its
+    /// uploads, so Retry resends the same parts under the same key. One whose upload failed never
+    /// reached the owner and has no local files after a relaunch, so it is not kept.
     init?(_ entry: PendingIntent) {
-        guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = entry.intent.op, !entry.isUploading,
-              parts.allSatisfy({ if case .text = $0 { true } else { false } }) else { return nil }
+        guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = entry.intent.op, !entry.isUploading else { return nil }
+        let textOnly = parts.allSatisfy { if case .text = $0 { true } else { false } }
+        let textAndFiles = parts.allSatisfy {
+            switch $0 {
+            case .text, .attachment: true
+            default: false
+            }
+        }
+        guard textOnly || (textAndFiles && entry.mayHaveBeenDelivered) else { return nil }
         if case .acknowledged = entry.state { return nil }
         let failed = if case .failed = entry.state { true } else { false }
         self.init(key: entry.intent.key, conversation: conversation, parts: parts, issuedAt: entry.intent.issuedAt, failed: failed,

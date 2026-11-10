@@ -73,4 +73,27 @@ import Testing
         #expect(Self.listed(source) == ["conv_austin", "conv_joker"])
         #expect(Self.listed(Self.source(defaults, Box())) == ["conv_austin", "conv_joker"])
     }
+
+    /// Two Home views over one account (Codex review of #40611 at 84e6fc9, F3): a delete or Show
+    /// Hidden Conversations in one tells the other (`onHiddenChanged`, which HomeService turns into
+    /// `hiddenRevision` for every TopHomePageView), and the other lists the change after reading again.
+    @Test func aDeleteInOneHomeViewReachesTheOther() {
+        let suite = "cmux.tests.homeHidden.\(UUID().uuidString)"
+        let defaults = UserDefaults(testSuiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let box = Box()
+        let first = Self.source(defaults, box)
+        let second = Self.source(defaults, box)
+        var changes = 0
+        first.onHiddenChanged = {
+            changes += 1
+            second.reloadPins()
+        }
+        #expect(first.hide(ConversationID("conv_joker")))
+        #expect(changes == 1)
+        #expect(Self.listed(second) == ["conv_austin"], "the other view drops it too")
+        #expect(first.unhideAll() == 1)
+        #expect(changes == 2)
+        #expect(Self.listed(second) == ["conv_austin", "conv_joker"], "and lists it again")
+    }
 }

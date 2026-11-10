@@ -228,8 +228,10 @@ final class TopHomePageView: NSView {
         }
         let auth = home.services.cloud.auth
         // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
+        // A deletion or Show Hidden Conversations in another Home view (``HomeService/hiddenRevision``)
+        // reads this view's deleted set again, as the account change does.
         accountObservation = Task {
-            for await _ in ObservationStream({ auth.user?.id }) { sidebar.reloadPins() }
+            for await _ in ObservationStream({ "\(auth.user?.id ?? "")#\(home.hiddenRevision)" }) { sidebar.reloadPins() }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         requestsObservation = Task { [weak self] in
