@@ -605,6 +605,8 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        // A block's own items (a long Pinned or custom section) realize with the scroll too.
+        for view in rowViews.values { (view as? SidebarBlockRowView)?.region.realizeItems() }
         showLinesInView()
         // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
         if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
