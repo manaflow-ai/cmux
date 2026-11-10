@@ -80,7 +80,9 @@ test("every built-in variant draws inside the button, hidden from readers, the l
   for (const id of Object.keys(JUMP_TO_BOTTOM_VARIANTS)) {
     act(() => configureThemeSlots({ "chat.jumpToBottom": id }));
     for (const working of [false, true]) {
-      act(() => root!.render(<JumpToLatest key={`${id}-${working}`} shown working={working} lift={0} onJump={() => {}} />));
+      act(() =>
+        root!.render(<JumpToLatest key={`${id}-${working}`} shown working={working} lift={0} onJump={() => {}} />),
+      );
       const mark = button().querySelector(".acpmux-jump-latest__arrow")!;
       expect(mark.getAttribute("aria-hidden")).toBe("true");
       expect(button().getAttribute("aria-label")).toBeTruthy();
