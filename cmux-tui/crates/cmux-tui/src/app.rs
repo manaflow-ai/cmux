@@ -408,6 +408,10 @@ pub struct App {
     /// mouse-tracking state so the host owns clicks and selection whenever
     /// the inner application did not request mouse input.
     host_mouse_capture_applied: Option<bool>,
+    /// The capture a focus-in or resize re-assert cleared from
+    /// `host_mouse_capture_applied`. A frame that cannot read the inner
+    /// state (terminal lock busy) re-emits this value instead of guessing.
+    host_mouse_capture_before_reassert: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,

@@ -614,6 +614,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: None,
         host_mouse_capture_applied: Some(true),
+        host_mouse_capture_before_reassert: None,
         graphics_writer: None,
         next_graphics_submission: 0,
         pending_graphics_submission: None,

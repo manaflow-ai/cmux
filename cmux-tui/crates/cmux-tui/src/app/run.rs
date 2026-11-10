@@ -407,6 +407,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
         host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
+        host_mouse_capture_before_reassert: None,
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
