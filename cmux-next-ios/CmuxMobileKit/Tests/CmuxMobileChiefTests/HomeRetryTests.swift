@@ -1,9 +1,10 @@
+import Foundation
 import CmuxMobileTransport
 import Testing
 @testable import CmuxMobileChief
 
 @MainActor
-@Suite struct HomeRetryTests {
+@Suite(.timeLimit(.minutes(2))) struct HomeRetryTests {
     @Test func failedHomeLoadRetriesTheFeedOnTheExistingLink() async throws {
         let owner = FakeHomeOwner()
         let link = PushLink { owner.respond($0) }
@@ -53,6 +54,29 @@ import Testing
 
         #expect(owner.inboxReads > before)
         #expect(feed.problem == nil)
+    }
+
+    /// A channel that goes quiet without closing never answers the read: the retry
+    /// comes back after its cap, so Retry can be tapped again (it does not spin forever).
+    @Test func homeRetryComesBackWhenTheReadNeverAnswers() async {
+        let owner = FakeHomeOwner()
+        let quiet = QuietSwitch()
+        let link = PushLink { request in
+            let object = (try? JSONSerialization.jsonObject(with: request)) as? [String: Any]
+            if quiet.isOn, object?["cmd"] as? String == "home-inbox" { return [] }
+            return owner.respond(request)
+        }
+        let feed = MacHomeFeed()
+        await feed.connect(link: link, macID: "mac-home")
+        #expect(await MacHomeFeedTests().until { feed.rows != nil })
+        quiet.isOn = true
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        await feed.reload(cap: .milliseconds(200))
+
+        #expect(clock.now - start >= .milliseconds(200))
+        #expect(clock.now - start < .seconds(10))
     }
 
     @Test func offlineHomeRetryRequestsOnlyItsOwningMac() async {
@@ -177,5 +201,15 @@ import Testing
         await task.value
         #expect(!loader.failed)
         #expect(loader.session == nil)
+    }
+}
+
+/// Makes a fake Mac stop answering home-inbox reads.
+final class QuietSwitch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+    var isOn: Bool {
+        get { lock.withLock { on } }
+        set { lock.withLock { on = newValue } }
     }
 }

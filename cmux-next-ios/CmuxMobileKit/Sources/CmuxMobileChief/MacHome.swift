@@ -276,6 +276,7 @@ public final class MacHomeFeed {
             await opened?.close()
             guard mine == generation else { return }
             problem = Self.reason(error)
+            readAnswered()
         }
     }
 
@@ -338,6 +339,7 @@ public final class MacHomeFeed {
         closeSessions()
         self.macID = macID
         link = nil
+        readAnswered()
         let old = detach()
         Task { await old?.close() }
     }
@@ -370,12 +372,42 @@ public final class MacHomeFeed {
     /// Reads the rows: one read at a time, and a request during a read runs one more after it.
     public func refresh() { refresh(relist: false) }
 
-    /// ``refresh()``, returning once its read (and any channel open it needs) has
-    /// answered, so a Retry can show its spinner for exactly as long as the load.
-    public func reload() async {
+    /// ``refresh()``, returning once the next read (or the channel open it needs)
+    /// has answered, so a Retry shows its spinner for as long as the load and no
+    /// longer. It returns at once with nothing to read from (no channel, no link),
+    /// on cancellation, and after `cap` (a channel that goes quiet without closing
+    /// never answers; Retry must come back to be tapped again).
+    public func reload(cap: Duration = .seconds(15)) async {
         refresh(relist: false)
-        if let openTask { await openTask.value }
-        if let readTask { await readTask.value }
+        guard client != nil || opening else { return }
+        readWaiterCount += 1
+        let id = readWaiterCount
+        // task-owner: the cap of one reload; ends at the cap or with the reload's own end
+        let capTask = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: cap)
+            self?.endReadWait(id)
+        }
+        defer { capTask.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { readWaiters[id] = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.endReadWait(id) }
+        }
+    }
+
+    /// Reloads waiting for the next read's answer, by id.
+    @ObservationIgnored private var readWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored private var readWaiterCount = 0
+
+    private func endReadWait(_ id: Int) {
+        readWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    /// A read or an open answered (either way): every waiting reload returns.
+    private func readAnswered() {
+        let waiting = readWaiters
+        readWaiters = [:]
+        for waiter in waiting.values { waiter.resume() }
     }
 
     private func refresh(relist: Bool) {
@@ -383,10 +415,9 @@ public final class MacHomeFeed {
             // No channel (it failed or ended) while the link is up: open it again.
             if let link, !opening {
                 opening = true
-                openTask = Task { [weak self] in
+                Task { [weak self] in
                     await self?.open(link)
                     self?.opening = false
-                    self?.openTask = nil
                 }
             }
             return
@@ -396,8 +427,8 @@ public final class MacHomeFeed {
         reading = true
         let mine = generation
         // task-owner: one home-inbox read (and one more per request made during it); ends with its reply
-        readTask = Task { [weak self] in
-            defer { if let self, mine == self.generation { self.reading = false; self.readTask = nil } }
+        Task { [weak self] in
+            defer { if let self, mine == self.generation { self.reading = false } }
             while let self, mine == self.generation {
                 self.readAgain = false
                 let relist = self.needsRelist
@@ -415,6 +446,7 @@ public final class MacHomeFeed {
                     guard mine == self.generation else { return }
                     self.problem = Self.reason(error)
                 }
+                self.readAnswered()
                 if !self.readAgain { break }
             }
         }
@@ -422,10 +454,6 @@ public final class MacHomeFeed {
 
     @ObservationIgnored private var needsRelist = false
     @ObservationIgnored private var opening = false
-    /// The channel open ``refresh()`` started, awaited by ``reload()``.
-    @ObservationIgnored private var openTask: Task<Void, Never>?
-    /// The read ``refresh()`` started, awaited by ``reload()``.
-    @ObservationIgnored private var readTask: Task<Void, Never>?
 
     private func listed(_ client: DaemonClient) async throws {
         let list = try await Self.call(client, "conversation-list", [:])

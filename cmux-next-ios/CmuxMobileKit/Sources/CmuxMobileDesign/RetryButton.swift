@@ -33,6 +33,8 @@ public struct RetryButton: View {
         self.action = action
     }
 
+    private var titleText: Text { title ?? Text(verbatim: Self.defaultTitle) }
+
     /// The default title: "Retry".
     public static var defaultTitle: String {
         String(localized: "recovery.retry", defaultValue: "Retry", bundle: .module)
@@ -51,7 +53,7 @@ public struct RetryButton: View {
             // The title keeps its place and width while loading; the spinner replaces it
             // in place, so the capsule never resizes and nothing around it moves. The
             // capsule keeps its colors too: no disabled-state color flash on the tap.
-            (title ?? Text(verbatim: Self.defaultTitle))
+            titleText
                 .opacity(isRetrying ? 0 : 1)
                 .overlay {
                     if isRetrying {
@@ -65,6 +67,8 @@ public struct RetryButton: View {
         })
         // Repeated taps cannot overlap a load; not `.disabled`, which would swap the colors.
         .allowsHitTesting(!isRetrying)
+        // The hidden title still names the button for VoiceOver while it loads.
+        .accessibilityLabel(titleText)
         .accessibilityAddTraits(isRetrying ? .updatesFrequently : [])
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
         .task(id: isRetrying) {
