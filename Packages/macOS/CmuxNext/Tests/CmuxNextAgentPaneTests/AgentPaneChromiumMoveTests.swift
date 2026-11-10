@@ -197,7 +197,7 @@ struct AgentPaneChromiumMoveTests {
         let deadline = Date().addingTimeInterval(5)
         while asked == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         try #require(asked > 0, "no size wait was asked of the page")
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(500)) // the fake's answer comes back in a later turn
         let atRest = view.topBar.contentFrame(in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page came in while its pane is on its spring, at \(view.pageContent.frame.size)")
         #expect(view.pageContent.frame.size == atRest)

@@ -14,10 +14,4 @@ extension TerminalHostView {
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         return backdrop.panesPaintBackground ? opaqueGround(theme) : nil
     }
-
-    /// The background of `theme`'s empty cells, else the config's.
-    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
-        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
-        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
-    }
 }

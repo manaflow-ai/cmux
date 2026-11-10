@@ -28,12 +28,12 @@ struct AgentPaneNewPaneGroundTests {
     nonisolated static let cases = [false, true].flatMap { chromium in [true, false].map { Case(chromium: chromium, newTab: $0) } }
 
     /// The window colour the pane's area shows where nothing paints over it (the kit's FF00FF).
-    private static let window = ThemeRGB(hex: 0xFF00FF)
+    static let window = ThemeRGB(hex: 0xFF00FF)
     /// The chat's own ground (`appearance.surfaces`; the kit's 0000FF).
-    private static let chatGround = ThemeRGB(hex: 0x0000FF)
+    static let chatGround = ThemeRGB(hex: 0x0000FF)
 
     /// The pixel at `point` (the host's coordinates, origin bottom left) of `host`'s layer tree as it would draw now.
-    private static func pixel(of host: NSView, at point: CGPoint) throws -> [Int] {
+    static func pixel(of host: NSView, at point: CGPoint) throws -> [Int] {
         host.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
         CATransaction.flush()
@@ -48,14 +48,14 @@ struct AgentPaneNewPaneGroundTests {
         return (0..<3).map { Int(data[offset + $0]) }
     }
 
-    private static func rgb(_ color: ThemeRGB) -> [Int] {
+    static func rgb(_ color: ThemeRGB) -> [Int] {
         [color.red, color.green, color.blue].map { Int(($0 * 255).rounded()) }
     }
 
     /// A new pane's chat in a pane area that shows the window colour, its page not drawn yet, under a scope whose
     /// `appearance.surfaces` give `surface` the background `ground`.
     /// The scope is the caller's to keep: the registry holds it weakly.
-    private func pane(_ c: Case, ground: SurfaceBackground) async throws -> (AgentPaneView, NSView, NSWindow, ThemeScope) {
+    func pane(_ c: Case, ground: SurfaceBackground) async throws -> (AgentPaneView, NSView, NSWindow, ThemeScope) {
         _ = NSApplication.shared
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: c.newTab ? AgentPaneNewTab(kind: .agent) : nil),

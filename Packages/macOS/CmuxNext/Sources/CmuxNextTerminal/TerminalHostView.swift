@@ -580,6 +580,12 @@ public final class TerminalHostView: NSView {
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
     }
+
+    /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).
+    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
+        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
+        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+    }
 }
 
 /// Repaints a host when the scope around it changes its colors or its art.

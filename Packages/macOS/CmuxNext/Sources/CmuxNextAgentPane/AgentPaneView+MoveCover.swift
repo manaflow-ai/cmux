@@ -8,8 +8,10 @@ import CmuxNextWakeups
 extension AgentPaneView {
     /// Keeps this view's page clear until its next frame; `drawn` runs then, in the transaction that shows it.
     /// A page whose frame is never reported (a hung web process) shows after `limit` all the same.
-    public func hideMovedPage(limit: Duration = .seconds(3), until drawn: @escaping () -> Void) {
+    /// `overPicture`: the page's picture stands in under this view until then, so the chat's ground stays out too.
+    public func hideMovedPage(limit: Duration = .seconds(3), overPicture: Bool = false, until drawn: @escaping () -> Void) {
         pageContent.alphaValue = 0
+        if overPicture { ground.isHidden = true }
         let deadline = DemandTimer(owner: "newTab.moveCover.deadline")
         deadline.schedule(after: limit) { @MainActor [weak self] in
             withExtendedLifetime(deadline) {}
@@ -27,6 +29,7 @@ extension AgentPaneView {
 
     /// Shows a page ``hideMovedPage(until:)`` keeps clear.
     public func revealMovedPage() {
+        ground.isHidden = false
         guard model.hasPainted else { return }
         pageContent.alphaValue = 1
         PageWebView.syncChromiumVisibility(in: pageContent)
@@ -52,8 +55,9 @@ extension AgentPaneView {
     @MainActor
     final class ChromiumMoveWait {
         let move: ChromiumMove
-        let size: CGSize
-        /// Shows the page after the move cover's limit when it never reports its frame.
+        /// The size the page waits for; another one when its pane rests at another size during the hold.
+        var size: CGSize
+        /// Shows the page after the move cover's limit when it never reports its frame; one per hold.
         let deadline = DemandTimer(owner: "newTab.chromiumMove.deadline")
         /// The page drew at `size` while its pane was still on its spring: it shows in the layout the pane lands in.
         var drewAtRest = false
@@ -102,13 +106,14 @@ extension AgentPaneView {
     /// the spring (242 pt of 459 in the films of #39993), the page got each later size and never drew one at the first,
     /// and the new pane showed no chat until the wait's bound of 60 frames (75 to 84 frames at 120 Hz, about 650 ms).
     func placeChromiumMove(at frame: NSRect) {
+        guard chromiumMove != nil || chromiumMoveWait != nil else { return }
         let rest = restingFrame(of: frame)
         let landed = Self.near(frame.size, rest.size, within: 0.5)
         if let wait = chromiumMoveWait, holdsPageAway {
             if !Self.near(wait.size, rest.size, within: 1) {
                 // The pane rests at another size now: the page is laid out there (``layout()``) and the wait follows it.
-                wait.deadline.cancel()
-                waitForChromiumMove(wait.move, at: rest.size, drawn: false)
+                // The hold's first deadline stays, so a size that changes in every frame cannot keep the page away.
+                askFrame(of: wait, at: rest.size)
             } else if wait.drewAtRest, landed {
                 showMovedChromiumPage(wait)
             }
@@ -135,20 +140,24 @@ extension AgentPaneView {
 
     /// Holds the page until it drew a frame at `size` and its pane is at that size. `drawn`: it is laid out at `size`
     /// already (parked there), so only its pane's landing is waited for. A page that never reports its frame, or a
-    /// pane that never lands, shows after the move cover's limit all the same. A newer wait (another rest size)
-    /// replaces this one.
+    /// pane that never lands, shows after the move cover's limit all the same.
     private func waitForChromiumMove(_ move: ChromiumMove, at size: CGSize, drawn: Bool) {
-        guard let page else { return }
+        guard page != nil else { return }
         let wait = ChromiumMoveWait(move: move, size: size)
-        wait.drewAtRest = drawn
         chromiumMoveWait = wait
         wait.deadline.schedule(after: .seconds(3)) { @MainActor [weak self, weak wait] in
             guard let self, let wait else { return }
             showMovedChromiumPage(wait)
         }
-        guard !drawn else { return }
-        page.afterFrame(at: size) { [weak self, weak wait] in
-            guard let self, let wait, chromiumMoveWait === wait else { return }
+        if drawn { wait.drewAtRest = true } else { askFrame(of: wait, at: size) }
+    }
+
+    /// Asks the page of `wait` for its frame at `size`, the size the wait is for from now. The answer for a size the
+    /// wait left is dropped.
+    private func askFrame(of wait: ChromiumMoveWait, at size: CGSize) {
+        (wait.size, wait.drewAtRest) = (size, false)
+        page?.afterFrame(at: size) { [weak self, weak wait] in
+            guard let self, let wait, chromiumMoveWait === wait, wait.size == size else { return }
             // Still on its spring: the page keeps its one size outside the window and shows in the layout the pane
             // lands in (``placeChromiumMove(at:)``), not at a size of the spring.
             let frame = topBar.contentFrame(in: bounds)

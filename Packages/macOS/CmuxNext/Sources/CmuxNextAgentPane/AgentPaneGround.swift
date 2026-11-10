@@ -47,3 +47,20 @@ final class AgentPaneGround: NSView {
         if self.frame != frame { self.frame = frame }
     }
 }
+
+extension AgentPaneView {
+    /// A picture of this chat stands in under this view (its pane's launch image, the chat's last frame): the pane stays
+    /// clear above it. The loading state is off, and the ground, which lies over that picture, stays out until the
+    /// picture goes (``pictureBelowWent()``) or the page paints.
+    public func standOverPicture() {
+        showsLoadingState = false
+        ground.isHidden = true
+    }
+
+    /// The picture under this view went: the ground paints again, and a chat that has not painted shows its loading
+    /// state (a New Tab page has none).
+    public func pictureBelowWent() {
+        ground.isHidden = false
+        if model.newTab == nil { showsLoadingState = true }
+    }
+}
