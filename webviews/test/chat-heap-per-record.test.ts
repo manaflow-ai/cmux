@@ -11,7 +11,7 @@ import { AcpmuxDirectClient, thinStreamedOutputs, type EventRecord } from "../sr
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const SESSION = "heap-chat";
-const UPDATES = 30;
+const UPDATES = 60;
 const LINES = 40;
 const READ_CHARS = 512 * 1024;
 
@@ -36,7 +36,13 @@ function batch(turn: number, seq: number): { events: EventRecord[]; shownChars: 
   });
   const shell = `shell-${turn}`;
   events.push(
-    update({ sessionUpdate: "tool_call", toolCallId: shell, kind: "execute", title: "Run tests", status: "in_progress" }),
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: shell,
+      kind: "execute",
+      title: "Run tests",
+      status: "in_progress",
+    }),
   );
   let log = "";
   for (let step = 0; step < UPDATES; step += 1) {
@@ -64,7 +70,10 @@ function batch(turn: number, seq: number): { events: EventRecord[]; shownChars: 
     }),
   );
   events.push(update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Turn ${turn} done.` } }));
-  return { events, shownChars: log.length + body.length };
+  // Each record parsed from its own frame, as the socket delivers it: every update's output its own flat string
+  // (built here, the cumulative outputs would share one rope and hide what holding each update costs).
+  const parsed = events.map((event) => JSON.parse(JSON.stringify(event)) as EventRecord);
+  return { events: parsed, shownChars: log.length + body.length };
 }
 
 function heapBytes(): number {
@@ -130,8 +139,10 @@ test("heap per batch of records stays flat as the chat grows, near what the batc
     xs.reduce((sum, x, index) => sum + (x - mx) * (added[index]! - perBatch), 0) /
     xs.reduce((sum, x) => sum + (x - mx) ** 2, 0);
   const report = `added per batch (KB): ${added.map((bytes) => Math.round(bytes / 1024)).join(" ")}; shown ${Math.round(shown / 1024)} KB`;
-  // Growth per batch under 2% of a batch's cost per batch (GC noise), and a batch costs under twice what it shows.
+  console.log(report);
+  // Growth per batch under 2% of a batch's cost per batch (GC noise), and a batch costs under 1.5 times what it
+  // shows (held whole, each streamed update's output alone came to about five times).
   expect(slope, report).toBeLessThan(0.02 * Math.max(perBatch, shown));
-  expect(perBatch, report).toBeLessThan(2 * shown);
+  expect(perBatch, report).toBeLessThan(1.5 * shown);
   client.dispose();
 });
