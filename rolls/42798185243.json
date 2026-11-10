@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42798185243",
+  "recorded_at": "2026-11-10T10:31:25Z",
+  "reason": "cmux-tui 373dfe709e9b changes the image's cmux-tui (pinned 0970103d1870)",
+  "dry_run": false,
+  "cmux_tui": "373dfe709e9bfa1f3e1a8562afbd6224043c8373",
+  "fixes": [
+    {
+      "sha": "373dfe709e9bfa1f3e1a8562afbd6224043c8373",
+      "mergedAt": "2026-11-10T10:02:40Z",
+      "subject": "chore(next): base autofix at 725e1127e364"
+    },
+    {
+      "sha": "f69b358fce217d74b304ab3340e42ec2bbdd86e5",
+      "mergedAt": "2026-11-10T01:59:13-08:00",
+      "subject": "Cloud cleanup follow-ups: archives with no machines, Restore's answer, Return during the archive wait, vm: in make-room (#40309)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T10:31:25Z",
+    "snapshot_id": "sh-c8ade418440b4f62a9850928dbf890db",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42798185243): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "796eb668746a4a2058913b4e65e26be58fcb28be",
+    "image": "cloud-native-auto-373dfe70-42798185243-1",
+    "revision": "ci-42798185243-1",
+    "at": "2026-11-10T10:31:25Z"
+  },
+  "rolled_back": false
+}
