@@ -63,12 +63,10 @@ export const withRunCap = (principal: Principal, requested: CreateVmRequest): Cr
  * Whether one more VM of `size` fits the agent key's budget: fewer live VMs than
  * maxVms, and the estimated USD/h of the live ones (as the provider reports their
  * size) plus the new one at most maxUsdPerHour. The live-VM count is then admitted
- * atomically: the tenant ledger reserves one slot of the key's own kind
- * (`agent-vm:<actor>`) under maxVms, counting the key's creates still in flight, so
- * two concurrent creates cannot both pass at maxVms - 1. The team's VM quota is no
- * longer the bound (a paid team has no machine count), so this reservation is.
- * Answers the reservation id to release once the create is recorded or failed;
- * undefined when the caller has no agent budget.
+ * atomically as an agent slot (limits/agent-slots.ts): the team's VM quota is no
+ * longer the bound (a paid team has no machine count), so the slot is. Answers the
+ * slot to settle once the create ends (`settleAgentCreate`); undefined when the
+ * caller has no agent budget.
  */
 export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, size: SizeRequest | undefined) =>
   Effect.gen(function* () {
@@ -97,23 +95,26 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
         }),
       );
     }
-    // Count again from the ownership table alone (no provider calls) right before reserving, so a create
-    // recorded while the priced listing above ran is counted, as tenantMayCreate counts just before its reserve.
-    const owned = yield* visitOwnedVms(caller, { limit: budget.maxVms + 1, after: null, labels: null }, () => Effect.succeed(1))
+    // Admission is atomic in the tenant ledger (limits/agent-slots.ts): it counts, in one transaction, the VMs the
+    // ownership table answers for this key (read here, with no provider calls) together with the creates and the
+    // just-recorded VMs its slots hold, so concurrent creates cannot pass at maxVms - 1.
+    const owned = yield* visitOwnedVms(caller, { limit: budget.maxVms + 1, after: null, labels: null }, (vm) => Effect.succeed(vm.value))
       .pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
-    const reserved = yield* (yield* TenantLimits)
-      .reserve(caller.value.tenantId, agentVmKind(caller.value), budget.maxVms, owned.results.length)
+    const agent = agentSlotOwner(caller.value);
+    const slotId = crypto.randomUUID();
+    const admitted = yield* (yield* TenantLimits)
+      .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId)
       .pipe(Effect.mapError(unavailable));
-    if (!reserved.ok) {
+    if (!admitted) {
       return yield* Effect.fail(
         new QuotaExceeded({ message: `This agent key already has its limit of ${budget.maxVms} VMs; delete one first`, budget: "agent_vms" }),
       );
     }
-    return reserved.reservationId;
+    return { agent, slotId };
   });
 
-/** The ledger kind an agent key's live-VM budget is reserved under: one per key (or CI trust row). */
-export const agentVmKind = (principal: Principal): string => `agent-vm:${actorRef(principal.actor)}`;
+/** Whose live-VM budget an agent slot counts against: one per key (or CI trust row). */
+export const agentSlotOwner = (principal: Principal): string => actorRef(principal.actor);
 
 /** Revokes every live client session of a VM (deleting each provider identity); how many were revoked. */
 export const revokeVmClientSessions = (tenantId: TenantId, vmId: string) =>

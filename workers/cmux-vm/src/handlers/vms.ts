@@ -22,7 +22,7 @@ import { retireVm } from "./retire.ts";
 import { VmInstanceIdentity } from "../api/instance-identity.ts";
 import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Either, Option, Schema } from "effect";
+import { Clock, Effect, Either, Exit, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
 import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
@@ -35,7 +35,7 @@ import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { MeshStore } from "../db/mesh.ts";
-import { agentBudgetAllows, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
+import { agentBudgetAllows, agentSlotOwner, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -151,8 +151,11 @@ const settleDeletedCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScop
   Effect.gen(function* () {
     const tenantId = caller.value.tenantId;
     const key = yield* (yield* OwnershipStore).creationKey(tenantId, vmId).pipe(Effect.mapError(unavailable));
-    if (key === null) return;
     const limits = yield* TenantLimits;
+    // A deleted VM, or its cancelled create, no longer counts against an agent key's budget. Best effort: the
+    // delete already happened, and a slot left behind lapses on its own.
+    yield* limits.forgetAgentVm(tenantId, vmId, key).pipe(Effect.ignore);
+    if (key === null) return;
     const progress = (yield* limits.inspect(tenantId, key).pipe(Effect.mapError(unavailable)))?.progress;
     if ((progress?.phase !== "creating" && progress?.phase !== "cancelled") || progress.vmId !== vmId) return;
     const settle = progress.phase === "cancelled" || progress.cancelRequested === true ? limits.settleCancellation : limits.settleCreation;
@@ -302,6 +305,29 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
   return yield* replayVm(caller, scope, prior.vmId);
 });
 
+/**
+ * Settles an agent create's slot (limits/agent-slots.ts) by how it ended: a recorded VM keeps the slot naming it; a
+ * create whose send began (its intent is `creating`) may exist upstream unrecorded, so the slot stays, naming the
+ * intent's VM id and bound to the creation key, until that VM is deleted or a retry records it; any other failure
+ * gives the slot back. Best effort: a slot left unsettled
+ * lapses on its own, after the longest create.
+ */
+const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agent: string; readonly slotId: string }, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const tenantId = caller.value.tenantId;
+    if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
+    const progress = (yield* limits.inspect(tenantId, key))?.progress;
+    const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
+      : progress?.phase === "creating" ? { held: key, vmId: progress.vmId }
+      : "released" as const;
+    return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
+  }).pipe(Effect.ignore);
+
+/** A resumed agent create recorded `vmId`: the slot its first attempt held now names that VM. */
+const bindAgentCreate = <C>(caller: Named<C, Principal>, key: string, vmId: string) =>
+  Effect.flatMap(TenantLimits, (limits) => limits.bindAgentCreation(caller.value.tenantId, agentSlotOwner(caller.value), key, vmId)).pipe(Effect.ignore);
+
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
 
 /**
@@ -380,8 +406,8 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
-            // The budget's slot is held until the create is recorded or failed, so concurrent creates count it.
-            let agentSlot: string | undefined;
+            // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
+            let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
             if (resumeSlot(key, prior) === undefined) {
               yield* reclaimGoneCiVms(caller, scope);
               agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
@@ -399,9 +425,13 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
                   );
                 }),
               );
-            if (agentSlot === undefined) return yield* create;
+            if (agentSlot === undefined) {
+              // A resumed agent create recorded its VM: the slot held for it now names that VM.
+              if (caller.value.agent === undefined) return yield* create;
+              return yield* create.pipe(Effect.tap((vm) => bindAgentCreate(caller, key, vm.id)));
+            }
             const slot = agentSlot;
-            return yield* create.pipe(Effect.ensuring(Effect.flatMap(TenantLimits, (limits) => limits.release(caller.value.tenantId, slot))));
+            return yield* create.pipe(Effect.onExit((exit) => settleAgentCreate(caller, slot, key, exit)));
           }),
         (vmId) => replayVm(caller, scope, vmId),
         clientFingerprint,
