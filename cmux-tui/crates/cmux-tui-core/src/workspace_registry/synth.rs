@@ -287,8 +287,19 @@ fn create_workspaces(mux: &Arc<crate::Mux>, count: u32) -> anyhow::Result<Vec<St
         .collect()
 }
 
+/// A seal call that loses to another sealer on the same registry and makes
+/// no progress of its own this many times in a row fails the generation.
+const SEAL_STALLS: u32 = 8;
+
 /// Seal the journal through a fresh checkpoint, one segment per call, on
 /// owners opened for it. Returns the sealed end and the segments sealed.
+///
+/// The owner's own journal maintenance seals too (every 30 s in a release
+/// build; the test interval override is debug-only), so a call can lose the
+/// boundary to it ("journal segment boundary changed repeatedly during
+/// sealing") or find its range already sealed. Its segments are progress
+/// all the same: the loop reads the sealed end and goes on. On a 12M-row
+/// registry every generation lost that race (2026-11-09).
 fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)> {
     let open = || {
         crate::Mux::open_persistent(
@@ -309,32 +320,50 @@ fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)>
     let mut opened = Instant::now();
     let target =
         mux.create_journal_checkpoint(ORIGIN, "synth-checkpoint")?.checkpoint.source_sequence;
-    let mut segments = 0_u64;
+    let mut calls = 0_u64;
+    let mut stalls = 0_u32;
     let mut through = 0;
-    while through < target {
+    let result = loop {
+        if through >= target {
+            break Ok(());
+        }
         if opened.elapsed() > SEAL_OWNER_SPAN {
             mux.shutdown();
             drop(mux);
             mux = open()?;
             opened = Instant::now();
         }
-        let sealed = mux.seal_journal_segments(target, ORIGIN, &format!("synth-seal-{segments}"));
-        let sealed = match sealed {
-            Ok(sealed) => sealed,
-            Err(error) => {
-                mux.shutdown();
-                return Err(error);
-            }
+        let sealed = mux.seal_journal_segments(target, ORIGIN, &format!("synth-seal-{calls}"));
+        calls += 1;
+        let reached = match sealed {
+            Ok(sealed) => sealed.through_sequence,
+            Err(error) => match sealed_end(&mux) {
+                Ok(end) if end > through => end,
+                Ok(_) if stalls + 1 < SEAL_STALLS => {
+                    stalls += 1;
+                    continue;
+                }
+                Ok(_) => break Err(error),
+                Err(read) => break Err(read.context(error)),
+            },
         };
-        segments += sealed.segments.len() as u64;
-        anyhow::ensure!(sealed.through_sequence > through, "sealing made no progress");
-        through = sealed.through_sequence;
-        if options.progress && segments.is_multiple_of(200) {
-            eprintln!("synth: sealed {segments} segments through {through} of {target}");
+        if reached <= through {
+            break Err(anyhow::anyhow!("sealing made no progress"));
         }
-    }
+        stalls = 0;
+        through = reached;
+        if options.progress && calls.is_multiple_of(200) {
+            eprintln!("synth: sealed through {through} of {target} in {calls} calls");
+        }
+    };
+    let segments = result.and_then(|()| mux.journal_segments());
     mux.shutdown();
-    Ok((through, segments))
+    Ok((through, segments?.len() as u64))
+}
+
+/// The end of the sealed journal: the highest segment end, 0 for none.
+fn sealed_end(mux: &crate::Mux) -> anyhow::Result<u64> {
+    Ok(mux.journal_segments()?.iter().map(|segment| segment.end_sequence).max().unwrap_or(0))
 }
 
 #[derive(Debug, Default, Clone, Copy)]
