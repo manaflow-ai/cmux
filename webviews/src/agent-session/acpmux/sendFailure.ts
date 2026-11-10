@@ -4,6 +4,7 @@
 // reason and code (direct.ts copies acpmux's `data.reason` and `data.code` onto the error and the
 // prompt's delivery), never from its words; the words and the code stay for Details.
 import { translate } from "./i18n";
+import { PrefixFilter } from "./conversation/prefixFlatMap";
 import { DATE } from "./conversation/turns";
 import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxRow } from "./model";
@@ -106,6 +107,7 @@ function withoutCode(message: string, code: string | undefined): string {
 export type FailedRun = { rowIds: readonly string[] };
 
 const failedPrompt = (row: AcpmuxRow) => row.kind === "user" && row.failed === true && !row.received && !row.incoming;
+const failedReads = new PrefixFilter<AcpmuxRow>(failedPrompt);
 
 /// What makes two failures the same: acpmux's reason and the code, else the refuser's own words.
 function runKey(row: AcpmuxRow): string {
@@ -123,12 +125,17 @@ export function failedRuns(
 ): ReadonlyMap<string, FailedRun> {
   const runs = new Map<string, FailedRun>();
   let run: { key: string; rowIds: string[] } | undefined;
-  for (const row of rows) {
-    if (row.kind === DATE) continue;
-    if (!failedPrompt(row)) {
-      run = undefined;
-      continue;
-    }
+  // Only the failed prompts, from a pass that reads only the rows a snapshot changed
+  // (conversation/prefixFlatMap.ts); a row between two of them that is not a date line ends the run.
+  const { items, from } = failedReads.read(rows);
+  let last = -1;
+  for (let at = 0; at < items.length; at++) {
+    const row = items[at]!;
+    const index = from[at]!;
+    let between = last + 1;
+    while (between < index && rows[between]!.kind === DATE) between += 1;
+    if (last < 0 || between < index) run = undefined;
+    last = index;
     const key = runKey(row);
     if (run?.key !== key) run = { key, rowIds: [] };
     run.rowIds.push(row.id);

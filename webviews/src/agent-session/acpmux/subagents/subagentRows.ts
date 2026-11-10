@@ -1,3 +1,4 @@
+import { PrefixFilter } from "../conversation/prefixFlatMap";
 import { turnCopyParts } from "../conversation/turnCopy";
 import type { Folds } from "../conversation/viewFolds";
 import { turnWork } from "../conversation/waterfallSpans";
@@ -24,15 +25,24 @@ export function subagentsIn(
   views: Record<string, AcpmuxRow[]> = {},
 ): Map<string, Subagent> {
   const found = new Map<string, Subagent>();
-  // Reads the rows in place: the chat calls this on every snapshot, and copying every row (and
-  // every subagent view's rows) into one array first cost a whole-transcript allocation each time.
-  const scan = (list: readonly AcpmuxRow[]) => {
-    for (const row of list)
-      if (row.kind === SUBAGENTS) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
+  // The chat calls this on every snapshot: the group rows come from a pass that reads only the rows
+  // the snapshot changed (prefixFlatMap.ts), and a view's from the last read of that same view.
+  const scan = (groups: readonly AcpmuxRow[]) => {
+    for (const row of groups) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
   };
-  scan(rows);
-  for (const view of Object.values(views)) scan(view);
+  scan(groupReads.read(rows).items);
+  for (const view of Object.values(views)) scan(viewGroups(view));
   return found;
+}
+
+const isGroupRow = (row: AcpmuxRow) => row.kind === SUBAGENTS;
+const groupReads = new PrefixFilter<AcpmuxRow>(isGroupRow, 6);
+/// A subagent view's group rows, by the view's array: an unchanged view is not read again.
+const viewGroupCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
+function viewGroups(view: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  let groups = viewGroupCache.get(view);
+  if (!groups) viewGroupCache.set(view, (groups = view.filter(isGroupRow)));
+  return groups;
 }
 
 /// Subagent `id`'s own view: the "Subagent of" pill naming its parent (a subagent, or the chat,
@@ -150,13 +160,17 @@ export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, pr
 /// height. Each carries its place in the list (`status`: only, first, middle or last) for the
 /// list's border. A group's version records whether it is open.
 export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
-  if (!rows.some(isSubagentGroup)) return rows as AcpmuxRow[];
+  // The groups that list their subagents (a run group's card stays as it is), from a pass that
+  // reads only the rows a snapshot changed (conversation/prefixFlatMap.ts). None: the rows as they
+  // are, so the next snapshot builds on them (subagentRowsFrom) instead of copying every row.
+  const listed = listedGroups.read(rows).from;
+  if (listed.length === 0) return rows as AcpmuxRow[];
   const out: AcpmuxRow[] = [];
-  for (const row of rows) {
-    if (!isSubagentGroup(row) || isRunGroup(row)) {
-      out.push(row);
-      continue;
-    }
+  let next = 0;
+  for (const index of listed) {
+    for (; next < index; next += 1) out.push(rows[next]!);
+    next = index + 1;
+    const row = rows[index]!;
     const open = expanded.has(row.id);
     out.push({ ...row, version: row.version * 2 + (open ? 1 : 0) });
     if (!open) continue;
@@ -174,5 +188,7 @@ export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: Folds): A
       });
     });
   }
+  for (; next < rows.length; next += 1) out.push(rows[next]!);
   return out;
 }
+const listedGroups = new PrefixFilter<AcpmuxRow>((row) => isSubagentGroup(row) && !isRunGroup(row), 6);
