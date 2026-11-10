@@ -18,8 +18,8 @@ A job is `linux` when every label its `runs-on` can resolve to is Blacksmith or 
 (tests/runs_on_labels.py, the rule the Linux runner guards use), `mac` when one of them is a macOS or Xcode
 label, and `other` otherwise (a build-fleet gateway runner, a portable job a mini may take). `tally` counts
 a check run as a Mac job when every cmux-next.yml job of its name is `mac`; a name a Mac job shares with a
-Linux one (the Release compile and its Linux admission job) is counted apart as `shared`. A skipped,
-neutral or advisory check decides nothing and is left out. A head with no `cmux-next path routing` check
+Linux one (the Release compile and its Linux admission job) is listed apart as `shared` and not counted. A
+skipped, neutral, cancelled, stale or advisory check decided nothing and is left out; a queued one counts. A head with no `cmux-next path routing` check
 had no cmux-next.yml run and is left out of the mean.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ROUTING_CHECK = "cmux-next path routing"
 ADVISORY_SUFFIX = "(advisory)"  # next_autoland.ADVISORY_SUFFIX: a check whose name ends so decides nothing
 MAC_LABEL = re.compile(r"macos|xcode", re.IGNORECASE)
-NOT_RUN = {"SKIPPED", "NEUTRAL"}
+NOT_RUN = {"SKIPPED", "NEUTRAL", "CANCELLED", "STALE"}  # decided nothing (autoland NO_VERDICT for the last two)
 # The cmux-next.yml jobs autoland decides on that run on Linux today (next_autoland WAITED_JOBS and the status
 # jobs whose red it counts). A job moved off the Mac joins this list in the same change.
 LINUX_DECIDING = {
@@ -54,10 +54,18 @@ LINUX_DECIDING = {
 
 
 def check_name(job_id: str, job: dict) -> str:
-    """The check run's name for a job: its `name`, with a whole-expression name as GitHub shows it."""
+    """The check run's name for a job: its `name`, with a whole-expression name as GitHub shows it unevaluated."""
     name = str(job.get("name") or job_id)
     whole = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", name, re.DOTALL)
     return whole.group(1) if whole else name
+
+
+def check_names(job_id: str, job: dict) -> list[str]:
+    """Every name the job's check run can show: the unevaluated expression (a job skipped before it ran) and each
+    quoted literal it can evaluate to (`cond && 'A' || 'B'` gives A and B)."""
+    name = check_name(job_id, job)
+    literals = re.findall(r"'((?:[^']|'')*)'", name) if name != str(job.get("name") or job_id) else []
+    return [name] + [lit.replace("''", "'") for lit in literals if lit and lit != "true"]
 
 
 def runner_class(runs_on) -> str:
@@ -78,10 +86,17 @@ def classify(workflow: Path = WORKFLOW) -> dict[str, tuple[str, str]]:
     return {job_id: (check_name(job_id, job), runner_class(job.get("runs-on"))) for job_id, job in jobs.items()}
 
 
-def name_classes(classes: dict[str, tuple[str, str]]) -> dict[str, str]:
+def classify_names(workflow: Path = WORKFLOW) -> list[tuple[str, str]]:
+    """(check name, runner class) for every name any job's check run can show."""
+    jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+    return [(name, runner_class(job.get("runs-on"))) for job_id, job in jobs.items()
+            for name in check_names(job_id, job)]
+
+
+def name_classes(pairs: list[tuple[str, str]]) -> dict[str, str]:
     """check name -> mac (every job of the name is mac), shared (a mac job and another), or its one class."""
     by_name = collections.defaultdict(set)
-    for name, cls in classes.values():
+    for name, cls in pairs:
         by_name[name].add(cls)
     return {name: (next(iter(found)) if len(found) == 1 else "shared" if "mac" in found else "other")
             for name, found in by_name.items()}
@@ -108,17 +123,18 @@ def head_mac_jobs(rollup: list[dict], names: dict[str, str]) -> tuple[bool, list
 
 
 def tally(paths: list[Path], workflow: Path = WORKFLOW) -> dict:
-    names = name_classes(classify(workflow))
+    names = name_classes(classify_names(workflow))
     heads, by_job = [], collections.Counter()
     for path in paths:
         view = json.loads(path.read_text(encoding="utf-8"))
         ran, mac, shared = head_mac_jobs(view.get("statusCheckRollup") or [], names)
         heads.append({"number": view.get("number"), "cmux_next_run": ran, "mac": mac, "shared": shared})
         if ran:
-            by_job.update(mac + shared)
+            by_job.update(mac + [f"{name} (shared)" for name in shared])
     counted = [h for h in heads if h["cmux_next_run"]]
-    total = sum(len(h["mac"]) + len(h["shared"]) for h in counted)
+    total = sum(len(h["mac"]) for h in counted)
     return {"heads": heads, "heads_with_run": len(counted), "deciding_mac_jobs": total,
+            "shared_name_checks": sum(len(h["shared"]) for h in counted),
             "per_head": round(total / len(counted), 2) if counted else None, "by_job": dict(by_job.most_common())}
 
 
@@ -166,9 +182,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     for head in result["heads"]:
         jobs = head["mac"] + [f"{name} (shared)" for name in head["shared"]]
-        print(f"#{head['number']}\t{len(jobs) if head['cmux_next_run'] else '-'}\t{', '.join(jobs)}")
+        print(f"#{head['number']}\t{len(head['mac']) if head['cmux_next_run'] else '-'}\t{', '.join(jobs)}")
     print(f"heads with a cmux-next run: {result['heads_with_run']}; deciding Mac jobs: "
-          f"{result['deciding_mac_jobs']}; per head: {result['per_head']}")
+          f"{result['deciding_mac_jobs']}; per head: {result['per_head']}; "
+          f"shared-name checks (Mac or Linux, not counted): {result['shared_name_checks']}")
     for name, count in result["by_job"].items():
         print(f"  {count}\t{name}")
     return 0
