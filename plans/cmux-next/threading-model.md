@@ -58,6 +58,19 @@ and block. This section states the rule. The tables below say who owns each thre
 is `plans/cmux-next/chrome-parity/p02-threads.md` on `perf/chrome-parity` (tasks `p02-threads-NNN`, not
 merged into feat-cmux-next). "To come" below names its task.
 
+Leo, 2026-11-10: "let's write some of that stuff down... maybe even in the docs? getting inspired by chrome or
+whatever". The public version is [docs/cmux-next/main-thread.md](../../docs/cmux-next/main-thread.md).
+
+Chromium sources:
+- [Threading and Tasks in Chrome](https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md)
+  and its [FAQ](https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks_faq.md):
+  the UI thread never blocks, `SequencedTaskRunner`, `PostTaskAndReply`, task traits.
+- [scoped_blocking_call.h](https://chromium.googlesource.com/chromium/src/+/main/base/threading/scoped_blocking_call.h)
+  and [thread_restrictions.h](https://chromium.googlesource.com/chromium/src/+/main/base/threading/thread_restrictions.h):
+  the assertion.
+- [hang_watcher.h](https://chromium.googlesource.com/chromium/src/+/main/base/threading/hang_watcher.h): the hang
+  watcher.
+
 **What may run on the main thread.** Chrome's browser UI thread handles input and paints. Ours does the same
 three things (main-thread-budget.md):
 - dispatching the person's input;

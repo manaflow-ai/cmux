@@ -107,3 +107,10 @@ Every cmux build picks up web UI edits from your own checkout live, with no buil
 General). `cmux live stop` goes back. A NIGHTLY can also follow each merge's
 web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
 [hot-reload.md](hot-reload.md).
+
+## Why the app never waits on its main thread
+
+cmux NEXT borrows Chrome's threading model: the main thread handles input and paints, and disk,
+network, processes and long work run on named lanes that reply back to it. Debug and Nightly builds
+record any blocking call that slips onto the main thread, and the hang watcher names that call in its
+hang file. The rule and its enforcement are in [main-thread.md](main-thread.md).
