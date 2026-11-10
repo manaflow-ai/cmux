@@ -106,11 +106,25 @@ final class HomeConversationPage: NSView {
         if page.hasPainted { focus() } else { page.whenPainted(focus) }
     }
 
-    /// The tab closed: the page's document ends.
+    /// How long a closing page may take to hand what it holds alone to its owner (``close()``).
+    static let settleDeadline: Duration = .seconds(6)
+
+    /// The tab closed: the page's document ends, once it has handed the app everything it held alone
+    /// (`home.messages.settle`, settle.ts: the drafts of the last pause, an unanswered send or staged
+    /// file), so nothing goes before its next owner holds it. A page that does not answer ends at the deadline.
     func close() {
         chief.close()
         host.dictation.close()
-        page.close()
+        let page = page
+        guard page.hasPainted else { return page.close() }
+        // task-owner: one page call; it keeps the closed page until its answer or the deadline, then ends it
+        // main-hop-allow: already on main (a tab closing); the task only awaits the page's answer
+        Task { @MainActor in
+            _ = await PageAnswerDeadline(Self.settleDeadline).answer {
+                try await page.router.callPage("home.messages.settle", params: .object(["within": .number(5_000)]))
+            }
+            page.close()
+        }
     }
 }
 
