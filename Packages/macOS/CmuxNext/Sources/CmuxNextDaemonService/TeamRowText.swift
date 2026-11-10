@@ -1,6 +1,7 @@
 public import CmuxNextActions
 public import CmuxNextAgentPane
 public import CmuxNextCloud
+import CmuxNextCompat
 
 /// How a team row reads on every team list (the account menu, Switch Active Team, the menu bar):
 /// a person icon for the person's own team and a people icon for a shared one, and a second line
@@ -39,6 +40,21 @@ public import CmuxNextCloud
     /// The active team as the Machines section's Cloud header names it (`MachineSectionPageProvider` `cloudTeam`).
     public static func machinesTeam(_ auth: CloudAuth) -> (name: String, personal: Bool)? {
         paneTeam(auth).map { ($0.name, $0.personal) }
+    }
+
+    /// Follows the signed-in account's active team (who, which team, its name and kind): `changed`
+    /// runs on each change after the first read, as long as the task lives.
+    public static func follow(_ auth: CloudAuth, changed: @escaping @MainActor @Sendable () -> Void) -> Task<Void, Never> {
+        let key: @MainActor @Sendable () -> String? = { [weak auth] in
+            auth.map { "\($0.accountKey ?? "")|\(paneTeam($0).map { "\($0.personal)|\($0.name)" } ?? "")" }
+        }
+        // task-owner: the caller (AgentPaneCloudMachines.teamWatch); event-driven (Observation)
+        return Task {
+            var first = true
+            for await _ in ObservationStream(key) {
+                if first { first = false } else { changed() }
+            }
+        }
     }
 
     /// The active team's icon (the menu bar's team row); a shared team's before membership loads.

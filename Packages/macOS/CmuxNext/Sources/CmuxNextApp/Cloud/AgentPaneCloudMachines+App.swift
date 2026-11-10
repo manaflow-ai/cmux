@@ -7,9 +7,8 @@ extension AgentPaneCloudMachines {
     /// own link between reads).
     static let listAge: Duration = .seconds(60)
 
-    /// The App's answers to `cloudMachine.*`: the machines of the account signed in now
-    /// (``CloudService``, never another user's or team's list), and Open Machine, Resume Machine,
-    /// Pause Machine, Kill Machine and passive typing prewarm on one of them, run as the person's own.
+    /// The App's answers to `cloudMachine.*`: the signed-in account's machines (``CloudService``, never another user's or team's
+    /// list), Open, Resume, Pause, Kill Machine and typing prewarm on one, run as the person's own; and each switch of team.
     func wire(_ services: AppServices) {
         let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
@@ -26,6 +25,7 @@ extension AgentPaneCloudMachines {
             }
             return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth))
         }
+        teamWatch = TeamRowText.follow(services.cloud.auth) { [weak self] in self?.publishTeamChange() }
         list = { await inventory(Self.listAge) }
         recoveryList = { await inventory(.zero) }
         attach = { [weak services] id in

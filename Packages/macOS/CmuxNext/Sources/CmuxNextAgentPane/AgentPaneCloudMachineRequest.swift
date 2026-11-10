@@ -203,8 +203,29 @@ public final class AgentPaneCloudMachines {
     /// Sends a passive predictive wake hint to a paused machine of the loaded list; false otherwise.
     /// Unlike user actions, this never consumes a page gesture.
     public var prewarm: (@MainActor (String) async -> Bool)?
+    /// What follows the account's active team for ``publishTeamChange()``; a new one replaces it.
+    public var teamWatch: Task<Void, Never>? { didSet { oldValue?.cancel() } }
 
     public init() {}
+
+    /// What each page of these machines runs on a team change: its composer reads `cloudMachine.list`
+    /// again, so the Cloud row names the new team at once.
+    public static let teamChangeScript = "window.dispatchEvent(new Event('cmux-cloud-team-change'))"
+
+    private struct Page { weak var model: AgentPaneModel? }
+    /// The panes handed these machines (``AgentPaneModel/cloudMachines``), held weakly.
+    private var pages: [Page] = []
+
+    /// Adds `model` to the panes a team change reaches; a closed pane's entry goes at the next add.
+    func follow(_ model: AgentPaneModel) {
+        pages.removeAll { $0.model == nil || $0.model === model }
+        pages.append(Page(model: model))
+    }
+
+    /// Tells every pane of these machines that the account's active team changed.
+    public func publishTeamChange() {
+        for page in pages { page.model?.onCloudTeamChange?() }
+    }
 }
 
 extension AgentPaneCloudMachineRequest {

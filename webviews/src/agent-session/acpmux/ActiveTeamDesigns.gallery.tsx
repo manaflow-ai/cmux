@@ -13,7 +13,7 @@ export default componentEntry<{ design: ActiveTeamDesign }>({
     Promise.all([import("./styles.css"), import("./composerLocation.css"), import("./ActiveTeamDesigns.gallery.css")]),
   load: () => import("./ActiveTeamDesigns").then((module) => module.ActiveTeamDesigns),
   widths: { narrow: 420, normal: 900 },
-  height: 360,
+  height: 560, // narrow stacks the menu, palette and Cloud cards: 480px measured for the list variant
   variants: {
     list: {
       note: 'Picked, and the one that ships: every team is a row of the account menu, the active one checked, a person icon for Personal and people for a team, each with a second line (Personal: the email; a team: Team and its plan). Who is signed in is a normal row that opens Accounts…, not a greyed header. Switch Active Team draws the same rows, icons and second lines, with the same checkmark in place of "Current"; the Cloud row and the Machines header name the team.',

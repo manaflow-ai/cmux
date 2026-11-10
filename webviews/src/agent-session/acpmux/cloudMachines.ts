@@ -255,6 +255,23 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   return inFlight;
 }
 
+/// The app's word that the account's active team changed (`AgentPaneCloudMachines.teamChangeScript`).
+export const CLOUD_TEAM_CHANGE_EVENT = "cmux-cloud-team-change";
+
+/// Reads the list again on each team change, so the Cloud row and face name the new team at once.
+/// A read already in flight may carry the old team: it is dropped for a fresh one.
+export function followCloudTeamChange(call: Call = postNative, target: EventTarget = window): () => void {
+  const changed = () => {
+    generation += 1;
+    inFlight = undefined;
+    void refreshCloudMachines(call);
+  };
+  target.addEventListener(CLOUD_TEAM_CHANGE_EVENT, changed);
+  return () => target.removeEventListener(CLOUD_TEAM_CHANGE_EVENT, changed);
+}
+
+if (typeof window !== "undefined") followCloudTeamChange();
+
 /// Resumes or opens the machine (one click: the app checks the gesture and the machine), then
 /// reads the list again so its new stage shows; a resume shows as starting at once.
 export function runCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<void> {
