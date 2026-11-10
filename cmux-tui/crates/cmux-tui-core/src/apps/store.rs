@@ -311,7 +311,7 @@ fn matches(package: &Package, query: &str) -> bool {
 }
 
 /// Whether App Store op `op` changes the install mirror (`set`, `install`,
-/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`): the wire admits
+/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`, `panels.layout.set`): the wire admits
 /// it only from the verified cmux app connection (Gate A2), whatever origin
 /// it claims.
 pub(crate) fn store_op_mutates(op: &str) -> bool {
@@ -323,6 +323,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
             | "apps.hidden.set"
             | "apps.grant.set"
             | "apps.grant.revoke"
+            | "apps.panels.layout.set"
     )
 }
 
