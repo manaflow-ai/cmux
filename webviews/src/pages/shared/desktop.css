@@ -140,14 +140,9 @@ body {
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
   --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
   --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a highlighted row inside content (a list's cursor, a drop target): not a selected tab, segment or nav item, which are --ds-color-selected */
-  /* The foreground and background layers (design/selected-is-foreground.md). The content is the
-     foreground; the chrome around it (a nav column, a segmented track) is the background, black at
-     the window chrome's shade over the content. A selected tab, segment or nav item is part of the
-     foreground, so it is the content's own surface: white in a light theme, the content's black in a
-     dark one. check-selected-surface.py fails a selected style on any other colour. */
-  --ds-color-content-surface: var(--cmux-content-surface, var(--ds-color-surface)); /* the foreground: what content draws behind itself */
-  --ds-color-chrome-shade: var(--cmux-chrome-shade, light-dark(color-mix(in srgb, black 4.5%, transparent), color-mix(in srgb, black 28%, transparent))); /* the background: laid over the content surface */
-  --ds-color-selected: var(--cmux-selected-surface, var(--ds-color-surface)); /* a selected tab, segment or nav item on the chrome */
+  --ds-color-content-surface: var(--cmux-content-surface, var(--ds-color-surface)); /* the foreground (design/selected-is-foreground.md): what content draws behind itself */
+  --ds-color-chrome-shade: var(--cmux-chrome-shade, light-dark(color-mix(in srgb, black 4.5%, transparent), color-mix(in srgb, black 28%, transparent))); /* the background: black at the window chrome's shade, laid over the content surface (a nav column, a segmented track) */
+  --ds-color-selected: var(--cmux-selected-surface, var(--ds-color-surface)); /* a selected tab, segment or nav item on the chrome: the content's own surface (check-selected-surface.py) */
   --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines and dividers */
   --ds-color-focus: var(--cmux-focus-ring-color, currentColor); /* the keyboard focus ring (desktop.css: the host's ring at 48%) */
   --ds-color-accent: var(--cmux-accent, var(--cmux-app-accent, CanvasText)); /* the theme accent: the text colour unless the theme names a hue */

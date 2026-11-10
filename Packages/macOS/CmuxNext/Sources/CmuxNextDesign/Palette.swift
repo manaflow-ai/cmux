@@ -118,9 +118,18 @@ public struct Palette {
     /// `appearance.surfaces.sidebar`): the content's surface only where it stands out of that fill by
     /// ``ThemeTokens/minimumSelectedContrast``, else `selectionFill`. nil `surface`: the row sits on the
     /// chrome, ``selectedSurface``.
+    /// A translucent `surface` is composited over the chrome it lies on (the content's surface under the
+    /// chrome's shade) before the check, so the contrast is with what really shows; a colour that cannot
+    /// be read in sRGB keeps `selectionFill`, which always shows.
     public static func selectedSurface(over surface: NSColor?) -> NSColor {
         let selected = selectedSurface
-        guard let surface, let a = selected.usingColorSpace(.sRGB), let b = surface.usingColorSpace(.sRGB) else { return selected }
+        guard var surface else { return selected }
+        if surface.alphaComponent < 1 {
+            // colour-allow: the chrome's shade, black at its alpha
+            let chrome = composited(NSColor.black.withAlphaComponent(chromeShade), over: contentSurface)
+            surface = composited(surface, over: chrome)
+        }
+        guard let a = selected.usingColorSpace(.sRGB), let b = surface.usingColorSpace(.sRGB) else { return selectionFill }
         let row = ThemeRGB(red: Double(a.redComponent), green: Double(a.greenComponent), blue: Double(a.blueComponent))
         let panel = ThemeRGB(red: Double(b.redComponent), green: Double(b.greenComponent), blue: Double(b.blueComponent))
         return row.contrast(with: panel) >= ThemeTokens.minimumSelectedContrast ? selected : selectionFill
