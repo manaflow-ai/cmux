@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import * as chaos from "./cloud-chaos.ts";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", felt_ms: ms, recover_ms: Math.round(ms / 3), carrier: "resumed the session", turn: "completed once", detail: "" });
@@ -538,6 +540,22 @@ describe("the felt time after a send", () => {
     const { chat } = await chatWith(0, [{ ms: 900, record: { seq: 5, kind: "agent_message_chunk" } }]);
     const felt = await chaos.feltAfterSend(chat, "hi", 400);
     expect(felt.felt_ms).toBeNull();
+    chat.stop();
+  });
+
+  test("a live reply that a re-attach page also carries keeps its earlier arrival time", async () => {
+    const { chat } = await chatWith(0, []);
+    const c = chat as any;
+    // A re-attach is paging: the live push of seq 5 is stashed at its arrival, then the page brings seq 5 later.
+    c.paging = true;
+    c.onLine({ surface: 7, event: "agent-session-record", record: { seq: 5, kind: "agent_message_chunk" } });
+    const pushedAt = c.stash[0].at;
+    await sleep(120);
+    const pageFrom = c.received.length;
+    c.take({ events: [{ seq: 5, kind: "agent_message_chunk" }], hasMore: false });
+    c.flushStash(pageFrom);
+    expect(chat.received.filter((r) => r.seq === 5)).toHaveLength(1);
+    expect(chat.received.find((r) => r.seq === 5)!.at).toBe(pushedAt);
     chat.stop();
   });
 
