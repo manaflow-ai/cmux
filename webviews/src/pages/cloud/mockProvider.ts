@@ -17,6 +17,7 @@ import {
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
+  type CloudRetention,
   type CloudSnapshot,
   type MachineEvent,
   type MachineResult,
@@ -59,6 +60,7 @@ const USER_ONLY = new Set<string>([
   CloudOps.machineCreate,
   CloudOps.machineResize,
   CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
   CloudOps.machineUpgrade,
   CloudOps.snapshotCreate,
   CloudOps.snapshotRestore,
@@ -129,6 +131,19 @@ export class MockCloudProvider implements PageClient {
   liftingPlan: string | null = null;
   /** No machine image is configured yet: create and restore answer `no_snapshot_configured`. */
   noSnapshotConfigured = false;
+  /**
+   * The plan's machines cap (paused ones count), when set: a create past it answers `quota_exceeded`
+   * with `details.resource: "machines"` and `details.free_up` (`freeUp`, the platform's pick).
+   */
+  machinesCap?: number;
+  /** The machine the cap refusal names to free (`details.free_up`), or null for none. */
+  freeUp: { machine: string; name: string | null; reason: string } | null = null;
+  /** Automatic cleanup as `cloud.plan.get` answers it (`retention`); undefined: a server without it. */
+  retention?: CloudRetention;
+  /** `cloud.retention.set {settings}` answers `auth.forbidden` (the caller is not a team admin). */
+  retentionForbidden = false;
+  /** Archive and delete finishes at once (else the machine stays `requested` until `finishArchives()`). */
+  archiveAtOnce = true;
   holdTransfers: boolean;
   pageSize: number;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
@@ -227,7 +242,29 @@ export class MockCloudProvider implements PageClient {
         vm_hours_used: p.vm_hours_used,
         period_end: p.period_end,
       },
+      ...(this.retention ? { retention: structuredClone(this.retention) } : {}),
     };
+  }
+
+  /** The archives taken by archive and delete are ready: each machine is removed, its archive listed. */
+  finishArchives(): void {
+    for (const machine of this.machines.filter((m) => m.delete_reason === "requested")) {
+      const days = this.retention?.settings?.archive_days ?? 90;
+      this.snapshots = [
+        {
+          id: `snap_archive${this.nextId++}`,
+          machine: machine.id,
+          name: machine.name,
+          size_mb: machine.size.disk_mb ?? 16_384,
+          status: "ready",
+          created_at: Date.UTC(2026, 9, 2),
+          archive_of: { machine: machine.id, name: machine.name, until: Date.UTC(2026, 9, 2) + days * 86_400_000 },
+          revision: "1",
+        },
+        ...this.snapshots,
+      ];
+      this.emitRemoved(machine.id);
+    }
   }
 
   /** The running copies end now: one `file.transfer.changed` event each (the server's worker woke). */
@@ -339,6 +376,14 @@ export class MockCloudProvider implements PageClient {
         plan: this.liftingPlan,
       });
     const { limits, usage } = this.plan;
+    if (activeDelta > 0 && this.machinesCap !== undefined && this.machines.length >= this.machinesCap)
+      throw pageError(CloudErrors.quotaExceeded, `this plan allows ${this.machinesCap} machines`, false, {
+        limit: this.machinesCap,
+        used: this.machines.length,
+        resource: "machines",
+        free_up: this.freeUp,
+        plan: this.liftingPlan,
+      });
     if (activeDelta > 0 && usage.active + activeDelta > limits.max_active)
       throw pageError(CloudErrors.quotaExceeded, `this plan allows ${limits.max_active} active machines`, false, {
         limit: limits.max_active,
@@ -462,6 +507,46 @@ export class MockCloudProvider implements PageClient {
           host: `host_${machine.id}`,
           image: { id: "img_base1", daemon_version: "0.40.0" },
         });
+      }
+      case CloudOps.machineKeep: {
+        only(p, ["machine", "keep"]);
+        const keep = p.keep === true;
+        const machine = this.machine(p);
+        const settings = this.retention?.settings;
+        // A kept machine has no date; let go, the plan's retention dates it again (from its last use).
+        const evict =
+          !keep && settings?.worked_in_days && machine.status === "paused"
+            ? (machine.last_active_at ?? machine.created_at) + settings.worked_in_days * 86_400_000
+            : null;
+        return this.change(p, {
+          keep,
+          notice: null,
+          evict_at: keep ? null : evict,
+          delete_reason: keep || evict === null ? null : "unused",
+        });
+      }
+      case CloudOps.machineArchiveDelete: {
+        only(p, ["machine"]);
+        const machine = this.machine(p);
+        if (machine.status !== "paused" && machine.status !== "failed")
+          throw pageError("cmux.cloud.not_paused", `${machine.id} is not paused`, false);
+        const result = this.change(p, { delete_reason: "requested", evict_at: Date.UTC(2026, 9, 2), notice: null });
+        if (this.archiveAtOnce) queueMicrotask(() => this.finishArchives());
+        return result;
+      }
+      case CloudOps.retentionSet: {
+        only(p, ["settings", "email_heads_up"]);
+        const retention = this.retention;
+        if (!retention) throw pageError("cmux.cloud.unknown_op", `${CloudOps.retentionSet} is not a Cloud op`);
+        if (p.settings !== undefined && this.retentionForbidden)
+          throw pageError("cmux.cloud.forbidden", "only a team admin can change the team's cleanup", false);
+        const before = JSON.stringify(retention);
+        if (typeof p.email_heads_up === "boolean") retention.email_heads_up = p.email_heads_up;
+        if (p.settings !== undefined) {
+          retention.team = p.settings ? structuredClone(p.settings as typeof retention.team) : {};
+          if (retention.settings) Object.assign(retention.settings, retention.team);
+        }
+        return { changed: JSON.stringify(retention) !== before };
       }
       case CloudOps.machineDelete:
         only(p, ["machine"]);
