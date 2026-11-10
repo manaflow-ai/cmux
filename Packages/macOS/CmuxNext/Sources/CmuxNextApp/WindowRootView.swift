@@ -284,9 +284,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         defer { onHintGeometryChange?() }
-        // Before the pass solves the constraints: the traffic lights' frame does not depend on it,
-        // and a top set after `super.layout()` showed only on the next pass (bottom tab bars' card
-        // sat under the lights until something else relaid the window).
+        if let window { TrafficLightsLine.apply(in: window) } // First: the rest reads the lights, now on the top row's line.
+        // Before the pass solves the constraints: the lights' frame does not depend on it, and a top set after
+        // `super.layout()` showed only on the next pass (bottom tab bars' card sat under the lights until a relayout).
         updateMainPaneTopInset()
         super.layout()
         // Inside the window's layout pass the cursor order and the sidebar
@@ -298,7 +298,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
         sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
-        // The band starts after the traffic lights (which never move) and is
+        // The band starts after the traffic lights (on the top row's line, `TrafficLightsLine`) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).
         let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight

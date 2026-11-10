@@ -42,6 +42,11 @@ public struct TrafficLightsLine {
         return WindowTitlebar.topRowLine(in: window, look: look)?.centerY
     }
 
+    /// Moves `window`'s traffic lights onto its top row's line (``targetCenterY(in:look:)``), or back to macOS's place.
+    public static func apply(in window: NSWindow) { // perf-hot: 1ms motion-frame
+        apply(in: window, centerY: targetCenterY(in: window))
+    }
+
     /// Moves `window`'s traffic lights onto `centerY` (from the window's top), or back to macOS's place
     /// for nil. Runs in the root view's layout, before anything reads the lights' frame, so every
     /// layout pass (a resize, a density change, the end of full screen) puts them back if AppKit moved
