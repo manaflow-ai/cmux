@@ -27,6 +27,8 @@ public final class AgentPaneSpareReturns {
     public func keep(_ view: AgentPaneView, in parking: NSView, of window: NSWindow?) -> Bool {
         guard let window, view.window === window, parking.window === window else { return false }
         waiting.removeAll { $0.view == nil || $0.view === view }
+        // A page out of sight never holds the keyboard (as `AgentPageRetirer`'s parking; the removal took it away too).
+        if let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { window.makeFirstResponder(nil) }
         parking.addSubview(view)
         waiting.append(Waiting(view: view, since: .now))
         return true
