@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
-// The inlinable check below calls pthread_main_np(), so Darwin is a public import here.
+// The inlinable checks below call pthread_main_np(), so Darwin is a public import here.
 public import Darwin
 #endif
 
@@ -30,6 +30,41 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
     }
+    #endif
+}
+
+/// Runs `body`, a call that blocks, as a checked blocking call: ``assertBlockingAllowed(_:fileID:line:)``, and
+/// while `body` runs on the main thread the call is open for the hang watcher (``BlockingOpenCall``), so a stall
+/// or hang that `body` causes names its kind and call site (`blocking_call` in `debug.hangs`, the hang file's
+/// `blocking call:` line). This is Chrome's `ScopedBlockingCall` scope, which `HangWatcher` reports.
+///
+/// In the builds with the detector (Debug, bench, Nightly) the open call is a few atomic stores on each side of
+/// `body`, on the main thread only; off the main thread it is one `pthread_main_np()` call and `body`. In Release
+/// it is `body`.
+///
+/// ```swift
+/// try blockingCall(.fileIO, fileID: fileID, line: line) { try FileManager.default.removeItem(at: url) }
+/// ```
+///
+/// - Parameters:
+///   - kind: What the call waits on.
+///   - fileID: The calling code's `#fileID` (a seam passes its own caller's).
+///   - line: The calling code's `#line`.
+///   - body: The blocking primitive.
+/// - Returns: What `body` returns.
+/// - Throws: What `body` throws.
+@inlinable @inline(__always)
+public func blockingCall<Result, Failure: Error>(
+    _ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line, _ body: () throws(Failure) -> Result
+) throws(Failure) -> Result {
+    #if DEBUG || CMUX_BLOCKING_CHECKS
+    guard pthread_main_np() != 0 else { return try body() }
+    assertBlockingAllowed(kind, fileID: fileID, line: line)
+    let previous = BlockingOpenCall.enter(kind, fileID: fileID, line: line)
+    defer { BlockingOpenCall.leave(previous) }
+    return try body()
+    #else
+    return try body()
     #endif
 }
 

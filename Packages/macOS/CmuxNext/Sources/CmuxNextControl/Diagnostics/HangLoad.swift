@@ -10,25 +10,33 @@ public struct HangLoad: Sendable, Equatable {
     public var pageIns: UInt64?
     /// The process's page faults over the same span; nil when unknown.
     public var faults: UInt64?
+    /// The checked blocking call the main thread was inside when the hang was sampled
+    /// (``BlockingOpenCall/summary``: `file-io at CmuxNextFiles/FileStore.swift:42`); nil when none was open.
+    public var blockingCall: String?
 
     /// - Parameters:
     ///   - mainThreadCPU: CPU the main thread used since the stall began.
     ///   - pageIns: The process's page-ins since the stall's first sample.
     ///   - faults: The process's page faults since the stall's first sample.
-    public init(mainThreadCPU: Duration? = nil, pageIns: UInt64? = nil, faults: UInt64? = nil) {
+    ///   - blockingCall: The checked blocking call the main thread was inside.
+    public init(mainThreadCPU: Duration? = nil, pageIns: UInt64? = nil, faults: UInt64? = nil, blockingCall: String? = nil) {
         self.mainThreadCPU = mainThreadCPU
         self.pageIns = pageIns
         self.faults = faults
+        self.blockingCall = blockingCall
     }
 }
 
 extension HangLoad {
-    /// The hang file's two load lines for a hang `duration` long:
+    /// The hang file's load lines for a hang `duration` long:
     ///
     /// ```
     /// main thread cpu: 0.100 s of 2.000 s (5%): blocked (waited: page-ins, WindowServer, a lock or another process)
     /// page-ins: 812, faults: 30500 (this process, since the stall's first sample)
+    /// blocking call: file-io at CmuxNextFiles/FileStore.swift:42 (move it off the main thread: ...)
     /// ```
+    ///
+    /// The third line only when a checked blocking call was open (``BlockingOpenCall``).
     ///
     /// Busy is CPU for at least half of the hang, the line the debug hang assertion draws too
     /// (``MainThreadWatchdog/hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
@@ -43,7 +51,8 @@ extension HangLoad {
         }
         let pageLine = pageIns.map { "page-ins: \($0), faults: \(faults.map(String.init) ?? "?") (this process, since the stall's first sample)" }
             ?? "page-ins: unknown"
-        return [cpuLine, pageLine]
+        guard let blockingCall else { return [cpuLine, pageLine] }
+        return [cpuLine, pageLine, "blocking call: \(blockingCall) (move it off the main thread: plans/cmux-next/threading-model.md)"]
     }
 }
 

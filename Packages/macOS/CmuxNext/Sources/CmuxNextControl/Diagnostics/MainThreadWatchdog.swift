@@ -84,6 +84,9 @@ public final class MainThreadWatchdog: Sendable {
         /// that waits on a lock or a reply shows only the wait, and the holder is in here
         /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
         public var otherThreads: [ThreadSample] = []
+        /// The checked blocking call the main thread was inside when sampled (``BlockingOpenCall/summary``),
+        /// Chrome's `HangWatcher` naming the `ScopedBlockingCall`; nil when none was open.
+        public var blockingCall: String?
     }
 
     public let configuration: Configuration
@@ -163,6 +166,10 @@ public final class MainThreadWatchdog: Sendable {
     private let publishedTaskPacked = Atomic<UInt64>(0)
     private let publishedTaskStart = Atomic<UInt64>(0)
     private let publishedTaskBudget = Atomic<UInt64>(0)
+    /// The checked blocking call open on the main thread in that sample (``BlockingOpenCall``), so the stall
+    /// record names it: its two words, written while the main thread is suspended (atomics only).
+    private let publishedOpenFileID = Atomic<UInt>(0)
+    private let publishedOpenPacked = Atomic<UInt64>(0)
     /// The main-thread scheduler's board (``attach(board:)``).
     let boardSink = Mutex<MainTaskBoard?>(nil)
     /// Stacks sampled while a scheduled task ran past its class budget, by packed task identity
@@ -347,6 +354,10 @@ public final class MainThreadWatchdog: Sendable {
                 details = Self.details(of: task)
                 details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000)
             }
+            // The checked blocking call the sample caught (none: the stall was not in a seam).
+            let open = BlockingOpenCall(fileID: publishedOpenFileID.load(ordering: .relaxed),
+                                        packed: publishedOpenPacked.load(ordering: .relaxed))
+            if let call = open.summary { details["blocking_call"] = .string(call) }
         }
         let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: nanos)),
                                 cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
@@ -417,6 +428,9 @@ public final class MainThreadWatchdog: Sendable {
         publishedTaskPacked.store(task.packed, ordering: .relaxed)
         publishedTaskStart.store(task.startNanos, ordering: .relaxed)
         publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+        let open = BlockingOpenCall.current()
+        publishedOpenFileID.store(open.fileID, ordering: .relaxed)
+        publishedOpenPacked.store(open.packed, ordering: .relaxed)
         publishedSampleCount.store(count, ordering: .relaxed)
         publishedSampleBeat.store(beat, ordering: .releasing)
     }

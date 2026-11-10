@@ -126,6 +126,31 @@ struct HangEpisodeTrackerTests {
         #expect(reloaded.entries.first?.duration == .milliseconds(2_500))
     }
 
+    /// A hang sampled inside a checked blocking call names it in the file, and a later checkpoint
+    /// (sampled after the call returned) keeps it.
+    @Test func namesTheBlockingCallTheHangWasSampledIn() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.begin(beat: 3, elapsed: .seconds(2), main: [], others: [],
+                       load: HangLoad(mainThreadCPU: .milliseconds(100), blockingCall: "file-io at CmuxNextFiles/FileStore.swift:42"))
+        recorder.drain()
+        let url = try #require(recorder.entries.first?.url)
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("blocking call: file-io at CmuxNextFiles/FileStore.swift:42"))
+        recorder.update(beat: 3, duration: .seconds(3), ongoing: false, load: HangLoad(mainThreadCPU: .milliseconds(200)))
+        recorder.drain()
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("blocking call: file-io at CmuxNextFiles/FileStore.swift:42"))
+    }
+
+    @Test func aHangOutsideABlockingCallHasNoBlockingCallLine() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.begin(beat: 4, elapsed: .seconds(2), main: [], others: [], load: HangLoad())
+        recorder.drain()
+        #expect(!(try String(contentsOf: try #require(recorder.entries.first?.url), encoding: .utf8)).contains("blocking call:"))
+    }
+
     @Test func anUnknownLoadSaysSo() throws {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
