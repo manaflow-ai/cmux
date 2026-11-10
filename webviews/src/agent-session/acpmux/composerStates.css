@@ -23,6 +23,9 @@
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
+  /* Something that has done its job leaving calmly in place, never a move: the read "New" line's
+     fade (conversation/unread.css). The scale's largest step, its ceiling. */
+  --agent-motion-calm: var(--cmux-motion-large, 240ms);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
      shared/theme.ts scales it as the host scaled the move step). */
   --agent-motion-send: var(--cmux-motion-send, 180ms);
