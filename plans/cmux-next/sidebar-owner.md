@@ -12,6 +12,18 @@
   `SidebarFoldKeepsGroupLookTests`. An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
   stays the default. Gallery: Sidebar States Playground > Group backgrounds (Sections, Sections hovered). Regression:
   `GroupHeaderSectionsTests`.
+- 2026-11-10: a space shows on the press, at rest. Lawrence, verbatim: "make it so when i mousedown on switching
+  space, it instantly switches, also we should remove changing screen animation, changing spaces in sidebar also
+  feels kinda slow". A press on a space in the space bar switches in the press's own turn (it waited for the
+  release); the press stays on the dot, so a move past the threshold drags the now current space. The list shows
+  the new space's rows at rest: the old page no longer slides out (0.2 s, and a second list per switch), for a
+  dot, a key, the wheel, the palette and the CLI alike (`SidebarView.showSpace`). Only the trackpad swipe moves
+  pages, with the fingers. The space's blocks (Home, its pinned workspaces) come in the same list layout as its
+  rows. Kept: the current-space chip's glide in the bar, the menus and Option-click on the release, right-click.
+  A dot torn off the window still opens its space in a new window with the space's workspaces: the window that
+  the press switched goes back to the space it showed before the press (`ProfileBarView.pressOrigin`).
+  Regression: `SpaceBarMouseDownSwitchTests`, `SidebarSpaceSwitchAtRestTests`, `SidebarSpaceSwitchBlocksTests`,
+  `SpaceSwitchSameTurnTests`.
 - 2026-11-09: the workspace hover card fits what it shows. Leo, verbatim: "the hover previews are a bit too big for
   their min width ... the show and hide details, um, that can probably also be a little bit more ... animated ... I
   don't want it to disappear as quickly as other ones would ... if the inner tab is the exact same name as the

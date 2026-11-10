@@ -220378,6 +220378,402 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用更多資料，在會掉封包的網路上保持快速"}}
       }
     },
+    "settings.agentPane.display.unreadBanner": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Banner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شريط غير المقروء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka nepročitanog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banner for ulæste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ungelesen-Banner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aviso de no leídos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bandeau des non lus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banner dei non letti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未読バナー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បដាមិនទាន់អាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽지 않음 배너"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banner for uleste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek nieprzeczytanych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aviso de não lidas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Баннер непрочитанного"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบยังไม่ได้อ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okunmamış afişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Банер непрочитаного"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu ngữ chưa đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未读横幅"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未讀橫幅"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.unreadBanner.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند عودتك إلى محادثة استمرت في العمل، يوضح شريط في أعلى اليسار عدد الأدوار الجديدة وينتقل إليها. عند طيه يصبح علامة صغيرة. انقر بزر الماوس الأيمن على الشريط أو على سطر جديد لإخفائه أو إعادته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada se vratite u razgovor koji je nastavio raditi, traka gore lijevo kaže koliko je poteza novo i vodi do njih. Skupljena je mala oznaka. Desni klik na traku ili liniju Novo je sakriva ili vraća."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du vender tilbage til en chat, der har arbejdet videre, viser et banner øverst til venstre, hvor mange ture der er nye, og springer til dem. Skjult er det et lille mærke. Højreklik på banneret eller linjen Ny for at skjule det eller vise det igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kehrst du zu einem Chat zurück, der weitergearbeitet hat, zeigt oben links ein Banner, wie viele Runden neu sind, und springt dorthin. Eingeklappt ist es eine kleine Pille. Rechtsklick auf das Banner oder die Neu-Linie blendet es aus oder wieder ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando vuelves a un chat que siguió trabajando, un aviso arriba a la izquierda dice cuántos turnos son nuevos y salta a ellos. Contraído, es una pequeña etiqueta. Haz clic derecho en el aviso o en la línea Nuevo para ocultarlo o mostrarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand vous revenez dans une conversation qui a continué, un bandeau en haut à gauche indique combien de tours sont nouveaux et y mène. Réduit, c'est une petite pastille. Clic droit sur le bandeau ou la ligne Nouveau pour le masquer ou le réafficher."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando torni in una chat che ha continuato a lavorare, un banner in alto a sinistra indica quanti turni sono nuovi e ti porta lì. Compresso è una piccola etichetta. Fai clic destro sul banner o sulla linea Nuovo per nasconderlo o mostrarlo di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "作業を続けていたチャットに戻ると、左上のバナーが新しいターン数を示し、そこへ移動できます。折りたたむと小さなピルになります。バナーまたは「新着」の線を右クリックすると、非表示にしたり元に戻したりできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលអ្នកត្រឡប់ទៅការជជែកដែលបន្តធ្វើការ បដានៅខាងលើឆ្វេងប្រាប់ថាមានវេនថ្មីប៉ុន្មាន ហើយទៅកាន់វា។ ពេលបង្រួម វាជាស្លាកតូច។ ចុចកណ្ដុរស្ដាំលើបដា ឬបន្ទាត់ថ្មី ដើម្បីលាក់ ឬបង្ហាញវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업을 계속한 채팅으로 돌아오면 왼쪽 위 배너가 새 턴의 수를 알려 주고 그곳으로 이동합니다. 접으면 작은 알약 모양이 됩니다. 배너나 새 항목 선을 오른쪽 클릭하여 숨기거나 다시 표시하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du kommer tilbake til en chat som fortsatte å jobbe, viser et banner øverst til venstre hvor mange runder som er nye, og hopper dit. Skjult er det et lite merke. Høyreklikk banneret eller Ny-linjen for å skjule det eller vise det igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy wracasz do czatu, który dalej pracował, pasek w lewym górnym rogu pokazuje, ile tur jest nowych, i przenosi do nich. Zwinięty jest małą pigułką. Kliknij prawym przyciskiem pasek lub linię Nowe, aby go ukryć lub przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando você volta a um chat que continuou trabalhando, um aviso no canto superior esquerdo diz quantos turnos são novos e leva até eles. Recolhido, é uma pequena etiqueta. Clique com o botão direito no aviso ou na linha Novo para ocultá-lo ou mostrá-lo de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда вы возвращаетесь в чат, который продолжал работать, баннер слева вверху показывает, сколько ходов новых, и переходит к ним. Свёрнутый, он становится маленькой меткой. Щёлкните баннер или линию «Новое» правой кнопкой, чтобы скрыть его или вернуть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อคุณกลับมาที่แชทที่ทำงานต่อไป แถบที่มุมซ้ายบนจะบอกว่ามีรอบใหม่กี่รอบและพาไปที่นั่น เมื่อย่อจะเป็นป้ายเล็ก คลิกขวาที่แถบหรือเส้นใหม่เพื่อซ่อนหรือแสดงอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışmaya devam eden bir sohbete döndüğünüzde, sol üstteki afiş kaç turun yeni olduğunu söyler ve oraya götürür. Daraltıldığında küçük bir etikettir. Gizlemek veya geri getirmek için afişe ya da Yeni çizgisine sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли ви повертаєтеся до чату, який продовжував працювати, банер угорі ліворуч показує, скільки ходів нові, і переходить до них. Згорнутий, він стає маленькою міткою. Клацніть банер або лінію «Нове» правою кнопкою, щоб сховати чи повернути його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi bạn quay lại một cuộc trò chuyện vẫn tiếp tục làm việc, biểu ngữ ở góc trên bên trái cho biết có bao nhiêu lượt mới và đưa bạn tới đó. Khi thu gọn, nó là một nhãn nhỏ. Nhấp chuột phải vào biểu ngữ hoặc đường Mới để ẩn hoặc hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回到一直在工作的聊天时，左上角的横幅会显示有多少新轮次，并可跳转过去。收起时是一个小标签。右键点按横幅或“新”线可隐藏或恢复它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回到一直在工作的聊天時，左上角的橫幅會顯示有多少新輪次，並可跳轉過去。收合時是一個小標籤。右鍵點按橫幅或「新」線可隱藏或恢復它。"
+          }
+        }
+      }
+    },
+    "settings.choice.collapsed": {
+      "comment": "Settings: a choice's title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapsed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مطوي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skupljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjult"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eingeklappt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraído"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réduit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compresso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折りたたみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접힘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjult"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwinięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recolhido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свёрнутый"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daraltılmış"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згорнутий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收合"
+          }
+        }
+      }
+    },
     "settings.chats.coldArchive": {
       "extractionState": "manual",
       "localizations": {
