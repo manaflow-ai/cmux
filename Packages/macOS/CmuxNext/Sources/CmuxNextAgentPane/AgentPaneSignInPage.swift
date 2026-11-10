@@ -14,6 +14,9 @@ enum AgentPaneSignInPage {
         "console.anthropic.com",
         "auth.anthropic.com",
         "auth.openai.com",
+        // xAI's Grok CLI device flow (`grok login --device-auth`).
+        "accounts.x.ai",
+        "auth.x.ai",
     ]
 
     /// How long after the start the open may come: the machine reads its CLI's link for up to
