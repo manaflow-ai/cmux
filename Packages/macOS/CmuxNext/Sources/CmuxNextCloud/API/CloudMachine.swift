@@ -210,6 +210,16 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     /// Sidebar and menu title: ``shownName``, else the id.
     public var title: String { shownName ?? id }
 
+    /// The record's size and idle pause (0 is Off) as `cloud new-machine` answers them (`cpu`, `memory_mb`,
+    /// `idle_pause_minutes`), for `cloud machine-status`: `cmux vm redo` makes the same machine again from them.
+    public var recordFields: [String: Int] {
+        var fields: [String: Int] = [:]
+        if let cpu = size?.cpu { fields["cpu"] = cpu }
+        if let memory = size?.memoryMb { fields["memory_mb"] = memory }
+        if let minutes = idlePauseMinutes { fields["idle_pause_minutes"] = minutes }
+        return fields
+    }
+
     /// What the app reads off this record (one FFI call; read it once per use).
     public var facts: CloudMachineRules.Facts { CloudMachineRules().facts(self) }
 

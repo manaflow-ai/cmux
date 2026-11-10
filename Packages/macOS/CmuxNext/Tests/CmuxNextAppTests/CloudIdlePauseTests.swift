@@ -95,6 +95,21 @@ struct CloudIdlePauseTests {
         #expect(CloudHandlers.statusFields(healthy, stats)["error"] == nil)
     }
 
+    /// machine-status answers the record's size and idle pause (`idle_policy`, 0 is Off), which the app server's
+    /// state-only stats do not carry: `cmux vm redo` makes the same size again with the same idle pause.
+    @Test func machineStatusAnswersTheRecordsSizeAndIdlePause() throws {
+        let record = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-sized","status":"running","size":{"cpu":12,"memory_mb":24576,"disk_mb":65536},"idle_policy":{"idle_seconds":0}}"#.utf8))
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-sized")
+        session.machine = try #require(CloudMachine(next: record))
+        let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"running"}"#.utf8))
+        let fields = CloudHandlers.statusFields(session, stats, now: Date(timeIntervalSince1970: 0))
+        #expect(fields["cpu"] == .int(12))
+        #expect(fields["memory_mb"] == .int(24576))
+        #expect(fields["idle_pause_minutes"] == .int(0))
+        #expect(fields["cpus"] == nil)
+    }
+
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
         let old = try CloudMachine.classic(Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
