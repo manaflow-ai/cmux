@@ -796,6 +796,8 @@ class TricklingServer:
     def __init__(self, answer: bytes, gap: float):
         self.answer, self.gap = answer, gap
         self.done = threading.Event()
+        # When each request reached the server (time.monotonic()), in order.
+        self.arrivals: list[float] = []
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -817,7 +819,8 @@ class TricklingServer:
         with conn:
             try:
                 conn.settimeout(1)
-                conn.recv(65536)  # the request (small enough for one read here)
+                if conn.recv(65536):  # the request (small enough for one read here)
+                    self.arrivals.append(time.monotonic())
                 if not self.gap:
                     conn.sendall(self.answer)
                     return
@@ -887,6 +890,100 @@ class WholeRequestBound(unittest.TestCase):
     def test_the_dispatch_reserve_is_the_bound_plus_the_settle(self):
         self.assertEqual(quota.REQUEST_TIMEOUT_S, notify.GitHub.timeout)
         self.assertEqual(tier.DISPATCH_RESERVE_S, notify.REQUEST_TIMEOUT_S + tier.SETTLE_S)
+
+
+class NothingAfterTheBound(unittest.TestCase):
+    """Codex review of #40574: running the call on a thread joined with its bound let it outlive the bound.
+    F1: a call that timed out could still finish its name lookup and send its POST during the settle, so
+    the next kick dispatched the Mac work twice (a localhost repro got two POSTs). F2: join(bound) started
+    its clock after the thread started, and a finished thread counted as success whatever the time, so a
+    100 ms start delay returned 204 against a 50 ms bound. The call now runs on the caller's thread against
+    one deadline taken before the name lookup: nothing is sent after it, and no answer past it succeeds."""
+
+    BOUND = 0.1
+    ANSWER = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"
+
+    def serve(self) -> TricklingServer:
+        server = TricklingServer(self.ANSWER, 0)
+        self.addCleanup(server.stop)
+        return server
+
+    def clients(self, url: str):
+        tree = notify.GitHub("t", url)
+        kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
+        for api in (tree, kick):
+            api.timeout = self.BOUND
+        return {"tree notify": tree, "QuotaGitHub": kick}
+
+    def slow_lookup(self, seconds: float) -> None:
+        """Every name lookup takes SECONDS more (urllib and the transport both call socket.getaddrinfo)."""
+        real = socket.getaddrinfo
+
+        def lookup(*args, **kwargs):
+            time.sleep(seconds)
+            return real(*args, **kwargs)
+
+        socket.getaddrinfo = lookup
+        self.addCleanup(setattr, socket, "getaddrinfo", real)
+
+    def slow_start(self, seconds: float) -> None:
+        """The caller is held SECONDS right after it starts a request thread (a loaded runner)."""
+        real = threading.Thread.start
+
+        def start(thread):
+            real(thread)
+            if thread.name == "github-request":
+                time.sleep(seconds)
+
+        threading.Thread.start = start
+        self.addCleanup(setattr, threading.Thread, "start", real)
+
+    def dispatch(self, api) -> tuple[object, float, float]:
+        started = time.monotonic()
+        try:
+            outcome = api.post("repos/o/r/actions/workflows/w/dispatches", {})
+        except Exception as error:  # noqa: BLE001
+            outcome = error
+        return outcome, started, time.monotonic()
+
+    def test_a_timed_out_post_is_never_sent_after_its_bound(self):
+        """F1: the name lookup outlasts the bound. The call times out, and no POST reaches the server
+        after that, however long the lookup takes."""
+        server = self.serve()
+        self.slow_lookup(2.5 * self.BOUND)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                server.arrivals.clear()
+                outcome, _, ended = self.dispatch(api)
+                self.assertIsInstance(outcome, notify.RequestTimeout, f"{name} returned {outcome!r}")
+                # Long enough for an abandoned lookup to finish and its POST to land.
+                time.sleep(5 * self.BOUND)
+                late = [round(at - ended, 3) for at in server.arrivals if at > ended]
+                self.assertEqual(late, [], f"{name}: a POST reached the server after the call timed out")
+                self.assertLessEqual(len(server.arrivals), 1)
+
+    def test_a_late_start_gets_no_fresh_bound(self):
+        """F2: the bound runs from the call, not from when its work got going. With a lookup past the
+        bound and the caller held after it starts its work, the call never succeeds."""
+        server = self.serve()
+        self.slow_lookup(1.5 * self.BOUND)
+        self.slow_start(4 * self.BOUND)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                outcome, started, ended = self.dispatch(api)
+                self.assertNotEqual(outcome, 204, f"{name}: a 204 after {ended - started:.3f} s "
+                                                  f"against a {self.BOUND} s bound")
+                self.assertIsInstance(outcome, notify.RequestTimeout)
+
+    def test_an_answer_within_the_bound_still_succeeds(self):
+        server = self.serve()
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                server.arrivals.clear()
+                outcome, started, ended = self.dispatch(api)
+                self.assertEqual(outcome, 204)
+                self.assertEqual(len(server.arrivals), 1)
+                self.assertLess(ended - started, self.BOUND + 0.4)
 
 
 class DispatchWithNoAnswer(unittest.TestCase):
