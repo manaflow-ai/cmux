@@ -26,7 +26,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
-             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable, cloudStartKey
     }
 
     public var protocolVersion: Int
@@ -51,6 +51,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var prompt: String?
     /// The seeded prompt's attachments after the host copied any referenced files to this machine.
     public var promptAttachments: [JSONValue]?
+    /// The `cloud.startChat` key of the Cloud start that opened this chat (``AgentPaneSeed/cloudStartKey``):
+    /// the page takes what was typed on the start's first tab under it (webviews cloudStartCarry.ts).
+    public var cloudStartKey: String?
     /// The single-use gesture ticket of ``prompt`` when a person's own action (or onboarding's
     /// first task) seeded it (cx-k21v gap 4): the page sends the prompt with this promptId and
     /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the

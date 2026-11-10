@@ -35,7 +35,7 @@ const starts: Record<State, CloudStartProgress> = {
 const drafts: Record<State, string> = {
   starting: task,
   copying: task,
-  stalled: `${task} Also check the dock.`,
+  stalled: "Also check the dock.",
   failed: task,
   "signing-in": task,
 };
@@ -91,7 +91,7 @@ export default componentEntry<Props>({
     },
     stalled: {
       props: { state: "stalled" },
-      note: "No word from the host for five minutes: the card says where it stopped, the person types again, and Send waits for the start to end.",
+      note: "No word from the host for five minutes: the sent prompt leaves the box (the chat shows it), the person types the next message, which goes with the start to the chat it opens, and Send waits for the start to end.",
     },
     failed: {
       props: { state: "failed" },

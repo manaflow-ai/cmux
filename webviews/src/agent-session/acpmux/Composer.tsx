@@ -241,6 +241,9 @@ export type ComposerHandle = {
   ): void;
   /// Takes out the chips with these ids, leaving the prompt as typed (a design mode highlight removed on the page).
   detach(ids: readonly string[]): void;
+  /// Empties the prompt and its chips (a stalled Cloud start takes its sent prompt out: the chat
+  /// shows it sent, and a failure puts it back, App.tsx `cloudStartCarrySource`).
+  clear(): void;
   /// Sends what is typed now, as Enter would, even while a trust `blocked` reason is still drawn
   /// (the user just answered Trust). A pending folder choice still holds it. False when nothing went.
   send(): boolean;
@@ -366,6 +369,9 @@ type Props = {
   /// The person edited the prompt, in any chat (one with no session yet too): the pane wakes a
   /// paused Cloud machine as they type (cloudWake.ts `cloudTypingWakes`).
   onPromptEdit?(text: string): void;
+  /// The prompt or its chips changed, by any means (typed, pasted, dropped, put back): the pane
+  /// reads the draft (`draft()`) when it keeps it somewhere (a stalled Cloud start's carry).
+  onDraftChange?(): void;
   /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
    * counts it taken (`suggestion_gate.rs`). */
   onSuggestionTaken?(): void;
@@ -513,6 +519,7 @@ function ComposerFrame({
   onDraftSettled,
   onTyping,
   onPromptEdit,
+  onDraftChange,
   onSuggestionTaken,
   keptAttachments,
   onImportFile,
@@ -791,6 +798,11 @@ function ComposerFrame({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const draftChanged = useRef(onDraftChange);
+  draftChanged.current = onDraftChange;
+  useEffect(() => {
+    draftChanged.current?.();
+  }, [text, attachments]);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
@@ -967,6 +979,15 @@ function ComposerFrame({
         // Their places in the text go with them: no empty atom stays in the draft.
         for (const id of ids) field.current?.removeInline(id);
       },
+      clear() {
+        setAttachments([]);
+        setAttachError(undefined);
+        notTyped();
+        if (!field.current?.type("")) {
+          setText("");
+          setCaret(0);
+        }
+      },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
       prefill(prefix) {
@@ -1062,7 +1083,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater],
+    [setAttachments, setAttachError, attachLater],
   );
   useEffect(() => {
     if (!draft) return;

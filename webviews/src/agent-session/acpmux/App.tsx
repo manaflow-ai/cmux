@@ -524,6 +524,7 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
+import { cloudStartCarry, cloudStartCarrySource, type CloudStartDraft } from "./cloudStartCarry";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -4522,6 +4523,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// fails or the cap card runs it on this Mac, so the prompt is never lost with the page.
   const newTabCloudSent = useRef(false);
   const cloudPageDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
+  /// What the person types after a start stalled goes with it to the chat it opens (cloudStartCarry.ts):
+  /// kept under the start's key, which the opened chat's handshake names (`cloudStartKey`).
+  const [cloudCarrySource] = useState(() => cloudStartCarrySource(cloudStartCarry()));
+  /// The chat composer's draft as a composer start sent it: at a stall it is taken out of the box.
+  const cloudSentDraft = useRef<CloudStartDraft | undefined>(undefined);
+  const cloudStalledKey = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (cloudStart?.state !== "starting" || !cloudStart.stalled || cloudStalledKey.current === cloudStart.key) return;
+    cloudStalledKey.current = cloudStart.key;
+    const handle = composerHandle.current;
+    const held = cloudCarrySource.stalled(
+      cloudStart.key,
+      handle?.draft() ?? { text: "", attachments: [] },
+      cloudSentDraft.current ?? { text: "", attachments: [] },
+    );
+    // The sent prompt leaves the box, held for a failure to put back ahead of what is typed then.
+    if (held) {
+      handle?.clear();
+      cloudPageDraft.current ??= held;
+    }
+  }, [cloudStart, cloudCarrySource]);
   /// The same transition as the native cap card's Run on This Mac answer: keep the
   /// failed Cloud prompt in the composer, change its destination and send it once.
   const runCloudHere = (expectedKey?: string) => {
@@ -4559,7 +4581,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(reservationKey ? { reservationKey } : {}),
     };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
-    void beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
+    const sentDraft = fromPage ? undefined : composerHandle.current?.draft();
+    cloudSentDraft.current = sentDraft;
+    void beginCloudSend(request, false, sentDraft, fromPage);
     return false;
   };
   const beginCloudSend = (
@@ -4630,6 +4654,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
+      // Opened: what was typed after a stall waits for the opened chat; else it is still here.
+      cloudCarrySource.ended(key, answer.ok);
       cloudStartPending.current = false;
       if (signingIn) cloudSignInPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -4684,6 +4710,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudSignInSend.current = () => undefined;
     cloudPageDraft.current = undefined;
     newTabCloudSent.current = false;
+    cloudCarrySource.reset();
+    cloudSentDraft.current = undefined;
+    cloudStalledKey.current = undefined;
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
@@ -7201,6 +7230,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           prompt?: string;
           promptAttachments?: ComposerAttachment[];
           promptTicket?: { promptId?: unknown; ticket?: unknown };
+          /// The Cloud start that opened this chat (`cloud.startChat {key}`, the seed's): its carry.
+          cloudStartKey?: unknown;
           harness?: string;
           peer?: string;
           adopt?: unknown;
@@ -7347,6 +7378,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        // A chat a Cloud start opened: what the person typed on its first tab after the start
+        // stalled comes into this composer, once (cloudStartCarry.ts).
+        const carried =
+          !reconnect && typeof host.cloudStartKey === "string" && host.cloudStartKey
+            ? cloudStartCarry().take(host.cloudStartKey)
+            : undefined;
+        if (carried) restoreComposerDraft(composerHandle, heldBack, carried.text, carried.attachments);
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
@@ -11168,6 +11206,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onTyping={quick ? undefined : onCloudTyping}
             onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
             onPromptEdit={quick ? undefined : wakeOnTyping}
+            onDraftChange={() => cloudCarrySource.edited(() => composerHandle.current?.draft())}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}

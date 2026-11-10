@@ -15,6 +15,9 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// The seeded prompt's composer attachments, with any file paths already on its machine.
     /// JSON preserves their inline ids and content until the page's ordinary send builds ACP blocks.
     public var promptAttachments: [JSONValue]?
+    /// The `cloud.startChat` key of the Cloud start that opened this chat (``AgentPaneCloudStart/seed(cwd:)``),
+    /// handed to its page as is (``AgentPaneHandshake/cloudStartKey``).
+    public var cloudStartKey: String?
     /// Who seeded ``prompt``. Only a person's own action or onboarding's first task gets the
     /// single-use gesture ticket the prompt needs to go out by itself (cx-k21v gap 4, chief:
     /// person only); a prompt seeded by the CLI, MCP, a script or another client gets none, so

@@ -144,8 +144,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
     public func seed(cwd: String?) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
-                      promptBy: .person, harness: harness, model: model)
+        var seed = AgentPaneSeed(cwd: cwd, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+                                 promptBy: .person, harness: harness, model: model)
+        seed.cloudStartKey = key
+        return seed
     }
 }
 

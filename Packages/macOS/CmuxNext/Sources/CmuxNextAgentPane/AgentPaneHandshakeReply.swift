@@ -30,6 +30,7 @@ enum AgentPaneHandshakeReply {
                 handshake.draft = seed.draft
                 handshake.prompt = seed.prompt
                 handshake.promptAttachments = seed.promptAttachments
+                handshake.cloudStartKey = seed.cloudStartKey
                 // A prompt a person's own action seeded goes out by itself with a single-use
                 // ticket bound to its promptId (cx-k21v gap 4, chief: person only). The seed hands
                 // its prompt out once, so a reload gets neither the prompt nor a ticket again.
