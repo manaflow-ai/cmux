@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type CDPSession, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { createHash, randomUUID } from "node:crypto";
@@ -221,6 +221,15 @@ export async function captureClip(page: Page): Promise<{ x: number; y: number; w
   const bottom = Math.min(measured.viewportHeight, measured.bottom + DEFAULT_CAPTURE_CONTEXT);
   return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
 }
+/** A CDP session on the page, or undefined when the context has none or refuses one; never throws. */
+async function openCpuSession(context: unknown, page: unknown): Promise<CDPSession | undefined> {
+  const open = (context as { newCDPSession?: (page: unknown) => Promise<CDPSession> }).newCDPSession;
+  if (typeof open !== "function") return undefined;
+  return Promise.resolve()
+    .then(() => open.call(context, page))
+    .catch(() => undefined);
+}
+
 async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
@@ -232,8 +241,10 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const page = await context.newPage();
     // The renderer's main-thread CPU time (Chromium's Performance metrics, `ThreadTime`): the work the
     // stage did to get ready, which a loaded runner does not stretch the way it stretches wall time.
-    const cpu = engine === "chromium" ? await context.newCDPSession(page).catch(() => undefined) : undefined;
-    const cpuReady = await cpu?.send("Performance.enable").then(() => true, () => false);
+    // Optional: a context with no CDP (another engine, a test double) is held to wall time instead.
+    const cpu = engine === "chromium" ? await openCpuSession(context, page) : undefined;
+    const cpuReady = cpu ? await Promise.resolve().then(() => cpu.send("Performance.enable")).then(() => true, () => false) : false;
+    if (engine === "chromium" && !cpuReady) console.warn(`gallery matrix: ${item.id}: no renderer CPU reading; its ready budget uses wall time`);
     // Workflow receipts reuse the matrix's synthetic captures. Keep only an AX digest/count,
     // never accessibility text, and leave ordinary matrix timing/capture costs unchanged.
     const workflow = process.env.CMUX_GALLERY_WORKFLOW_EVIDENCE === "1";
@@ -300,7 +311,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const threadTime = cpuReady
-      ? await cpu!.send("Performance.getMetrics").then(({ metrics }) => metrics.find((metric) => metric.name === "ThreadTime")?.value, () => undefined)
+      ? await Promise.resolve().then(() => cpu!.send("Performance.getMetrics")).then(({ metrics }) => metrics.find((metric) => metric.name === "ThreadTime")?.value, () => undefined)
       : undefined;
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
     const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
