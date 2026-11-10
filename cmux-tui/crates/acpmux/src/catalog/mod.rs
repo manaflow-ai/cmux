@@ -320,3 +320,7 @@ impl CatalogService {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "log_lock_tests.rs"]
+mod log_lock_tests;
