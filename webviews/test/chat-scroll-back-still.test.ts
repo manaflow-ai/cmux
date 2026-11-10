@@ -53,6 +53,9 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
   const READ_MS = 1500;
   /// How long after the scroll back down a held follow motion played out on base (its spring home).
   const SLIDE_MS = 250;
+  /// From here on the wheel's own motion has ended; the fold comes once input has been quiet for
+  /// USER_SCROLL_INTENT_MS (1 s).
+  const QUIET_FROM_MS = 900;
 
   // 60 px: the rows under the landing call stay in view while the reader reads. 600 px: they leave it,
   // so their held glides end unseen (tailGlide.ts dropUnseen) and nothing of them plays on the return.
@@ -93,8 +96,9 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
       // chase folded into the offset keeps that; a row's own glide cut short would not.
       const reading = out.filter((sample) => sample.t > wheeled! + 2 * FRAME_MS && sample.t < back!);
       expect(reading.some((sample) => sample.t > wheeled! + 1100)).toBe(true);
-      // In a frame whose offset moved with no input (the fold), the rows also hold their places on
-      // screen: the layout check above can't see a fold that moves offset and translate apart.
+      // In a frame whose offset moved around the quiet point (the fold; the wheel's own motion has
+      // ended by then), the rows also hold their places on screen: the layout check above can't see
+      // a fold that moves offset and translate apart.
       let drift = 0;
       let drifted: string | undefined;
       let folded = 0;
@@ -104,7 +108,7 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
         const was = reading[index - 1]!;
         const now = reading[index]!;
         const before = new Map((was.rows ?? []).map((row) => [row.id, row]));
-        const offsetMoved = Math.abs(now.scrollTop - was.scrollTop) > 0.5;
+        const offsetMoved = now.t > wheeled! + QUIET_FROM_MS && Math.abs(now.scrollTop - was.scrollTop) > 0.5;
         if (offsetMoved) folded += 1;
         for (const row of now.rows ?? []) {
           const prior = before.get(row.id);
