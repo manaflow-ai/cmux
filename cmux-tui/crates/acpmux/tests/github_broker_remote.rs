@@ -29,8 +29,11 @@ const GITHUB_ACTION: &str = "_acpmux/github_action";
 /// The credential the stand-in Mac lends for a clone.
 const LENT: &str = "ghs_LentCloneToken0123456789";
 
+/// A test's folder: under HOME, on the file system of the daemon's state folder, where a
+/// clone is staged (`github_clone.rs`).
 fn dir(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("ghr-{tag}-{}", std::process::id()));
+    let home = PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
+    let d = home.join(format!("ghr-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("work")).unwrap();
     std::fs::canonicalize(&d).unwrap()
@@ -217,6 +220,7 @@ async fn git_server(d: &Path) -> (String, Arc<std::sync::atomic::AtomicBool>) {
     let authed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let seen = authed.clone();
     let root = d.join("served");
+    let work = d.join("work");
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -230,6 +234,17 @@ async fn git_server(d: &Path) -> (String, Arc<std::sync::atomic::AtomicBool>) {
             let head = String::from_utf8_lossy(&head).to_string();
             let path = head.split_whitespace().nth(1).unwrap_or("/").to_owned();
             let path = path.split('?').next().unwrap_or("/").to_owned();
+            if path.starts_with("/o/fail.git/") {
+                // While git runs, the agent writes into the clone's folder; then the clone fails.
+                let dropped = work.join("dropped");
+                let _ = std::fs::create_dir_all(&dropped);
+                let _ = std::fs::write(dropped.join("agent.txt"), "the agent's");
+                let _ = tcp
+                    .write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await;
+                let _ = tcp.shutdown().await;
+                continue;
+            }
             let header = format!("authorization: {want}").to_ascii_lowercase();
             let ok = head.lines().any(|l| l.to_ascii_lowercase().trim() == header);
             let reply: Vec<u8> = if !ok {
@@ -298,12 +313,28 @@ async fn a_remote_chain_reads_and_clones_through_its_own_channel() {
 
     // A folder that is there, or a DIR that leaves the chat's folder, is refused before the Mac
     // is asked.
+    let staging = acpmux::config::home().join("clone-staging");
+    let left = |s: &Path| std::fs::read_dir(s).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(left(&staging), 0, "a finished clone leaves nothing in its staging folder");
+
+    // Codex review (#40513): git runs in a staging folder the agent cannot reach, so what the
+    // agent writes at DIR while git runs is never removed when the clone fails.
+    let failed =
+        mac.tool(&session, "repo_clone", json!({"repo": "o/fail", "dir": "dropped"})).await;
+    assert!(result(&failed).1, "{failed}");
+    assert_eq!(
+        std::fs::read_to_string(d.join("work/dropped/agent.txt")).ok().as_deref(),
+        Some("the agent's"),
+        "the agent's file at DIR survives a failed clone: {failed}"
+    );
+    assert_eq!(left(&staging), 0, "a failed clone leaves nothing in its staging folder");
+
     for dir in ["cloned", "../out", ".git", "/tmp/x"] {
         let again = mac.tool(&session, "repo_clone", json!({"repo": "o/r", "dir": dir})).await;
         assert!(result(&again).1, "{dir}: {again}");
     }
     assert!(!d.join("out").exists());
-    assert_eq!(asked.lock().unwrap().len(), 2, "only the first clone reached the Mac");
+    assert_eq!(asked.lock().unwrap().len(), 3, "only the first two clones reached the Mac");
     let _ = std::fs::remove_dir_all(&d);
 }
 
