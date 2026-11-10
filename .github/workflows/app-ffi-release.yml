@@ -455,11 +455,15 @@ jobs:
           probe="$(mktemp)"
           for attempt in 1 2 3 4 5 6; do
             if gh release view "$TAG" >/dev/null 2>"$probe"; then exists=1; break; fi
-            grep -qi "release not found" "$probe" && break
+            if grep -qi "release not found" "$probe"; then exists=no; break; fi
             echo "read $attempt of release $TAG failed: $(tr '\n' ' ' < "$probe")"
             [[ "$attempt" == 6 ]] || sleep 10
           done
-          if [[ -n "$exists" ]]; then
+          if [[ -z "$exists" ]]; then
+            echo "::error title=Publish by hand::could not read release $TAG after 6 tries (errors above), so this run neither created nor checked it. Rerun this job; if the release is still absent, publish by hand: $HAND_PUBLISH"
+            exit 1
+          fi
+          if [[ "$exists" == 1 ]]; then
             existing="$(mktemp -d)"
             gh release download "$TAG" --pattern "CCmuxAppFFI.xcframework.zip" --dir "$existing"
             published="$(sha256sum "$existing/CCmuxAppFFI.xcframework.zip" | awk '{print $1}')"

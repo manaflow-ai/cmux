@@ -53,12 +53,15 @@ FAKE_GH = r"""#!/usr/bin/env bash
 # Fake gh: FAKE_CREATE is ok, 403 or noop. A created release is the directory $STATE/release.
 set -u
 rel="$STATE/release"
-# FAKE_READ_FLAKES: the first N release reads fail with a 502, as GitHub's did
-# in run 42919934207, whether or not the release exists.
+# FAKE_READ_FAILS: the release reads (view and download, counted from 1) that
+# fail with a 502, as GitHub's did in run 42919934207, whether or not the
+# release exists; "all" fails every read.
 if [[ "$1 $2" == "release view" || "$1 $2" == "release download" ]]; then
   reads=$(( $(cat "$STATE/reads" 2>/dev/null || echo 0) + 1 ))
   echo "$reads" > "$STATE/reads"
-  if (( reads <= ${FAKE_READ_FLAKES:-0} )); then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
+  if [[ "${FAKE_READ_FAILS:-}" == all || " ${FAKE_READ_FAILS:-} " == *" $reads "* ]]; then
+    echo "HTTP 502: Bad Gateway" >&2; exit 1
+  fi
 fi
 case "$1 $2" in
   "release view") [[ -d "$rel" ]] && exit 0; echo "release not found" >&2; exit 1 ;;
@@ -116,7 +119,7 @@ def condition(expression: str | None, context: dict, failed: bool) -> bool:
 
 class PublishJob(unittest.TestCase):
     def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
-                    read_flakes: int = 0) -> tuple[bool, str]:
+                    read_fails: str = "") -> tuple[bool, str]:
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -146,7 +149,7 @@ class PublishJob(unittest.TestCase):
                 "vars": {}, "runner": {"temp": str(temp_path)},
             }
             base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
-                        "FAKE_CREATE": create, "FAKE_READ_FLAKES": str(read_flakes), "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+                        "FAKE_CREATE": create, "FAKE_READ_FAILS": read_fails, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
@@ -198,22 +201,29 @@ class PublishJob(unittest.TestCase):
     def test_a_failed_read_of_a_published_release_is_asked_again(self):
         # Run 42919934207 published the release, then one read in the last
         # check failed (GitHub 502s) and the job said the release did not
-        # exist, which skipped the re-pin and left base red.
-        passed, log = self.run_publish(workflow_changed=False, existing=True, read_flakes=2)
+        # exist, which skipped the re-pin and left base red. Read 1 is the
+        # create step's probe ("release not found"); reads 2 and 3 are the
+        # last check's first two tries.
+        passed, log = self.run_publish(workflow_changed=False, read_fails="2 3")
         self.assertTrue(passed, log)
-        self.assertIn("HTTP 502", log, log)
+        self.assertIn("read 2 of release", log, log)
+        self.assertIn("exists with checksum", log, log)
         self.assertNotIn("publish by hand", log.lower(), log)
 
     def test_a_failed_read_before_the_create_is_asked_again(self):
         # The create step's own read fails first; it asks again instead of
         # taking the 502 for "no release" and creating over a published tag.
-        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_flakes=1)
+        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_fails="1")
         self.assertTrue(passed, log)
         self.assertIn("already has the matching archive", log, log)
 
-    def test_a_release_that_never_reads_still_fails_loud(self):
-        self.assert_fails_loud(*self.run_publish(workflow_changed=False, create="noop", read_flakes=99))
-
+    def test_a_release_that_never_reads_fails_loud_without_a_create(self):
+        # Six failed reads are not "no release": the create step stops there
+        # instead of creating, and still names the hand publish.
+        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_fails="all")
+        self.assert_fails_loud(passed, log)
+        self.assertIn("could not read release", log, log)
+        self.assertNotIn("HTTP 403", log, log)
 
 APP_TOKEN_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
 
