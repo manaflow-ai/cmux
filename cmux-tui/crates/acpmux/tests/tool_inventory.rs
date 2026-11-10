@@ -263,7 +263,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         row("mcp:acpmux", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
     ];
-    // cmux-cua needs no machine consent here, or control granted: the authority is the OS
+    // cmux-computer-use needs no machine consent here, or control granted: the authority is the OS
     // account's own `~/.acpmux/machine-consent` (passwd home, not the hermetic HOME), so state
     // another process left there removes it. Named in the failure (full-suite red of 2026-11-08).
     let consent = local.call("_acpmux/machine_consent_get", json!({})).await;

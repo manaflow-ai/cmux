@@ -205,7 +205,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
 /// skill for a tool the chat lacks sends the agent to read it for nothing (a Linux or Cloud
 /// chat has no computer use; a chat without `cmux-secrets` has no `request_elevation`).
 const SKILL_SERVERS: &[(&str, &str)] =
-    &[("cmux-cua", crate::cua_v2::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
+    &[("cmux-computer-use", crate::computer_use::mcp::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
 
 /// The skill a path in [`SKILL_FILES`] belongs to (`cmux-browser/references/x.md` is
 /// `cmux-browser`).

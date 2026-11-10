@@ -386,7 +386,7 @@ fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
 }
 
 /// A chat without computer use or the secrets server is not told about their skills: the
-/// fitted plugin leaves out `cmux-cua` and `cmux-sudo`, keeps the rest (the chat skill
+/// fitted plugin leaves out `cmux-computer-use` and `cmux-sudo`, keeps the rest (the chat skill
 /// as the full plugin had it), and the tool rows and context sources say the same.
 #[test]
 fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
@@ -399,7 +399,7 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     };
     let full = super::materialize(state.path(), |_| true).unwrap();
     let with = super::AgentTools {
-        servers: vec![server("cmux"), server("cmux-cua"), server(crate::secret_mcp::SERVER_NAME)],
+        servers: vec![server("cmux"), server("cmux-computer-use"), server(crate::secret_mcp::SERVER_NAME)],
         plugin_dir: Some(full.clone()),
         ..Default::default()
     };
@@ -408,7 +408,7 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     let fit = without.plugin_dir.clone().unwrap();
     assert_ne!(fit, full);
     assert_eq!(fit.parent(), full.parent());
-    for gone in ["cmux-cua", "cmux-sudo"] {
+    for gone in ["cmux-computer-use", "cmux-sudo"] {
         assert!(!fit.join("skills").join(gone).exists(), "{gone} is listed");
     }
     for kept in ["cmux-browser", "cmux-chat", "acpmux", "cmux-live"] {
@@ -417,14 +417,14 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     assert!(fit.join("hooks/hooks.json").is_file());
     let rows: Vec<_> = without.tool_rows(true, true).into_iter().map(|r| r.id).collect();
     assert!(rows.contains(&"skill:cmux:cmux-browser".to_owned()), "{rows:?}");
-    assert!(!rows.iter().any(|r| r.ends_with("cmux-cua") || r.ends_with("cmux-sudo")), "{rows:?}");
+    assert!(!rows.iter().any(|r| r.ends_with("cmux-computer-use") || r.ends_with("cmux-sudo")), "{rows:?}");
     let parts: Vec<_> = without.context_parts(true).into_iter().map(|p| p.id).collect();
-    assert!(!parts.iter().any(|p| p == "cmux-source-skill-cmux-cmux-cua"), "{parts:?}");
+    assert!(!parts.iter().any(|p| p == "cmux-source-skill-cmux-cmux-computer-use"), "{parts:?}");
     // A plugin without the chat skill (`agents.guidance.claude` off) stays without it.
     let no_chat = super::materialize(state.path(), |skill| skill != "cmux-chat").unwrap();
     let fit = super::AgentTools { plugin_dir: Some(no_chat), ..without }.fit_skills();
     let fit = fit.plugin_dir.unwrap();
-    assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-cua").exists());
+    assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-computer-use").exists());
 }
 
 /// cmux's hosted MCP server (`hosted_mcp.rs`) reaches a session only while the daemon turns it
