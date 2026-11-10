@@ -542,6 +542,11 @@ impl JournalWriterStats {
         self.queued(lane).fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Events of `lane` that producers queued and the writer has not drained.
+    pub(crate) fn queued_depth(&self, lane: JournalLane) -> usize {
+        self.queued(lane).load(Ordering::Relaxed)
+    }
+
     /// Undo [`Self::enqueued`] when the channel refused the event.
     pub(crate) fn enqueue_failed(&self, lane: JournalLane) {
         self.drained(lane, 1);

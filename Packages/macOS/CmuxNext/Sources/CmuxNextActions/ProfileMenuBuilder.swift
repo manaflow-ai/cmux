@@ -58,11 +58,17 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return menu
     }
 
-    /// The account rows: signed in (`who` is the name, then the email), who it is (not a command,
-    /// its first line drawing `avatar`, the person's picture or initials) and the team (its row
-    /// opens the team picker) on top and Sign Out at the end; signed out (`who` nil), Sign In at
-    /// the end.
-    public func addAccountRows(to menu: NSMenu, who: [String]?, team: String?, avatar: NSImage? = nil) {
+    /// The account rows: signed in (`who` is the name, then the email), who it is, then every team
+    /// the account may work in, and Sign Out at the end; signed out (`who` nil), Sign In at the end.
+    ///
+    /// Who it is is a normal row (its picture or initials, the name with the email under it) that
+    /// opens Accounts…, never a greyed header that reads as a state (Leo, 2026-11-09, of the greyed
+    /// email: "but does this not mean it's already connected?"). The teams are Switch Active Team's
+    /// own values (`openTeamPicker`'s `cloudTeams`), one selectable row each with its icon (a person
+    /// for the person's own team, people for a shared one) and second line, the active one checked,
+    /// so the team in effect reads as a choice, not as a highlighted row (Leo, 2026-11-09, of the
+    /// lone team row: "i guess is team? it's kinda hard to realize tho").
+    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil) {
         defer { Self.keepOneTextColumn(menu) }
         let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
         if let item = registry.makeMenuItem(for: auth) {
@@ -70,21 +76,63 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             menu.addItem(.separator())
             menu.addItem(item)
         }
-        guard let who else { return }
-        menu.insertItem(.separator(), at: 0)
-        if let team, let item = registry.makeMenuItem(for: "openTeamPicker") {
-            item.title = team
-            item.image = Self.symbol("person.2", label: team)
-            menu.insertItem(item, at: 0)
+        guard let who, let name = who.first else { return }
+        var rows = personRows(name: name, email: who.count > 1 ? who[1] : nil, avatar: avatar)
+        let teams = teamRows()
+        if !teams.isEmpty {
+            rows.append(.separator())
+            rows += teams
         }
-        for (index, line) in who.enumerated().reversed() {
-            let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            if index == 0 {
-                header.image = avatar
-                header.identifier = NSUserInterfaceItemIdentifier("profileMenu.person")
+        rows.append(.separator())
+        for row in rows.reversed() { menu.insertItem(row, at: 0) }
+    }
+
+    /// Who is signed in: one row, the email as its second line where the system draws one (macOS
+    /// 14.4), else on a row of its own. Both open Accounts… when the build binds it.
+    private func personRows(name: String, email: String?, avatar: NSImage?) -> [NSMenuItem] {
+        let accounts: ActionID = "accounts.show"
+        func row(_ title: String) -> NSMenuItem {
+            guard let item = boundMenuItem(accounts) else {
+                let header = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                return header
             }
-            menu.insertItem(header, at: 0)
+            item.title = title
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return item
+        }
+        let person = row(name)
+        person.image = avatar
+        person.identifier = NSUserInterfaceItemIdentifier("profileMenu.person")
+        guard let email else { return [person] }
+        if #available(macOS 14.4, *) {
+            person.subtitle = email
+            return [person]
+        }
+        let line = row(email)
+        line.identifier = NSUserInterfaceItemIdentifier("profileMenu.personEmail")
+        return [person, line]
+    }
+
+    /// Every team the account may work in, as Switch Active Team lists them, the active one
+    /// checked (`choiceState`); none while the action is unbound or unavailable (signed out).
+    func teamRows() -> [NSMenuItem] {
+        let action: ActionID = "openTeamPicker"
+        guard registry.action(for: action) != nil, registry.unavailableReason(for: action) == nil else { return [] }
+        let teams = registry.argumentSuggestions?(ActionSuggestions.cloudTeams) ?? []
+        let active = registry.choiceState?(action, nil)
+        return teams.compactMap { team in
+            guard let item = registry.makeMenuItem(for: action) else { return nil }
+            item.title = team.title
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            item.image = Self.symbol(team.symbol ?? "person.2", label: team.title)
+            item.state = team.value == active ? .on : .off
+            item.identifier = NSUserInterfaceItemIdentifier("profileMenu.team")
+            item.representedObject = ActionMenuPayload(id: action, target: nil, arguments: ["team": .string(team.value)])
+            if #available(macOS 14.4, *) { item.subtitle = team.subtitle }
+            return item
         }
     }
 

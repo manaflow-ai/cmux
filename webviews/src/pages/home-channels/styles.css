@@ -522,7 +522,7 @@ body,
   background: var(--hc-fill);
   transition: border-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
-.hc-composer:focus-within {
+.hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--hc-line-strong);
 }
 .hc-composer.disabled {
@@ -625,8 +625,8 @@ body,
   font: inherit;
   outline: none;
 }
-.hc-emoji-search:focus,
-.hc-link-field:focus {
+.hc-emoji-search:focus-visible,
+.hc-link-field:focus-visible {
   border-color: var(--hc-line-strong);
 }
 .hc-emoji-grid {
