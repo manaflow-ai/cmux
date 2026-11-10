@@ -1139,7 +1139,7 @@ describe("clean-room provider key probe", () => {
         "/home/cmux/.local/bin/other: a Google AI key",
       ]);
       expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
-        "/home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch",
+        "/home/cmux/.codex/tmp/arg0/[a long name]/apply_patch",
         "/home/cmux/.local/bin/acpmux",
         "/home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux",
       ]);
@@ -1230,6 +1230,35 @@ describe("clean-room provider key probe", () => {
         "/home/cmux/late.json:1: an OAuth refresh token",
         "/home/cmux/project/settings.ini:1: AWS_SECRET_ACCESS_KEY",
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a long value on a later line is found, a large login file is read whole, and no token-like name leaves", () => {
+    const LONG = `opaqueLong${"7Kq2Zr9Lw4".repeat(74)}x`; // 751 characters, longer than any one look ahead
+    const BIG = "opaqueBig6Rv3Hx8Nq2Lm5";
+    const MISSED = "zq81Hw4Kd9Lm2Px7"; // a token no detector names: shape alone keeps it out of the answer
+    const root = plant({
+      "proc/5/comm": `${MISSED.slice(0, 15)}\n`,
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/token.json": `{"refresh_token":\n "${LONG}"}\n`,
+      [`home/cmux/${LONG.slice(0, 15)}/.codex/auth.json`]: "{}",
+      // A valid login file over 1 MiB, its token first.
+      [`home/cmux/${BIG}/.claude/.credentials.json`]: JSON.stringify({ claudeAiOauth: { accessToken: BIG }, pad: "p".repeat(2 << 20) }),
+      [`home/cmux/${MISSED}/notes.txt`]: `${PROJ}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [LONG.slice(0, 15), LONG.slice(-40), BIG, MISSED, MISSED.slice(0, 15)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/[a long name]/notes.txt:1: an OpenAI project key",
+        "file /home/cmux/[a piece of a secret]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a secret]/.claude/.credentials.json: a Claude login file",
+        "file /home/cmux/token.json:1: an OAuth refresh token",
+      ]);
+      expect(probe.complete).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

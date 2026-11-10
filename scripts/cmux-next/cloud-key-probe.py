@@ -159,6 +159,11 @@ PIECE = 8
 WORD = re.compile(r"[^/\s()\[\],;:=]+")
 
 
+# Whatever detection found or missed, no word of a report string that could be a credential leaves the machine: a word
+# of 12 or more token characters with a letter and a digit (a folder named after a token, a process named after one,
+# cut to 15 bytes) is replaced. Detection only decides what counts as a finding; this decides what may be printed.
+TOKEN_LIKE = re.compile(r"^(?=[^0-9]*[0-9])(?=[^A-Za-z]*[A-Za-z])[A-Za-z0-9_\-+=~.]{12,}$")
+
 _PIECES = (0, set())
 
 
@@ -191,8 +196,9 @@ def redact(text):
 
     def piece_of_key(m):
         word = m.group(0)
-        hit = any(word[i:i + n] in keys for n in lengths for i in range(len(word) - n + 1))
-        return "[a piece of a secret]" if hit else word
+        if any(word[i:i + n] in keys for n in lengths for i in range(len(word) - n + 1)):
+            return "[a piece of a secret]"
+        return "[a long name]" if TOKEN_LIKE.match(word) else word
 
     return WORD.sub(piece_of_key, text)
 
@@ -303,6 +309,21 @@ def scan_text(text):
     return out
 
 
+# A key's name or a refresh token's field, then `:` or `=`: its value follows, on this line or a later one.
+OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?)\s*[:=]\s*["\']?')
+VALUE_TO_END = re.compile(r'[^"\'\s,;)}]*')
+# How far past its line a value is followed before it counts as ended: past any real key.
+MAX_VALUE = 1 << 20
+
+
+def open_value(text):
+    """Whether `text` ends inside a value (or before it starts) after a key's name or a refresh token's field."""
+    last = None
+    for last in OPENER.finditer(text):
+        pass
+    return last is not None and VALUE_TO_END.fullmatch(text, last.end()) is not None
+
+
 def context_kinds(text, line_end):
     """What a key's name or a refresh token's field opening a line names when its value is on a later line (JSON
     and YAML put it there freely): matches that start before `line_end` in `text`, the line and what follows it.
@@ -327,20 +348,26 @@ LOGIN_FIELD = re.compile(r"token|key|secret|password|credential", re.I)
 LOGIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[=:]\s*(\S+)\s*$", re.M)
 
 
+LOGIN_QUOTED = re.compile(r'"([^"\\]{1,128})"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
 def login_values(path):
-    """Records the secret fields of a login file for redaction, JSON or `name = value` lines (an AWS credentials
-    file is INI). Never reports them."""
+    """Records the secret fields of a login file for redaction, from the whole file: JSON fields, quoted
+    `"name": "value"` pairs (JSON the parser refuses) and `name = value` lines (an AWS credentials file is INI). Never
+    reports them. Paths are redacted by shape too (TOKEN_LIKE), so this is the second guard, not the only one."""
     try:
         with open(path, "rb") as f:
-            raw = f.read(1 << 20)
+            raw = f.read()
     except OSError:
         return
+    text = raw.decode("utf-8", "replace")
+    for pattern in (LOGIN_LINE, LOGIN_QUOTED):
+        for m in pattern.finditer(text):
+            if LOGIN_FIELD.search(m.group(1)):
+                found(m.group(2))
     try:
         data = json.loads(raw)
     except ValueError:
-        for m in LOGIN_LINE.finditer(raw.decode("utf-8", "replace")):
-            if LOGIN_FIELD.search(m.group(1)):
-                found(m.group(2))
         return
     stack = [(None, data)]
     while stack:
@@ -401,12 +428,20 @@ def scan_file(path):
                 seen = {what for _, what in scan_text(whole[start:end].decode("utf-8", "replace"))}
                 # A value on a later line: the stretch after the hit, read ahead past this chunk's end if need be
                 # (what is read ahead is kept for the next chunk).
-                if chunk and end + HIT_SPAN > len(block):
-                    more = f.read(HIT_SPAN)
-                    block += more
-                    rest += more
-                # From the line's start to past its end, so every hit on the line has its stretch checked, not the first.
-                after = block[start:end + HIT_SPAN].decode("utf-8", "replace")
+                # From the line's start to past its end, so every hit on the line has its stretch checked, not the first,
+                # and on until a value left open there (`"refresh_token":` then a long token) has ended.
+                stop, ended = end + HIT_SPAN, not chunk
+                while True:
+                    if stop > len(block) and not ended:
+                        need = stop - len(block)
+                        more = f.read(need)
+                        block += more
+                        rest += more
+                        ended = len(more) < need
+                    after = block[start:stop].decode("utf-8", "replace")
+                    if (ended and stop >= len(block)) or stop - end >= MAX_VALUE or not open_value(after):
+                        break
+                    stop += max(HIT_SPAN, stop - end)
                 seen |= context_kinds(after, len(whole[start:end].decode("utf-8", "replace")))
                 out.extend((line, what) for what in sorted(seen))
             line += whole.count(b"\n", seen_to)
