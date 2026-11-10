@@ -224,6 +224,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TAG, Run(json!({"sessionId": "$S", "set": {"lso": "1"}}))),
         (method::MUX_DETACH_PARENT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // `archived: false` brings a log back: an in-memory store has no archive file, so the
+        // chat `$S` stays as it is for the rows after this one.
+        (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,
@@ -373,6 +376,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_REGISTER,
+            Any(
+                json!({"name": "lso-register"}),
+                "taken only from the unix socket, by the peer's pid (invalid params)",
+            ),
         ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (
