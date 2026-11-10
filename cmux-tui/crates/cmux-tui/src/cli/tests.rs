@@ -20,6 +20,9 @@ fn settings_separator_keeps_literal_confirm_with_daemon() {
 
     let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
     assert!(!daemon_settings_scope(&confirmed));
+    // `--yes` is the CLI's confirm word everywhere (docs/cli-conventions.md).
+    let yes = strings(&["settings", "set", "custom.label", "value", "--yes"]);
+    assert!(!daemon_settings_scope(&yes));
 }
 
 #[cfg(unix)]

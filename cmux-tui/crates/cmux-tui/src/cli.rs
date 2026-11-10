@@ -345,7 +345,9 @@ fn unknown_remote_action(args: &[String]) -> Option<i32> {
             "retryable":false,
         }),
         global.output,
-        1,
+        // A word the command does not have is a usage error: exit 2, like
+        // every scope (docs/cli-conventions.md in cmuxterm-hq).
+        2,
     ))
 }
 
@@ -498,6 +500,96 @@ fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
     }
     let own_help = if scope == "device" { "help" } else { "--help" };
     *args = vec![scope.clone(), own_help.to_string()];
+}
+
+/// A scope's usage error when the scope prints its usage block as the
+/// refusal: the `--json` envelope (the usage in `details.usage`) under
+/// `--json`; else the usage, then one last line with what was wrong and the
+/// help to run, so `| tail -1` names the fix. Exit 2.
+pub(super) fn scope_usage_failure(output: OutputMode, scope: &str, what: &str, usage: &str) -> i32 {
+    let message = format!("{what}; run `cmux {scope} --help` for its usage");
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => wire::print_local_error(
+            &serde_json::json!({
+                "code": "usage.invalid",
+                "message": message,
+                "details": {"usage": usage.trim_end()},
+                "retryable": false,
+            }),
+            output,
+            2,
+        ),
+        OutputMode::Human | OutputMode::Quiet => {
+            eprintln!("{}\n\n{BIN}: {message}", usage.trim_end());
+            2
+        }
+    }
+}
+
+/// What a scope's refusal says about the words it was given: the first
+/// word it does not take, or that it needs one.
+pub(super) fn unknown_words(scope: &str, words: &[String]) -> String {
+    match words.iter().find(|word| !word.is_empty()) {
+        Some(word) if word.starts_with('-') => format!("{scope} does not take {word:?}"),
+        Some(word) => format!("unknown {scope} command {word:?}"),
+        None => format!("{scope} needs a command"),
+    }
+}
+
+/// A usage error of a command `main` refuses before the cmux global options
+/// are parsed: the `--json` envelope when `--json` or `--jsonl` is among the
+/// words before `--`, else `cmux: <message>`; exit 2.
+pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
+    let json = args
+        .iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "--json" | "--jsonl"));
+    let (output, message) = if json {
+        (OutputMode::Json, message.to_owned())
+    } else {
+        (OutputMode::Human, format!("{BIN}: {message}"))
+    };
+    wire::print_local_error(
+        &serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        2,
+    )
+}
+
+/// Scopes `main` routes by their first word, before the cmux global options
+/// are read, whose own parser takes `--json` right after the scope word:
+/// acpmux's (`--json` is a global clap option there).
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
+
+/// `cmux --json <scope> …` for a scope `main` routes by its first word: the
+/// leading `--json` moves to just after the scope word, where that scope's
+/// own parser reads it, so `cmux --json chats list` is `cmux chats --json
+/// list` (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
+/// `link` prints JSON only, so a leading `--json` or `--jsonl` there is
+/// dropped. Any other leading option stays where it is, and the parser's
+/// refusal names the right form. `device` keeps its own handling
+/// (devices::device_args).
+pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
+    let lead = args.iter().take_while(|word| matches!(word.as_str(), "--json" | "--jsonl")).count();
+    let Some(scope) = args.get(lead).cloned() else {
+        return;
+    };
+    if lead == 0 {
+        return;
+    }
+    if scope == "link" {
+        args.drain(..lead);
+    } else if scope == "host" && args[..lead].iter().all(|w| w == "--json") {
+        // The supervisor's verbs read `--json` after their own words
+        // (`host status --json`): it goes last, before any `--`.
+        args.drain(..lead);
+        let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
+        args.insert(end, "--json".to_owned());
+    } else if JSON_AFTER_SCOPE.contains(&scope.as_str()) && args[..lead].iter().all(|w| w == "--json")
+    {
+        args.drain(..lead);
+        args.insert(1, "--json".to_owned());
+    }
 }
 
 /// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
@@ -838,7 +930,11 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         // sheet. The daemon CLI deliberately has no fake approval path. Only
         // options before `--` are flags; after it, every argument is literal.
         Some("set" | "reset" | "unset")
-            if command_args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "--confirm") =>
+            // `--yes` is `--confirm` (the CLI's one confirm word; cli/app.rs).
+            if command_args
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| matches!(arg.as_str(), "--confirm" | "--yes")) =>
         {
             false
         }
@@ -998,9 +1094,27 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
+    // A scope the root help lists whose own dispatcher did not take these
+    // words (`cmux identify zzz`, `cmux device zzz`): the scope is real, the
+    // words are not; name its help (docs/cli-conventions.md in cmuxterm-hq).
+    if surface == Surface::Cmux && listed_scope(crate::localization::catalog().local_server.cmux_root_help, scope) {
+        return UsageError::new(format!(
+            "unknown or incomplete {scope} command; run `cmux {scope} --help` for its commands"
+        ));
+    }
     let suggestion = internal::classic_verbs::resource_command(scope)
         .or_else(|| suggestion(scope, surface.scopes()));
     UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
+}
+
+/// Whether `help` (a root help text) lists `scope` as a scope row: two
+/// spaces, the scope, then at least two spaces before its description.
+pub(super) fn listed_scope(help: &str, scope: &str) -> bool {
+    help.lines().any(|line| {
+        line.strip_prefix("  ")
+            .and_then(|rest| rest.strip_prefix(scope))
+            .is_some_and(|tail| tail.starts_with("  "))
+    })
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name

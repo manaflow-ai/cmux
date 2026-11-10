@@ -147,8 +147,18 @@ impl LocalServerMessages {
         self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
     }
 
-    pub(crate) fn unknown_server_action(&self, action: &str, suggestion: Option<&str>) -> String {
-        self.with_suggestion(self.unknown_server_action.replace("{action}", action), suggestion)
+    /// `scope` is the lifecycle scope's word on this surface: `daemon` on
+    /// `cmux` (where `server` is the machine server), `server` on `cmux-tui`.
+    pub(crate) fn unknown_server_action(
+        &self,
+        scope: &str,
+        action: &str,
+        suggestion: Option<&str>,
+    ) -> String {
+        self.with_suggestion(
+            self.unknown_server_action.replace("{scope}", scope).replace("{action}", action),
+            suggestion,
+        )
     }
 
     pub(super) fn with_suggestion(&self, message: String, suggestion: Option<&str>) -> String {
@@ -236,7 +246,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     start_options_after_action: "server start options must appear after `server start`",
     start_rejects_output_mode: "server start does not support output modes",
     unknown_scope: "unknown resource scope \"{scope}\".",
-    unknown_server_action: "unknown server action \"{action}\".",
+    unknown_server_action: "unknown {scope} action \"{action}\"; run `cmux {scope} --help` for its actions.",
     suggestion: "Did you mean `{candidate}`?",
     unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
     stop_timeout: "timed out waiting for the local server to stop",
@@ -324,7 +334,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     start_options_after_action: "server start のオプションは `server start` の後に指定してください",
     start_rejects_output_mode: "server start では出力モードを使用できません",
     unknown_scope: "不明なリソーススコープ \"{scope}\"。",
-    unknown_server_action: "不明なサーバー操作 \"{action}\"。",
+    unknown_server_action: "不明な {scope} 操作 \"{action}\"。`cmux {scope} --help` で操作を確認してください。",
     suggestion: "`{candidate}` のことですか？",
     unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
     stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",

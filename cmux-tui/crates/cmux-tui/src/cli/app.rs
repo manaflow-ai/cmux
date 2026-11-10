@@ -693,6 +693,12 @@ pub(super) fn run_action(
                 params.insert("focus".into(), json!(on));
                 arguments.insert("focus".into(), json!(on));
             }
+            // `--yes` is the CLI's one word for "I confirm" (`device remove
+            // --yes`); an action whose argument is `confirm` (`settings set`,
+            // `cloud kill-machine`) takes it as `--confirm`.
+            "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
+                arguments.insert("confirm".into(), value);
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
