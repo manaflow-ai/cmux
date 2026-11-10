@@ -13,7 +13,8 @@ import { appJwt, ghHeaders, type Http } from "./providers.ts"
  *   that configure page instead of the chat.
  * - install: no installation on the owner; the install page, preselecting the owner when its id is known.
  *
- * Any failure answers `install` with no target, the page Connect opened before this existed.
+ * Any failure, or a lookup past CONNECT_LOOKUP_TIMEOUT_MS, answers `install` with no target, the page Connect
+ * opened before this existed.
  */
 export type GithubConnectTarget =
   | { readonly kind: "installed"; readonly installation: number; readonly configure_url: string }
@@ -21,6 +22,9 @@ export type GithubConnectTarget =
 
 const GH_API = "https://api.github.com"
 const seg = encodeURIComponent
+/** Each owner lookup gets this long; past it Connect answers the install page (the old behavior), never hangs. */
+export const CONNECT_LOOKUP_TIMEOUT_MS = 5_000
+const bounded = () => AbortSignal.timeout(CONNECT_LOOKUP_TIMEOUT_MS)
 
 /** An installation's settings page on GitHub, where repositories are added to it. */
 export const GITHUB_CONFIGURE_URL = /^https:\/\/github\.com\/(?:organizations\/[A-Za-z0-9-]{1,39}\/)?settings\/installations\/[0-9]{1,20}$/
@@ -30,7 +34,7 @@ type Installation = { id?: unknown; account?: { login?: unknown; type?: unknown 
 const ownerInstallation = async (env: Env, http: Http, owner: string): Promise<Installation | undefined> => {
   const headers = ghHeaders(await appJwt(env))
   for (const path of [`/orgs/${seg(owner)}/installation`, `/users/${seg(owner)}/installation`]) {
-    const res = await http(new Request(`${GH_API}${path}`, { headers }))
+    const res = await http(new Request(`${GH_API}${path}`, { headers, signal: bounded() }))
     if (res.ok) return (await res.json()) as Installation
     if (res.status !== 404) throw new Error(`GitHub ${path}: ${res.status}`)
   }
@@ -39,7 +43,7 @@ const ownerInstallation = async (env: Env, http: Http, owner: string): Promise<I
 
 /** The owner's numeric id for `target_id`: public data, asked without a token; best effort. */
 const ownerId = async (http: Http, owner: string): Promise<number | undefined> => {
-  const res = await http(new Request(`${GH_API}/users/${seg(owner)}`, { headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
+  const res = await http(new Request(`${GH_API}/users/${seg(owner)}`, { headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" }, signal: bounded() })).catch(() => null)
   if (!res?.ok) return undefined
   const id = ((await res.json().catch(() => ({}))) as { id?: unknown }).id
   return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : undefined
