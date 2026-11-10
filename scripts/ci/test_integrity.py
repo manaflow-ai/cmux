@@ -183,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-all", action="store_true",
                         help="record findings but accept an explicitly approved change")
     args = parser.parse_args(argv)
+    # A finding can hold any character (a test path, or the U+FFFD of a non-UTF-8 diff line); a runner
+    # whose stdout is ASCII must print it escaped, not crash before the verdict.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
     base = resolve_base(args.base)
     findings = run(base)
     payload = {"base": base, "head": _git("rev-parse", "HEAD").strip(), "findings": [asdict(f) for f in findings]}
@@ -191,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     elif findings:
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
-            with open(summary, "a", encoding="utf-8") as handle:
+            with open(summary, "a", encoding="utf-8", errors="backslashreplace") as handle:
                 handle.write("## Test integrity findings\n\n")
                 for finding in findings:
                     handle.write(f"- `{finding.kind}`: `{finding.path}` — {finding.detail}\n")
