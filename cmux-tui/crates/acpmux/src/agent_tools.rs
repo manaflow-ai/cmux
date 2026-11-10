@@ -489,6 +489,40 @@ pub fn is_claude_code(name: &str, profile: &crate::config::HarnessProfile) -> bo
         || crate::config::derive_family(name, profile).starts_with("claude")
 }
 
+/// The env `gh` signs in and finds its host with: the `acpmux` server's `pr_state` needs the
+/// agent's (`gh_env`).
+pub(crate) const GH_ENV: [&str; 6] = [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_CONFIG_DIR",
+    "GH_HOST",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+];
+
+/// The [`GH_ENV`] values the agent itself starts with: the session's literal profile value,
+/// else the one every local child gets (`every_child`: the allow-listed login values,
+/// `loginEnvAllow`, the vault's and the machine's). Never the daemon's own env, which keeps a
+/// token from agents unless the person lets it through (`login_env::allowed`), and never a
+/// `${env:...}` or keychain reference, which only the launch resolves.
+pub(crate) fn gh_env(
+    session_env: &BTreeMap<String, String>,
+    every_child: impl FnOnce() -> Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    let child = every_child();
+    GH_ENV
+        .iter()
+        .filter_map(|&key| {
+            // A profile that sets the key decides it, a reference too (left out, not replaced).
+            let value = match session_env.get(key) {
+                Some(v) => (!v.contains("${")).then(|| v.clone()),
+                None => child.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone()),
+            };
+            value.filter(|v| !v.is_empty()).map(|v| (key.to_owned(), v))
+        })
+        .collect()
+}
+
 /// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
 /// from [`lists_all_tools`].
 pub fn acp_servers_for(
@@ -730,8 +764,20 @@ impl AgentTools {
         }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         let tools = session_env.get(MCP_TOOLS_ENV);
+        let gh = if self.servers.iter().any(|s| s.name == crate::acpmux_mcp::SERVER_NAME) {
+            gh_env(session_env, || crate::login_env::every_child_pairs(Some(session_env)))
+        } else {
+            Vec::new()
+        };
         for server in &mut self.servers {
             server.env.retain(|(k, _)| k != CUA_SCOPE_ENV && k != MCP_TOOLS_ENV);
+            // The `acpmux` server's `pr_state` runs the agent's own `gh`: it gets the agent's gh
+            // sign-in, which a client that passes a stdio server only an allowlisted env (Codex)
+            // leaves out.
+            if server.name == crate::acpmux_mcp::SERVER_NAME {
+                server.env.retain(|(k, _)| !GH_ENV.contains(&k.as_str()));
+                server.env.extend(gh.iter().cloned());
+            }
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
             }
@@ -794,7 +840,9 @@ impl AgentTools {
                     crate::cloud_repo_mcp::SERVER_NAME => {
                         matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH")
                     }
-                    crate::acpmux_mcp::SERVER_NAME => k == MCP_TOOLS_ENV,
+                    crate::acpmux_mcp::SERVER_NAME => {
+                        k == MCP_TOOLS_ENV || GH_ENV.contains(&k.as_str())
+                    }
                     _ => false,
                 })
                 .cloned()
