@@ -87,13 +87,15 @@ public struct OwnerStartWait {
     /// Whether `condition` holds within ``limit``.
     public func holds(until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }
-        let (limit, clock) = (limit, clock)
+        return await Self.race(limit, clock, condition)
+    }
+
+    /// The observation against one deadline on `clock` (the injected clock, opened to its type).
+    private static func race<C: Clock>(_ limit: Duration, _ clock: C,
+                                       _ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool where C.Duration == Duration {
         // concurrency-allow: both children end with the group (the observation exits on cancellation); this bounds a page's credential call
-        return await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { @MainActor in
-                for await ready in ObservationStream({ condition() }) where ready { return true }
-                return false
-            }
+        await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask { await observe(condition) }
             group.addTask {
                 // wakeup-allow: one-shot deadline for an owner that never connects; the page's retries take over after it
                 try? await clock.sleep(for: limit)
@@ -102,5 +104,10 @@ public struct OwnerStartWait {
             defer { group.cancelAll() }
             return await group.next() ?? false
         }
+    }
+
+    private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        for await ready in ObservationStream({ condition() }) where ready { return true }
+        return false
     }
 }
