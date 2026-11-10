@@ -205,6 +205,42 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         #expect(try Data(contentsOf: imageURL) == png)
     }
 
+    @Test(
+        "A selection with any readable file keeps every file over its preview",
+        arguments: [TerminalImageTransferMode.paste, .drop]
+    )
+    func mixedReadabilitySelectionKeepsFiles(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mixed-backing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        let readable = directory.appendingPathComponent("readable.png")
+        let unreadable = directory.appendingPathComponent("unreadable.png")
+        try png.write(to: readable)
+        try png.write(to: unreadable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: unreadable.path) }
+        try #require(FileHandle(forReadingAtPath: unreadable.path) == nil, "test needs an unreadable file")
+        let preview = try #require(NSImage(data: png)?.tiffRepresentation)
+
+        let pasteboard = NSPasteboard(name: .init("cmux-mixed-backing-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let first = NSPasteboardItem()
+        #expect(first.setString(readable.absoluteString, forType: .fileURL))
+        #expect(first.setData(preview, forType: .tiff))
+        let second = NSPasteboardItem()
+        #expect(second.setString(unreadable.absoluteString, forType: .fileURL))
+        #expect(pasteboard.writeObjects([first, second]))
+
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        #expect(TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        ) == .fileURLs([readable.standardizedFileURL, unreadable.standardizedFileURL]))
+    }
+
     @Test("Visible text wins over an unreadable backing file copied with image pixels")
     func unreadableBackingFileYieldsToVisibleText() throws {
         let directory = FileManager.default.temporaryDirectory
