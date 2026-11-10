@@ -238,6 +238,11 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         return tap.gate.waitIdle(limit: .milliseconds(Int64(min(limitMilliseconds, 600_000))))
     }
 
+    /// The takeover tap's count of the person's deliberate inputs, or -1 while it cannot see them.
+    fileprivate func personEvents() -> Int64 {
+        tap.gate.personEventCount().map { Int64(clamping: $0) } ?? -1
+    }
+
     fileprivate func requestPermission(_ name: String) -> Int32 {
         guard let line = WorkerReport.requestPermission(name) else { return 1 }
         return channel.write(line) ? 0 : 1
@@ -292,6 +297,9 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         host.capture_apps = { context, out, capacity, length in
             guard let services = WorkerServices.services(context), let length else { return 1 }
             return services.captureApps(out: out, capacity: capacity, length: length)
+        }
+        host.person_events = { context in
+            WorkerServices.services(context)?.personEvents() ?? -1
         }
         return host
     }

@@ -180,6 +180,32 @@ impl Ax {
         self.attr("AXValue").ok().flatten().and_then(|v| value_text(&v))
     }
 
+    /// The process that owns the element.
+    pub fn pid(&self) -> Option<i32> {
+        let mut pid = 0i32;
+        // SAFETY: self is live; pid is an out parameter.
+        (unsafe { AXUIElementGetPid(self.ptr(), &mut pid) } == AX_OK && pid > 0).then_some(pid)
+    }
+
+    /// The app's frontmost element at a global point (`self` is an app element).
+    pub fn element_at(&self, x: f64, y: f64) -> Option<Ax> {
+        let mut out: CFTypeRef = std::ptr::null();
+        // SAFETY: self is live; out receives a +1 element.
+        let err =
+            unsafe { AXUIElementCopyElementAtPosition(self.ptr(), x as f32, y as f32, &mut out) };
+        if err != AX_OK {
+            return None;
+        }
+        Cf::created(out).and_then(Ax::from_cf)
+    }
+
+    /// The system-wide element (where the keyboard focus is).
+    pub fn system_wide() -> Option<Ax> {
+        init();
+        // SAFETY: returns a +1 element (or null).
+        Cf::created(unsafe { AXUIElementCreateSystemWide() }).map(Ax)
+    }
+
     pub fn same(&self, other: &Ax) -> bool {
         unsafe extern "C" {
             fn CFEqual(a: CFTypeRef, b: CFTypeRef) -> u8;

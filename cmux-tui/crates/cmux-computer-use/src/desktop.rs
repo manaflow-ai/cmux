@@ -291,6 +291,27 @@ impl DesktopError {
 
 pub type DResult<T> = Result<T, DesktopError>;
 
+/// Where the person's focus is: the frontmost app, its key window and the
+/// top app window on screen. The engine takes one before every acting call
+/// and compares it after acting and after settling ([`Desktop::focus_snapshot`]).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct FocusSnapshot {
+    /// The frontmost app's pid (where the person's keys go).
+    pub pid: u32,
+    /// Its policy identity (bundle id, `.exe` name, desktop id).
+    pub app_id: String,
+    /// The frontmost app's key window (platform window id), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
+    /// The pid owning the top normal window on screen, when known: an app
+    /// that orders a window above the person's without activating shows here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_pid: Option<u32>,
+    /// The person's pointer (global points), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<Point>,
+}
+
 /// One desktop. Calls block; the engine runs them off any UI thread.
 pub trait Desktop: Send + Sync {
     fn info(&self) -> PlatformInfo;
@@ -392,6 +413,18 @@ pub trait Desktop: Send + Sync {
     /// Asks the OS for a missing grant (shows the OS prompt or settings pane).
     fn request_permission(&self, _which: &str) -> DResult<()> {
         Err(DesktopError::Unsupported("this desktop has no permission prompt".into()))
+    }
+    /// Where the person's focus is now, or `None` when the desktop cannot
+    /// tell (the focus guard then stays out of the way).
+    fn focus_snapshot(&self) -> Option<FocusSnapshot> {
+        None
+    }
+    /// Puts the person's focus back as `prior` had it: their app frontmost,
+    /// its key window key and in front of any window an action raised. Only
+    /// the engine's focus guard calls it, and only for a change the person
+    /// did not make. True when the focus reads back as `prior`.
+    fn restore_focus(&self, _prior: &FocusSnapshot) -> DResult<bool> {
+        Ok(false)
     }
 }
 

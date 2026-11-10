@@ -165,6 +165,13 @@ impl Approver for NoApprover {
 pub trait PersonActivity: Send + Sync {
     /// Waits until the person has been idle (or `limit` passes); true when idle.
     fn wait_idle(&self, limit: Duration) -> bool;
+    /// How many deliberate inputs (keys, clicks, scrolls, drags) the person
+    /// has made so far, counted by a detector that tells theirs from ours;
+    /// `None` when nothing watches. The focus guard compares two readings to
+    /// know whether the person moved focus during a call.
+    fn input_count(&self) -> Option<u64> {
+        None
+    }
 }
 
 pub struct NoTakeover;
@@ -414,10 +421,12 @@ impl Engine {
             self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
+        let mut guard = self.focus_begin(tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
+        let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
         }
@@ -444,7 +453,13 @@ impl Engine {
             let mode = self.settle_mode(&args);
             self.attach_state(ctx, window_id, app, &mut out, mode, name == "type_text");
         }
-        self.write_audit(ctx, name, app.as_ref(), &out);
+        if let Some(g) = &guard {
+            focus = Some(self.focus_after_settle(g, focus));
+        }
+        if let Some(report) = &focus {
+            report.attach(&mut out);
+        }
+        self.write_audit_with(ctx, name, app.as_ref(), &out, focus.as_ref());
         out
     }
 
@@ -1508,6 +1523,17 @@ impl Engine {
         app: Option<&TargetApp>,
         out: &ToolOutput,
     ) {
+        self.write_audit_with(ctx, tool, app, out, None);
+    }
+
+    fn write_audit_with(
+        &self,
+        ctx: &CallContext,
+        tool: &str,
+        app: Option<&TargetApp>,
+        out: &ToolOutput,
+        focus: Option<&focus::FocusReport>,
+    ) {
         let Some(path) = &self.audit else { return };
         if std::fs::metadata(path).map(|m| m.len() > 5 << 20).unwrap_or(false) {
             let _ = std::fs::rename(path, path.with_extension("jsonl.1"));
@@ -1517,12 +1543,15 @@ impl Engine {
             OriginKind::Local => "local".to_string(),
             OriginKind::Remote { machine, .. } => format!("remote:{machine}"),
         };
-        let line = json!({
+        let mut line = json!({
             "ts": ts as u64, "session": ctx.session, "agent": ctx.label, "origin": origin,
             "tool": tool, "app": app.map(|a| a.id.clone()),
             "ok": !out.is_error, "code": out.code,
             "route": out.body.get("route"),
         });
+        if let Some(report) = focus {
+            line["focus"] = report.to_json();
+        }
         let mut options = std::fs::OpenOptions::new();
         options.create(true).append(true);
         #[cfg(unix)]
@@ -1581,6 +1610,13 @@ fn rewrite_frames(e: &mut Element, g: &Geometry) {
     }
 }
 
+#[path = "engine_focus.rs"]
+mod focus;
+
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "engine_focus_tests.rs"]
+mod focus_tests;

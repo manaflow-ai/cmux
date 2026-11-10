@@ -92,6 +92,48 @@ fn action_names_round_trip() {
     assert!(roles::resolve_action("increment", &available).is_none());
     assert_eq!(roles::attribute_action("expand"), Some(("AXExpanded", true)));
     assert!(roles::is_foreground_action("AXRaise"));
+    assert!(roles::is_foreground_action("AXShowMenu"), "a menu takes the person's pointer");
+    assert!(!roles::is_foreground_action("AXPress"));
+}
+
+#[test]
+fn menu_opening_roles_are_refused_in_the_background() {
+    for role in ["AXPopUpButton", "AXMenuButton", "AXComboBox", "AXMenuBarItem", "AXMenuExtra"] {
+        assert!(roles::opens_menu(role, false, false), "{role}");
+    }
+    for role in ["AXButton", "AXCheckBox", "AXTextField", "AXMenuItem", "AXRadioButton"] {
+        assert!(!roles::opens_menu(role, false, true), "{role}");
+    }
+    // Web content: an HTML <select> (a pop-up with its own menu) opens a
+    // native menu; an ARIA menu button opens DOM content.
+    assert!(roles::opens_menu("AXPopUpButton", true, true));
+    assert!(!roles::opens_menu("AXPopUpButton", true, false));
+    assert!(!roles::opens_menu("AXMenuButton", true, true));
+    assert!(!roles::opens_menu("AXComboBox", true, false));
+}
+
+#[test]
+fn menu_refusals_name_what_works_instead() {
+    let popup = roles::menu_refusal("AXPopUpButton");
+    assert!(popup.contains("popup_button") && popup.contains("set_value"), "{popup}");
+    assert!(popup.contains("delivery foreground"), "{popup}");
+    assert!(roles::menu_refusal("AXComboBox").contains("type_text"));
+    assert!(roles::CONTEXT_MENU_REFUSAL.contains("perform_action"));
+}
+
+#[test]
+fn keys_and_text_that_open_a_focused_popup() {
+    for key in [Key::Space, Key::Return, Key::Up, Key::Down, Key::Char(' ')] {
+        assert!(roles::key_opens_menu(&key), "{key:?}");
+    }
+    for key in [Key::Tab, Key::Escape, Key::Left, Key::Char('a')] {
+        assert!(!roles::key_opens_menu(&key), "{key:?}");
+    }
+    assert!(roles::text_opens_menu("a b"));
+    assert!(roles::text_opens_menu("x\n"));
+    assert!(!roles::text_opens_menu("Tuesday"));
+    assert!(roles::same_title(" Large ", "large"));
+    assert!(!roles::same_title("Large", "Larger"));
 }
 
 #[test]

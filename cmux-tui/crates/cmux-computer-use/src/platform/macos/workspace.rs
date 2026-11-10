@@ -117,9 +117,67 @@ pub fn app_for_pid(pid: i32) -> Option<RunningApp> {
     })
 }
 
+/// The frontmost app's pid, as NSWorkspace knows it.
+pub fn frontmost_pid() -> Option<i32> {
+    autoreleasepool(|_| {
+        let ws = shared_workspace().ok()?;
+        // SAFETY: -frontmostApplication returns nil or an NSRunningApplication.
+        let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*ws, frontmostApplication] };
+        let app = app?;
+        // SAFETY: -processIdentifier returns pid_t.
+        let pid: i32 = unsafe { msg_send![&*app, processIdentifier] };
+        (pid > 0).then_some(pid)
+    })
+}
+
+/// Asks the system to make `pid` the active app again (the person's app,
+/// after another took focus without them). True when the request was taken.
+pub fn activate(pid: i32) -> bool {
+    autoreleasepool(|_| {
+        let Some(cls) = AnyClass::get(c"NSRunningApplication") else { return false };
+        // SAFETY: +runningApplicationWithProcessIdentifier: returns nil or an app.
+        let app: Option<Retained<AnyObject>> =
+            unsafe { msg_send![cls, runningApplicationWithProcessIdentifier: pid] };
+        let Some(app) = app else { return false };
+        // SAFETY: -activateWithOptions: takes NSApplicationActivationOptions (0: none).
+        let ok: Bool = unsafe { msg_send![&*app, activateWithOptions: 0usize] };
+        ok.as_bool()
+    })
+}
+
+/// A running, not terminated app with `bundle_id`.
+fn running(bundle_id: &str) -> Option<RunningApp> {
+    autoreleasepool(|_| {
+        let cls = AnyClass::get(c"NSRunningApplication")?;
+        let id = Cf::string(bundle_id)?;
+        let id_obj: *const AnyObject = id.ptr().cast();
+        // SAFETY: +runningApplicationsWithBundleIdentifier: takes an NSString
+        // (toll-free bridged CFString) and returns an NSArray.
+        let list: Option<Retained<AnyObject>> =
+            unsafe { msg_send![cls, runningApplicationsWithBundleIdentifier: id_obj] };
+        let list = list?;
+        // SAFETY: -count on an NSArray.
+        let count: usize = unsafe { msg_send![&*list, count] };
+        (0..count).find_map(|i| {
+            // SAFETY: i < count; -objectAtIndex: returns an NSRunningApplication.
+            let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*list, objectAtIndex: i] };
+            app.as_deref().and_then(describe)
+        })
+    })
+}
+
 /// Launches the app with `bundle_id` without activating it, and returns it
-/// once it runs (an app that already runs is returned as it is).
+/// once it runs. An app that already runs with a window on screen is
+/// returned as it is, with no open request: LaunchServices would send it a
+/// reopen event, which apps answer by showing (and often activating) a
+/// window. One with no window gets the reopen, so the agent has a window to
+/// work in; the engine's focus guard puts back any activation it causes.
 pub fn launch(bundle_id: &str) -> DResult<RunningApp> {
+    if let Some(app) = running(bundle_id)
+        && super::cgwindows::on_screen().iter().any(|w| w.pid == app.pid && w.is_app_window())
+    {
+        return Ok(app);
+    }
     let rx = autoreleasepool(|_| start_launch(bundle_id))?;
     match rx.recv_timeout(LAUNCH_TIMEOUT) {
         Ok(Ok(pid)) => app_for_pid(pid).ok_or_else(|| {
@@ -154,9 +212,13 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
     let config: Option<Retained<AnyObject>> = unsafe { msg_send![config_cls, configuration] };
     let config =
         config.ok_or_else(|| DesktopError::Failed("NSWorkspaceOpenConfiguration failed".into()))?;
+    // Not activated; and no LaunchServices UI (a first-launch or update
+    // prompt is a modal panel that takes the person's keyboard): such a
+    // launch fails with a message instead.
     unsafe {
         let _: () = msg_send![&*config, setActivates: Bool::NO];
         let _: () = msg_send![&*config, setAddsToRecentItems: Bool::NO];
+        let _: () = msg_send![&*config, setPromptsUserIfNeeded: Bool::NO];
     }
     let (tx, rx) = mpsc::channel::<LaunchResult>();
     let block = RcBlock::new(move |app: *mut AnyObject, error: *mut AnyObject| {

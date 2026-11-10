@@ -43,6 +43,19 @@ pub struct FakeDesktop {
     /// From capture number `.0` on, the pixels are `.1` (an app that
     /// redraws a little after an action).
     pub repaint_from: Mutex<Option<(u32, u8)>>,
+    /// The person's focus, when the fake reports one (`None`: it cannot tell).
+    pub focus: Mutex<Option<FocusSnapshot>>,
+    /// Focus after the next input this desktop receives (an app that
+    /// activates itself on a click or a launch).
+    pub steal_on_input: Mutex<Option<FocusSnapshot>>,
+    /// Focus from focus reading number `.0` on (counting every reading).
+    pub steal_on_read: Mutex<Option<(u32, FocusSnapshot)>>,
+    /// Focus readings so far.
+    pub focus_reads: Mutex<u32>,
+    /// `restore_focus` calls so far.
+    pub restores: Mutex<Vec<FocusSnapshot>>,
+    /// Whether `restore_focus` works.
+    pub restore_works: bool,
 }
 
 impl FakeDesktop {
@@ -97,6 +110,12 @@ impl FakeDesktop {
             window_lists: Mutex::new(0),
             pointer: Mutex::new(None),
             repaint_from: Mutex::new(None),
+            focus: Mutex::new(None),
+            steal_on_input: Mutex::new(None),
+            steal_on_read: Mutex::new(None),
+            focus_reads: Mutex::new(0),
+            restores: Mutex::new(vec![]),
+            restore_works: true,
         }
     }
 
@@ -106,6 +125,15 @@ impl FakeDesktop {
 
     fn push(&self, e: Event) {
         self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(e);
+        let steal =
+            self.steal_on_input.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        if let Some(stolen) = steal {
+            *self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stolen);
+        }
+    }
+
+    pub fn restores(&self) -> Vec<FocusSnapshot> {
+        self.restores.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     fn known(&self, window: &str) -> DResult<()> {
@@ -324,5 +352,31 @@ impl Desktop for FakeDesktop {
     fn launch_app(&self, app_id: &str) -> DResult<App> {
         self.push(Event::Launch(app_id.into()));
         Ok(App { id: app_id.into(), name: app_id.into(), pid: 99, frontmost: false, hidden: false })
+    }
+
+    fn focus_snapshot(&self) -> Option<FocusSnapshot> {
+        let n = {
+            let mut reads =
+                self.focus_reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *reads += 1;
+            *reads
+        };
+        let mut pending =
+            self.steal_on_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if pending.as_ref().is_some_and(|(at, _)| n >= *at)
+            && let Some((_, stolen)) = pending.take()
+        {
+            *self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stolen);
+        }
+        self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn restore_focus(&self, prior: &FocusSnapshot) -> DResult<bool> {
+        self.restores.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(prior.clone());
+        if self.restore_works {
+            *self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(prior.clone());
+        }
+        Ok(self.restore_works)
     }
 }

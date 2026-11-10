@@ -76,6 +76,11 @@ typedef struct CmuxCuHost {
     // another nonzero value on failure. A display capture's "exclude_pids" are checked against
     // the same list: the capture fails rather than leave a requested, running app in it.
     int32_t (*capture_apps)(void *context, uint8_t *out, size_t cap, size_t *len);
+    // How many deliberate inputs (keys, clicks, scrolls, drags) the person has made so far, as
+    // the takeover tap counts them (never cmux's own), or -1 when nothing watches. The focus
+    // guard compares two readings to know whether the person moved focus during a call.
+    // Optional: read only when struct_size covers it.
+    int64_t (*person_events)(void *context);
 } CmuxCuHost;
 
 typedef struct CmuxCuEngine CmuxCuEngine;

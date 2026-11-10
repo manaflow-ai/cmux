@@ -53,6 +53,16 @@ fn grant(granted: bool) -> Grant {
     if granted { Grant::Granted } else { Grant::Denied }
 }
 
+/// The frontmost app's pid: the system-wide focused application as the
+/// window server reports it (NSWorkspace's reading can lag in a process
+/// whose main run loop is busy), else NSWorkspace's.
+fn frontmost_pid() -> Option<i32> {
+    Ax::system_wide()
+        .and_then(|s| s.element("AXFocusedApplication"))
+        .and_then(|a| a.pid())
+        .or_else(workspace::frontmost_pid)
+}
+
 fn post_event_granted() -> bool {
     // SAFETY: no arguments.
     unsafe { sys::CGPreflightPostEventAccess() }
@@ -367,6 +377,47 @@ impl Desktop for MacDesktop {
             frontmost: a.active,
             hidden: a.hidden,
         })
+    }
+
+    fn focus_snapshot(&self) -> Option<FocusSnapshot> {
+        let pid = frontmost_pid()?;
+        let app_id =
+            workspace::app_for_pid(pid).map(|a| a.id()).unwrap_or_else(|| format!("pid:{pid}"));
+        let window_id = Ax::application(pid)
+            .and_then(|a| a.element("AXFocusedWindow"))
+            .and_then(|w| w.window_id())
+            .map(|id| id.to_string());
+        let top_pid =
+            cgwindows::on_screen().into_iter().find(CgWindow::is_app_window).map(|w| w.pid as u32);
+        Some(FocusSnapshot { pid: pid as u32, app_id, window_id, top_pid, pointer: self.pointer() })
+    }
+
+    /// The person's app frontmost again (its own AXFrontmost, which AppKit
+    /// performs as an activation inside that app, else an activation
+    /// request), then its key window main, key and above anything raised
+    /// over it (AXRaise on the active app's own window activates nothing
+    /// else). True when the requests were accepted; activation completes
+    /// asynchronously, and the engine checks again after the settle wait.
+    fn restore_focus(&self, prior: &FocusSnapshot) -> DResult<bool> {
+        let pid = prior.pid as i32;
+        let app = Ax::application(pid)
+            .ok_or_else(|| DesktopError::TargetNotFound(format!("app {}", prior.app_id)))?;
+        let yes =
+            sys::Cf::boolean(true).ok_or_else(|| DesktopError::Failed("no boolean".into()))?;
+        let mut accepted = true;
+        if frontmost_pid() != Some(pid) {
+            accepted = app.set("AXFrontmost", &yes).is_ok() || workspace::activate(pid);
+        }
+        let window = match prior.window_id.as_deref().and_then(|w| w.parse::<u32>().ok()) {
+            Some(id) => app.elements("AXWindows").into_iter().find(|w| w.window_id() == Some(id)),
+            None => app.element("AXFocusedWindow"),
+        };
+        if let Some(window) = window {
+            let _ = window.set("AXMain", &yes);
+            let _ = window.set("AXFocused", &yes);
+            accepted &= window.perform("AXRaise").is_ok();
+        }
+        Ok(accepted)
     }
 
     fn request_permission(&self, which: &str) -> DResult<()> {
