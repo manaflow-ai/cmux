@@ -843,9 +843,8 @@ const OLDER_RECHECK_MS = 500;
 
 /// How near the first loaded row, in viewports, the view asks for the next older page: far enough
 /// ahead that a page read from acpmux lands before a fast scroll up reaches the top (two viewports
-/// was a fraction of a second of a flick; six still reached the top while a page was out on a long
-/// flick up a tool-heavy chat). The client reads the pages after it ahead (direct.ts `readOlderAhead`).
-const OLDER_AHEAD_VIEWPORTS = 12;
+/// was a fraction of a second of a flick).
+const OLDER_AHEAD_VIEWPORTS = 6;
 
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.

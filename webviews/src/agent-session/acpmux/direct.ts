@@ -469,12 +469,9 @@ const OLDER_PAGE_BYTES = 1024 * 1024;
 const OLDER_PAGE_RECORDS = 2000;
 /// The prompt index's byte cap (`loadPromptIndex`), as it was before older pages grew.
 const PROMPT_INDEX_BYTES = 256 * 1024;
-/// Pages read ahead of the reader once an older read lands (`readOlderAhead`): the next ask at the top
-/// is answered from memory while the reader reads down through what just landed.
-const OLDER_AHEAD_PAGES = 4;
-/// Pages a read through a seq (`loadThrough`: a jump to the unread line or a rail tick) asks for at
-/// once, each for its own stretch of seqs (`readWindow`), so a jump far back waits on about one round
-/// trip instead of one per page.
+/// Pages one window read asks for together (`readWindow`), each for its own stretch of seqs: an ask's
+/// first pages, or the stretch down to a place far back (`loadThrough`: the unread line, a rail
+/// tick), wait on about one daemon round trip instead of one per page.
 const WINDOW_PARALLEL_PAGES = 16;
 /// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
 const SUBAGENT_LOG_PAGES = 8;
@@ -12868,8 +12865,19 @@ export class AcpmuxDirectClient {
   /// Older pages read ahead of the reader (`readOlderAhead`), by the `beforeSeq` each was asked with, for
   /// the chat, visit, held history and paging epoch they were read in (`olderKey`).
   private olderAhead?: { key: string; pages: Map<number, Promise<any>> };
+  /// How many seqs one older page of the shown chat spans, as its last window read found
+  /// (`readWindow`), for the chat and visit it was read in. A page holds OLDER_PAGE_RECORDS records
+  /// unless its byte cap ends it first: a chat of large tool outputs spans far fewer seqs a page.
+  private olderStride?: { key: string; seqs: number };
   private olderKey(sessionId: string, pagingEpoch: number): string {
     return `${sessionId}\u0000${this.selectionGeneration}\u0000${this.historyEpoch}\u0000${pagingEpoch}`;
+  }
+  private strideKey(sessionId: string): string {
+    return `${sessionId}\u0000${this.selectionGeneration}`;
+  }
+  private olderStrideOf(sessionId: string): number {
+    const known = this.olderStride;
+    return known?.key === this.strideKey(sessionId) ? known.seqs : OLDER_PAGE_RECORDS;
   }
   /// The older page of `sessionId` that ends before `before`: the one read ahead for it, else a read.
   private olderPage(sessionId: string, before: number, pagingEpoch: number): Promise<any> {
@@ -12890,86 +12898,100 @@ export class AcpmuxDirectClient {
       kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
     });
   }
-  /// Reads the next OLDER_AHEAD_PAGES older pages after an older read lands, one after another, and
-  /// keeps them for the next ask (`olderPage`). A page that fails is dropped, and the ask reads it
-  /// again. Another chat, visit, held history or paging epoch keys the kept pages out.
+  /// Where an ask with no place to reach reads down to: OLDER_MIN_PAGES_PER_ASK pages below `from`.
+  private askThrough(sessionId: string, from: number): number {
+    return from - (OLDER_MIN_PAGES_PER_ASK - 1) * this.olderStrideOf(sessionId);
+  }
+  /// The tops of the pages one window read asks for together: every `stride` seqs from `from` down to
+  /// the first at or below `through`, at most `most` (and WINDOW_PARALLEL_PAGES).
+  private static windowSlots(from: number, through: number, stride: number, most: number): number[] {
+    const slots: number[] = [];
+    for (let top = from; slots.length < Math.min(most, WINDOW_PARALLEL_PAGES) && top > 1; top -= stride) {
+      slots.push(top);
+      if (top <= through) break;
+    }
+    return slots;
+  }
+  /// Once an older read lands, asks for the pages the next ask will read (its window from the new
+  /// first seq, `fetchOlder`) and keeps them (`olderPage`), so that ask is answered from memory while
+  /// the reader reads down through what just landed. The transcript asks OLDER_AHEAD_VIEWPORTS from
+  /// the top (VirtualTranscript.tsx), so these are read well before then. A page that fails is
+  /// dropped, and the ask reads it again. Another chat, visit, held history or paging epoch keys the
+  /// kept pages out.
   private readOlderAhead(pagingEpoch: number): void {
     const sessionId = this.selectedSessionId;
-    if (!sessionId || this.historyExhausted || !this.firstSeq || this.firstSeq <= 1 || !this.canPageOlder(pagingEpoch))
-      return;
+    const from = this.firstSeq;
+    if (!sessionId || this.historyExhausted || !from || from <= 1 || !this.canPageOlder(pagingEpoch)) return;
     const key = this.olderKey(sessionId, pagingEpoch);
     // Pages the last read-ahead kept that this ask did not take are still ahead of the reader.
     const pages = this.olderAhead?.key === key ? this.olderAhead.pages : new Map<number, Promise<any>>();
-    const ahead = { key, pages };
-    this.olderAhead = ahead;
-    let before = this.firstSeq;
-    void (async () => {
-      for (let read = 0; read < OLDER_AHEAD_PAGES; read++) {
-        if (this.olderAhead !== ahead || !this.canPageOlder(pagingEpoch)) return;
-        const asked = before;
-        let page = pages.get(asked);
-        if (!page) {
-          page = this.olderPage(sessionId, asked, pagingEpoch);
-          pages.set(asked, page);
-        }
-        let result: any;
-        try {
-          result = await page;
-        } catch {
-          if (pages.get(asked) === page) pages.delete(asked);
-          return;
-        }
-        const events = records(result?.events);
-        if (result?.hasMore !== true || events.length === 0 || events[0]!.seq >= asked) return;
-        before = events[0]!.seq;
-      }
-    })();
+    this.olderAhead = { key, pages };
+    const stride = this.olderStrideOf(sessionId);
+    const slots = AcpmuxDirectClient.windowSlots(
+      from,
+      this.askThrough(sessionId, from),
+      stride,
+      OLDER_MIN_PAGES_PER_ASK,
+    );
+    for (const top of slots) {
+      if (pages.has(top)) continue;
+      const page = this.olderPage(sessionId, top, pagingEpoch);
+      pages.set(top, page);
+      page.catch(() => {
+        if (pages.get(top) === page) pages.delete(top);
+      });
+    }
   }
-  /// The records from below `through` up to `from` (exclusive), newest page first, read at once: the
-  /// stretch is cut into slots of OLDER_PAGE_RECORDS seqs, and each slot's page (the newest records
-  /// before its top) is asked together, WINDOW_PARALLEL_PAGES at a time. A page reaches at least its
-  /// slot's foot unless its byte cap ends it first; that gap is read page by page before the next
-  /// slot's records are taken, so what comes back holds every record from its oldest page up.
-  /// Undefined when the read went stale (another chat, visit, held history or paging epoch).
+  /// The records from below `through` up to `from` (exclusive), newest page first, read in waves of
+  /// pages asked together instead of one page after another: each wave cuts the stretch into slots of
+  /// as many seqs as a page spans here (`olderStride`), and asks for each slot's page (the newest
+  /// records before its top) at once. A page reaches its slot's foot unless its byte cap ends it
+  /// first; then the wave stops at that gap, the stride shrinks to what the wave's pages spanned, and
+  /// the next wave reads on from where the records end. What comes back holds every record from its
+  /// oldest page up, with no gap. It keeps at most `most` pages. Undefined when the read went stale
+  /// (another chat, visit, held history or paging epoch).
   private async readWindow(
     sessionId: string,
     from: number,
     through: number,
+    most: number,
     pagingEpoch: number,
     stale: () => boolean,
   ): Promise<{ pages: EventRecord[][]; before: number; more: boolean } | undefined> {
     const pages: EventRecord[][] = [];
     let before = from;
     let more = true;
-    const take = (result: any) => {
-      const page = records(result?.events).filter((event) => event.seq < before);
-      if (page.length > 0) {
-        pages.push(page);
-        before = page[0]!.seq;
-      }
-      more = result?.hasMore === true;
-      return page.length > 0;
-    };
-    while (more && before > through && before > 1) {
-      const slots: number[] = [];
-      // Down to the first slot that starts at or below `through`: its page holds the records just
-      // above the place, and usually the prompt of the turn the place is in.
-      for (let top = before; slots.length < WINDOW_PARALLEL_PAGES && top > 1; top -= OLDER_PAGE_RECORDS) {
-        slots.push(top);
-        if (top <= through) break;
-      }
+    let stride = this.olderStrideOf(sessionId);
+    while (more && before > through && before > 1 && pages.length < most) {
+      const slots = AcpmuxDirectClient.windowSlots(before, through, stride, most - pages.length);
       const results = await Promise.all(slots.map((top) => this.olderPage(sessionId, top, pagingEpoch)));
       if (stale()) return undefined;
-      for (let slot = 0; slot < slots.length && more; slot++) {
-        // The page above ended short of this slot (its byte cap): read the gap page by page.
-        while (more && before > slots[slot]!) {
-          const result = await this.olderPage(sessionId, before, pagingEpoch);
-          if (stale()) return undefined;
-          if (!take(result)) more = false;
-        }
-        if (more) take(results[slot]);
+      const waveFrom = before;
+      let spanned = OLDER_PAGE_RECORDS;
+      for (let slot = 0; slot < slots.length; slot++) {
+        const events = records(results[slot]?.events);
+        // A page its byte cap ended: how many seqs a page spans here.
+        if (results[slot]?.hasMore === true && events.length > 0)
+          spanned = Math.min(spanned, Math.max(1, slots[slot]! - events[0]!.seq));
       }
+      for (let slot = 0; slot < slots.length && more; slot++) {
+        // The page above ended short of this slot: the next wave reads on from there.
+        if (before > slots[slot]!) break;
+        const result = results[slot];
+        const page = records(result?.events).filter((event) => event.seq < before);
+        if (page.length > 0) {
+          pages.push(page);
+          before = page[0]!.seq;
+        }
+        more = result?.hasMore === true;
+      }
+      // A wave that moved nothing read the log's start.
+      if (before === waveFrom) more = false;
+      // One outsized record spans a seq or two: a wave shrinks the stride to no less than a quarter, so a
+      // run of them does not make every later slot ask again for the same records.
+      stride = Math.max(spanned, Math.floor(stride / 4), 1);
     }
+    this.olderStride = { key: this.strideKey(sessionId), seqs: stride };
     return { pages, before, more };
   }
   private canPageOlder(epoch = this.olderPagingEpoch): boolean {
@@ -13009,7 +13031,6 @@ export class AcpmuxDirectClient {
     const opensAbove = (event: EventRecord) => through !== undefined && startsTurn(event) && event.seq < through;
     // Newest page first; joined once at the end, so a long read copies its records once.
     const read: EventRecord[][] = [];
-    let more = true;
     let found = false;
     let foundThrough = through === undefined;
     // The read went stale while it was out: another chat or visit, or the held transcript's older end
@@ -13020,28 +13041,32 @@ export class AcpmuxDirectClient {
       generation !== this.selectionGeneration ||
       this.selectedSessionId !== sessionId ||
       epoch !== this.historyEpoch;
-    let before = this.firstSeq;
-    // A jump far back (the unread line, a rail tick) reads the whole stretch at once (`readWindow`),
-    // not page by page.
-    if (through !== undefined && through < before) {
-      const window = await this.readWindow(sessionId, before, through, pagingEpoch, stale);
-      if (!window || stale()) return;
-      for (const page of window.pages) {
-        read.push(page);
-        found ||= page.some(opensOlderTurn);
-        foundThrough ||= page.some(opensAbove);
-      }
-      before = window.before;
-      more = window.more;
+    // The ask's first pages, or the whole stretch down to a place far back (the unread line, a rail
+    // tick), are read as one window (`readWindow`): pages asked together, not one after another.
+    const from = this.firstSeq;
+    const toPlace = through !== undefined && through < from;
+    const window = await this.readWindow(
+      sessionId,
+      from,
+      toPlace ? through : this.askThrough(sessionId, from),
+      toPlace ? OLDER_PAGES_PER_ASK : OLDER_MIN_PAGES_PER_ASK,
+      pagingEpoch,
+      stale,
+    );
+    if (!window || stale()) return;
+    for (const page of window.pages) {
+      read.push(page);
+      found ||= page.some(opensOlderTurn);
+      foundThrough ||= page.some(opensAbove);
     }
+    let before = window.before;
+    let more = window.more;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
     // a long turn the open landed in is that turn's. Read on until a turn older than the first row
-    // starts, at most OLDER_PAGES_PER_ASK pages; a capped read still moves `historyFrom`, which
-    // makes the transcript ask again.
-    // A window read already holds its pages: read on only for a turn start it did not reach.
-    const minPages = read.length > 0 ? 0 : OLDER_MIN_PAGES_PER_ASK;
-    for (let pages = 0; more && pages < OLDER_PAGES_PER_ASK && (pages < minPages || !found || !foundThrough); pages++) {
+    // starts (and, for a place, one older than it), at most OLDER_PAGES_PER_ASK pages; a capped read
+    // still moves `historyFrom`, which makes the transcript ask again.
+    for (let pages = read.length; more && pages < OLDER_PAGES_PER_ASK && (!found || !foundThrough); pages++) {
       if (!this.canPageOlder(pagingEpoch)) return;
       const result = await this.olderPage(sessionId, before, pagingEpoch);
       if (stale()) return;

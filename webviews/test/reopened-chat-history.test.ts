@@ -43,7 +43,9 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// The caps acpmux applies to an open and to each older page (direct.ts OPEN_PAGE_BYTES,
   /// OLDER_PAGE_BYTES).
   const OPEN_BYTES = 128 * 1024;
-  const OLDER_BYTES = 256 * 1024;
+  const OLDER_BYTES = 1024 * 1024;
+  /// The prompt index's cap (direct.ts PROMPT_INDEX_BYTES), read once the chat opens.
+  const PROMPT_INDEX_BYTES = 256 * 1024;
   /// The most room the last message may leave above the composer once the chat has settled. The
   /// transcript's own bottom rhythm is a row gap plus the dock's padding; a blank band is many
   /// times that.
@@ -497,7 +499,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       console.log(`reopened-chat-history ${name}: top ${JSON.stringify(reached)}, older reads ${olderReads}`);
 
       // What bounded the pages above was the pane's own asking, as it is with acpmux.
-      expect([...asked].sort((a, b) => a - b)).toEqual([OPEN_BYTES, OLDER_BYTES]);
+      expect([...asked].sort((a, b) => a - b)).toEqual([OPEN_BYTES, PROMPT_INDEX_BYTES, OLDER_BYTES]);
       // The transcript holds rows of its own, not an empty frame. This counts the rows mounted in
       // the virtualized list, so it cannot tell a whole chat from its last messages — Leo's "only
       // the last messages" is what `reachedFirstTurn` below answers.
