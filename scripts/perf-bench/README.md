@@ -328,7 +328,15 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   A held client reads its events at once: the daemon closes a subscriber that does not read.
 - `agents` counts the agent programs in this daemon's own agent terminals (the daemon's
   `terminal-resources`), not every program of that name on the host, and refuses counts that are
-  not the session's. A daemon without that command gives a lower bound that is not judged.
+  not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
+  lower bound that is not judged; an error reply of the command is exit 1.
+- A RESTORED session does not run 170 bench agents (measured 2026-11-10, aws-m4pro-3, a host with `claude` on its PATH):
+  the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on) types the stored resume command, so
+  157 of the 170 agent terminals ran the real `claude --resume session-real-real-NNNN` (12.6 GB footprint, 1273 wakeups/s
+  in `measure`, group `daemon_other`) and only the 13 that got a new shell ran the bench program. `agents` types its
+  command into those terminals too, starts nothing there, and now says it: exit 3, "13 agent programs run in this
+  daemon's terminals, the session has 170 agent terminals". The tool before gave exit 0. Until the session or the tool
+  handles it, the memory and CPU rows of a restored run include those `claude` processes.
 - `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
   terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
 - `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says
