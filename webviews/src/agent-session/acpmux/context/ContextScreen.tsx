@@ -78,8 +78,7 @@ export function ContextScreen({
     let live = true;
     // A last-known inventory stays on screen until this read answers; a failed read keeps it.
     const shown = PICKER_LAST_KNOWN ? lastInventory.get(load) : undefined;
-    if (!shown) setState({ kind: "loading" });
-    else setState({ kind: "ready", inventory: shown });
+    if (shown) setState({ kind: "ready", inventory: shown });
     load().then(
       (value) => {
         if (!live) return;
