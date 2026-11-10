@@ -390,6 +390,29 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let chat: targets::Chat = read(request)?;
             json!({ "targets": targets::targets(&chat) })
         }
+        // Move to… an SSH machine: the `acpmux session move` call, then what its answer means.
+        b"cloud_move_ssh_move" => {
+            let request: targets::SshMove = read(request)?;
+            match targets::ssh_move(&request) {
+                Ok(call) => json!({ "call": to_value(call)? }),
+                Err(refusal) => json!({ "refusal": refusal }),
+            }
+        }
+        b"cloud_move_ssh_move_outcome" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                stdout: String,
+                #[serde(default)]
+                stderr: String,
+                status: i32,
+            }
+            let request: Request = read(request)?;
+            match targets::ssh_move_outcome(&request.stdout, &request.stderr, request.status) {
+                Ok(()) => json!({ "moved": true }),
+                Err(error) => json!({ "moved": false, "error": error }),
+            }
+        }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
