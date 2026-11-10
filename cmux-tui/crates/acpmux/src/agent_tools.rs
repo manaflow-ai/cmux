@@ -1152,3 +1152,7 @@ fn quoted(words: &[String]) -> String {
 fn home_env() -> String {
     crate::config::home().to_string_lossy().into_owned()
 }
+
+#[cfg(all(test, unix))]
+#[path = "agent_tools_tests.rs"]
+mod tests;
