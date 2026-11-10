@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42814250206",
+  "recorded_at": "2026-11-10T12:23:38Z",
+  "reason": "cmux-tui bde25ee5e76c changes the image's cmux-tui (pinned 250b6f0e7fa9)",
+  "dry_run": false,
+  "cmux_tui": "bde25ee5e76cbe2cce4c380c6f64fbee502831f3",
+  "fixes": [
+    {
+      "sha": "bde25ee5e76cbe2cce4c380c6f64fbee502831f3",
+      "mergedAt": "2026-11-10T03:59:29-08:00",
+      "subject": "cmux vm exec|ssh|move NAME, a vm ls table, vm rm asks (--yes) (#40272)"
+    },
+    {
+      "sha": "6a77d074f206a478c50e75acd28325c2335fa482",
+      "mergedAt": "2026-11-10T11:59:25Z",
+      "subject": "cmux NEXT: run a slow command on a bigger machine, from its chat row (#39904)"
+    },
+    {
+      "sha": "0d935f8115f7443783a6935267215df89f7a3629",
+      "mergedAt": "2026-11-10T03:54:24-08:00",
+      "subject": "app health: the app feeds and repairs pages, renderers, the session daemon and the page host (#39190)"
+    },
+    {
+      "sha": "4ed48818646e03a06faeddd40acf6001afe10792",
+      "mergedAt": "2026-11-10T03:52:49-08:00",
+      "subject": "NEXT: Move to… any machine: Cloud VM to VM, back to this Mac, one menu (#40108)"
+    },
+    {
+      "sha": "0b14fcd8c6e5cdc05dea03e6e77382f507df39cd",
+      "mergedAt": "2026-11-10T11:52:42Z",
+      "subject": "chore(next): base autofix at 8553ed9ca6f8"
+    },
+    {
+      "sha": "8553ed9ca6f8b57035decb995a528ea1dc07b533",
+      "mergedAt": "2026-11-10T03:50:23-08:00",
+      "subject": "CLI reconnects: a slow control-server restart heals (5 s bounded backoff), --socket during a restart is not another kind of socket, no probe connection (#40372)"
+    },
+    {
+      "sha": "d54fdc7153a9950fb73c7e8fe4e5915216bd6a61",
+      "mergedAt": "2026-11-10T03:48:52-08:00",
+      "subject": "Agent chat: prompt coach shows how a heavily corrected chat could have landed in one shot (#38893)"
+    },
+    {
+      "sha": "d7f7b5d990bd5f66c67757fe5b064d570e3f1b53",
+      "mergedAt": "2026-11-10T03:47:34-08:00",
+      "subject": "cmux-api: Connect GitHub reuses before asking and returns to the chat (#40322)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T12:23:38Z",
+    "snapshot_id": "sh-0a590ae836374a7e92e821ebb120a176",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42814250206): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9db563c81bd9749e5061a1cd492714abdbfa750e",
+    "image": "cloud-native-auto-bde25ee5-42814250206-1",
+    "revision": "ci-42814250206-1",
+    "at": "2026-11-10T12:23:38Z"
+  },
+  "rolled_back": false
+}
