@@ -13,7 +13,7 @@ import XCTest
 /// Rows 0-3 are pinned tiles, so the first list row is `home.row.stress-4`.
 ///
 /// Targets:
-/// - first Home row visible: cold launch 400 ms, warm launch 150 ms
+/// - first Home row visible: cold launch 300 ms, warm launch 100 ms (from the phone's kept rows)
 /// - scroll: no hitches (scrollingAndDeceleration hitch ratio near 0)
 /// - god within 1.2x of small, on every measure
 ///
@@ -92,7 +92,7 @@ final class InstantListPerfUITests: XCTestCase {
         let metric = cold ? "first_row_cold" : "first_row_warm"
         let options = XCTMeasureOptions()
         options.iterationCount = Self.iterations
-        options.invocationOptions = [.manuallyStart, .manuallyStop]
+        options.invocationOptions = [.manuallyStart]
         var samples: [Double] = []
         measure(metrics: [XCTClockMetric()], options: options) {
             if cold { app.terminate() }
@@ -142,6 +142,19 @@ final class InstantListPerfUITests: XCTestCase {
             argument drops one. Needed: a DEBUG argument (e.g. `-cmux-mobile-link-drop-after S`) that \
             sends LinkController `.linkDropped` on a live or loopback Mac link, and a Home signal \
             that the list reconnected (rows refreshed from the new link), timed drop to refreshed.
+            """)
+    }
+
+    // MARK: Fold and unfold (iPhone Duo)
+
+    func testFoldTransitionKeepsSelectionAndScroll() throws {
+        throw XCTSkip("""
+            not wired: the app has no two-column layout yet (cmuxterm-hq \
+            plans/feat-ios-instant-list/DESIGN.md, section 8 and metric 11). The case, small vs god: \
+            open a chat, scroll the list and the transcript, change the posture (folded to unfolded and \
+            back), and assert the selected chat and both scroll anchors are unchanged (0 pt), nothing \
+            reloaded (no loading note, no new attach), and the change lands within one frame. The \
+            first-row and chat-open targets are then run in both postures.
             """)
     }
 

@@ -344,6 +344,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 cmux-next-ios/scripts/instant_perf_table.py "$RUNNER_TEMP/instant-perf" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # One `INSTANTPERF {json}` line per metric and platform in the job log, for readers of the log.
+      - name: Instant perf lines
+        if: ${{ !cancelled() }}
+        run: |
+          for file in "$RUNNER_TEMP"/instant-perf/*.jsonl; do
+            [[ -f "$file" ]] || continue
+            sed -e 's/^INSTANTPERF //' -e 's/^/INSTANTPERF /' "$file"
+          done
+
       - name: Upload the instant list bench report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

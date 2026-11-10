@@ -49,10 +49,11 @@ owned simulators):
 
 | Metric | How | Target |
 |---|---|---|
-| cold launch to first Home row | `XCTApplicationLaunchMetric`, `XCTClockMetric` to `home.row.stress-4` | 400 ms |
-| warm launch to first Home row | `XCTApplicationLaunchMetric(waitUntilResponsive:)`, `XCTClockMetric` | 150 ms |
+| cold launch to first Home row | `XCTApplicationLaunchMetric`, `XCTClockMetric` to `home.row.stress-4` | 300 ms |
+| warm launch to first Home row | `XCTApplicationLaunchMetric(waitUntilResponsive:)`, `XCTClockMetric` | 100 ms |
 | Home scroll, 20 vs 5,000 rows | `XCTOSSignpostMetric.scrollingAndDecelerationMetric`, `XCTCPUMetric` | no hitches |
 | reconnect after a network change | skipped: needs a DEBUG link-drop hook | 150 ms |
+| fold or unfold (iPhone Duo): selection and scroll kept, no reload | skipped: no two-column layout yet (`testFoldTransitionKeepsSelectionAndScroll`) | one frame, 0 reloads, 0 pt |
 
 ## Running it
 

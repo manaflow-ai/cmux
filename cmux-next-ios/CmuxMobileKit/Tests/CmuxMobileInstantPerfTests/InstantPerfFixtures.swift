@@ -205,6 +205,8 @@ enum AgentChatFixture {
         /// Planned share of the images and big outputs reached by now (they spread through the log).
         func due(_ total: Int, left: Int) -> Bool {
             guard left > 0, total > 0 else { return false }
+            // The last one is kept for the newest turn, so the pages a chat opens on hold it.
+            if left == 1 { return records.count >= spec.records - 60 }
             let done = total - left
             return records.count >= spec.records * (done + 1) / (total + 1) || records.count >= spec.records - 60
         }
@@ -366,7 +368,8 @@ final class InstantPerfAcpmux: @unchecked Sendable {
 
     private func page(_ params: [String: Any], end: Int) -> String {
         let limit = max((params["limit"] as? NSNumber)?.intValue ?? 400, 1)
-        let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? .max
+        // acpmux caps a page at 1 MiB when the request names no cap (hub/paging.rs `page_bytes`).
+        let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? 1_048_576
         var picked: [Int] = []
         var more = false
         if let after = (params["afterSeq"] as? NSNumber)?.intValue {
