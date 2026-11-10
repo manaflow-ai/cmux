@@ -5,6 +5,7 @@ import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
 import { type AttachedCloudRepo } from "./cloudRepositoryPickerModel";
+import { LastKnown } from "../../../lastKnown";
 
 export type CloudRepo = {
   fullName: string;
@@ -36,6 +37,15 @@ async function syncRepoCatalog(_session: string): Promise<string | undefined> {
     // Older hosts do not expose the local catalog. The machine's persisted catalog remains usable.
     return undefined;
   }
+}
+
+/// The last list each chat's search answered (by chat and query): the picker opened again draws it
+/// at once, with no "Searching" line, and lists again behind it.
+const lastRepos = new LastKnown<{ repos: CloudRepo[]; connectUrl?: string }>(16);
+
+/// Drops every last-known list (tests).
+export function resetLastKnownReposForTests(): void {
+  lastRepos.clear();
 }
 
 function reposOf(value: unknown): CloudRepo[] {
@@ -104,9 +114,16 @@ export function CloudRepositoryPicker({
   useEffect(() => {
     if (!open) return;
     const id = ++generation.current;
+    const key = `${session}\u0000${query.trim()}`;
+    const known = lastRepos.get(key);
+    if (known) {
+      setRepos(known.repos);
+      setConnectUrl(known.connectUrl);
+      setError(undefined);
+    }
     const timer = window.setTimeout(
       () => {
-        setLoading(true);
+        if (!known) setLoading(true);
         setError(undefined);
         void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
           .then((syncedInstallUrl) =>
@@ -117,11 +134,15 @@ export function CloudRepositoryPicker({
           )
           .then(({ reply, syncedInstallUrl }) => {
             if (id !== generation.current) return;
-            setRepos(reposOf(reply));
-            setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
+            const repos = reposOf(reply);
+            const connectUrl = githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl);
+            lastRepos.set(key, { repos, ...(connectUrl ? { connectUrl } : {}) });
+            setRepos(repos);
+            setConnectUrl(connectUrl);
           })
           .catch(() => {
-            if (id === generation.current) setError(t("cloudRepository.loadFailed"));
+            // A last-known list stays; the read is tried again on the next open.
+            if (id === generation.current && !known) setError(t("cloudRepository.loadFailed"));
           })
           .finally(() => {
             if (id === generation.current) setLoading(false);

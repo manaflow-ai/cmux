@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { LastKnown } from "./lastKnown";
 import { createPortal } from "react-dom";
 import { useScrollEdges } from "./ui/scrollEdges";
 import "./ui/popupSurface.css";
@@ -30,6 +31,29 @@ export type BranchPickerPayload = {
 
 export function branchPickerStateKey(picker: BranchPickerPayload): string {
   return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}\u0000${picker.currentRef}`;
+}
+
+/** The refs each repository listed last, for the picker's next mount in this page (the picker
+    mounts again for every base it moves to): it draws them at once and lists again behind them. */
+const lastRefs = new LastKnown<BranchPickerGroup[]>(8);
+
+function refsCacheKey(picker: BranchPickerPayload): string {
+  return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}`;
+}
+
+/** Last-known groups with the old base's `current` mark dropped: the picker's own `currentRef` marks the base. */
+function lastKnownRefs(picker: BranchPickerPayload): BranchPickerGroup[] | null {
+  const groups = lastRefs.get(refsCacheKey(picker));
+  if (!groups) return null;
+  return groups.map((group) => ({
+    ...group,
+    rows: group.rows.map((row) => (row.current ? { ...row, current: row.ref === picker.currentRef } : row)),
+  }));
+}
+
+/** Drops every repository's last-known refs (tests). */
+export function resetLastKnownRefsForTests(): void {
+  lastRefs.clear();
 }
 
 // Strip a leading `scheme://host[:port]` so the URL becomes root-relative and
@@ -171,7 +195,9 @@ export function BranchBasePicker({
   const [open, setOpen] = useState(false);
   const listEdges = useScrollEdges();
   const [query, setQuery] = useState("");
-  const [groups, setGroups] = useState<BranchPickerGroup[] | null>(null);
+  const [groups, setGroups] = useState<BranchPickerGroup[] | null>(() => lastKnownRefs(picker));
+  /** This mount listed the refs once already: a last-known list is read again on the first open only. */
+  const listedHere = useRef(false);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
   const [highlight, setHighlight] = useState(0);
   const [generatingRef, setGeneratingRef] = useState<string | null>(null);
@@ -206,8 +232,10 @@ export function BranchBasePicker({
     setHighlight(0);
     if (groups == null && loadState !== "loading") {
       setLoadState("loading");
+      listedHere.current = true;
       loadRefs(picker, transport)
         .then((response) => {
+          lastRefs.set(refsCacheKey(picker), response.groups);
           setGroups(response.groups);
           setLoadState("idle");
         })
@@ -215,6 +243,15 @@ export function BranchBasePicker({
           console.warn("cmux diff branch picker refs load failed", error);
           setLoadState("error");
         });
+    } else if (groups != null && !listedHere.current) {
+      // Last-known refs are on screen: list again quietly and swap the answer in.
+      listedHere.current = true;
+      loadRefs(picker, transport)
+        .then((response) => {
+          lastRefs.set(refsCacheKey(picker), response.groups);
+          setGroups(response.groups);
+        })
+        .catch((error) => console.warn("cmux diff branch picker refs refresh failed", error));
     }
   };
 
