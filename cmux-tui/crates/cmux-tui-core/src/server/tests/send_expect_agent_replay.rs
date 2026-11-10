@@ -228,3 +228,102 @@ fn an_expect_agent_send_is_refused_while_a_direct_reports_echo_is_not_in_the_jou
     assert!(format!("{after:#}").contains("agent not waiting"), "{after:#}");
     mux.shutdown();
 }
+
+/// #39830 review round 4 (item 1): the guard checked that a direct report's echo was in the
+/// journal, not that the roster had folded it. Between the append and the owner's fold the
+/// roster still said `idle` next to the report's session, and a send expecting that session went
+/// into the working agent. Refused until the roster folded the echo.
+#[cfg(unix)]
+#[test]
+fn an_expect_agent_send_waits_for_the_roster_to_fold_a_direct_reports_echo() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap().to_string();
+    hook(&mux, &terminal_id, "SessionStart");
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("idle"));
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.pause_agent_roster_fold_after_head_for_test(entered_tx, release_rx);
+    mux.report_agent(
+        surface.id,
+        crate::AgentState::Working,
+        crate::AgentSource::Hook,
+        Some("replay-session".into()),
+    )
+    .unwrap();
+    entered.recv_timeout(Duration::from_secs(30)).expect("the owner holds before the echo's fold");
+    let roster = mux.agent_roster_state_now_for_test(&terminal_id);
+    let sent = handle_command(&mux, client, reply(surface.id), &writer);
+    drop(release);
+    assert_eq!(roster.as_deref(), Some("idle"), "the echo is not folded yet");
+    assert!(sent.is_err(), "a send expecting the session went into the agent its report made busy");
+
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("working"));
+    let after = handle_command(&mux, client, reply(surface.id), &writer)
+        .expect_err("working once the echo is folded");
+    assert!(format!("{after:#}").contains("agent not waiting"), "{after:#}");
+    mux.shutdown();
+}
+
+/// #39830 review round 4 (item 3): an echo whose append always fails was retried forever, and
+/// while the replay's reconcile waited for it every terminal's guarded sends were refused until
+/// a restart. The retries are bounded; the echo is dropped, its terminal's row (the report's)
+/// stays, and the other terminals' guarded sends go through.
+#[cfg(unix)]
+#[test]
+fn an_echo_that_always_fails_is_given_up_and_releases_other_terminals_sends() {
+    let mux = test_mux();
+    let waiting = mux.new_workspace(None, None).unwrap();
+    let waiting_id = waiting.terminal_public_id().cloned().unwrap().to_string();
+    hook(&mux, &waiting_id, "SessionStart");
+    let failing = mux.new_workspace(None, None).unwrap();
+    let failing_id = failing.terminal_public_id().cloned().unwrap();
+    assert!(mux.settle_agent_roster_for_test());
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+    mux.fail_agent_report_echoes_for_test(1_000_000);
+    mux.report_agent(failing.id, crate::AgentState::Working, crate::AgentSource::Hook, None)
+        .unwrap();
+    drop(release);
+    drop(entered);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut left = mux.agent_report_echo_failures_left_for_test();
+    let mut given_up = false;
+    while Instant::now() < deadline {
+        assert!(mux.settle_agent_roster_for_test());
+        std::thread::sleep(Duration::from_millis(300));
+        let now = mux.agent_report_echo_failures_left_for_test();
+        if now == left && !mux.agent_roster_settling() {
+            given_up = true;
+            break;
+        }
+        left = now;
+    }
+    let tries = 1_000_000 - mux.agent_report_echo_failures_left_for_test();
+    let sent = handle_command(&mux, client, reply(waiting.id), &writer);
+    mux.fail_agent_report_echoes_for_test(0);
+    assert!(
+        given_up,
+        "the echo was retried {tries} times with no end, or the roster stayed settling"
+    );
+    assert!(sent.is_ok(), "another terminal's guarded send went through: {:?}", sent.err());
+    let row = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(&failing_id), None)
+        .unwrap();
+    assert_eq!(row[0].source, "hook", "the report's row stays: {row:?}");
+    assert_eq!(row[0].state, "working", "{row:?}");
+    mux.shutdown();
+}

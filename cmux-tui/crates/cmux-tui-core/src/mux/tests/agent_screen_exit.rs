@@ -604,3 +604,40 @@ fn a_weaker_direct_report_during_the_replay_gets_the_replayed_plugin_row_back() 
     assert_eq!(agents[0]["source"], "plugin", "the reconcile repaired the socket row: {agents:?}");
     assert_eq!(agents[0]["state"], "working", "{agents:?}");
 }
+
+/// #39830 review round 4 (item 2): a respawn's or an adoption's reconcile of
+/// one terminal ran between a direct report's echo append and its fold. The
+/// echo counted as written once appended, so the reconcile put the roster's
+/// older plugin row over the report's newer one, and the echo's fold then
+/// moved only the roster. It waits for the fold.
+#[test]
+fn a_terminals_reconcile_between_an_echo_and_its_fold_keeps_the_reports_row() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.pause_agent_roster_fold_after_head_for_test(entered_tx, release_rx);
+    tick();
+    mux.report_agent(surface.id, AgentState::Idle, AgentSource::Hook, None).unwrap();
+    entered.recv_timeout(Duration::from_secs(30)).expect("the owner holds before the echo's fold");
+    mux.reconcile_agent_roster_projections_for_terminal(&terminal_id);
+    let row = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(&terminal_id), None)
+        .unwrap();
+    drop(release);
+    assert_eq!(row[0].source, "hook", "the reconcile kept the report's row: {row:?}");
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(mux.settle_agent_roster_for_test());
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "{agents:?}");
+    assert_eq!(agents[0]["state"], "idle", "{agents:?}");
+}

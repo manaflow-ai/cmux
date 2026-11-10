@@ -648,6 +648,11 @@ mod replay_for_test {
             rebuild_faults::fail_report_echoes(&self.session, echoes);
         }
 
+        /// The injected echo failures not taken yet.
+        pub(crate) fn agent_report_echo_failures_left_for_test(&self) -> u32 {
+            rebuild_faults::report_echo_failures_left(&self.session)
+        }
+
         /// Starts a roster replay from zero in this running daemon, as a start
         /// whose snapshot does not restore does: the roster goes back to empty and
         /// the owner replays the journal in the background, `page` records per

@@ -359,6 +359,10 @@ pub(in crate::mux) mod rebuild_faults {
         with(session, |faults| faults.failing_report_echoes = echoes);
     }
 
+    pub(in crate::mux) fn report_echo_failures_left(session: &str) -> u32 {
+        with(session, |faults| faults.failing_report_echoes)
+    }
+
     pub(in crate::mux) fn take_failing_report_echo(session: &str) -> bool {
         with(session, |faults| {
             let failing = faults.failing_report_echoes > 0;
