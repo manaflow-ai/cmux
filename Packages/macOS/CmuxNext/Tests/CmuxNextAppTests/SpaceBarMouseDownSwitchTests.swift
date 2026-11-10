@@ -70,15 +70,25 @@ import Testing
         #expect(bar.model.activeProfileID == Self.keys[2])
     }
 
-    /// A dot dragged off the footer band springs back: the reorder is cancelled, the press's switch is not.
+    /// A dot dragged off the footer band, still inside the window, springs back: the reorder is cancelled, the
+    /// press's switch is not, and no window opens.
     @Test func aDragDroppedOffTheBandKeepsThePressesSpace() {
         let bar = Bar()
         defer { bar.window.closeAfterTest() }
+        // The bar in a footer row under the rest of a window: a drop above the row is off the band and inside the
+        // window. In `Bar`'s own window the bar is the whole content, so a drop off the band there is a tear-off.
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 300))
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        bar.window.setContentSize(content.frame.size)
+        bar.window.contentView = content
+        content.addSubview(row)
+        row.addSubview(bar.view)
+        bar.view.frame = row.bounds
         let dot = bar.center(1)
         bar.drag(1, through: [NSPoint(x: dot.x + 8, y: dot.y), NSPoint(x: dot.x + 8, y: dot.y - 200)])
-        #expect(bar.reorders.isEmpty, "\(bar.intents)")
-        #expect(Self.switches(bar.intents) == [.switchProfile(Self.keys[1])], "\(bar.intents)")
+        #expect(bar.intents == [.switchProfile(Self.keys[1])], "\(bar.intents)")
         #expect(bar.order == Self.keys)
+        #expect(bar.model.activeProfileID == Self.keys[1])
     }
 
     // MARK: Press, then a tear-off

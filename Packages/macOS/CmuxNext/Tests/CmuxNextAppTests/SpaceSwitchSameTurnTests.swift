@@ -18,8 +18,17 @@ struct SpaceSwitchSameTurnTests {
     static func bench() async throws -> SpaceSwitchBench {
         let bench = try await SpaceSwitchBench(total: 20, registered: true)
         #expect(bench.state.profileID == bench.rooms[0])
-        let start = bench.showsNow(bench.rooms[0])
-        #expect(start.sidebar && start.content && start.atRest, "the window does not start on its first space: \(start)")
+        // Setup, not the behaviour under test: on a loaded host the new window's first rows and content can need
+        // more turns than the bench's own settle (one run of five started here with neither shown).
+        var start = bench.showsNow(bench.rooms[0]), turns = 0
+        while !(start.sidebar && start.content), turns < 2000 {
+            bench.drain()
+            try await Task.sleep(for: .milliseconds(1))
+            turns += 1
+            start = bench.showsNow(bench.rooms[0])
+        }
+        if turns > 0 { print("SPACE-SWITCH-SAMETURN the start state needed \(turns) more turns: \(start)") }
+        #expect(start.sidebar && start.content && start.atRest, "the window does not start on its first space after \(turns) turns: \(start)")
         return bench
     }
 
