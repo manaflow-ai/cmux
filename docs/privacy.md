@@ -141,6 +141,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `console.mistral.ai` | opens | a page to get an API key, opened from Settings |
 | `openrouter.ai` | opens | a page to get an API key, opened from Settings |
 | `console.x.ai` | opens | a page to get an API key, opened from Settings |
+| `accounts.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `auth.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `airbnb.com` | opens | a site the address bar suggests before it is in your history |
 | `amazon.com` | opens | a site the address bar suggests before it is in your history |
 | `console.aws.amazon.com` | opens | a page to get an API key, opened from Settings |
@@ -158,6 +160,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `search.brave.com` | opens | a search engine, when you search with it |
 | `claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
 | `platform.claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
+| `cursor.com` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `cnn.com` | opens | a site the address bar suggests before it is in your history |
 | `platform.deepseek.com` | opens | a page to get an API key, opened from Settings |
 | `discord.com` | opens | a site the address bar suggests before it is in your history |
