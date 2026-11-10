@@ -134,6 +134,27 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": refusal }),
             }
         }
+        // The backend ids of an account and its active team (`identity::worker_user_id`,
+        // `personal_team_id`, `team_header`): `{workerUser, personalTeam, teamHeader}`, each null
+        // when its input (`stackUser`, `team`) is absent. The app hashes no id itself.
+        b"cloud_identity_team_ids" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: String,
+                #[serde(default)]
+                stack_user: Option<String>,
+                #[serde(default)]
+                team: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let user = request.stack_user.as_deref();
+            json!({
+                "workerUser": user.map(|user| identity::worker_user_id(&request.project, user)),
+                "personalTeam": user.map(|user| identity::personal_team_id(&request.project, user)),
+                "teamHeader": request.team.as_deref().map(|team| identity::team_header(&request.project, team)),
+            })
+        }
         // `{user, expiresAt, team}`, each null when absent: `team` is the backend team an
         // install token names, the one `cmux auth token` mints for with no asked or active team.
         b"cloud_identity_token" => {

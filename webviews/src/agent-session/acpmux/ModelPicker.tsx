@@ -17,6 +17,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { Spinner } from "./conversation/icons";
+import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
@@ -1286,7 +1287,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // enter a message on that new model"): the next message forks the chat, and the mark says so.
   const forkGlyph = forkText && (
     <span className="acpmux-model-fork">
-      <Icon name="agent.fork" size={12} />
+      <Icon name={FORK_ICON} size={12} />
       <span className="sr-only">{forkText}</span>
     </span>
   );

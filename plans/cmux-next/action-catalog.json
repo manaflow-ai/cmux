@@ -67279,7 +67279,7 @@
         "palette",
         "contextMenu"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
 
       ],
@@ -73890,7 +73890,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
         "machine"
       ],

@@ -160,7 +160,7 @@ import {
   BACKGROUND_TURN,
   backgroundTurnRecord,
   backgroundTurnRowId,
-  isReactionNote,
+  saysNothing,
 } from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
@@ -7126,7 +7126,7 @@ export class AcpmuxDirectClient {
     if (!reactsOnCall(experimentArm(backgroundReactionLook))) return false;
     // An older page's result was seen long ago: only a live one is new (ReactionMark.tsx draws it
     // in the arm that marks it).
-    // A later end of the same call keeps what an earlier one left: its words and its new mark. An
+    // A later end of the same call keeps what an earlier one left: its new mark. An
     // older page's end of a call a newer one already reached leaves the newer one's in place.
     const prior = this.reactions.get(cause.origin)?.reaction;
     if (prior && this.foldingBelow !== undefined) {
@@ -7137,7 +7137,6 @@ export class AcpmuxDirectClient {
     const reaction: AcpmuxBackgroundReaction = {
       turn: turn.id,
       weight: cause.weight,
-      ...(prior?.text && { text: prior.text }),
       ...(fresh && { fresh: true }),
       ...(cause.status === "interim" && { interim: true }),
     };
@@ -7146,31 +7145,23 @@ export class AcpmuxDirectClient {
     return true;
   }
 
-  /// A background turn that ended: its reply goes onto the call its reaction is on, when the turn
-  /// folds it (a silent one, or a quiet one); a reply with something to say draws as a message.
-  /// Only a short quiet note goes onto the call: a reply with more to say is the main agent's own turn
-  /// (`ownTurn`), drawn at the reply column with its own footer, never as the call's or the
-  /// subagent's words (Leo, 2026-11-08: "the text in this situation isn't from the subagent?", on
-  /// three later turns of the chat's replies drawn as one block under "Subagent finished").
+  /// A background turn that ended: its reply never goes onto the call its reaction is on, nor onto
+  /// the subagent's line. Any words it said are the main agent's own turn (`ownTurn`), drawn at the
+  /// reply column with its own footer, however short or quiet (Leo, 2026-11-08: "the text in this
+  /// situation isn't from the subagent?"; 2026-11-09: "your response was weirdly folded into the
+  /// rende?", on a one-line reply drawn muted inside "Subagent finished"). The call keeps only its
+  /// mark (`attachReaction`). A failure's turn takes no call, but its line is a notification row
+  /// too: a quiet one that said something keeps its named line over its words, which draw as the
+  /// agent's own (backgroundTurns.ts `headsBackground`), never folded inside the line.
   private settleReaction(turn: string): void {
-    const origin = this.reactionOrigins.get(turn);
-    if (!origin) return;
     const id = backgroundTurnRowId(turn);
     const row = this.rows.get(id);
     const line = row?.background;
-    if (!row || !line || (line.quiet !== true && line.cause?.weight !== "silent")) return;
-    const reply = this.rows.backgroundReply(turn);
-    if (!reply) return;
-    // acpmux calls it quiet (one short line, nothing new); the length is the pane's own floor.
-    if (line.quiet !== true || !isReactionNote(reply)) {
-      if (!line.ownTurn)
-        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
-      return;
-    }
-    const reaction = this.reactions.get(origin)?.reaction;
-    if (reaction?.turn !== turn) return;
-    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
-    this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
+    if (!row || !line || line.ownTurn) return;
+    if (!this.reactionOrigins.has(turn) && line.cause?.weight !== "failure") return;
+    if (line.quiet !== true && line.cause?.weight !== "silent") return;
+    if (saysNothing(this.rows.backgroundReply(turn))) return;
+    this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
   }
 
   /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started
@@ -9573,6 +9564,9 @@ export class AcpmuxDirectClient {
       });
     let taken = false;
     let released = false;
+    /// Ends this prompt's count in the composer's "Sending when ready" (sendWhenReady.ts): set while
+    /// the prompt waits for acpmux, released once acpmux took it or the send ended.
+    let unhold: (() => void) | undefined;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
@@ -9592,6 +9586,8 @@ export class AcpmuxDirectClient {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      // Taken: the composer stops saying "Sending when ready" now, not when the turn ends.
+      unhold?.();
       tookIt();
       if (workspace) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
@@ -9675,7 +9671,6 @@ export class AcpmuxDirectClient {
     // A prompt sent while acpmux starts, restarts or reconnects waits for it (sendWhenReady.ts):
     // the same frame goes again under the same promptId, so a copy acpmux did take runs once. The
     // row keeps its clock and says "Sending when ready"; only past the deadline does it fail below.
-    let unhold: (() => void) | undefined;
     try {
       const answer = await untilHostAnswers(
         () =>

@@ -396,7 +396,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "palette.forkAgentConversation",
                 title: String(localized: "action.palette.forkAgentConversation", defaultValue: "Fork Conversation", bundle: .module),
                 keywords: ["agent", "fork", "branch"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
-                category: .agents, symbol: "arrow.triangle.branch", surfaces: [.palette, .contextMenu],
+                category: .agents, symbol: "arrow.branch", surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation"
             ),
             ActionDescriptor(

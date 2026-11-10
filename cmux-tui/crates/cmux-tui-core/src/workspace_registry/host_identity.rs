@@ -8,8 +8,23 @@
 //! macOS host UUID); one stamped on another machine is replaced by a fresh id
 //! at the next open. An id with no stamp (written before this, or on a
 //! machine with no OS identity) is kept and stamped: a machine that was not
-//! copied never changes its ids. Without an OS identity (a container with no
-//! machine-id) nothing is stamped or replaced.
+//! copied never changes its ids, except on a cmux Cloud machine whose
+//! instance id was bound after the id's file was made (below). Without an OS
+//! identity (a container with no machine-id) nothing is stamped or replaced.
+//!
+//! The Freestyle lane template (snapshot of 2026-10-30) was made before the
+//! stamp existed, so its registry had none. A VM forked from it kept the
+//! template's registry id and stamped it as its own: twelve lane VMs answered
+//! with one id, and the app's put of each one's record under it wrote 5.57
+//! million `personal.session.put` rows in two days (2026-11-02/03). The cmux
+//! Cloud supervisor (`cmux-devbox-boot`) writes the instance id to
+//! `/etc/cmux/daemon-instance-id` only when it changes, before it starts the
+//! session daemon; a file made before that write was made on another
+//! instance.
+
+use std::time::SystemTime;
+
+use cmux_tui_platform::file_birth;
 
 use super::*;
 
@@ -24,7 +39,16 @@ thread_local! {
     /// (`Some(None)`: none), so a test can move a home to "another machine".
     pub(super) static TEST_OS_IDENTITY: std::cell::RefCell<Option<Option<String>>> =
         const { std::cell::RefCell::new(None) };
+    /// When this machine's instance id was bound, for
+    /// [`made_before_binding`]; `None` (the default): never.
+    pub(super) static TEST_IDENTITY_BOUND_AT: std::cell::RefCell<Option<SystemTime>> =
+        const { std::cell::RefCell::new(None) };
 }
+
+/// The cmux Cloud supervisor's record of the instance this machine's daemon
+/// is bound to.
+#[cfg(target_os = "linux")]
+const CLOUD_INSTANCE_FILE: &str = "/etc/cmux/daemon-instance-id";
 
 /// The current machine's stamp: a domain-separated SHA-256 of the OS
 /// identity, so the raw machine id never rests in cmux state.
@@ -49,11 +73,8 @@ fn stamp_of(raw: &str) -> String {
 /// machine id.
 #[cfg(target_os = "linux")]
 fn os_machine_identity() -> Option<String> {
-    if let Ok(value) = fs::read_to_string("/etc/cmux/daemon-instance-id") {
-        let value = value.trim();
-        if !value.is_empty() && value.len() <= 256 && !value.contains(char::is_whitespace) {
-            return Some(format!("cmux-instance:{value}"));
-        }
+    if let Some(value) = cloud_instance_id() {
+        return Some(format!("cmux-instance:{value}"));
     }
     ["/etc/machine-id", "/var/lib/dbus/machine-id"].iter().find_map(|path| {
         let value = fs::read_to_string(path).ok()?;
@@ -64,6 +85,50 @@ fn os_machine_identity() -> Option<String> {
             && value.bytes().any(|byte| byte != b'0');
         valid.then(|| value.to_ascii_lowercase())
     })
+}
+
+#[cfg(target_os = "linux")]
+fn cloud_instance_id() -> Option<String> {
+    let value = fs::read_to_string(CLOUD_INSTANCE_FILE).ok()?;
+    let value = value.trim();
+    (!value.is_empty() && value.len() <= 256 && !value.contains(char::is_whitespace))
+        .then(|| value.to_string())
+}
+
+/// When this machine's cmux Cloud instance id was bound: the supervisor
+/// rewrites its file only for a new instance. `None` off cmux Cloud.
+#[cfg(all(not(test), target_os = "linux"))]
+fn identity_bound_at() -> Option<SystemTime> {
+    cloud_instance_id()?;
+    fs::metadata(CLOUD_INSTANCE_FILE).and_then(|meta| meta.modified()).ok()
+}
+
+#[cfg(all(not(test), not(target_os = "linux")))]
+fn identity_bound_at() -> Option<SystemTime> {
+    None
+}
+
+#[cfg(test)]
+fn identity_bound_at() -> Option<SystemTime> {
+    TEST_IDENTITY_BOUND_AT.with(|cell| *cell.borrow())
+}
+
+/// Whether the unstamped id file at `path` was made before this machine's
+/// cmux Cloud instance id was bound, so on another instance: a fork of a
+/// running machine binds its new id after the files it inherited. A file
+/// system with no birth time, or a machine off cmux Cloud, answers no. The
+/// birth time comes from `statx` ([`cmux_tui_platform::file_birth`]):
+/// `Metadata::created` always fails in the static musl build Cloud VMs run.
+fn made_before_binding(path: &Path) -> bool {
+    let Some(bound) = identity_bound_at() else {
+        return false;
+    };
+    let Some(made) = File::open(path).ok().and_then(|file| file_birth::birth_ns(&file)) else {
+        return false;
+    };
+    bound
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .is_ok_and(|bound| u128::from(made) < bound.as_nanos())
 }
 
 #[cfg(target_os = "macos")]
@@ -103,6 +168,7 @@ pub(super) fn machine_id_for_this_host(
     let id = match stored {
         Some(stored) if stored == current => return Ok(id),
         Some(_) => root_identity::create_machine_id(root, path, true)?,
+        None if made_before_binding(path) => root_identity::create_machine_id(root, path, true)?,
         None => id,
     };
     // After the new id: a start cut in between sees the old stamp again and
@@ -114,7 +180,8 @@ pub(super) fn machine_id_for_this_host(
 
 /// Gives a registry copied from another machine its own `registry_id`, the
 /// id other stores key this machine's session on. A registry with no stamp
-/// is stamped as it is.
+/// is stamped as it is, unless its file was made before this cmux Cloud
+/// machine's instance id was bound ([`made_before_binding`]).
 ///
 /// Every reference to the copied id is rewritten to the new one, in any
 /// column of a mutable table and in any string or key of a JSON value there:
@@ -146,8 +213,13 @@ pub(super) fn rehome_registry(
     if stored.as_deref() == Some(current.as_str()) {
         return Ok(());
     }
+    let copied_unstamped = stored.is_none()
+        && connection
+            .path()
+            // rusqlite's path is a `&str`: "" for an in-memory database.
+            .is_some_and(|path: &str| !path.is_empty() && made_before_binding(Path::new(path)));
     let tx = connection.unchecked_transaction()?;
-    if stored.is_some() {
+    if stored.is_some() || copied_unstamped {
         let copied = required_meta(&tx, "registry_id")?;
         rewrite_text_everywhere(&tx, &copied, &try_new_uuid_v4()?, timings)?;
         // After the rewrite, which would move the id in this list too.
@@ -695,6 +767,51 @@ mod tests {
         as_machine(Some(first));
         assert_eq!(ids(&original), made);
         for root in [original, clone] {
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    fn bound_at(at: Option<SystemTime>) {
+        TEST_IDENTITY_BOUND_AT.with(|cell| *cell.borrow_mut() = at);
+    }
+
+    /// The Freestyle lane template was made before the stamp existed: its
+    /// forks kept its registry id and stamped it as their own, so twelve lane
+    /// VMs answered with one id (2026-11-02/03). A cmux Cloud machine whose
+    /// instance id was bound after its unstamped home was made mints new ids;
+    /// one bound before keeps them.
+    #[test]
+    fn an_unstamped_home_made_before_this_cloud_machine_was_bound_mints_new_ids() {
+        let template = temp_root("template");
+        as_machine(None);
+        seed(&template);
+        let made = ids(&template);
+        assert!(!template.join(HOST_STAMP_FILE).exists(), "made before the stamp");
+        let registry = File::open(registry_file(&template)).unwrap();
+        if file_birth::birth_ns(&registry).is_none() {
+            eprintln!("skipped: this file system records no creation time");
+            fs::remove_dir_all(template).unwrap();
+            return;
+        }
+
+        // A fork: the supervisor binds its new instance id after the files it inherited.
+        let fork = temp_root("fork");
+        copy_tree(&template, &fork);
+        as_machine(Some("cmux-instance:i-fork"));
+        bound_at(Some(SystemTime::now() + std::time::Duration::from_secs(3_600)));
+        let forked = ids(&fork);
+        assert_ne!(forked.0, made.0, "registry id");
+        assert_ne!(forked.2, made.2, "machine id");
+        assert!(own_session_row(&fork, &forked.0), "the own personal session moved");
+        assert_eq!(ids(&fork), forked, "minted once: the fork is stamped now");
+
+        // A machine bound before its home was made is the machine that made it.
+        let own = temp_root("bound-first");
+        copy_tree(&template, &own);
+        as_machine(Some("cmux-instance:i-own"));
+        bound_at(Some(SystemTime::UNIX_EPOCH));
+        assert_eq!(ids(&own), made);
+        for root in [template, fork, own] {
             fs::remove_dir_all(root).unwrap();
         }
     }
