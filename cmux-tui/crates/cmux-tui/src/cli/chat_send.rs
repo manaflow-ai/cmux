@@ -224,7 +224,7 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         words[0] = last.session;
     }
     let words = cloud_start_chat::lift_output_of(
-        words,
+        &words,
         &mut global.output,
         &["--timeout", "--after", "--limit"],
     );
