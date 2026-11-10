@@ -247,10 +247,11 @@ struct AgentPaneCloudStartTests {
         ]])
     }
 
-    /// Yields until `ready` holds, a bounded number of times.
+    /// Yields until `ready` holds or a generous deadline passes; the caller asserts `ready` after.
+    /// A deadline, not a yield count: a busy runner needs more reschedules, not a failure.
     private static func settle(_ ready: () -> Bool) async {
-        for _ in 0..<1_000 {
-            if ready() { return }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !ready(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }
@@ -704,6 +705,29 @@ struct AgentPaneCloudReservationTests {
         #expect(requests.first?.params["composeKey"]?.stringValue == key)
         model.remoteChat = true
         _ = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.reserve", "params": ["composeKey": key]]))
+        #expect(requests.count == 2)
+    }
+
+    /// A Send that stopped waiting for a slow reserve (cloudComposeReservation.ts) goes without it: the
+    /// pane releases the reserve as it answers, so no machine stays reserved after the tab closes.
+    @Test func aReserveThatAnswersAfterTheSendWentWithoutItIsReleasedHere() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        var requests: [AgentPaneCloudReservationRequest] = []
+        model.onCloudReservation = { [weak model] request in
+            requests.append(request)
+            // The Send arrives while the reserve is out, and goes without it.
+            if !request.release { model?.dropCloudReservation() }
+            return ["ok": true, "machine": "vm-late"]
+        }
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        let answer = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.reserve", "params": ["composeKey": key]]))
+        #expect(answer["ok"] as? Bool == false)
+        #expect(requests.map(\.release) == [false, true])
+        #expect(requests.last?.params["composeKey"]?.stringValue == key)
+        #expect(!model.ownsCloudReservation(key))
+        // The page's own release after it settles finds nothing left to release.
+        _ = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.releaseReservation", "params": ["composeKey": key]]))
         #expect(requests.count == 2)
     }
 

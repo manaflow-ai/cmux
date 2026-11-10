@@ -1984,6 +1984,25 @@
   }
  },
  {
+  "name": "side_chat of a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"_acpmux/side_chat\",\"params\":{\"sessionId\":\"s9\",\"live\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/side_chat",
+   "id": "53",
+   "spend": null
+  }
+ },
+ {
   "name": "memory_resolve for the pane's chat passes and needs a gesture",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s1\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
   "state": {

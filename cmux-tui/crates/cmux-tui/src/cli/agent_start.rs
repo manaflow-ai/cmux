@@ -31,6 +31,7 @@
 //! `blocked` with `dialog` and `reason` (exit 4), `timeout` (exit 124),
 //! `exited` (exit 1), or `started` under `--no-wait` (exit 0).
 
+mod dialog_options;
 pub(in crate::cli) mod launch;
 pub(in crate::cli) mod placement;
 pub(in crate::cli) mod readiness;
@@ -309,7 +310,8 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
 fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
     let env = Env::of_process(global);
-    let mut sleep = std::thread::sleep;
+    let mut cursor = None;
+    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, &mut cursor, at_most);
     let mut clock =
         Clock { now: &Instant::now, sleep: &mut sleep, now_ms: super::terminal_talk::now_ms() };
     let result = match command {
@@ -379,6 +381,18 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
                  cmux terminal {who} resume brings it back"
             )),
         ),
+        Some(Readiness::Starting) | None if outcome.report_required => (
+            "timeout",
+            TIMEOUT_EXIT,
+            None,
+            Some(
+                crate::localization::catalog()
+                    .terminal_input
+                    .resume_not_reported
+                    .replace("{waited}", &waited)
+                    .replace("{who}", who),
+            ),
+        ),
         Some(Readiness::Starting) | None => (
             "timeout",
             TIMEOUT_EXIT,
@@ -393,14 +407,44 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
     report.set("dialog", json!(dialog));
     report.set("reason", json!(reason));
     report.set("waited_ms", json!(outcome.waited.as_millis().to_string()));
+    if let Some(Readiness::Blocked(dialog)) = outcome.readiness {
+        add_dialog_options(report, dialog.id, &outcome.screen, who);
+    }
     exit
+}
+
+/// Adds a blocked start's dialog `options` and, for the folder-trust
+/// dialog, the `accept_keys` that trust the folder and the `accept_label`
+/// they pick, with a localized reason that names the terminal, the keys
+/// and the label (and warns when that option turns approvals off). The
+/// person decides; the keys only say how to answer.
+fn add_dialog_options(report: &mut Value, dialog: &str, screen: &str, who: &str) {
+    let options = dialog_options::options(screen);
+    if !options.is_empty() {
+        let listed: Vec<Value> =
+            options.iter().map(dialog_options::DialogOption::to_json).collect();
+        report.set("options", Value::Array(listed));
+    }
+    if dialog != "folder_trust" {
+        return;
+    }
+    let keys = dialog_options::accept_keys(&options);
+    let label = dialog_options::accept_label(&options);
+    let accept = keys.as_deref().zip(label);
+    if let Some((keys, label)) = accept {
+        report.set("accept_keys", json!(keys));
+        report.set("accept_label", json!(label));
+    }
+    let messages = &crate::localization::catalog().pane_cli;
+    report.set("reason", json!(dialog_options::folder_trust_reason(messages, who, accept)));
 }
 
 fn humantime(duration: Duration) -> String {
     super::terminal_talk::roster::age(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// Waits (unless `--no-wait`) and records the end in `report`.
+/// Waits (unless `--no-wait`) and records the end in `report`. A resume
+/// (`report_required`) is ready only once the agent itself reports idle.
 fn finish<D: Daemon + ?Sized>(
     daemon: &D,
     clock: &mut Clock<'_>,
@@ -408,6 +452,7 @@ fn finish<D: Daemon + ?Sized>(
     created: &Created,
     who: &str,
     report: &mut Value,
+    report_required: bool,
 ) -> Result<i32, Failure> {
     if options.focus
         && let Ok(focus) = plan(&["tab", created.tab.as_str(), "focus"])
@@ -420,7 +465,7 @@ fn finish<D: Daemon + ?Sized>(
         return Ok(0);
     }
     let reads = terminal_reads(&created.terminal)?;
-    let wait = WaitOptions::new(options.timeout, clock.now_ms);
+    let wait = WaitOptions { report_required, ..WaitOptions::new(options.timeout, clock.now_ms) };
     let outcome = readiness::wait(daemon, &reads, wait, clock.now, clock.sleep)?;
     Ok(apply_outcome(report, &outcome, who))
 }
@@ -500,7 +545,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);
-    let exit = finish(daemon, clock, options, &created, name, &mut report)?;
+    let exit = finish(daemon, clock, options, &created, name, &mut report, false)?;
     Ok((report, exit))
 }
 
@@ -571,7 +616,10 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
         ResumeTarget::Terminal(selector) => send::find_terminal(snapshot, selector)?,
     };
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
-    if terminal["lifecycle"] != "exited" {
+    // Only an exited terminal resumes; not `!is_live`: a lifecycle word this
+    // CLI does not know, or none, must never let resume act on a terminal
+    // whose program may still run.
+    if !super::terminal_lifecycle::is_exited(terminal) {
         return Err(Failure::local(
             "agent.running",
             format!(
@@ -736,7 +784,23 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         }),
     );
     let who = name.unwrap_or(created.terminal.as_str()).to_owned();
-    let exit = finish(daemon, clock, options, &created, &who, &mut report)?;
+    // The session id came from the agent's hooks in this pane. When those
+    // hooks report a session start, ready waits for that report: a resumed
+    // Claude Code draws its input box before it takes a message. A harness
+    // whose hooks report no start (or another harness than the one that
+    // reported) is ready on its input box, as for a start: it never reports
+    // idle before a turn, and a wait for it would run to the timeout.
+    let hooked = record
+        .pointer("/extra/agent")
+        .and_then(Value::as_str)
+        .or(exited.harness.as_deref())
+        .is_some_and(|reported| harness_name(reported) == harness);
+    let report_required = hooked
+        && super::terminal_talk::roster::harness_hooks_report(
+            &harness,
+            cmux_tui_core::agent_hook_event_starts_session,
+        );
+    let exit = finish(daemon, clock, options, &created, &who, &mut report, report_required)?;
     Ok((report, exit))
 }
 
@@ -748,7 +812,9 @@ pub(in crate::cli) fn wait_ready_command(
     timeout: Option<Duration>,
 ) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
-    match wait_ready(&backend, selector, timeout) {
+    let mut cursor = None;
+    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, &mut cursor, at_most);
+    match wait_ready(&backend, selector, timeout, &mut sleep) {
         Ok((report, exit)) => print_report(global.output, &report, exit),
         Err(failure) => wire::print_local_error(&failure.error, global.output, failure.exit),
     }
@@ -758,13 +824,14 @@ fn wait_ready<D: Daemon + ?Sized>(
     daemon: &D,
     selector: &str,
     timeout: Option<Duration>,
+    sleep: &mut dyn FnMut(Duration),
 ) -> Result<(Value, i32), Failure> {
     let snapshot = send::snapshot(daemon, None)?;
     let terminal = send::find_terminal(&snapshot, selector)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
     let reads = terminal_reads(&id)?;
     let options = WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0);
-    let outcome = readiness::wait(daemon, &reads, options, &Instant::now, &mut std::thread::sleep)?;
+    let outcome = readiness::wait(daemon, &reads, options, &Instant::now, sleep)?;
     let mut report = json!({"terminal_id": id, "until": "ready"});
     let exit = apply_outcome(&mut report, &outcome, &id);
     match outcome.readiness {
@@ -784,6 +851,8 @@ fn wait_ready<D: Daemon + ?Sized>(
                     "details": {
                         "until": "ready",
                         "timeout_ms": millis.to_string(),
+                        "timed_out": true,
+                        "waited_ms": millis.to_string(),
                         "state": outcome.last.as_str(),
                     },
                     "retryable": true,

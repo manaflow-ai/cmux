@@ -118,13 +118,7 @@ final class SSHMachineSession {
         }
         let output = await link.output()
         guard startupError == error, connectionAttemptID == attemptID, linkReached else { return }
-        daemonFailure = DaemonFailure(attemptID: attemptID, error: Self.failureText(error.description, output: output))
-    }
-
-    /// The daemon's error, then the link's output when it adds to it.
-    static func failureText(_ error: String, output: String?) -> String {
-        guard let output = output?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty, !error.contains(output) else { return error }
-        return error + "\n" + output
+        daemonFailure = DaemonFailure(attemptID: attemptID, error: SSHFailure.failureText(error.description, output: output))
     }
 
     /// Ends the session for good (forget, quit).
@@ -163,8 +157,8 @@ final class SSHMachineSession {
         onStatusChange?(self, status)
     }
 
-    /// Starts connecting (or reconnecting after a disconnect).
-    func connect() {
+    /// Starts connecting (or reconnecting after a disconnect), passing the person's `deadline` down to a link already dialing.
+    func connect(deadline: Duration = SSHMachineLink.personDeadline) {
         autoConnect = true
         beginConnectionAttempt()
         linkStatus = .connecting
@@ -180,9 +174,9 @@ final class SSHMachineSession {
                     // The next attempt waits for an event (DaemonStartup.shared.isPermanent).
                     throw DaemonError.endpointBlocked(error.description)
                 }
-            }, followsLink: true, linkRunning: { link.hasProcess })
-            // Already running (a reconnect): wake its wait.
-            self.daemon.reconnectNow()
+            }, followsLink: true)
+            self.daemon.reconnectNow() // already running (a reconnect): wake its wait
+            await link.awaitReady(within: deadline)
         }
     }
 
@@ -209,12 +203,12 @@ final class SSHMachineSession {
 
     /// An event that may let a blocked attempt succeed: opens the gate,
     /// then wakes the daemon loop.
-    func wake(_ wake: SSHConnectionMachine.Wake) {
+    func wake(_ wake: SSHConnectionMachine.Wake, deadline: Duration = SSHMachineLink.personDeadline) {
         let link = link, daemon = daemon
-        // task-owner: short actor hop; the retry fires after the gate opened (a person's also refills the budget)
+        // task-owner: short actor hop; the retry fires after the gate opened (a person's also refills the budget and waits on the link)
         Task {
             await link.handle(.wake(wake))
-            if wake == .user { daemon.reconnectNow() } else { daemon.retryWake.fire() }
+            if wake == .user { daemon.reconnectNow(); await link.awaitReady(within: deadline) } else { daemon.retryWake.fire() }
         }
     }
 

@@ -25,7 +25,8 @@ import { NEXT_STEP } from "../conversation/turns";
 import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import { pillAsks } from "../needsYou/jumpPillModel";
-import { needsYouItems, type WatchedAsk } from "../needsYou/model";
+import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../needsYou/model";
+import { sessionIndex } from "../sessionIndex";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { hasPreviews, isPending, type AgentQuestion } from "./model";
 
@@ -185,12 +186,26 @@ function childQuestions(
   asks: readonly WatchedAsk[],
 ): HatQuestion[] {
   // Only the chats this one started: the list is built from their asks alone, so its cost follows
-  // what this chat started, never every chat acpmux knows.
-  const started = sessions.filter((session) => session.startedBy || session.spawnedBy);
-  if (started.length === 0) return [];
-  const ids = new Set(started.map((session) => session.sessionId));
-  const theirs = asks.filter((ask) => ids.has(ask.sessionId));
-  const items = pillAsks(needsYouItems({ sessions: started, asks: theirs }), sessions, sessionId);
+  // what this chat started, never every chat acpmux knows. Whether a chat was started is read from
+  // the list's shared index (sessionIndex.ts) for the asking chats only, so one session's change
+  // costs no pass over the list either. A list that names an id twice takes the pass.
+  const index = sessionIndex(sessions);
+  if (!index.has("started")) return [];
+  let items: NeedsYouItem[];
+  if (index.unique) {
+    const started = (id: string) => {
+      const session = index.get(id);
+      return Boolean(session?.startedBy || session?.spawnedBy);
+    };
+    const theirs = asks.filter((ask) => started(ask.sessionId));
+    const asking = needsYouItems({ sessions, asks: theirs }).filter((item) => started(item.sessionId));
+    items = pillAsks(asking, sessions, sessionId);
+  } else {
+    const started = sessions.filter((session) => session.startedBy || session.spawnedBy);
+    const ids = new Set(started.map((session) => session.sessionId));
+    const theirs = asks.filter((ask) => ids.has(ask.sessionId));
+    items = pillAsks(needsYouItems({ sessions: started, asks: theirs }), sessions, sessionId);
+  }
   const out: HatQuestion[] = [];
   for (const item of items) {
     if (item.sessionId === sessionId || !item.sessionId) continue;

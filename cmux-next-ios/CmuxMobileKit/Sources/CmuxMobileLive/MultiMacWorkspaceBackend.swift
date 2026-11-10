@@ -219,6 +219,7 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func markAllNotificationsRead(on macID: String) async throws -> Int {
         try await backend(macID).markAllNotificationsRead(on: macID)
     }
+    public func canMarkAllNotificationsRead(on macID: String) -> Bool { linked(macID)?.canMarkAllNotificationsRead(on: macID) ?? false }
 
     // MARK: AgentChatsBackend
 

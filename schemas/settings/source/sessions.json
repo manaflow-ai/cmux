@@ -55,10 +55,42 @@
           "keywords": [
             "sleep",
             "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "idle",
             "caffeinate",
             "battery",
             "power",
             "agents"
+          ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "name": "keepAwakeForCommands",
+          "note": "On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.",
+          "title": {
+            "key": "settings.sessions.keepAwakeForCommands",
+            "text": "Also While Terminal Commands Run"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwakeForCommands.help",
+            "text": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sleep",
+            "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "caffeinate",
+            "terminal",
+            "command",
+            "build"
           ]
         },
         {

@@ -402,5 +402,41 @@ import UIKit
         #expect(titles.contains("Select Text"))
         #expect(titles.contains("Copy"))
     }
+
+    // Leo, 2026-11-09: "feel like this should have a copy link button". A long-press on a link in an
+    // answer finds that link, and its rows are Open Link, then Copy Link, which copies the address.
+    @Test func aLinksMenuOffersOpenLinkAndCopyLink() throws {
+        let href = "https://github.com/manaflow-ai/cmux/commit/50a4e17d"
+        let cell = try Self.cell(.paragraph("See [50a4e17d](\(href)) here."))
+        cell.layoutIfNeeded()
+        let points = stride(from: 0.0, to: cell.bounds.height, by: 2).flatMap { y in
+            stride(from: 0.0, to: cell.bounds.width, by: 2).map { CGPoint(x: $0, y: y) }
+        }
+        #expect(points.contains { cell.link(at: $0)?.absoluteString == href }, "the link is found under a press")
+        #expect(cell.link(at: CGPoint(x: cell.bounds.maxX - 1, y: cell.bounds.maxY - 1)) == nil)
+
+        let url = try #require(URL(string: href))
+        var opened: [URL] = []
+        let titles = ChatNativeRowCell.linkMenu(url) { opened.append($0) }.compactMap { ($0 as? UIAction)?.title }
+        #expect(titles == ["Open Link", "Copy Link"])
+        let pasteboard = try #require(UIPasteboard(name: UIPasteboard.Name("cmux.test.copyLink.\(UUID().uuidString)"), create: true))
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        ChatNativeRowCell.copyLink(url, to: pasteboard)
+        #expect(pasteboard.string == href)
+        #expect(pasteboard.url == url)
+    }
+
+    /// The link rows lead a prompt's or tool's own menu as one inline group; that menu's rows stay at
+    /// its top level, not folded into a submenu. With no link the menu is unchanged.
+    @Test func linkRowsLeadAMenuWithoutHidingItsRows() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let own = UIMenu(title: "", children: [UIAction(title: "Copy") { _ in }, UIAction(title: "Open Diff") { _ in }])
+        let merged = ChatNativeRowCell.leading(ChatNativeRowCell.linkMenu(url) { _ in }, in: own)
+        let group = try #require(merged.children.first as? UIMenu)
+        #expect(group.options.contains(.displayInline))
+        #expect(group.children.compactMap { ($0 as? UIAction)?.title } == ["Open Link", "Copy Link"])
+        #expect(merged.children.dropFirst().compactMap { ($0 as? UIAction)?.title } == ["Copy", "Open Diff"])
+        #expect(ChatNativeRowCell.leading([], in: own) === own)
+    }
 }
 #endif

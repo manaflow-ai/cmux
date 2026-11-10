@@ -10,8 +10,9 @@
 // kind now opens to, the unverified marker right after the name, so it reads with the name it is
 // about and never covers the family mark's own corner), `corner` (the marker on the icon's corner),
 // `flat` (no card, the sent row's look before). The hover variants compare what a folded group's
-// head shows under the pointer (MessageGroupHover.tsx): the messages (the pick: who and what they
-// said), one line each, or the names only. Synthetic data.
+// head shows under the pointer (MessageGroupHover.tsx): the digest (the pick: the newest message
+// whole, then the other senders with their counts), the messages two lines each, one line each, or
+// the names only. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
@@ -143,31 +144,31 @@ export default componentEntry<Props>({
         },
       ],
     })!;
+    // Oldest first, as a group holds them; the verified report is the newest.
+    const lane = (name: string) => ({
+      name: `build-box-3/${name}`,
+      text: `${name}: checks pass, ready for review.`,
+      raw: "",
+    });
+    const rendering = (text: string) => ({ name: "build-box-1/chat-rendering", text, raw: "", harness: "claude" });
     const group = hoverMessages([
-      verified?.kind === "message" ? verified.message : undefined,
-      {
-        name: "build-box-1/chat-rendering",
-        text: "Shared row landed behind the card look; gallery has the three variants.",
-        raw: "",
-        harness: "claude",
-      },
+      rendering("Shared row landed behind the card look; gallery has the three variants."),
+      ...["palette-ranker-one", "pr-latency", "chat-targets", "base-red-watch"].map(lane),
       {
         name: "gcp-codex-swarm-05/cloud-start-matrix",
         text: "Matrix run 14 is green on all four regions.\n\nNext: the cold-start numbers.",
         raw: "",
         unverified: true,
       },
-      ...["palette-ranker-one", "pr-latency", "chat-targets", "base-red-watch"].map((name) => ({
-        name: `build-box-3/${name}`,
-        text: `${name}: checks pass, ready for review.`,
-        raw: "",
-      })),
+      lane("pr-latency"),
+      rendering("The hover digest is up for review."),
+      verified?.kind === "message" ? verified.message : undefined,
     ]);
     const send = acpmuxSendCall(SEND)!;
     return function GalleryMessageRowKinds({ look, hover }: Props) {
       return (
         <MessageRowLookContext.Provider value={look}>
-          <GroupHoverLookContext.Provider value={hover ?? "messages"}>
+          <GroupHoverLookContext.Provider value={hover ?? "digest"}>
             <SubagentNavContext.Provider value={() => undefined}>
               <DoneReportLookContext.Provider value="disclosure">
                 <main
@@ -252,18 +253,23 @@ export default componentEntry<Props>({
       props: { look: "flat" },
       play: openAll,
     },
+    "hover-digest": {
+      note: "The pick for a 'Received 9 messages' head's hover: the newest message whole under its sender (lock-proof-routes, verified), a hairline, then the other senders once each, newest first, with how many they sent (chat-rendering 2, pr-latency 2), cloud-start-matrix with the unverified marker, base-red-watch, then '+2 more'.",
+      height: 360,
+      props: { look: "card", hover: "digest" },
+    },
     "hover-messages": {
-      note: "The pick for a 'Received 7 messages' head's hover: newest first, each sender's mark and short name, the unverified marker, and two lines of what it said; five, then '+2 more'.",
+      note: "Version B (the pick before): newest first, each sender's mark and short name, the unverified marker, and two lines of what it said; five, then '+4 more'.",
       height: 360,
       props: { look: "card", hover: "messages" },
     },
     "hover-lines": {
-      note: "Version B: one line each, the short name then the first line.",
+      note: "Version C: one line each, the short name then the first line.",
       height: 260,
       props: { look: "card", hover: "lines" },
     },
     "hover-names": {
-      note: "Version C: the senders only, each once, with their marks: today's list without the noise.",
+      note: "Version D: the senders only, each once, with their marks: today's list without the noise.",
       height: 240,
       props: { look: "card", hover: "names" },
     },

@@ -122,7 +122,7 @@ fn volatile(key: &str) -> bool {
         || key.ends_with("_ms")
         || key.ends_with("At")
         || key.ends_with("_at")
-        || matches!(key, "uuid" | "user_message_uuids" | "event_id" | "seq")
+        || matches!(key, "uuid" | "user_message_uuids" | "event_id" | "seq" | "idempotency_key")
 }
 
 /// Hashes `value` without its [`volatile`] fields, at any depth, so a record that repeats a state
@@ -134,10 +134,12 @@ fn fingerprint(value: &serde_json::Value, hasher: &mut DefaultHasher) {
             let mut keys: Vec<&String> = fields.keys().filter(|k| !volatile(k)).collect();
             keys.sort();
             b'{'.hash(hasher);
+            keys.len().hash(hasher);
             for key in keys {
                 key.hash(hasher);
                 fingerprint(&fields[key.as_str()], hasher);
             }
+            b'}'.hash(hasher);
         }
         Value::Array(items) => {
             b'['.hash(hasher);
@@ -199,6 +201,22 @@ mod tests {
             (0..40u64)
                 .all(|i| distinct.note("new", 10, &json!({"n": i, "revision": i}), i).is_none())
         );
+    }
+
+    /// A resource row's state written again under a new idempotency key counts as a repeat, and
+    /// the same fields nested differently do not (review follow-ups on #39148).
+    #[test]
+    fn repeats_ignore_the_write_key_and_respect_nesting() {
+        let hash = |value: serde_json::Value| {
+            let mut hasher = DefaultHasher::new();
+            fingerprint(&value, &mut hasher);
+            hasher.finish()
+        };
+        assert_eq!(
+            hash(json!({"idempotency_key": "k1", "result": {"project": "p", "last_used_ms": 1}})),
+            hash(json!({"idempotency_key": "k2", "result": {"project": "p", "last_used_ms": 2}})),
+        );
+        assert_ne!(hash(json!({"a": {"b": 1}, "c": 2})), hash(json!({"a": {"b": 1, "c": 2}})));
     }
 
     /// Too many records warn even when each is small.

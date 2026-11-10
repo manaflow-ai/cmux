@@ -160,7 +160,7 @@ impl Supervisor {
         catalog: &catalog::Catalog,
     ) -> Vec<(String, String)> {
         let trials: Vec<(Package, super::grants::Grant)> = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             changed
                 .iter()
                 .filter_map(|app| {

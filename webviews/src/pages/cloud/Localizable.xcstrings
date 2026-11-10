@@ -27984,6 +27984,666 @@
           }
         }
       }
+    },
+    "environment.vaultDown": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر حفظ الأسرار الآن. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajne trenutno nije moguće spremiti. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheder kan ikke gemmes lige nu. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geheimnisse können gerade nicht gespeichert werden. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secrets can't be saved right now. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no se pueden guardar los secretos. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’enregistrer les secrets pour le moment. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al momento non è possibile salvare i segreti. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在シークレットを保存できません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរក្សាទុកសម្ងាត់បានទេឥឡូវនេះ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 시크릿을 저장할 수 없습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheter kan ikke lagres akkurat nå. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można teraz zapisać sekretów. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível salvar segredos agora. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас не удаётся сохранить секреты. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกข้อมูลลับไม่ได้ในขณะนี้ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli değerler şu anda kaydedilemiyor. Birazdan tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зараз не вдається зберегти секрети. Повторіть спробу трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện không thể lưu bí mật. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时无法保存密钥。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時無法儲存密鑰。請稍後再試。"
+          }
+        }
+      }
+    },
+    "environment.vaultPublicSuffix": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لمضيف أن يشمل كل المواقع تحت لاحقة عامة مثل .com أو .co.uk. اكتب اسم المضيف بالضبط، مثل api.example.com."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host ne može obuhvatiti sve stranice pod javnim sufiksom poput .com ili .co.uk. Navedite tačan host, npr. api.example.com."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vært kan ikke dække alle websteder under et offentligt suffiks som .com eller .co.uk. Angiv den præcise vært, fx api.example.com."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Host darf nicht alle Websites unter einem öffentlichen Suffix wie .com oder .co.uk abdecken. Gib den genauen Host an, etwa api.example.com."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A host can't cover every site under a public suffix like .com or .co.uk. Name the exact host, such as api.example.com."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un host no puede abarcar todos los sitios bajo un sufijo público como .com o .co.uk. Indica el host exacto, como api.example.com."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un hôte ne peut pas couvrir tous les sites sous un suffixe public comme .com ou .co.uk. Indiquez l’hôte exact, par exemple api.example.com."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un host non può coprire tutti i siti sotto un suffisso pubblico come .com o .co.uk. Indica l’host esatto, ad esempio api.example.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストで .com や .co.uk のようなパブリックサフィックス配下のすべてのサイトを指定することはできません。api.example.com のように正確なホストを入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនមិនអាចគ្របដណ្តប់គ្រប់គេហទំព័រក្រោមបច្ច័យសាធារណៈដូចជា .com ឬ .co.uk បានទេ។ សូមដាក់ឈ្មោះម៉ាស៊ីនឱ្យច្បាស់ ដូចជា api.example.com។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트는 .com이나 .co.uk 같은 공개 접미사 아래의 모든 사이트를 포함할 수 없습니다. api.example.com처럼 정확한 호스트를 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vert kan ikke dekke alle nettsteder under et offentlig suffiks som .com eller .co.uk. Oppgi den nøyaktige verten, for eksempel api.example.com."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host nie może obejmować wszystkich witryn w sufiksie publicznym, takim jak .com lub .co.uk. Podaj dokładny host, np. api.example.com."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um host não pode abranger todos os sites sob um sufixo público como .com ou .co.uk. Informe o host exato, como api.example.com."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост не может охватывать все сайты в публичном суффиксе вроде .com или .co.uk. Укажите точный хост, например api.example.com."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฮสต์ครอบคลุมทุกเว็บไซต์ภายใต้ส่วนต่อท้ายสาธารณะอย่าง .com หรือ .co.uk ไม่ได้ ให้ระบุโฮสต์ที่ตรงกัน เช่น api.example.com"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ana makine, .com veya .co.uk gibi genel bir sonek altındaki tüm siteleri kapsayamaz. api.example.com gibi tam ana makineyi yazın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост не може охоплювати всі сайти в публічному суфіксі на кшталт .com або .co.uk. Вкажіть точний хост, наприклад api.example.com."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một máy chủ không thể bao trùm mọi trang dưới hậu tố công khai như .com hay .co.uk. Hãy ghi đúng máy chủ, ví dụ api.example.com."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机不能覆盖 .com 或 .co.uk 这类公共后缀下的所有网站。请填写确切的主机，例如 api.example.com。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機不能涵蓋 .com 或 .co.uk 這類公共後綴下的所有網站。請填寫確切的主機，例如 api.example.com。"
+          }
+        }
+      }
+    },
+    "environment.vaultNotPlainText": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السر المرسل كبيانات اعتماد Basic يجب أن يكون نصًا عاديًا: أحرف وأرقام ورموز ASCII فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajna koja se šalje kao Basic vjerodajnice mora biti običan tekst: samo ASCII slova, brojevi i simboli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed, der sendes som Basic-legitimation, skal være almindelig tekst: kun ASCII-bogstaver, -tal og -symboler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis, das als Basic-Anmeldedaten gesendet wird, muss einfacher Text sein: nur ASCII-Buchstaben, -Ziffern und -Symbole."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret sent as Basic credentials must be plain text: ASCII letters, numbers and symbols only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto enviado como credenciales Basic debe ser texto simple: solo letras, números y símbolos ASCII."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret envoyé comme identifiants Basic doit être du texte simple : lettres, chiffres et symboles ASCII uniquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto inviato come credenziali Basic deve essere testo semplice: solo lettere, numeri e simboli ASCII."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basic 認証情報として送信するシークレットはプレーンテキストにしてください。使えるのは ASCII の英字、数字、記号のみです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ដែលផ្ញើជាព័ត៌មានសម្គាល់ Basic ត្រូវតែជាអត្ថបទធម្មតា៖ អក្សរ លេខ និងនិមិត្តសញ្ញា ASCII ប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basic 자격 증명으로 보내는 시크릿은 일반 텍스트여야 합니다. ASCII 문자, 숫자, 기호만 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet som sendes som Basic-legitimasjon, må være vanlig tekst: bare ASCII-bokstaver, -tall og -symboler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret wysyłany jako dane uwierzytelniające Basic musi być zwykłym tekstem: tylko litery, cyfry i symbole ASCII."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo enviado como credenciais Basic deve ser texto simples: apenas letras, números e símbolos ASCII."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, отправляемый как учётные данные Basic, должен быть простым текстом: только буквы, цифры и символы ASCII."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลลับที่ส่งเป็นข้อมูลรับรองแบบ Basic ต้องเป็นข้อความธรรมดา ใช้ได้เฉพาะตัวอักษร ตัวเลข และสัญลักษณ์ ASCII"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basic kimlik bilgisi olarak gönderilen bir gizli değer düz metin olmalıdır: yalnızca ASCII harfler, rakamlar ve simgeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, що надсилається як облікові дані Basic, має бути простим текстом: лише літери, цифри й символи ASCII."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật gửi dưới dạng thông tin xác thực Basic phải là văn bản thuần: chỉ chữ cái, chữ số và ký hiệu ASCII."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 Basic 凭据发送的密钥必须是纯文本：只能包含 ASCII 字母、数字和符号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 Basic 憑證傳送的密鑰必須是純文字：只能包含 ASCII 字母、數字和符號。"
+          }
+        }
+      }
+    },
+    "environment.vaultUnreadable": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد من الممكن قراءة سر محفوظ. اكتب قيمته مرة أخرى، ثم احفظ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremljenu tajnu više nije moguće pročitati. Ponovo unesite njenu vrijednost, pa spremite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En gemt hemmelighed kan ikke længere læses. Indtast værdien igen, og gem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein gespeichertes Geheimnis kann nicht mehr gelesen werden. Gib seinen Wert erneut ein und speichere."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A saved secret can't be read anymore. Type its value again, then save."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya no se puede leer un secreto guardado. Vuelve a escribir su valor y guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret enregistré n’est plus lisible. Saisissez de nouveau sa valeur, puis enregistrez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto salvato non è più leggibile. Digita di nuovo il suo valore, poi salva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのシークレットを読み取れなくなりました。値をもう一度入力してから保存してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ដែលបានរក្សាទុកមិនអាចអានបានទៀតទេ។ សូមវាយតម្លៃរបស់វាម្តងទៀត រួចរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 시크릿을 더 이상 읽을 수 없습니다. 값을 다시 입력한 뒤 저장하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En lagret hemmelighet kan ikke leses lenger. Skriv inn verdien på nytt, og lagre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisanego sekretu nie można już odczytać. Wpisz jego wartość ponownie, a potem zapisz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é mais possível ler um segredo salvo. Digite o valor novamente e salve."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранённый секрет больше не читается. Введите его значение заново и сохраните."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านข้อมูลลับที่บันทึกไว้ไม่ได้อีกต่อไป พิมพ์ค่าอีกครั้งแล้วบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydedilmiş bir gizli değer artık okunamıyor. Değerini yeniden yazıp kaydedin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збережений секрет більше не читається. Введіть його значення ще раз і збережіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đọc một bí mật đã lưu nữa. Hãy nhập lại giá trị rồi lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存的密钥无法再读取。请重新输入它的值，然后保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存的密鑰無法再讀取。請重新輸入它的值，然後儲存。"
+          }
+        }
+      }
+    },
+    "environment.vaultRefused": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تخزين السر. تم الاحتفاظ بتعديلاتك؛ تحقق من اسمه ومضيفيه، أو حاول مرة أخرى لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajnu nije moguće pohraniti. Vaše izmjene su sačuvane; provjerite njen naziv i hostove ili pokušajte ponovo kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheden kunne ikke gemmes. Dine redigeringer er bevaret; tjek dens navn og værter, eller prøv igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Geheimnis konnte nicht gespeichert werden. Deine Eingaben bleiben erhalten; prüfe Name und Hosts oder versuche es später erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret couldn't be stored. Your edits are kept; check its name and hosts, or try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo almacenar el secreto. Tus ediciones se conservan; revisa su nombre y hosts, o inténtalo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de stocker le secret. Vos saisies sont conservées ; vérifiez son nom et ses hôtes, ou réessayez plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile archiviare il segreto. Le tue modifiche sono conservate; controlla nome e host, oppure riprova più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットを保管できませんでした。編集内容は保持されています。名前とホストを確認するか、後でもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរក្សាទុកសម្ងាត់បានទេ។ ការកែសម្រួលរបស់អ្នកត្រូវបានរក្សាទុក សូមពិនិត្យឈ្មោះ និងម៉ាស៊ីនរបស់វា ឬព្យាយាមម្តងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시크릿을 보관할 수 없습니다. 편집 내용은 유지됩니다. 이름과 호스트를 확인하거나 나중에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheten kunne ikke lagres. Redigeringene dine er beholdt; sjekk navnet og vertene, eller prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przechować sekretu. Twoje edycje zostały zachowane; sprawdź jego nazwę i hosty albo spróbuj ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível armazenar o segredo. Suas edições foram mantidas; verifique o nome e os hosts, ou tente novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сохранить секрет в хранилище. Ваши правки сохранены; проверьте его имя и хосты или повторите попытку позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดเก็บข้อมูลลับไม่ได้ ระบบเก็บการแก้ไขไว้แล้ว ตรวจสอบชื่อและโฮสต์ หรือลองอีกครั้งภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli değer saklanamadı. Düzenlemeleriniz korundu; adını ve ana makinelerini kontrol edin ya da daha sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зберегти секрет у сховищі. Ваші редагування збережено; перевірте його назву та хости або повторіть спробу пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể lưu trữ bí mật. Các chỉnh sửa của bạn vẫn được giữ; hãy kiểm tra tên và máy chủ của nó, hoặc thử lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法存储该密钥。你的编辑内容已保留；请检查它的名称和主机，或稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存該密鑰。你的編輯內容已保留；請檢查它的名稱和主機，或稍後再試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

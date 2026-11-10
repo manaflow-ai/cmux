@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8'
+IR_SHA256 = '4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d'
 
 
 @dataclass(frozen=True)
@@ -3413,6 +3413,19 @@ COMMANDS = {
             'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
+    'set-terminal-tail-pin': CommandMetadata(
+        'set-terminal-tail-pin',
+        'control',
+        12,
+        'terminal-tail-pin-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'pinned': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-viewport-pane-width': CommandMetadata(
         'set-viewport-pane-width',
         'control',
@@ -3456,6 +3469,44 @@ COMMANDS = {
             'pinned': CommandFieldMetadata(12, 'workspace-pin-v1'),
             'title': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-read': CommandMetadata(
+        'shell-read',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'after': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'wait_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-run': CommandMetadata(
+        'shell-run',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'command': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'scope': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-stop': CommandMetadata(
+        'shell-stop',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'run': CommandFieldMetadata(None, None),
         },
     ),
     'shutdown-daemon': CommandMetadata(

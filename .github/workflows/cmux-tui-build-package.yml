@@ -411,8 +411,10 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          # The script prints one `--features=...` argument or nothing.
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
-            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
+            ${acpmux_features:+"$acpmux_features"}
 
       # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
       # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
@@ -450,6 +452,10 @@ jobs:
           # One cargo per package, all at once, each in its own target directory
           # (building them in one cargo would unify their features). The
           # binaries end up in target/<triple>/release for "Stage binary".
+          # The bundled agent screen-detection plugin (its own Cargo workspace)
+          # is one of the groups, as in scripts/ci/macos-cross.sh: built after
+          # the others it added 25-30 s to every leg (runs 42653261844 to
+          # 42654596743), and the Cloud machine channel waits for these legs.
           t=${{ matrix.build_target }}
           # cargo-zigbuild writes its zig wrapper scripts in place (truncate,
           # then write) when they are missing: each group gets its own copy.
@@ -459,7 +465,8 @@ jobs:
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
-            "acpmux" "$(zb 5) -p acpmux --bin acpmux"
+            "acpmux" "$(zb 5) -p acpmux --bin acpmux" \
+            "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -495,8 +502,10 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          # The script prints one `--features=...` argument or nothing.
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
-            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
+            ${acpmux_features:+"$acpmux_features"}
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
@@ -545,14 +554,13 @@ jobs:
         # rides the cmux-tui artifact as cmux-tui-agent-screen-detection-<target>
         # for every macOS and Linux musl target (Unix only: the daemon runs no
         # plugin on Windows). scripts/ci/macos-cross.sh hosts build the macOS
-        # targets on Linux. Required: a failure fails the build, and the
+        # targets on Linux, and the Linux musl legs build it as a cargo group of
+        # "Build cmux-tui (Linux cross)". Required: a failure fails the build, and the
         # cmux-tui manifest checks (cmux-tui-artifacts.yml) and package_npm.py
         # refuse a macOS or Linux musl target without it.
-        if: runner.os == 'macOS' || (runner.os == 'Linux' && matrix.cross == true && !matrix.darwin_on_linux)
+        if: runner.os == 'macOS'
         env:
-          AGENT_PLUGIN_CROSS: ${{ matrix.cross }}
           AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
-          RUNNER_OS: ${{ runner.os }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -561,13 +569,8 @@ jobs:
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
           # A cached copy from an earlier build must not be staged after a failure.
           rm -f "$CARGO_TARGET_DIR/$AGENT_PLUGIN_TARGET/release/cmux-agent-screen-detection"
-          if [[ "$AGENT_PLUGIN_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
-            cargo zigbuild --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-              --release --locked --target "$AGENT_PLUGIN_TARGET"
-          else
-            cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-              --release --locked --target "$AGENT_PLUGIN_TARGET"
-          fi
+          cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+            --release --locked --target "$AGENT_PLUGIN_TARGET"
 
       # The macOS legs built on Linux get the same warm start as the Linux musl
       # legs: their own cache per target, saved only by feat-cmux-next pushes. Its

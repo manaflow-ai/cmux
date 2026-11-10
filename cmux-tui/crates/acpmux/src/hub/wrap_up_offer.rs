@@ -26,7 +26,12 @@ impl Hub {
             return;
         }
         let mut update = crate::wrap_up_suggestion::update(answer);
-        crate::suggestion_gate::filter_update(&session.id, &meta.harness, &mut update);
+        crate::suggestion_gate::filter_update(
+            &self.suggestion_gate,
+            &session.id,
+            &meta.harness,
+            &mut update,
+        );
         let msg = json!({
             "jsonrpc": "2.0",
             "method": crate::rpc::method::SESSION_UPDATE,

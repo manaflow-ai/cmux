@@ -34,6 +34,15 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case installFailed(String)
         case failed(String)
 
+        /// An attempt is under way: connecting, reconnecting, or a first dial whose last try was
+        /// unreachable and which the link redials.
+        public var isDialing: Bool {
+            switch self {
+            case .connecting, .reconnecting, .unreachable: true
+            default: false
+            }
+        }
+
         /// A first connection needs a visible recovery action, even while the
         /// underlying link remains eligible for automatic network retries.
         public var needsRecovery: Bool {

@@ -180,11 +180,48 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// A start onto `warmCopy`'s machine first waits for a spare warm's copy there only when its verdict races it
     /// (``Verdict/warmCopyConflict``; Rust's `wait-copy` keeps the copy in flight).
     public mutating func readGuest(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
-                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (cli: CloudMoveCLI, machine: String)? = nil) async throws {
+                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (cli: CloudMoveCLI, machine: String, claims: CloudClaimedCopyRegistrations?)? = nil) async throws {
         if let warmCopy, verdict.step != .refuse, verdict.warmCopyConflict == true, let provider = verdict.transferProvider {
+            await warmCopy.claims?.registered(warmCopy.machine) // a claim's copy is in flight before the wait asks
             await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
         }
         try await readGuest(exec: exec, pause: pause, budget: budget, clock: ContinuousClock())
+    }
+
+    /// The machine's two reads, at once instead of one after the other: the guest's kind (``readGuest(exec:pause:budget:clock:)``)
+    /// and, for a Claude start, the login the machine holds (`login`, ``CloudMachineLogin/read(on:machineID:teamID:userID:otherTeams:)``),
+    /// which is taken only when the guest takes the caller's login. A start that races a spare warm's copy
+    /// (`warmCopy`, ``Verdict/warmCopyConflict``) reads the login only once that copy ended, since the copy is
+    /// what it would read; its guest read does not wait. Nothing runs unless ``readsMachine``.
+    public mutating func readMachine(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
+                                     warmCopy: (cli: CloudMoveCLI, machine: String, claims: CloudClaimedCopyRegistrations?)? = nil,
+                                     login: @escaping @Sendable () async -> (probe: MachineProbe?, cached: Bool)) async throws {
+        let verdict = self.verdict
+        try await readMachine(exec: exec, pause: pause, clock: ContinuousClock(), login: login) {
+            guard let warmCopy, verdict.step != .refuse, verdict.warmCopyConflict == true, let provider = verdict.transferProvider else { return }
+            await warmCopy.claims?.registered(warmCopy.machine) // a claim's copy is in flight before the wait asks
+            await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
+        }
+    }
+
+    /// ``readMachine(exec:pause:warmCopy:login:)`` with the warm copy's wait as `waitCopy` and the guest's budget on `clock`.
+    mutating func readMachine<C: Clock & Sendable>(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
+                                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, clock: C,
+                                                   login: @escaping @Sendable () async -> (probe: MachineProbe?, cached: Bool),
+                                                   waitCopy: @escaping @Sendable () async -> Void) async throws where C.Duration == Duration {
+        guard verdict.readsMachine else { return }
+        let claude = verdict.transferProvider == .claude
+        async let read = Self.login(claude, after: waitCopy, login)
+        try await readGuest(exec: exec, pause: pause, budget: budget, clock: clock)
+        guard claude, verdict.guestTakesLogin, let read = await read else { return }
+        take(read)
+    }
+
+    private static func login(_ reads: Bool, after waitCopy: @Sendable () async -> Void,
+                              _ login: @Sendable () async -> (probe: MachineProbe?, cached: Bool)) async -> (probe: MachineProbe?, cached: Bool)? {
+        guard reads else { return nil }
+        await waitCopy()
+        return await login()
     }
 
     /// ``readGuest(exec:pause:budget:)`` with `budget` held on `clock`: a test passes a ``ManualClock`` it

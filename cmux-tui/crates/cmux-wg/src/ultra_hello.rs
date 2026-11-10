@@ -222,6 +222,10 @@ pub(crate) struct Negotiation {
     /// The peer speaks version 1: hellos to it also go out as version-1
     /// copies, and its `heard` flag acknowledges this side.
     peer_legacy: bool,
+    /// The peer sent a version-2 hello in this tunnel: a version-1 hello
+    /// since is a late one from before it upgraded (or a downgrade), and
+    /// never acknowledges this side.
+    seen_version_2: bool,
     /// The peer's hello echoed this side's current challenge.
     acknowledged: bool,
     /// Hellos sent without an acknowledgement.
@@ -251,6 +255,7 @@ impl Negotiation {
             challenge,
             peer: None,
             peer_legacy: false,
+            seen_version_2: false,
             acknowledged: false,
             sent: 0,
             next: None,
@@ -311,13 +316,18 @@ impl Negotiation {
         self.peer =
             Some(Peer { mode: hello.mode, instance: hello.instance, challenge: hello.challenge });
         self.peer_legacy = hello.legacy;
+        self.seen_version_2 |= !hello.legacy;
         // A version-1 `heard` flag cannot say which instance of this side it
-        // heard, so the version-1 hello that moves this side to a version-1
-        // peer (perhaps a late one from before the peer upgraded) does not
-        // acknowledge it: this side keeps sending until a version-1 build
-        // answers its copy, or the live version-2 peer answers its hello.
+        // heard. So the version-1 hello that moves this side to a version-1
+        // peer does not acknowledge it, and once the peer has sent version 2
+        // no version-1 hello does (late ones from before it upgraded can
+        // arrive several at a time): this side keeps sending until a
+        // version-1 build answers its copy, or the live version-2 peer
+        // answers its hello. A peer that downgrades within one tunnel still
+        // gets this side's mode from the copies, and this side takes its
+        // mode; this side just stops after its tries.
         let acknowledges = if hello.legacy {
-            !restarted && hello.echo.is_some()
+            !restarted && !self.seen_version_2 && hello.echo.is_some()
         } else {
             hello.echo == Some(self.challenge)
         };
@@ -906,6 +916,8 @@ mod tests {
             let now = later + Duration::from_secs(60);
             assert_eq!(side.receive(version_1(RS, true)), RS, "it moves to the late hello");
             assert!(!side.acknowledged, "which does not acknowledge it");
+            side.receive(version_1(RS, true));
+            assert!(!side.acknowledged, "nor does a second late one");
             assert!(!side.send(now, one, two).is_empty(), "its answer, lost");
             exchange(&mut side, &mut upgraded, now, 400, &lose(mask));
             assert_eq!((side.mode(), upgraded.mode()), (FEC, FEC), "lost {mask:010b}");
@@ -913,5 +925,53 @@ mod tests {
             let after = now + Duration::from_secs(120);
             assert!(quiet(&side, after) && quiet(&upgraded, after), "lost {mask:010b}");
         }
+    }
+
+    /// Several late version-1 hellos from before the peer upgraded arrive
+    /// together, before this side has sent anything: none acknowledges this
+    /// side, which keeps sending until the upgraded peer answers, and both
+    /// end on FEC whichever four of the next ten packets are lost.
+    #[test]
+    fn repeated_late_version_1_hellos_cannot_hold_this_side() {
+        let start = Instant::now();
+        for late in [2, 4] {
+            for mask in losses() {
+                let mut side = Negotiation::with_numbers(UltraMode::Off, 1, 100);
+                let mut old = Version1::new(RS);
+                exchange(&mut side, &mut old, start, 200, &|_| false);
+                let mut upgraded = Negotiation::with_numbers(FEC, 2, 200);
+                let later = start + Duration::from_secs(60);
+                exchange(&mut side, &mut upgraded, later, 400, &|_| false);
+                assert_eq!((side.mode(), upgraded.mode()), (FEC, FEC));
+
+                for _ in 0..late {
+                    side.receive(version_1(RS, true));
+                }
+                assert!(!side.acknowledged, "{late} late hellos acknowledge nothing");
+                let now = later + Duration::from_secs(60);
+                exchange(&mut side, &mut upgraded, now, 400, &lose(mask));
+                let lost = format!("{late} late, lost {mask:010b}");
+                assert_eq!((side.mode(), upgraded.mode()), (FEC, FEC), "{lost}");
+                assert!(side.acknowledged && upgraded.acknowledged, "{lost}");
+                let after = now + Duration::from_secs(120);
+                assert!(quiet(&side, after) && quiet(&upgraded, after), "{lost}");
+            }
+        }
+    }
+
+    /// A version-2 peer replaced by a version-1 build within one tunnel (a
+    /// downgrade): this side is never acknowledged by it, but each side
+    /// takes the other's mode, from its hellos and this side's copies.
+    #[test]
+    fn a_downgraded_peer_still_agrees_on_the_mode() {
+        let start = Instant::now();
+        let mut side = Negotiation::with_numbers(FEC, 1, 100);
+        let mut peer = Negotiation::with_numbers(UltraMode::Off, 2, 200);
+        exchange(&mut side, &mut peer, start, 200, &|_| false);
+        let mut downgraded = Version1::new(RS);
+        let later = start + Duration::from_secs(60);
+        exchange(&mut side, &mut downgraded, later, 600, &|_| false);
+        assert_eq!((side.mode(), downgraded.mode()), (RS, RS));
+        assert!(quiet(&side, later + Duration::from_secs(120)), "it stops after its tries");
     }
 }
