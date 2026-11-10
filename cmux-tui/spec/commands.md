@@ -8123,10 +8123,10 @@ Actions and their params:
   Null and empty values reach the owner unchanged.
 - `create`, `{environment}`: `POST /v1/cloud-environments`, with `name` (not blank),
   `scope`, `secrets` and the patch's fields other than `set_secrets` and `remove_secrets`.
-- `default-get`, `{repo}`: `GET /v1/cloud-environments/defaults?repo=OWNER/NAME`, the
-  project's default environment.
-- `default-set`, `{repo, environment}`: `PUT /v1/cloud-environments/defaults` with
-  `{repo, environment_id}`. `repo` is `OWNER/NAME` of letters, digits, `-`, `_` and `.`.
+- `default-get`, `{repo}`: `GET /v1/cloud-environments/project-defaults?repo=OWNER/NAME`,
+  the project's defaults (`[{scope, repo, environment, updated_at, updated_by}]`).
+- `default-set`, `{repo, environment}`: `PUT /v1/cloud-environments/project-defaults` with
+  `{repo, environment}`. `repo` is `OWNER/NAME` of letters, digits, `-`, `_` and `.`.
 - `derive`, `{repo, ref?, environment?}`: `POST /v1/environments/derive`, answers
   the derived setup including `setup.script`.
 

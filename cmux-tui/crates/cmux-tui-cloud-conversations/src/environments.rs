@@ -29,9 +29,10 @@ const SHARED_FIELDS: &[&str] = &[
 const UPDATE_ONLY: &[&str] = &["set_secrets", "remove_secrets"];
 const CREATE_ONLY: &[&str] = &["scope", "secrets"];
 
-/// A project's default environment (`cmux env default`): one route, read with `?repo=` and set
-/// with a `PUT` of `{repo, environment_id}`.
-const PROJECT_DEFAULT_PATH: &str = "/v1/cloud-environments/defaults";
+/// A project's default environment (`cmux env default`, cmux-platform#1144): read with `?repo=`
+/// (a list of `{scope, repo, environment, updated_at, updated_by}`), set with a `PUT` of
+/// `{repo, environment}`.
+const PROJECT_DEFAULT_PATH: &str = "/v1/cloud-environments/project-defaults";
 
 /// `OWNER/NAME` as GitHub spells them: nothing a query or a path could read as more than that.
 fn repository(value: Option<&Value>) -> Result<&str, CloudError> {
@@ -164,7 +165,7 @@ impl CloudConversations {
             "default-set" if params.len() == 2 => {
                 let repo = repository(params.get("repo"))?;
                 let id = identifier(params.get("environment"))?;
-                send("PUT", PROJECT_DEFAULT_PATH, &json!({"repo": repo, "environment_id": id}))?
+                send("PUT", PROJECT_DEFAULT_PATH, &json!({"repo": repo, "environment": id}))?
             }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))

@@ -210,17 +210,21 @@ fn cloud_environment_refuses_a_websocket_or_remote_connection_before_sending_any
 fn cloud_environment_project_default_reads_and_puts_one_repository() {
     let (mux, _, plain, backend) = daemon();
     backend.reply(
-        "/v1/cloud-environments/defaults?repo=manaflow-ai/cmux",
+        "/v1/cloud-environments/project-defaults?repo=manaflow-ai/cmux",
         200,
-        json!({"repo":"manaflow-ai/cmux","environment_id":"env_a"}),
+        json!([{"scope":"personal","repo":"manaflow-ai/cmux","environment":"env_a"}]),
     );
     let read = reply(&mux, plain, environment("default-get", json!({"repo":"manaflow-ai/cmux"})));
-    assert_eq!(read["data"]["environment_id"], "env_a", "{read}");
+    assert_eq!(read["data"][0]["environment"], "env_a", "{read}");
     assert_eq!(
         backend.got()[0].url,
-        format!("{PLATFORM_BASE}/v1/cloud-environments/defaults?repo=manaflow-ai/cmux")
+        format!("{PLATFORM_BASE}/v1/cloud-environments/project-defaults?repo=manaflow-ai/cmux")
     );
-    backend.reply("/v1/cloud-environments/defaults", 200, json!({"repo":"manaflow-ai/cmux"}));
+    backend.reply(
+        "/v1/cloud-environments/project-defaults",
+        200,
+        json!({"repo":"manaflow-ai/cmux"}),
+    );
     let set = reply(
         &mux,
         plain,
@@ -229,7 +233,7 @@ fn cloud_environment_project_default_reads_and_puts_one_repository() {
     assert_eq!(set["ok"], true, "{set}");
     let put = backend.platform_put.lock().unwrap();
     assert_eq!(put.len(), 1);
-    assert_eq!(put[0].body, json!({"repo":"manaflow-ai/cmux","environment_id":"env_a"}));
+    assert_eq!(put[0].body, json!({"repo":"manaflow-ai/cmux","environment":"env_a"}));
     assert_eq!(put[0].bearer, "install.jwt");
     drop(put);
     for request in [

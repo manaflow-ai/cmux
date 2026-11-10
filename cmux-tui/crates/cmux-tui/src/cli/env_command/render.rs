@@ -147,6 +147,11 @@ fn logs(answer: &Value) -> String {
     if let Some(error) = answer.get("error").filter(|e| e.is_object()) {
         let _ = writeln!(out, "error: {} ({})", text(error, "message"), text(error, "code"));
     }
+    if let Some(script) = answer.get("script").filter(|s| s.is_object()) {
+        let exit =
+            script.get("exit_code").map_or_else(String::new, |code| format!(" exited {code}"));
+        let _ = writeln!(out, "last {} script{exit}", text(script, "kind"));
+    }
     let tail = text(answer, "log_tail");
     if !tail.is_empty() {
         out.push_str("\n--- last output ---\n");

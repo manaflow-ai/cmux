@@ -267,8 +267,11 @@ pub(super) fn parse(words: &[String]) -> Result<Command, UsageError> {
     Ok(command)
 }
 
+/// The positional words, and each `--flag VALUE` as (flag, value).
+type Split = (Vec<String>, Vec<(String, String)>);
+
 /// The words, and the `--flag VALUE` (or `--flag=VALUE`) pairs among them. Every flag takes a value.
-fn split_flags(words: &[String]) -> Result<(Vec<String>, Vec<(String, String)>), UsageError> {
+fn split_flags(words: &[String]) -> Result<Split, UsageError> {
     let (mut positional, mut flags) = (Vec::new(), Vec::new());
     let mut words = words.iter();
     while let Some(word) = words.next() {

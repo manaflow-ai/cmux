@@ -81,14 +81,22 @@ impl Daemon for FakeDaemon {
                 created["scope"] = json!("personal");
                 Ok(created)
             }
-            "default-get" => Ok(json!({"repo": params["repo"], "environment_id": self.default})),
+            "default-get" => Ok(match &self.default {
+                Some(id) => json!([
+                    {"scope": "team", "repo": params["repo"], "environment": "env_000000000000000000000002"},
+                    {"scope": "personal", "repo": params["repo"], "environment": id},
+                ]),
+                None => json!([]),
+            }),
             "default-set" => {
-                Ok(json!({"repo": params["repo"], "environment_id": params["environment"]}))
+                Ok(json!({"repo": params["repo"], "environment": params["environment"]}))
             }
             "derive" => Ok(json!({"status": "failed", "attempt": 2, "ref": params.get("ref"),
                 "steps": [{"id": "install", "state": "failed", "detail": "bun install"}],
                 "error": {"code": "environment.install_failed", "message": "install failed",
-                    "log_tail": "error: lockfile mismatch\n"}})),
+                    "log_tail": "error: lockfile mismatch\n"},
+                "script_output": {"kind": "maintenance", "attempt": 2, "exit_code": 1,
+                    "log_tail": "maintenance: lockfile mismatch\n", "finished_at": 5}})),
             other => panic!("unexpected action {other}"),
         }
     }
@@ -396,7 +404,9 @@ fn logs_derive_the_environments_repository_and_print_the_output() {
         params,
         &json!({"repo": "manaflow-ai/cmux", "ref": "main", "environment": "env_000000000000000000000004"})
     );
-    assert_eq!(logs["log_tail"], "error: lockfile mismatch\n");
+    assert_eq!(logs["log_tail"], "maintenance: lockfile mismatch\n", "script_output first");
+    assert_eq!(logs["script"]["kind"], "maintenance");
+    assert_eq!(logs["script"]["exit_code"], 1);
     let out = printed("logs api", &logs);
     assert!(out.contains("lockfile mismatch") && out.contains("failed"), "{out}");
 }

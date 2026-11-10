@@ -262,10 +262,7 @@ pub(super) fn execute(
                 }
                 None => {
                     let answer = daemon.call("default-get", &json!({"repo": repo}))?;
-                    let chosen = answer
-                        .get("environment_id")
-                        .or_else(|| answer.get("environment"))
-                        .and_then(Value::as_str);
+                    let chosen = chosen_default(&answer);
                     let environment = match chosen {
                         Some(chosen) => resolve(daemon, chosen)
                             .map(|record| summary(&record))
@@ -474,9 +471,29 @@ pub(super) fn public(record: &Value) -> Value {
     Value::Object(view)
 }
 
-/// `logs`: the last setup's state, steps and output.
+/// The project's default from `default-get`'s rows (`[{scope, repo, environment}]`): yours
+/// before your team's.
+fn chosen_default(answer: &Value) -> Option<&str> {
+    let rows = answer.as_array().map(Vec::as_slice).unwrap_or_default();
+    let of_scope = |scope: &str| {
+        rows.iter()
+            .filter(|row| row.get("scope").and_then(Value::as_str) == Some(scope))
+            .find_map(|row| row.get("environment").and_then(Value::as_str))
+    };
+    of_scope("personal").or_else(|| of_scope("team"))
+}
+
+/// `logs`: the last setup's state, steps and output. `script_output` is the last setup or
+/// maintenance script's run (cmux-platform#1144); a failed setup's `error.log_tail` is the fallback.
 fn logs(record: &Value, repo: &str, derived: &Value) -> Value {
     let error = derived.get("error").filter(|error| error.is_object());
+    let script = derived.get("script_output").filter(|output| output.is_object());
+    let tail = script
+        .and_then(|output| output.get("log_tail"))
+        .filter(|tail| tail.is_string())
+        .or_else(|| error.and_then(|error| error.get("log_tail")))
+        .cloned()
+        .unwrap_or(Value::Null);
     json!({
         "environment": summary(record),
         "repo": repo,
@@ -487,6 +504,12 @@ fn logs(record: &Value, repo: &str, derived: &Value) -> Value {
         "finished_at": derived.get("finished_at"),
         "steps": derived.get("steps").cloned().unwrap_or_else(|| json!([])),
         "error": error.map(|error| json!({"code": error.get("code"), "message": error.get("message")})),
-        "log_tail": error.and_then(|error| error.get("log_tail")).cloned().unwrap_or(Value::Null),
+        "script": script.map(|output| json!({
+            "kind": output.get("kind"),
+            "attempt": output.get("attempt"),
+            "exit_code": output.get("exit_code"),
+            "finished_at": output.get("finished_at"),
+        })),
+        "log_tail": tail,
     })
 }
