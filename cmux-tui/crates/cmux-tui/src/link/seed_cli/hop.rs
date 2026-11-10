@@ -112,3 +112,8 @@ pub(in crate::link) fn land(local: &Path, to_root: &str) -> anyhow::Result<bool>
     record::forget(&local, &side)?;
     Ok(true)
 }
+
+/// A move's bulk pass starts afresh: a record a cut move left waiting is not this move's.
+pub(in crate::link) fn reset(local: &Path, to_root: &str) -> anyhow::Result<()> {
+    record::forget(&std::fs::canonicalize(local)?, &side_key(to_root))
+}

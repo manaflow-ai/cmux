@@ -523,7 +523,10 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
 fn relay_bulk(sync: &Sync) -> Result<(), Failed> {
     if let (Some(local), Some(from)) = (&sync.seed_local, &sync.from_socket) {
         let from_root = sync.local.to_string_lossy();
-        match super::seed_cli::hop(from, &from_root, &sync.socket, &sync.remote, local) {
+        let hopped = super::seed_cli::hop_reset(local, &sync.remote).and_then(|()| {
+            super::seed_cli::hop(from, &from_root, &sync.socket, &sync.remote, local)
+        });
+        match hopped {
             Ok(()) => return Ok(()),
             Err(error) => {
                 let warning = json!({"warning": "hop_fell_back", "error": format!("{error:#}")});

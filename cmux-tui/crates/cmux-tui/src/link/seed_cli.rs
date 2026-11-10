@@ -75,7 +75,7 @@ mod hop;
 mod pull;
 mod record;
 
-pub(super) use hop::{hop, land, started as hop_started};
+pub(super) use hop::{hop, land, reset as hop_reset, started as hop_started};
 pub(super) use pull::bring_back;
 
 use std::path::{Path, PathBuf};
