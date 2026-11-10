@@ -158,3 +158,446 @@ test("a profile's icon is set from its row and the row draws it", async () => {
   expect(row().querySelector<HTMLImageElement>("img.agent-mark-image")?.src).toBe("data:image/png;base64,iVBORw==");
   page.unmount();
 });
+
+// Plan api-and-open-models gaps 3 and 6: an open-weight model or your own endpoint from Settings,
+// through the same host calls as the Chief editor's Bring your own (`cmux.chief.backend.*`).
+const endpointForm = (container: ParentNode) => container.querySelector<HTMLFormElement>("[data-agents-endpoint]")!;
+const endpointInput = (container: ParentNode, name: string) =>
+  container.querySelector<HTMLInputElement>(`[data-endpoint-field="${name}"] input`);
+
+test("Endpoint: a model server on this Mac needs no key; Fetch Models fills the list; Check and Add saves after the check", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  expect(endpointInput(form(), "baseUrl")!.value).toBe("http://127.0.0.1:11434/v1");
+  expect(endpointInput(form(), "apiKey")).toBeNull();
+  // No model yet: Check and Add waits.
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  // `*` asks acpmux for every model the endpoint lists; a keyless server is added without a key.
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toEqual({
+    kind: "openai-endpoint",
+    name: "Local Models",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "*",
+    id: "local-models",
+  });
+  expect(endpointInput(form(), "models")!.value).toBe("model-large, model-medium, model-small");
+  expect(form().querySelector("[data-endpoint-fetched]")!.textContent).toContain("3");
+  await changeValue(endpointInput(form(), "models")!, "model-large, model-small");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  // The save writes the form's own fetched harness again, never another one.
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({
+    id: "local-models",
+    replace: "local-models",
+    model: "model-large,model-small",
+  });
+  expect(ops(page.provider, "cmux.chief.backend.doctor").at(-1)).toEqual({ id: "local-models", prompt: true });
+  // The check passed: the panel closes and the new harness is listed (and in the model picker).
+  expect(page.container.querySelector("[data-agents-endpoint]")).toBeNull();
+  expect(harness(page.container, "local-models")).not.toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: a gateway's key goes only in the add call, and a failed check shows the step and keeps the form", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  page.provider.agents.endpoint.doctor = {
+    ok: false,
+    steps: [
+      { name: "launch", ok: true },
+      { name: "prompt", ok: false, detail: "401 Unauthorized", fix: "check the key" },
+    ],
+  };
+  const form = () => endpointForm(page.container);
+  await changeValue(form().querySelector("select")!, "gateway");
+  expect(form().textContent).toContain("Claude Code");
+  // A gateway needs a key: Check and Add waits for one.
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://gateway.example.com");
+  await changeValue(endpointInput(form(), "models")!, "big mid small");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await changeValue(endpointInput(form(), "apiKey")!, "sk-gateway-secret");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toEqual({
+    kind: "anthropic-endpoint",
+    name: "Claude Gateway",
+    baseUrl: "https://gateway.example.com",
+    model: "big,mid,small",
+    apiKey: "sk-gateway-secret",
+    id: "claude-gateway",
+  });
+  const failed = form().querySelector('[data-endpoint-status="failed"]')!;
+  expect(failed.textContent).toContain("prompt failed");
+  expect(failed.textContent).toContain("401 Unauthorized");
+  expect(failed.textContent).toContain("Fix: check the key");
+  expect(endpointInput(form(), "apiKey")!.value).toBe("");
+  expect(page.container.innerHTML).not.toContain("sk-gateway-secret");
+  // The retry after the failure keeps the stored key: the field may stay empty, and no key is sent
+  // (never an empty key over the real one).
+  expect(form().querySelector("[data-endpoint-key-note]")!.textContent).toContain("Leave this empty");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(false);
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const retry = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(retry).toMatchObject({ id: "claude-gateway", replace: "claude-gateway" });
+  expect("apiKey" in retry).toBe(false);
+  expect(page.provider.agents.keys.get("claude-gateway")).toBe("sk-gateway-secret");
+  // Plain http to another machine is refused before anything is sent.
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://gateway.example.com");
+  expect(form().textContent).toContain("Plain http works only to this Mac");
+  page.unmount();
+});
+
+test("Endpoint: a second endpoint gets its own id, even from a name with no ASCII letters, and never overwrites the first", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  const add = async () => {
+    await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+    await settle();
+  };
+  await changeValue(endpointInput(form(), "models")!, "first-model");
+  await add();
+  expect(harness(page.container, "local-models")).not.toBeNull();
+  // The same preset again: a numbered id beside the first.
+  await act(async () => button(card(page.container), "Add Agent…").click());
+  await act(async () => button(page.container, "Endpoint").click());
+  await changeValue(endpointInput(form(), "models")!, "second-model");
+  await add();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({ id: "local-models-2" });
+  expect((ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>).replace).toBeUndefined();
+  // A localized name with no ASCII letters: the preset's own id, never `my-backend`.
+  await act(async () => button(card(page.container), "Add Agent…").click());
+  await act(async () => button(page.container, "Endpoint").click());
+  await changeValue(form().querySelector("select")!, "hosted");
+  await changeValue(form().querySelector<HTMLInputElement>('[aria-label="Name"]')!, "ホスト型モデル");
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.example.com/v1");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await changeValue(endpointInput(form(), "apiKey")!, "hosted-key");
+  await add();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({
+    id: "hosted-models",
+    name: "ホスト型モデル",
+  });
+  // The first endpoint kept its models.
+  const listed = page.provider.agents.endpointHarnesses();
+  expect(listed["local-models"]!.models).toEqual(["byo/first-model"]);
+  expect(listed["local-models-2"]!.models).toEqual(["byo/second-model"]);
+  page.unmount();
+});
+
+test("Endpoint: a name that is another harness's id is refused before its key is stored", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  // acme-agent is a profile acpmux has (not an endpoint the backend list shows).
+  await changeValue(form().querySelector<HTMLInputElement>('[aria-label="Name"]')!, "Acme Agent");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const failed = form().querySelector('[data-endpoint-status="failed"]')!;
+  expect(failed.textContent).toContain("add failed");
+  expect(failed.textContent).toContain("acme-agent already has a profile");
+  expect(page.provider.agents.keys.has("acme-agent")).toBe(false);
+  expect(ops(page.provider, "cmux.chief.backend.doctor")).toEqual([]);
+  // The refusal was over another harness: the form never owns it, so Cancel removes nothing.
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).not.toContainEqual({ action: "remove", id: "acme-agent" });
+  page.unmount();
+});
+
+test("Endpoint: closing the form after Fetch Models without a passing check removes what the fetch added", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(harness(page.container, "local-models")).toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: Cancel while the check is held removes the endpoint the add just wrote", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  let release = () => {};
+  page.provider.agents.endpoint.holdDoctor = new Promise<void>((resolve) => (release = resolve));
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  // The add answered and the check is running: the profile exists.
+  expect(form().querySelector('[data-endpoint-status="checking"]')).not.toBeNull();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  // The check answering afterwards (even passing) brings nothing back.
+  await act(async () => release());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(harness(page.container, "local-models")).toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: an add that answers after the form closed is removed when it answers", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  let release = () => {};
+  page.provider.agents.endpoint.holdAdd = new Promise<void>((resolve) => (release = resolve));
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  // Nothing was added yet, so nothing to remove yet.
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  await act(async () => release());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(harness(page.container, "local-models")).toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: another preset or URL after Fetch Models starts over: the fetched endpoint goes, the new one asks for its key", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  const fetchButton = () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!;
+  await act(async () => fetchButton().click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  expect(form().querySelector("[data-endpoint-fetched]")).not.toBeNull();
+  // A hosted provider: the local fetch is removed, its count goes, and the key is required again.
+  await changeValue(form().querySelector("select")!, "hosted");
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(form().querySelector("[data-endpoint-fetched]")).toBeNull();
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.example.com/v1");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await changeValue(endpointInput(form(), "apiKey")!, "hosted-key");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const add = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(add).toMatchObject({ id: "hosted-models", apiKey: "hosted-key" });
+  expect("replace" in add).toBe(false);
+  page.unmount();
+});
+
+test("Endpoint: a key typed for one URL is dropped when the URL changes, so it never goes to another", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await changeValue(form().querySelector("select")!, "hosted");
+  await settle();
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.example.com/v1");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await changeValue(endpointInput(form(), "apiKey")!, "hosted-key");
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.other.dev/v1");
+  await settle();
+  expect(endpointInput(form(), "apiKey")!.value).toBe("");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await changeValue(endpointInput(form(), "apiKey")!, "other-key");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const adds = ops(page.provider, "cmux.chief.backend.add") as Record<string, unknown>[];
+  expect(adds).toHaveLength(1);
+  expect(adds[0]).toMatchObject({ baseUrl: "https://api.other.dev/v1", apiKey: "other-key" });
+  page.unmount();
+});
+
+test("Endpoint: a URL change after a failed check removes that add before the next one", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  page.provider.agents.endpoint.doctor = { ok: false, steps: [{ name: "prompt", ok: false, detail: "no" }] };
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8080/v1");
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(form().querySelector('[data-endpoint-status="failed"]')).toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: after a start-over the next add takes a new id at once, so it never races the held remove", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  let release = () => {};
+  page.provider.agents.endpoint.holdRemove = new Promise<void>((resolve) => (release = resolve));
+  // Another URL: the fetched endpoint's remove is asked for and held.
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8080/v1");
+  await settle();
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  // The add goes while the remove is out, at an id past the one being removed: a new add.
+  const add = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(add).toMatchObject({ id: "local-models-2", baseUrl: "http://127.0.0.1:8080/v1" });
+  expect("replace" in add).toBe(false);
+  await act(async () => release());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(page.provider.agents.endpointHarnesses()["local-models-2"]).toBeDefined();
+  page.unmount();
+});
+
+test("Endpoint: Add sends the add with no harness list read between the click and the add", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await settle();
+  // A list that never answers (a peer's models can take seconds): the add must not wait on it.
+  page.provider.agents.endpoint.holdList = new Promise<void>(() => {});
+  const lists = ops(page.provider, "cmux.chief.backend.list").length;
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({ id: "local-models" });
+  expect(ops(page.provider, "cmux.chief.backend.list").length).toBe(lists);
+  page.unmount();
+});
+
+test("Endpoint: a timed-out add that wrote is never taken over: Cancel removes nothing, the next add is a new id", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  page.provider.agents.endpoint.addThenFail = "cmux.agents.timeout";
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(form().querySelector('[data-endpoint-status="failed"]')).not.toBeNull();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  // The retry reads the ids again: a new add past the one the timeout may have written, never a replace.
+  page.provider.agents.endpoint.addThenFail = undefined;
+  page.provider.agents.endpoint.holdDoctor = new Promise<void>(() => {});
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const retry = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(retry).toMatchObject({ id: "local-models-2" });
+  expect("replace" in retry).toBe(false);
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  // Cancel removes only the add that answered.
+  const removes = ops(page.provider, "cmux.settings.agents.run").filter(
+    (op) => (op as { action?: string }).action === "remove",
+  );
+  expect(removes).toEqual([{ action: "remove", id: "local-models-2" }]);
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  page.unmount();
+});
+
+test("Endpoint: a failed add of an id another endpoint took meanwhile never removes or replaces it", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await settle();
+  // After the form read the ids, another client adds local-models (with its own key).
+  page.provider.agents.addEndpoint({
+    kind: "openai-endpoint",
+    name: "Theirs",
+    id: "local-models",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "theirs",
+    apiKey: "their-key",
+  });
+  // The form's add fails before it gets anywhere (its `*` read, say).
+  page.provider.agents.endpoint.addFails = "cmux.agents.failed";
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(form().querySelector('[data-endpoint-status="failed"]')).not.toBeNull();
+  // A retry is a new id, never a replace of theirs.
+  page.provider.agents.endpoint.addFails = undefined;
+  page.provider.agents.endpoint.holdDoctor = new Promise<void>(() => {});
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const retry = ops(page.provider, "cmux.chief.backend.add").at(-1) as Record<string, unknown>;
+  expect(retry).toMatchObject({ id: "local-models-2" });
+  expect("replace" in retry).toBe(false);
+  // Cancel removes the form's own add only; theirs and its key stay.
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).not.toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]?.models).toEqual(["byo/theirs"]);
+  expect(page.provider.agents.keys.get("local-models")).toBe("their-key");
+  page.unmount();
+});
+
+test("Endpoint: a Fetch Models whose list read fails after the add still owns the add", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await settle();
+  const refused = Promise.reject(new Error("list failed"));
+  refused.catch(() => {});
+  page.provider.agents.endpoint.holdList = refused;
+  await act(async () => form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.click());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  page.provider.agents.endpoint.holdList = undefined;
+  // The next add writes over the form's own add (replace), and Cancel removes it.
+  await changeValue(endpointInput(form(), "models")!, "m");
+  page.provider.agents.endpoint.holdDoctor = new Promise<void>(() => {});
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({
+    id: "local-models",
+    replace: "local-models",
+  });
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  page.unmount();
+});
+
+test("Endpoint: a new id goes past terminal harness ids too (any source, any kind)", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  // A terminal harness has the id the hosted preset would take; the preset change reads the ids again.
+  page.provider.agents.endpoint.terminals = ["hosted-models"];
+  await changeValue(form().querySelector("select")!, "hosted");
+  await settle();
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.example.com/v1");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await changeValue(endpointInput(form(), "apiKey")!, "hosted-key");
+  await settle();
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").at(-1)).toMatchObject({ id: "hosted-models-2" });
+  page.unmount();
+});
+
+test("Endpoint: until the ids are read, Add and Fetch Models wait; a failed read says why", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await changeValue(endpointInput(form(), "models")!, "m");
+  let release = () => {};
+  page.provider.agents.endpoint.holdList = new Promise<void>((resolve) => (release = resolve));
+  // Another URL starts over: the ids are read again, and nothing is guessed meanwhile.
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8080/v1");
+  await settle();
+  const add = () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!;
+  expect(add().disabled).toBe(true);
+  expect(form().querySelector<HTMLButtonElement>('[data-endpoint-field="models"] button')!.disabled).toBe(true);
+  const before = ops(page.provider, "cmux.chief.backend.add").length;
+  await act(async () => add().click());
+  await settle();
+  expect(ops(page.provider, "cmux.chief.backend.add").length).toBe(before);
+  await act(async () => release());
+  await settle();
+  expect(add().disabled).toBe(false);
+  // A read that fails keeps Add disabled and shows the reason.
+  const refused = Promise.reject(new Error("the agents list could not be read"));
+  refused.catch(() => {});
+  page.provider.agents.endpoint.holdList = refused;
+  await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8081/v1");
+  await settle();
+  expect(add().disabled).toBe(true);
+  expect(form().querySelector("[data-endpoint-ids-failed]")?.textContent).toContain("could not be read");
+  page.unmount();
+});

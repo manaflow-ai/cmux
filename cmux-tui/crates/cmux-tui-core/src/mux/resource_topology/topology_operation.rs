@@ -474,6 +474,13 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            ResourceOperation::PaneMove => self.resource_move_pane(
+                selectors,
+                &fields,
+                expected_revision,
+                mutation,
+                &fingerprint,
+            )?,
             ResourceOperation::PaneZoom => self.resource_zoom_pane(
                 selectors,
                 fields.get("enabled").and_then(Value::as_bool),
@@ -481,6 +488,23 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            // `set-divider-visible`: the internal field replaces the ratio.
+            ResourceOperation::PaneSplitRatioSet if fields.contains_key(DIVIDER_HIDDEN_FIELD) => {
+                self.resource_set_split_divider_hidden(
+                    selectors,
+                    required_str(&fields, "split_id")?,
+                    fields
+                        .get(DIVIDER_HIDDEN_FIELD)
+                        .and_then(Value::as_bool)
+                        .context("field \"divider_hidden\" must be a boolean")?,
+                    LayoutMutationContext {
+                        coalesce: None,
+                        expected_revision,
+                        mutation,
+                        fingerprint: &fingerprint,
+                    },
+                )?
+            }
             ResourceOperation::PaneSplitRatioSet => self.resource_set_split_ratio(
                 selectors,
                 required_str(&fields, "split_id")?,
@@ -567,6 +591,7 @@ impl Mux {
         if matches!(
             operation,
             ResourceOperation::PaneSwap
+                | ResourceOperation::PaneMove
                 | ResourceOperation::PaneZoom
                 | ResourceOperation::PaneSplitRatioSet
                 | ResourceOperation::PaneViewportWidthSet

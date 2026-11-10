@@ -42,6 +42,7 @@ fn direct_browser_id_derives_its_complete_path_without_structural_selectors() {
             machine_name: None,
             session_id: &session,
             session_name: "test",
+            in_process_host: None,
         },
         crate::ResourceTarget::Browser,
         &selectors,
@@ -189,6 +190,7 @@ fn selector_names_preserve_empty_whitespace_and_unicode_and_report_duplicates() 
             machine_name: None,
             session_id: &session,
             session_name: "test",
+            in_process_host: None,
         },
         crate::ResourceTarget::Workspace,
         &selectors,
@@ -211,6 +213,7 @@ fn selector_names_preserve_empty_whitespace_and_unicode_and_report_duplicates() 
                 machine_name: None,
                 session_id: &session,
                 session_name: "test",
+                in_process_host: None,
             },
             crate::ResourceTarget::Workspace,
             &selectors,
@@ -231,6 +234,7 @@ fn selector_rejects_incomplete_name_chain_wrong_type_stale_id_and_wrong_parent()
         machine_name: None,
         session_id: &session,
         session_name: "test",
+        in_process_host: None,
     };
 
     let mut incomplete = routed_selectors(&machine, &session);
@@ -424,4 +428,244 @@ fn w3h_a_tab_name_outside_the_current_pane_resolves_under_current_selectors() {
     };
     let error = mux.resolve_resource_path(crate::ResourceTarget::Tab, &pinned).unwrap_err();
     assert_eq!(error.code, "selector.not_found");
+}
+
+/// Selectors as the CLI sends `<scope> <value>`: `current` parents above a
+/// value that is not an id (cli/command.rs `Selectors::insert`).
+fn w5p_cli_selectors(scope: &str, value: &str) -> crate::ResourceSelectors {
+    let mut selectors = Mux::ordinary_resource_selectors();
+    let is_id = matches!(Selector::parse(value), Ok(Selector::Id(_)));
+    let current = || (!is_id).then(|| "current".to_string());
+    let value = Some(value.to_string());
+    match scope {
+        "pane" => {
+            (selectors.workspace, selectors.screen, selectors.pane) = (current(), current(), value);
+        }
+        "tab" => {
+            (selectors.workspace, selectors.screen, selectors.pane) =
+                (current(), current(), current());
+            selectors.tab = value;
+        }
+        _ => {
+            (selectors.workspace, selectors.screen, selectors.pane) =
+                (current(), current(), current());
+            (selectors.tab, selectors.terminal) = (current(), value);
+        }
+    }
+    selectors
+}
+
+/// The (pane, tab, terminal) ids a selector resolves to.
+type W5pPlace = (Option<String>, Option<String>, Option<String>);
+
+/// The resolved (pane, tab, terminal) of a CLI-shaped selector.
+fn w5p_resolve(mux: &Arc<Mux>, scope: &str, value: &str) -> Result<W5pPlace, ResourceError> {
+    let target = match scope {
+        "pane" => crate::ResourceTarget::Pane,
+        "tab" => crate::ResourceTarget::Tab,
+        _ => crate::ResourceTarget::Terminal,
+    };
+    let path = mux.resolve_resource_path(target, &w5p_cli_selectors(scope, value))?;
+    Ok((
+        path.pane.map(|id| id.to_string()),
+        path.tab.map(|id| id.to_string()),
+        path.terminal.map(|id| id.to_string()),
+    ))
+}
+
+/// W5-P: the daemon is the one selector resolver, so one selector selects
+/// one object in every command and every client. A tab name (an agent's
+/// name) outside the current pane selects that tab, its terminal and its
+/// pane under the CLI's `current` parents; a bare id (the 32 hex digits), a
+/// unique id prefix, a terminal's host id (the raw protocol's
+/// `terminal_id`) and a tab or pane id as a terminal selector select what
+/// the full id selects; `focused` is `current`.
+#[test]
+fn w5p_one_selector_selects_the_same_object_in_every_scope() {
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let agent = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    let agent_pane = mux.with_state(|state| state.pane_of(agent.id).unwrap());
+    assert!(mux.rename_surface(agent.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    let (pane, tab, terminal) = mux.with_state(|state| {
+        let indexes = &state.resource_indexes;
+        let Some(ContentPublicId::Terminal(terminal)) = indexes.content_ids.get(&agent.id) else {
+            panic!("alpha shows no terminal");
+        };
+        (
+            indexes.pane_ids.get(&agent_pane).unwrap().to_string(),
+            indexes.tab_ids.get(&agent.id).unwrap().to_string(),
+            terminal.to_string(),
+        )
+    });
+    let alpha = (Some(pane.clone()), Some(tab.clone()), Some(terminal.clone()));
+
+    // The name: the same tab, terminal and pane from every scope.
+    // A tab target resolves no terminal: its (pane, tab) are alpha's.
+    let pane_tab = |place: W5pPlace| (place.0, place.1);
+    assert_eq!(w5p_resolve(&mux, "terminal", "alpha").unwrap(), alpha, "terminal alpha");
+    assert_eq!(
+        pane_tab(w5p_resolve(&mux, "tab", "alpha").unwrap()),
+        pane_tab(alpha.clone()),
+        "tab alpha"
+    );
+    assert_eq!(w5p_resolve(&mux, "pane", "alpha").unwrap().0, Some(pane.clone()));
+
+    // Every id form of each object selects it.
+    let payload = |id: &str| id.rsplit_once('_').unwrap().1.to_owned();
+    for (scope, id) in [("pane", &pane), ("tab", &tab), ("terminal", &terminal)] {
+        let prefix = &id[..id.len() - 20];
+        for form in [id.clone(), payload(id), prefix.to_owned()] {
+            let resolved = w5p_resolve(&mux, scope, &form)
+                .unwrap_or_else(|error| panic!("{scope} {form}: {error:?}"));
+            match scope {
+                "pane" => assert_eq!(resolved.0, Some(pane.clone()), "{scope} {form}"),
+                "tab" => assert_eq!(pane_tab(resolved), pane_tab(alpha.clone()), "{scope} {form}"),
+                _ => assert_eq!(resolved, alpha, "{scope} {form}"),
+            }
+        }
+    }
+    // A terminal selector takes the terminal's host id, and a tab or pane id.
+    let host = mux
+        .with_state(|state| {
+            state
+                .surfaces
+                .get(&agent.id)
+                .and_then(|surface| mux.resource_terminal_host_identity(surface))
+        })
+        .map(|identity| identity.terminal_id)
+        .expect("alpha's terminal has a host id");
+    for form in [host, tab, pane.clone()] {
+        let resolved = w5p_resolve(&mux, "terminal", &form)
+            .unwrap_or_else(|error| panic!("terminal {form}: {error:?}"));
+        assert_eq!(resolved, alpha, "terminal {form}");
+    }
+
+    // `focused` is `current`: the root pane has the focus.
+    let focused = w5p_resolve(&mux, "pane", "focused").unwrap().0;
+    let current = w5p_resolve(&mux, "pane", "current").unwrap().0;
+    assert_eq!(focused, current);
+    assert_ne!(focused, Some(pane));
+}
+
+/// W5-P adds `focused`, bare ids and id prefixes as selectors without
+/// changing an old answer: a name that looks like one of them still
+/// selects the named object, and the new form applies only when no object
+/// has that name. A prefix was never a name (the old parser refused it and
+/// asked for `name:`), so `name:<prefix>` is the name and the bare prefix
+/// is the id.
+#[test]
+fn w5p_names_keep_their_old_answers_over_the_id_forms_they_look_like() {
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p-collide".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let named = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.focus_pane(root_pane));
+    let tab_id = |surface| {
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&surface).unwrap().to_string())
+    };
+    let (root_tab, named_tab) = (tab_id(root.id), tab_id(named.id));
+    let tab_of = |selector: &str| {
+        w5p_resolve(&mux, "tab", selector).unwrap_or_else(|error| panic!("{selector}: {error:?}")).1
+    };
+
+    // No tab is named `focused`: it is the focused tab.
+    assert_eq!(tab_of("focused"), Some(root_tab.clone()));
+    // A tab named `focused` (not the focused one) is what `tab focused` selected.
+    assert!(mux.rename_surface(named.id, "focused".into()));
+    assert_eq!(tab_of("focused"), Some(named_tab.clone()), "the name wins over focus");
+
+    // A tab named with the 32 hex digits of another tab's id is the name.
+    let root_payload = root_tab.rsplit_once('_').unwrap().1.to_owned();
+    assert!(mux.rename_surface(named.id, root_payload.clone()));
+    assert_eq!(tab_of(&root_payload), Some(named_tab.clone()), "the name wins over the bare id");
+    // With no such name, the 32 hex digits are the id.
+    assert!(mux.rename_surface(named.id, "plain".into()));
+    assert_eq!(tab_of(&root_payload), Some(root_tab.clone()), "the bare id");
+
+    // A tab named with a prefix of another tab's id: `name:` selects it, as
+    // before; the prefix alone (refused before) is the id.
+    let prefix = root_tab.get(..root_tab.len() - 20).unwrap().to_owned();
+    assert!(mux.rename_surface(named.id, prefix.clone()));
+    assert_eq!(tab_of(&format!("name:{prefix}")), Some(named_tab));
+    assert_eq!(tab_of(&prefix), Some(root_tab));
+}
+
+/// W5-P keeps every old answer for a name two tabs share. A tab name
+/// (the daemon's old tab-name levels) selects the tab in the current
+/// screen before one elsewhere, and two at one level are
+/// `selector.ambiguous`; a terminal or pane selector (the CLI's old W3-H
+/// rule over the whole session) is ambiguous with both tab ids. An id
+/// prefix that two objects share is ambiguous with every candidate, never
+/// a guess.
+#[test]
+fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p-ambiguous".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let left = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    let other = mux.new_workspace(Some("w5p-other".into()), None).unwrap();
+    let other_pane = mux.with_state(|state| state.pane_of(other.id).unwrap());
+    let other_split = mux.split(other_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.rename_surface(left.id, "dup".into()));
+    assert!(mux.rename_surface(other.id, "dup".into()));
+    assert!(mux.rename_surface(other_split.id, "twin".into()));
+    let twin_peer = mux.new_tab(Some(other_pane), None, None).unwrap();
+    assert!(mux.rename_surface(twin_peer.id, "twin".into()));
+    assert!(mux.focus_pane(root_pane));
+    let tab_id = |surface| {
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&surface).unwrap().to_string())
+    };
+
+    // The same name in two screens: the tab in the current screen.
+    let (_, tab, _) = w5p_resolve(&mux, "tab", "dup").unwrap();
+    assert_eq!(tab, Some(tab_id(left.id)), "tab dup is the one in the current screen");
+    for scope in ["terminal", "pane"] {
+        let error = w5p_resolve(&mux, scope, "dup").unwrap_err();
+        assert_eq!(error.code, "selector.ambiguous", "{scope} dup: {error:?}");
+        let candidates = error.details["candidates"].as_array().map(Vec::len);
+        assert_eq!(candidates, Some(2), "{scope} dup: {error:?}");
+    }
+    // Two at one level (both in another workspace) are ambiguous everywhere.
+    for scope in ["terminal", "tab", "pane"] {
+        let error = w5p_resolve(&mux, scope, "twin").unwrap_err();
+        assert_eq!(error.code, "selector.ambiguous", "{scope} twin: {error:?}");
+        let candidates = error.details["candidates"].as_array().map(Vec::len);
+        assert_eq!(candidates, Some(2), "{scope} twin: {error:?}");
+    }
+
+    // An id prefix needs 4 hex digits: a shorter one is refused, whatever
+    // it matches (two tabs or one), and says the minimum. The ambiguity of a
+    // longer shared prefix is in resource_selector/id_forms/tests.rs (ids
+    // are random, so 4 shared digits cannot be made here).
+    for _ in 0..15 {
+        mux.new_tab(Some(root_pane), None, None).unwrap();
+    }
+    let tabs = mux.with_state(|state| {
+        state.resource_indexes.tabs.keys().map(ToString::to_string).collect::<Vec<_>>()
+    });
+    assert!(tabs.len() >= 17, "{tabs:?}");
+    let one = tabs.first().unwrap();
+    for short in [5, 6, 7] {
+        let shared = one.get(..short).unwrap().to_owned();
+        let error = w5p_resolve(&mux, "tab", &shared).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{shared}: {error:?}");
+        assert!(error.message.contains("at least 4 hex digits"), "{}", error.message);
+    }
+    let four = one.get(..8).unwrap().to_owned();
+    if tabs.iter().filter(|id| id.starts_with(four.as_str())).count() == 1 {
+        let (_, tab, _) = w5p_resolve(&mux, "tab", &four).unwrap();
+        assert_eq!(tab.as_deref(), Some(one.as_str()), "{four}");
+    }
+    // A prefix of no object is not found (32 prefixes, 20 tabs).
+    let missing = (0..16u8)
+        .flat_map(|first| (0..2u8).map(move |second| format!("tab_{first:x}{second:x}00")))
+        .find(|prefix| !tabs.iter().any(|id| id.starts_with(prefix.as_str())))
+        .expect("a four-digit prefix no tab has");
+    let error = w5p_resolve(&mux, "tab", &missing).unwrap_err();
+    assert_eq!(error.code, "selector.not_found", "{missing}: {error:?}");
+    assert!(error.message.contains("32 hex digits"), "{}", error.message);
+    assert!(error.message.contains("cmux tab list"), "{}", error.message);
 }

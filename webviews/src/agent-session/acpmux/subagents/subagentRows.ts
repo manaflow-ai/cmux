@@ -1,7 +1,9 @@
+import { turnCopyParts } from "../conversation/turnCopy";
 import type { Folds } from "../conversation/viewFolds";
+import { turnWork } from "../conversation/waterfallSpans";
 import type { AcpmuxRow } from "../model";
 import { continuesTurn } from "../turnStart";
-import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { SUBAGENTS, awaitsOwnWork, type Subagent } from "./subagentFold";
 
 /// A subagent's line in an open group (SubagentListRow in SubagentGroup.tsx).
 export const SUBAGENT_ROW = "subagent";
@@ -54,12 +56,48 @@ export function childView(
     subagents: [agent],
     text: parent,
   };
-  const content = withSubagentRows(views?.[id] ?? [], expanded);
+  const own = views?.[id] ?? [];
+  const content = withSubagentRows(own, expanded);
   // Views are populated by recorded child events, not a separate fetch. An absent entry does
   // not mean a request is pending; describe the empty transcript without claiming it is loading.
-  return content.length
-    ? [pill, ...content]
-    : [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
+  if (!content.length) return [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
+  const footer = subagentFooter(agent, own);
+  return footer ? [pill, ...content, footer] : [pill, ...content];
+}
+
+/// The footer (TurnRows.tsx TurnFooter: Copy, Pin, Timeline, Read aloud, More, its time) under a
+/// finished subagent's view, as under a turn of the chat's own: its Copy copies everything the
+/// subagent said and the top line of each run of its tool calls (turnCopy.ts). A subagent's records
+/// end with no `turn_result`, so its view had no summary row and no way to copy its work (Leo,
+/// 2026-11-06: "This is a subagent. I should be able to, like, copy the stuff that it did."). None
+/// while it runs or waits on background work of its own (`awaitsOwnWork`: its report is still to
+/// come), or when it said nothing, as a turn of tool calls alone draws no Copy. No `seq`:
+/// a fork goes through the chat's own turns, never a subagent's.
+export function subagentFooter(agent: Subagent, rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  if (agent.state === "running" || awaitsOwnWork(agent)) return undefined;
+  let answer: AcpmuxRow | undefined;
+  for (let at = rows.length - 1; at >= 0 && !answer; at -= 1)
+    if (rows[at]!.kind === "assistant" && (rows[at]!.text ?? "").trim()) answer = rows[at];
+  if (!answer || answer.streaming) return undefined;
+  const parts = turnCopyParts(rows);
+  if (!parts) return undefined;
+  const work = turnWork(rows);
+  const last = rows.at(-1)!;
+  const ended = agent.endedAt ?? last.at;
+  return {
+    id: `${agent.id}:end`,
+    kind: "turnSummary",
+    // The memoized footer redraws when the subagent's rows do.
+    version: rows.reduce((sum, row) => (sum * 31 + row.version) % 2_147_483_647, rows.length),
+    at: ended,
+    // A failed subagent says so on its own line (SubagentDoneLine.tsx), not on a failure card here.
+    status: "completed",
+    durationMs: Math.max(0, ended - agent.startedAt),
+    text: answer.text,
+    answerId: answer.id,
+    turnCopy: parts,
+    ...(work && { turnWork: work }),
+  };
 }
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;

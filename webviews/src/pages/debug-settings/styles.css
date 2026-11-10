@@ -53,7 +53,7 @@
   user-select: text;
 }
 
-.ds-search:focus {
+.ds-search:focus-visible {
   border-color: var(--page-text-3);
 }
 

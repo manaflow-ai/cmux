@@ -52,6 +52,15 @@ const REBUILD_READ_ATTEMPTS: u32 = 15;
 #[cfg(test)]
 const REBUILD_READ_ATTEMPTS: u32 = 4;
 
+/// How long the roster's owner waits before it tries a failed background
+/// read again (the rebuild's, the start's replay's): `failed` reads in a
+/// row, from [`REBUILD_RETRY_FIRST`] doubling to [`REBUILD_RETRY_LONGEST`].
+pub(in crate::mux) fn roster_read_retry_delay(failed: u32) -> Duration {
+    REBUILD_RETRY_FIRST
+        .saturating_mul(1 << failed.saturating_sub(1).min(16))
+        .min(REBUILD_RETRY_LONGEST)
+}
+
 /// A roster folded from the first journal record, the ranges the fold
 /// skipped because they did not decode, the reads that failed in a row, and
 /// the terminals the live roster retired since the rebuild started.
@@ -67,8 +76,15 @@ impl Mux {
     /// Hands a stale roster's rebuild to the owner and wakes it.
     pub(in crate::mux) fn start_agent_roster_rebuild(&self) {
         let worker = &self.agent_roster_worker;
+        // A roster the next build premigrated beside the previous owner and
+        // did not finish: the rebuild folds only the journal after it.
+        let seed = crate::workspace_registry::premigrate::rebuild_seed(
+            &self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner),
+        );
+        let host =
+            seed.map(|(roster, cursor)| AgentRosterHost { roster, cursor }).unwrap_or_default();
         *worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some(AgentRosterRebuild::default());
+            Some(AgentRosterRebuild { host, ..AgentRosterRebuild::default() });
         worker.stale.store(true, Ordering::Release);
         worker.rebuilding.store(true, Ordering::Release);
         self.continue_agent_roster_rebuild_later();
@@ -88,6 +104,13 @@ impl Mux {
         if let Some(rebuild) = slot.as_mut() {
             rebuild.retired.extend(terminals);
         }
+    }
+
+    /// The rebuild's own cursor (how far it folded), while one runs.
+    #[cfg(test)]
+    pub(in crate::mux) fn agent_roster_rebuild_cursor_for_test(&self) -> Option<u64> {
+        let slot = self.agent_roster_worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.as_ref().map(|rebuild| rebuild.host.cursor)
     }
 
     /// Whether the roster is stale and its rebuild is not done.
@@ -120,7 +143,10 @@ impl Mux {
     /// owner, at most [`REBUILD_READ_ATTEMPTS`] times in a row; then the
     /// rebuild ends for this run with the roster still marked stale.
     pub(in crate::mux) fn run_agent_roster_rebuild_slice(&self) {
-        if !self.agent_roster_rebuilding() {
+        // The start's replay of the tail goes first: the rebuild's target is
+        // the live cursor, which the replay moves. The pass that finishes
+        // the replay runs a slice right after it.
+        if !self.agent_roster_rebuilding() || self.agent_roster_replaying() {
             return;
         }
         #[cfg(test)]
@@ -211,9 +237,7 @@ impl Mux {
                         ));
                         return;
                     }
-                    let delay = REBUILD_RETRY_FIRST
-                        .saturating_mul(1 << (failed - 1).min(16))
-                        .min(REBUILD_RETRY_LONGEST);
+                    let delay = roster_read_retry_delay(failed);
                     eprintln!(
                         "cmux-tui: the agent roster rebuild read failed ({failed} in a row), \
                          retried in {} ms: {error:#}",
@@ -235,7 +259,7 @@ impl Mux {
         if !rebuilt.skipped.is_empty() {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             agent_roster_restore::neutralize_live_claims(
-                &registry,
+                &*registry,
                 &mut rebuilt.host,
                 &rebuilt.skipped,
             );
@@ -287,6 +311,7 @@ pub(in crate::mux) mod rebuild_faults {
     struct Faults {
         held: bool,
         failing_reads: u32,
+        failing_replay_reads: u32,
     }
 
     static FAULTS: Mutex<BTreeMap<String, Faults>> = Mutex::new(BTreeMap::new());
@@ -306,6 +331,19 @@ pub(in crate::mux) mod rebuild_faults {
 
     pub(super) fn held(session: &str) -> bool {
         with(session, |faults| faults.held)
+    }
+
+    /// The start's background replay fails its next `reads` slices.
+    pub(in crate::mux) fn fail_replay_reads(session: &str, reads: u32) {
+        with(session, |faults| faults.failing_replay_reads = reads);
+    }
+
+    pub(in crate::mux) fn take_failing_replay_read(session: &str) -> bool {
+        with(session, |faults| {
+            let failing = faults.failing_replay_reads > 0;
+            faults.failing_replay_reads = faults.failing_replay_reads.saturating_sub(1);
+            failing
+        })
     }
 
     pub(super) fn take_failing_read(session: &str) -> bool {

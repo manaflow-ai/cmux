@@ -106,6 +106,9 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// The startup pass left its log unread, the chat being cold-archived (`load_logs`): the
+    /// pass's end does not make it read (`Hub::session_log_loaded`).
+    pub(super) log_skipped: AtomicBool,
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
@@ -130,9 +133,16 @@ pub struct Session {
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
+    /// Tests only: a pause once a prompt is written, before its `on_sent` runs
+    /// (`steer_end::agent_prompt_hook`): `arrived` fires there, the writer blocks until `release`.
+    #[cfg(test)]
+    pub(super) sent_seam:
+        StdMutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
+    pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -332,6 +342,13 @@ pub struct Session {
     pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
+    /// Bumps on every change of this session's own summary row (`list_guard::Events::send_row`):
+    /// its cached closed row is rebuilt after it, and no other session's
+    /// (`Hub::cached_closed_summary`).
+    pub(super) summary_gen: AtomicU64,
+    /// What another session's row reads of this one's metadata, hashed (`parent_print`): a
+    /// metadata commit that changes it marks every cached closed row stale (`meta_save.rs`).
+    pub(super) parent_print: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
@@ -376,6 +393,9 @@ pub struct Session {
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
+    /// The running turn's finished command calls, bounded, that its last reply's claims are
+    /// checked against when it ends (`claim_check.rs`).
+    pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
     /// Its command calls while its harness's sandbox refuses them, newest last and bounded
     /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
     pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
@@ -1001,6 +1021,7 @@ impl SessionStderr {
 /// ended since it was built. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    session: &'a Session,
     events: &'a super::list_guard::Events,
 }
 
@@ -1008,7 +1029,7 @@ impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
         // Released first, then counted: a list built after the count reads it free.
         drop(self.guard.take());
-        self.events.changed();
+        self.events.row_changed(self.session);
     }
 }
 
@@ -1016,7 +1037,7 @@ impl Hub {
     /// `session.spawn_lock`, held as a [`SpawnLease`].
     pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
         let guard = session.spawn_lock.lock().await;
-        self.events.changed();
-        SpawnLease { guard: Some(guard), events: &self.events }
+        self.events.row_changed(session);
+        SpawnLease { guard: Some(guard), session, events: &self.events }
     }
 }

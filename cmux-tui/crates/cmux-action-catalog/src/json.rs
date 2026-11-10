@@ -67,6 +67,7 @@ fn argument(value: &Argument, locale: usize) -> Value {
         "isTargetName": value.is_target_name,
         "isTargetDescription": value.is_target_description,
         "isSuppliedByTarget": value.is_supplied_by_target,
+        "isAskedInPalette": value.asked_in_palette,
     })
 }
 

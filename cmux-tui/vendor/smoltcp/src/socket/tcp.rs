@@ -1197,11 +1197,18 @@ impl<'a> Socket<'a> {
             || (start == self.local_seq_no && self.local_rx_dup_acks >= SACK_DUP_THRESH as u8)
         {
             Some(true)
-        } else if ranges_above > 0 && tail_received {
+        } else if ranges_above > 0
+            && tail_received
+            && self.remote_last_seq - start < (SACK_DUP_THRESH + 1) * mss
+        {
             // Nothing sent after the hole is still on its way (RFC 5827's
             // early retransmit, for a frame or keystroke of a few segments).
             // Without SACK the tail-loss probe repaired these, with no window
             // cut; this repairs them a round trip sooner, also with none.
+            // As in RFC 5827, only when fewer than four segments are
+            // outstanding from the hole on: in a long flight where only the
+            // last segment arrived, the rest is left to the probe and the RTO
+            // rather than all resent at once.
             Some(false)
         } else {
             None
@@ -1225,8 +1232,10 @@ impl<'a> Socket<'a> {
         let mut sacked_above = self.sack_scoreboard.sacked_bytes();
         let mut hole_start = self.local_seq_no;
         for (i, &(start, end)) in ranges.iter().enumerate() {
-            // The hole is [hole_start, start). Fewer bytes are SACKed above each
-            // higher hole, so once one is not lost none above it is.
+            // The hole is [hole_start, start). The walk stops at the first
+            // hole that is not lost: `sack_high_rxt` marks one point, so
+            // resending a higher hole first would move it past the lower one
+            // and leave that hole to the probe and the RTO once it is lost.
             if hole_start < start {
                 let Some(congestion) =
                     self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i)
@@ -11190,6 +11199,43 @@ mod test {
         assert!(s.congestion_controller.inner().window() < before);
         assert!(s.sack_window_cut);
         recv!(s, time 50, sack_resent(6));
+    }
+
+    #[test]
+    fn test_sack_early_retransmit_waits_in_a_long_flight() {
+        let mut s = socket_sacking();
+        // Only the last of six segments arrived: five are missing, more than
+        // early retransmit covers. Nothing is resent from the SACK alone.
+        send!(s, time 50, sack_ack(0, [sack_block(30, 36), None, None]));
+        recv_nothing!(s, time 50);
+        assert_eq!(s.sack_recovery_point, None);
+    }
+
+    #[test]
+    fn test_sack_early_retransmit_waits_for_a_lower_hole() {
+        let mut s = socket_sacking();
+        // The low hole (three segments, a long way from the tail) is not
+        // lost yet, so the high one, a segment before the last, waits too:
+        // resending it first would mark the low hole as already resent.
+        send!(s, time 50, sack_ack(0, [sack_block(18, 24), sack_block(30, 36), None]));
+        recv_nothing!(s, time 50);
+        // The high hole's segment arrives late: three segments' worth is now
+        // SACKed above the low hole, and it is resent.
+        send!(s, time 60, sack_ack(0, [sack_block(18, 36), None, None]));
+        recv!(s, time 60, sack_resent(0));
+        recv!(s, time 60, sack_resent(6));
+        recv!(s, time 60, sack_resent(12));
+        recv_nothing!(s, time 60);
+    }
+
+    #[test]
+    fn test_sack_early_retransmit_covers_a_short_tail() {
+        let mut s = socket_sacking();
+        // The fifth segment is lost and the sixth arrived: two segments are
+        // outstanding from the hole on, so it is resent at once.
+        send!(s, time 50, sack_ack(24, [sack_block(30, 36), None, None]));
+        recv!(s, time 50, sack_resent(24));
+        recv_nothing!(s, time 50);
     }
 
     #[cfg(feature = "socket-tcp-cubic")]

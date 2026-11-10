@@ -71,9 +71,9 @@ impl Mux {
 
     /// `terminal.close`. With [`TerminalCloseGuard::UnplacedAndNotKept`]
     /// (`if_unplaced`) a terminal that has a view or is marked `keep` fails
-    /// with [`TerminalCloseGuardFailed`] and nothing changes; the check runs
-    /// under the commit's registry lock, so no placement can land between
-    /// the check and the close.
+    /// with [`TerminalCloseGuardFailed::PlacedOrKept`] and nothing changes;
+    /// the check runs under the commit's registry lock, so no placement can
+    /// land between the check and the close.
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
         terminal_id: &TerminalPublicId,
@@ -92,7 +92,7 @@ impl Mux {
             operation_name,
             fingerprint,
             move |state, registry| {
-                if guard == TerminalCloseGuard::UnplacedAndNotKept {
+                if guard.requires_unplaced() {
                     // A terminal with no durable host has no keep mark to
                     // read, so the guarded close leaves it alone.
                     let retained = match registry.terminal_host_id(&terminal_id)? {
@@ -102,7 +102,7 @@ impl Mux {
                         None => true,
                     };
                     if retained {
-                        return Err(TerminalCloseGuardFailed.into());
+                        return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
                     }
                 }
                 Ok(EffectSlots {
@@ -158,10 +158,18 @@ impl Mux {
         // The registry lock serializes placement commits and the creation
         // fence excludes a creation between runtime and placement, so this
         // check cannot race a new view of the terminal.
-        if guard == TerminalCloseGuard::UnplacedAndNotKept
-            && terminal_placed_or_kept(&state, &registry, &public_id, terminal_id)?
-        {
-            return Err(TerminalCloseGuardFailed.into());
+        if guard.requires_unplaced() {
+            if terminal_placed_or_kept(&state, &registry, &public_id, terminal_id)? {
+                return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
+            }
         }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))

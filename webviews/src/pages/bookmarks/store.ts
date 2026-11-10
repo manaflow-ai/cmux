@@ -194,13 +194,15 @@ export class BookmarksStore {
     const epoch = this.epoch;
     const subscribing = (async () => {
       const stops = [
-        await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
+        await client.subscribe<ChangedEvent & { resync?: boolean }>(BookmarkOps.changed, (event) => {
+          // The relay lost events or reconnected: the tree may have changed in between.
+          if (event?.resync) return void this.relist();
           const { profile, revision } = this.snapshot;
           if (event.browser_profile_id === profile && event.bookmarks_revision > revision) void this.relist();
         }),
         await client.subscribe<HostChangedEvent>(HostOps.changed, (event) => {
           if (event?.reason === "icons") this.forgetMissingIcons();
-          else void this.reload();
+          else if (event?.reason !== "lend") void this.reload();
         }),
       ];
       // The page stopped (or stopped and started) while this was in flight: they are not this run's.

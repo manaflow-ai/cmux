@@ -220,7 +220,18 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             .filter(|row| row.status == Some(cmux_tui_core::AgentStatus::Done))
             .map(|row| row.terminal)
             .collect();
+    // Every row of a terminal carries that terminal's current unread marker,
+    // so only its newest row says why the tab is unread.
+    let mut newest: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for notification in notifications {
+        let Some(terminal) = text(notification, "terminal_id") else { continue };
+        let created = millis(field(notification, "created_at_ms")).unwrap_or(0);
+        let kept = newest.get(terminal).map(|row| millis(field(row, "created_at_ms")).unwrap_or(0));
+        if kept.is_none_or(|kept| created > kept) {
+            newest.insert(terminal, notification);
+        }
+    }
+    for notification in newest.into_values() {
         if field(notification, "unread") != true {
             continue;
         }
@@ -373,11 +384,11 @@ mod tests {
                 {"id": "tab_e", "pane_id": "pane_1", "content_id": "term_e", "focused": true, "name": null, "extra": {}},
             ],
             "terminals": [
-                {"id": "term_a", "tab_id": "tab_a", "title": "build"},
-                {"id": "term_b", "tab_id": "tab_b", "title": "claude"},
-                {"id": "term_c", "tab_id": "tab_c", "title": "codex"},
-                {"id": "term_d", "tab_id": "tab_d", "title": "tests"},
-                {"id": "term_e", "tab_id": "tab_e", "title": "zsh"},
+                {"id": "term_a", "tab_id": "tab_a", "title": "build", "lifecycle": "running"},
+                {"id": "term_b", "tab_id": "tab_b", "title": "claude", "lifecycle": "running"},
+                {"id": "term_c", "tab_id": "tab_c", "title": "codex", "lifecycle": "running"},
+                {"id": "term_d", "tab_id": "tab_d", "title": "tests", "lifecycle": "running"},
+                {"id": "term_e", "tab_id": "tab_e", "title": "zsh", "lifecycle": "running"},
             ],
             "agents": [
                 {"id": "agent_c", "terminal_id": "term_c", "state": "blocked", "updated_at_ms": "200"},
@@ -418,6 +429,27 @@ mod tests {
         assert_eq!(queue[2]["level"], "error");
         assert_eq!(queue[3]["reason"], "bench done");
         assert_eq!(queue[3]["workspace"], "work");
+    }
+
+    /// `term_d` had an error that was read, then an info notification: every
+    /// row shows the terminal's unread marker, and the newest row decides.
+    #[test]
+    fn attention_cli_uses_the_newest_notification_of_a_terminal() {
+        let mut snapshot = snapshot();
+        snapshot["notifications"] = json!([
+            {"id": "n4", "terminal_id": "term_d", "unread": true, "level": "info", "created_at_ms": "900", "title": "today"},
+            {"id": "n2", "terminal_id": "term_d", "unread": true, "level": "error", "created_at_ms": "10", "title": "yesterday"},
+            {"id": "n1", "terminal_id": "term_a", "unread": true, "level": "info", "created_at_ms": "100", "title": "bench done"},
+        ]);
+        let queue = snapshot_queue(&snapshot);
+        assert_eq!(
+            tabs(&queue),
+            vec!["tab_c", "tab_b", "tab_a", "tab_d"],
+            "tab_d is info, newest last"
+        );
+        assert_eq!(queue[3]["level"], "info");
+        assert_eq!(queue[3]["reason"], "today");
+        assert_eq!(queue[3]["since_ms"], 900);
     }
 
     #[test]

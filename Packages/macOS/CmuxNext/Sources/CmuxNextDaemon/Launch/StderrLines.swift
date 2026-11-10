@@ -2,7 +2,8 @@ import CmuxNextCompat
 import Darwin
 import Dispatch
 
-/// Hands a child's stderr to `onLine` line by line as the child writes it (`ProcessRunner.run(stderrLine:)`).
+/// Hands a child's stderr to `onLine` line by line as the child writes it (`ProcessRunner.run(stderrLine:)`),
+/// or its stdout (`stdoutLine:`): nothing here is specific to the stream.
 /// The child writes to an unlinked temp file, not a pipe (``ProcessRunner``); this watches that file
 /// for writes (a vnode source on its own duplicate of the descriptor) and reads what was appended
 /// with `pread`, so nothing here can block the child or be held open by a grandchild.

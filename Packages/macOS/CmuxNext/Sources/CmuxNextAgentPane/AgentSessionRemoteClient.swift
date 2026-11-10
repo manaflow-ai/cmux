@@ -30,6 +30,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func children() async throws -> Data
     /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
     func media(path: String) async throws -> Data
+    /// Reads one byte range of a video on the attached chat's host, as
+    /// `{offset, size, identity, data, mimeType?, handle?}` (``AgentPaneRemoteMedia``).
+    func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data
     /// The person starts or stops typing in the chat (`agent-session-presence-v1`).
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
@@ -50,6 +53,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
     /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
     func login(_ op: String, _ fields: [String: String]) async throws -> Data
+    /// The composer's `/btw <question>` on that machine (`agent-session-btw-v1`): acpmux's inline
+    /// side question about the chat, `{text}` or `{refused: {reason}}`.
+    func btw(_ question: String) async throws -> Data
     /// Whether that machine's daemon opens a side chat of this chat there (`agent-session-side-v1`).
     func servesSide() async -> Bool
     /// New side chat and `/side [prompt]` (`agent-session-side-v1`): that machine's acpmux forks
@@ -100,9 +106,17 @@ extension AgentSessionRemoteClient {
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
         Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
     }
+    /// A daemon without `agent-session-btw-v1` asks no side question.
+    public func btw(_ question: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.btw_unsupported", message: "Update cmux on that machine to ask a side question here.")
+    }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
+    }
+    /// Older daemons read no video ranges; the pane then says the video can't play here.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve video ranges")
     }
 }
 

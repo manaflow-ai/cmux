@@ -34,6 +34,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reload-build.yml"
 METADATA_STEP = "Prepare macOS cache metadata"
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+# `'text'`: a literal operand.
+QUOTED = re.compile(r"'([^']*)'")
+# `inputs.flag == true && 'text'`: the literal when a boolean input is set.
+FLAG_GUARD = re.compile(r"([\w.]+)\s*==\s*true\s*&&\s*'([^']*)'")
 OUTPUT_REF = re.compile(r"^\$\{\{ steps\.cache_meta\.outputs\.([A-Za-z0-9_]+) \}\}$")
 
 FAKE_XCODEBUILD = """#!/bin/sh
@@ -100,6 +104,23 @@ def step_env(source_ref: str, dispatch_ref: str) -> dict[str, str]:
         "github.head_ref": dispatch_ref,
         "github.event.repository.default_branch": "main",
     }
+    # Boolean inputs the step may branch on. These dispatches are debug
+    # reloads, so `inputs.release` is false (#40083 keys release builds apart
+    # with a `release-` prefix; the ref-spelling property is the same there).
+    flags = {"inputs.release": False}
+
+    def operand_text(operand: str, raw: object) -> str:
+        literal = QUOTED.fullmatch(operand)
+        if literal:
+            return literal.group(1)
+        guarded = FLAG_GUARD.fullmatch(operand)
+        if guarded:
+            flag, literal_text = guarded.group(1), guarded.group(2)
+            assert flag in flags, f"{METADATA_STEP}: unmodelled env flag {flag!r} in {raw!r}"
+            return literal_text if flags[flag] else ""
+        assert operand in values, f"{METADATA_STEP}: unmodelled env expression {raw!r}"
+        return values[operand]
+
     env = {}
     for name, raw in (step_named(METADATA_STEP).get("env") or {}).items():
         match = EXPRESSION.fullmatch(str(raw).strip())
@@ -108,9 +129,7 @@ def step_env(source_ref: str, dispatch_ref: str) -> dict[str, str]:
             continue
         text = ""
         for operand in match.group(1).split("||"):
-            operand = operand.strip()
-            assert operand in values, f"{METADATA_STEP}: unmodelled env expression {raw!r}"
-            text = values[operand]
+            text = operand_text(operand.strip(), raw)
             if text:
                 break
         env[name] = text

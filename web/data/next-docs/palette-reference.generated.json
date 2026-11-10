@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1382,
+    "entries": 1389,
     "shortcuts": 188
   },
   "sections": [
@@ -2098,10 +2098,22 @@
           "command": null
         },
         {
+          "id": "divider.hide",
+          "title": "Hide Divider",
+          "shortcut": null,
+          "command": "cmux divider hide"
+        },
+        {
           "id": "increaseWorkspaceTerminalFontSize",
           "title": "Increase Workspace Font Size",
           "shortcut": "⌘=",
           "command": null
+        },
+        {
+          "id": "divider.insertNew",
+          "title": "Insert New",
+          "shortcut": null,
+          "command": "cmux divider insert"
         },
         {
           "id": "column.moveLeft",
@@ -2522,6 +2534,12 @@
           "title": "Show Artifacts",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "divider.show",
+          "title": "Show Divider",
+          "shortcut": null,
+          "command": "cmux divider show"
         },
         {
           "id": "pane.focus",
@@ -3064,6 +3082,12 @@
           "command": "cmux tab-group add-tab"
         },
         {
+          "id": "git.worktree.apply",
+          "title": "Apply Worktree to Main Checkout",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.clearTabName",
           "title": "Clear Tab Name",
           "shortcut": null,
@@ -3144,6 +3168,12 @@
         {
           "id": "palette.copySurfaceLink",
           "title": "Copy Tab Link",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "git.checkpoint.create",
+          "title": "Create Git Checkpoint",
           "shortcut": null,
           "command": null
         },
@@ -3346,6 +3376,12 @@
           "command": "cmux tab new-browser"
         },
         {
+          "id": "git.worktree.create",
+          "title": "New Git Worktree",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "newTab.horizontal",
           "title": "New Horizontal Tab",
           "shortcut": null,
@@ -3470,6 +3506,12 @@
           "title": "Reload Tab",
           "shortcut": null,
           "command": "cmux tab reload"
+        },
+        {
+          "id": "git.worktree.remove",
+          "title": "Remove Git Worktree",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tabGroup.removeTab",
@@ -6448,12 +6490,6 @@
           "command": null
         },
         {
-          "id": "agentPane.togglePointerInspector",
-          "title": "Inspect UI Element",
-          "shortcut": null,
-          "command": "cmux agent toggle-ui-pointer"
-        },
-        {
           "id": "palette.addHarness",
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
@@ -6568,6 +6604,12 @@
           "command": null
         },
         {
+          "id": "agentPane.togglePointerInspector",
+          "title": "Point at Element",
+          "shortcut": null,
+          "command": "cmux agent toggle-ui-pointer"
+        },
+        {
           "id": "agentPane.previousBookmarkedPrompt",
           "title": "Previous Bookmarked Prompt",
           "shortcut": null,
@@ -6674,6 +6716,12 @@
           "title": "Set Agent Chat Model…",
           "shortcut": null,
           "command": "cmux agent set-model"
+        },
+        {
+          "id": "agent.harness.setIcon",
+          "title": "Set Agent Icon…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agent.share",
@@ -7070,6 +7118,12 @@
           "title": "List Forwarded Machine Ports",
           "shortcut": null,
           "command": "cmux cloud port-list"
+        },
+        {
+          "id": "cloudMoveToMachine",
+          "title": "Move to Another Machine",
+          "shortcut": null,
+          "command": "cmux cloud move-to-machine"
         },
         {
           "id": "cloudMove",
@@ -8222,18 +8276,6 @@
           "title": "Upgrade to cmux Pro",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "appearance.animations.bounce.none",
-          "title": "Use Animations Without Bounce",
-          "shortcut": null,
-          "command": "cmux settings use-animations-without-bounce"
-        },
-        {
-          "id": "appearance.animations.bounce.subtle",
-          "title": "Use Bouncy Animations",
-          "shortcut": null,
-          "command": "cmux settings use-bouncy-animations"
         },
         {
           "id": "browser.defaultEngine.chromium",

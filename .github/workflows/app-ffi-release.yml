@@ -51,6 +51,7 @@ on:
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
+      - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
@@ -530,6 +531,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      checks: read
+      statuses: read
     concurrency:
       group: app-ffi-repin
       cancel-in-progress: false
@@ -593,6 +596,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash

@@ -68,3 +68,29 @@ pub(super) fn reply(last: Option<&String>) -> Option<String> {
     let value: Value = serde_json::from_str(last?.trim()).ok()?;
     at(&value, "replies").as_array()?.last()?.as_str().map(str::to_owned)
 }
+
+/// The folder `session` runs in on its machine, from `acp ls --json --fields sessionId,cwd`
+/// (`{"sessions": [...]}`, or the rows alone): a folderless chat's is the fresh folder the machine
+/// made for it (`~/chats/<chat>`, acpmux `remote_guard.rs` `peer_scratch`). None when unread.
+pub(super) fn session_cwd(listed: Option<&String>, session: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(listed?.trim()).ok()?;
+    let rows = value.get("sessions").unwrap_or(&value).as_array()?;
+    rows.iter()
+        .find(|row| ["sessionId", "id"].iter().any(|key| at(row, key).as_str() == Some(session)))
+        .and_then(|row| at(row, "cwd").as_str())
+        .filter(|cwd| cwd.starts_with('/'))
+        .map(str::to_owned)
+}
+
+/// Where a start's chat runs: `copied` (`--from-folder`: a copy of a folder on this Mac), `given`
+/// (`--cwd`: a folder already on the machine), or `fresh` (neither: a folder of its own the machine
+/// makes for it, empty at the start; a repository comes later with `cmux chat cd`). A folderless
+/// start is a first-class one (Leo, 2026-11-09: "this no folder selected should be, like, good as
+/// well").
+pub(super) fn folder_kind(cwd: Option<&str>, from_folder: Option<&str>) -> &'static str {
+    match (cwd, from_folder) {
+        (_, Some(_)) => "copied",
+        (Some(_), None) => "given",
+        (None, None) => "fresh",
+    }
+}

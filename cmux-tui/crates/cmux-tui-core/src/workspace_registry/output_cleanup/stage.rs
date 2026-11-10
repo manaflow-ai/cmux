@@ -2,7 +2,9 @@
 //! staging file while the owner serves. Sealed segments never change, so a
 //! read-only connection can read them beside the owner. Each segment is one
 //! staging transaction together with the cursor that names it, so a quit or
-//! a kill resumes at the next segment and never stages a record twice.
+//! a kill resumes at the next segment and never stages a record twice. Then
+//! the background build ([`super::build`]) turns the staged records into the
+//! new registry's journal, and keeps it current while the owner serves.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -12,25 +14,55 @@ use anyhow::Context as _;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use super::super::{
-    open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
-    required_meta,
+    meta_value, open_registry_database, open_registry_database_read_only,
+    open_registry_database_with_flags, required_meta,
 };
+use super::build::{Build, BuildControl, CaughtUp, build, catch_up, ensure_build_state, set_state};
 use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
 use super::codec::{inflate_segment, split_records};
+use super::session_puts::{
+    SESSION_PUT_KIND, SESSION_PUTS_SCHEMA, SESSION_PUTS_STATE, SessionPuts, record_live_puts,
+    release_held_puts,
+};
 use super::{
-    MAX_KEPT_RECORDS, OUTPUT_KIND, copied_bytes, free_space_refusal, kept_refusal, live_records,
-    remove_staging, staged_bytes_refusal, staging_path,
+    MAX_KEPT_RECORDS, OUTPUT_KIND, STAGED_WORK_CHANGED, copied_bytes, free_space_refusal,
+    kept_refusal, live_records, refused_path, remove_if_present, remove_staging,
+    staged_bytes_refusal, staging_path,
 };
 use crate::platform;
 
 /// Format 3 stores kept records compressed (`chunks.rs`); a format 2 file
-/// (plain JSON per record) is discarded and staged again.
-const STAGING_FORMAT: &str = "3";
+/// (plain JSON per record) is discarded and staged again. Format 4 drops
+/// superseded session puts (`session_puts.rs`): a format 3 file kept them
+/// all, so it is staged again.
+const STAGING_FORMAT: &str = "4";
+/// Session put records (live rows, and every record of a sealed segment
+/// that lists the kind) from which a registry without stored output still
+/// needs the cleanup: superseded puts may be most of its journal.
+const PUT_RECORDS_WORTH_A_CLEANUP: u64 = 100_000;
+
+#[cfg(test)]
+thread_local! {
+    /// [`PUT_RECORDS_WORTH_A_CLEANUP`] for a test on this thread.
+    pub(super) static PUT_RECORDS_LIMIT: std::cell::Cell<u64> =
+        const { std::cell::Cell::new(PUT_RECORDS_WORTH_A_CLEANUP) };
+}
+
+#[cfg(test)]
+fn put_records_worth_a_cleanup() -> u64 {
+    PUT_RECORDS_LIMIT.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn put_records_worth_a_cleanup() -> u64 {
+    PUT_RECORDS_WORTH_A_CLEANUP
+}
+
 /// Free space is checked again after this many staged segments.
 const SEGMENTS_PER_SPACE_CHECK: u64 = 256;
 const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(10);
 
-fn progress_log_interval() -> Duration {
+pub(super) fn progress_log_interval() -> Duration {
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_PROGRESS_MS")
         .ok()
@@ -43,10 +75,12 @@ fn progress_log_interval() -> Duration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StageOutcome {
-    /// No stored terminal output: nothing to clean up.
+    /// No stored terminal output and too few session puts to matter:
+    /// nothing to clean up.
     NotNeeded,
-    /// Every sealed segment is staged; the next owner start swaps.
-    Complete { segments: u64, kept: u64 },
+    /// The new registry is built (and was kept current until the owner
+    /// stopped); the next owner start swaps.
+    Built,
     /// Not enough free space; the staged work so far stays.
     Refused(String),
     /// The owner is stopping; the staged work so far stays.
@@ -59,8 +93,11 @@ pub(crate) enum StageOutcome {
 pub(crate) struct StageControl<'a> {
     /// Called once the registry is known to need a cleanup, before staging.
     pub(crate) on_pending: &'a dyn Fn(),
-    /// Called before each segment; `false` stops staging.
+    /// Called before each segment and build step; `false` stops staging.
     pub(crate) next_segment: &'a dyn Fn() -> bool,
+    /// After the build: waits until the next catch-up with the records the
+    /// owner appended; `false` once the owner is stopping.
+    pub(crate) catch_up: &'a dyn Fn() -> bool,
     /// Whether the owner is stopping. Also read while a read of the registry
     /// runs, so a stop cuts a long scan (the live row counts) short instead
     /// of holding the owner's shutdown until it ends.
@@ -100,13 +137,21 @@ fn stage_registry_until_stopped(
         .with_context(|| format!("open workspace registry {}", db_path.display()))?;
     source.busy_timeout(Duration::from_secs(5))?;
     stop_reads_on(&source, control.stopped.clone())?;
-    if !output_present(&source)? {
+    // The memo is of one registry: another one at this path (restored,
+    // rehomed) is not covered by it.
+    let identity = meta_value(&source, "registry_id")?;
+    if let Some(reason) = refusal_memo(db_path, identity.as_deref(), journal_head(&source)?) {
+        return Ok(StageOutcome::Skipped(reason));
+    }
+    if !output_present(&source)? && !session_puts_present(&source)? {
         return Ok(StageOutcome::NotNeeded);
     }
     // A mixed segment counts as output here (the staged count checks it as
     // it goes), but every record counts toward the journal's size.
     let sealed = sealed_records(&source, 0)?;
-    let (live_kept, live_total) = live_records(&source)?;
+    // Before the live puts are read, none counts as kept: the staged counts
+    // check the real number as staging goes.
+    let (live_kept, live_total) = live_records(&source, None)?;
     if let Some(reason) = kept_refusal(sealed.kept_at_least + live_kept, sealed.total + live_total)
     {
         remove_staging(db_path)?;
@@ -119,44 +164,124 @@ fn stage_registry_until_stopped(
     }
     let registry_id = required_meta(&source, "registry_id")?;
     let staging = open_staging(db_path, &registry_id)?;
-    if state(&staging, "complete")? == "1" {
-        return Ok(StageOutcome::Complete {
-            segments: state_u64(&staging, "staged_segments")?,
-            kept: kept_records(&staging)?,
-        });
+    // Before any segment is staged: the latest live put of each session.
+    record_live_puts(&source, &staging)?;
+    let build_control = BuildControl { next_step: control.next_segment, space: (db_path, copied) };
+    // Each pass stages what was sealed since the last one (a restart: the
+    // owner sealed while the live rows were staged) or ends; a stop ends it.
+    let abandoned = loop {
+        if state(&staging, "complete")? != "1" {
+            match stage_sealed(db_path, &source, &staging, control.next_segment, copied)? {
+                Staged::Finished => {}
+                Staged::Stopped => return Ok(StageOutcome::Stopped),
+                Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
+                Staged::Abandoned(reason) => break Some(reason),
+            }
+        }
+        match build(&source, &staging, &build_control)? {
+            Build::Built => break None,
+            Build::Restart => {}
+            Build::Stopped => return Ok(StageOutcome::Stopped),
+            Build::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
+            Build::Abandoned(reason) => break Some(reason),
+        }
+    };
+    if let Some(reason) = abandoned {
+        drop(staging);
+        remove_staging(db_path)?;
+        write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
+        return Ok(StageOutcome::Skipped(reason));
     }
-    let staged_through = state_u64(&staging, "staged_through")?;
+    // Until the owner stops: the records it appends go into the built
+    // journal, so the swap at the next start finishes a short tail.
+    loop {
+        match catch_up(&source, &staging, &build_control)? {
+            CaughtUp::Current => {}
+            CaughtUp::Stopped => break,
+            CaughtUp::Abandoned(reason) => {
+                drop(staging);
+                remove_staging(db_path)?;
+                write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
+                return Ok(StageOutcome::Skipped(reason));
+            }
+        }
+        if !(control.catch_up)() {
+            break;
+        }
+    }
+    Ok(StageOutcome::Built)
+}
+
+/// Phase A: stages the sealed segments after the cursor, checks the bounds,
+/// and counts the live rows.
+fn stage_sealed(
+    db_path: &Path,
+    source: &Connection,
+    staging: &Connection,
+    next_segment: &dyn Fn() -> bool,
+    copied: u64,
+) -> anyhow::Result<Staged> {
+    let started = Instant::now();
+    let staged_through = state_u64(staging, "staged_through")?;
     if staged_through > 0 {
         eprintln!(
             "cmux-tui: output cleanup: resuming after sequence {staged_through} ({} segments staged)",
-            state_u64(&staging, "staged_segments")?
+            state_u64(staging, "staged_segments")?
         );
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    let abandoned =
-        match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)))? {
-            Staged::Stopped => return Ok(StageOutcome::Stopped),
-            Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
-            Staged::Abandoned(reason) => Some(reason),
-            Staged::Finished => {
-                let (staged_kept, staged_total) = staged_records(&staging)?;
-                let (live_kept, live_total) = live_records(&source)?;
-                staged_bytes_refusal(&staging)?
-                    .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
+    // The live rows are counted after the last staged segment only: a
+    // segment the owner seals between the staging pass and the count is
+    // staged first, then the rows are counted again.
+    let mut sealed_since: Option<u64> = None;
+    loop {
+        match stage_segments(source, staging, next_segment, Some((db_path, copied)))? {
+            Staged::Finished => {}
+            other => return Ok(other),
+        }
+        if let Some(end) = sealed_since {
+            anyhow::ensure!(
+                state_u64(staging, "staged_through")? >= end,
+                "the journal segments through sequence {end} were not staged"
+            );
+        }
+        // Every sealed segment is staged: the held puts are the latest ones.
+        // A later pass (segments sealed since) holds none: their puts were
+        // live when the latest puts were read.
+        release_held_puts(staging)?;
+        let (staged_kept, staged_total) = staged_records(staging)?;
+        let (live_kept, live_total) = live_records(source, Some(&SessionPuts::load(staging)?))?;
+        if let Some(reason) = staged_bytes_refusal(staging)?
+            .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
+        {
+            return Ok(Staged::Abandoned(reason));
+        }
+        #[cfg(test)]
+        if let Some(seal) = BEFORE_LIVE_COUNT.with(|hook| hook.borrow_mut().take()) {
+            seal();
+        }
+        match count_live_rows(source, staging)? {
+            LiveCount::Counted => break,
+            LiveCount::Sealed(end) => {
+                eprintln!(
+                    "cmux-tui: output cleanup: segments through sequence {end} were sealed after \
+                     the staging pass; staging them before the live rows are counted"
+                );
+                sealed_since = Some(end);
             }
-        };
-    if let Some(reason) = abandoned {
-        drop(staging);
-        remove_staging(db_path)?;
-        return Ok(StageOutcome::Skipped(reason));
+        }
     }
-    count_live_rows(&source, &staging)?;
-    staging.execute("UPDATE output_cleanup_state SET value = '1' WHERE key = 'complete'", [])?;
-    Ok(StageOutcome::Complete {
-        segments: state_u64(&staging, "staged_segments")?,
-        kept: kept_records(&staging)?,
-    })
+    set_state(staging, "complete", "1")?;
+    eprintln!(
+        "cmux-tui: output cleanup: phase A complete in {:.2} s: {} segments staged, {} records \
+         kept; building the new registry next ({})",
+        started.elapsed().as_secs_f64(),
+        state_u64(staging, "staged_segments")?,
+        kept_records(staging)?,
+        staging_path(db_path).display()
+    );
+    Ok(Staged::Finished)
 }
 
 /// Live `terminal.output` rows (one index seek) or a sealed segment that
@@ -183,10 +308,85 @@ pub(super) fn output_present(source: &Connection) -> anyhow::Result<bool> {
     )?)
 }
 
+/// At least [`PUT_RECORDS_WORTH_A_CLEANUP`] session put records, counted
+/// from the `(kind, sequence)` index (stopping at the bound) and the
+/// segment kind map (every record of a segment that lists the kind).
+pub(super) fn session_puts_present(source: &Connection) -> anyhow::Result<bool> {
+    let limit = put_records_worth_a_cleanup();
+    let (live, sealed): (i64, i64) = source.query_row(
+        "SELECT (SELECT COUNT(*) FROM (
+                   SELECT 1 FROM session_journal INDEXED BY session_journal_by_kind_sequence
+                   WHERE kind = ?1 LIMIT ?2)),
+                (SELECT COALESCE(SUM(segment.record_count), 0) FROM journal_segments AS segment
+                 WHERE EXISTS (SELECT 1 FROM journal_segment_kinds AS kinds
+                               WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?1))",
+        params![SESSION_PUT_KIND, i64::try_from(limit)?],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(u64::try_from(live)?.saturating_add(u64::try_from(sealed)?) >= limit)
+}
+
+/// The journal's last sequence, live or sealed (two index seeks).
+fn journal_head(source: &Connection) -> anyhow::Result<u64> {
+    let head: i64 = source.query_row(
+        "SELECT MAX(COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+                    COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0))",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(u64::try_from(head)?)
+}
+
+/// Records that staging of registry `registry_id` finished and was refused
+/// at journal head `head`, so later starts do not stage the same journal
+/// again (each would copy it all and be refused the same way). Best effort:
+/// without the memo the next start stages again.
+fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, reason: &str) {
+    let memo = format!("format {STAGING_FORMAT}\nregistry {registry_id}\nhead {head}\n{reason}\n");
+    if let Err(error) = std::fs::write(refused_path(db_path), memo) {
+        eprintln!("cmux-tui: output cleanup: could not record the refusal: {error}");
+    }
+}
+
+/// `Some(reason)` while a refusal memo covers this journal: same staging
+/// format, the same registry (`registry_id`; a memo of another registry, or
+/// one written before memos named it, covers nothing), and the journal head
+/// below twice the head it was refused at. A memo past that (or unreadable)
+/// is removed and the cleanup runs again.
+fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64) -> Option<String> {
+    let path = refused_path(db_path);
+    let text = std::fs::read_to_string(&path).ok()?;
+    let mut lines = text.lines();
+    let format = lines.next().and_then(|line| line.strip_prefix("format "));
+    let registry = lines.next().and_then(|line| line.strip_prefix("registry "));
+    let refused_at = lines
+        .next()
+        .and_then(|line| line.strip_prefix("head "))
+        .and_then(|n| n.parse::<u64>().ok());
+    let reason = lines.next().unwrap_or_default();
+    if let Some(refused_at) = refused_at
+        && format == Some(STAGING_FORMAT)
+        && registry.is_some()
+        && registry == registry_id
+        && head < refused_at.saturating_mul(2)
+    {
+        return Some(format!(
+            "staging was refused at journal head {refused_at} ({reason}); it runs again once \
+             the journal reaches {}",
+            refused_at.saturating_mul(2)
+        ));
+    }
+    if let Err(error) = remove_if_present(&path) {
+        eprintln!("cmux-tui: output cleanup: could not remove {}: {error:#}", path.display());
+    }
+    None
+}
+
 /// The records of the sealed segments after sequence `after`, from their
 /// kind map alone (a row of each segment, never its content).
 pub(super) struct SealedRecords {
-    /// Records of segments without output: kept for certain.
+    /// Records of segments without output or session puts: kept for certain
+    /// (superseded puts are dropped, and the map does not say how many).
     pub(super) kept_at_least: u64,
     /// Records of every segment that is not output only (mixed and unmapped
     /// segments too): at most this many are kept.
@@ -197,7 +397,8 @@ pub(super) struct SealedRecords {
 
 pub(super) fn sealed_records(source: &Connection, after: u64) -> anyhow::Result<SealedRecords> {
     let (at_least, at_most, total): (i64, i64, i64) = source.query_row(
-        "SELECT COALESCE(SUM(CASE WHEN has_other AND NOT has_output THEN record_count END), 0),
+        "SELECT COALESCE(SUM(CASE WHEN has_other AND NOT has_output AND NOT has_put
+                                  THEN record_count END), 0),
                 COALESCE(SUM(CASE WHEN has_other OR NOT has_output THEN record_count END), 0),
                 COALESCE(SUM(record_count), 0)
          FROM (
@@ -206,11 +407,14 @@ pub(super) fn sealed_records(source: &Connection, after: u64) -> anyhow::Result<
                          WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?1)
                     AS has_output,
                   EXISTS(SELECT 1 FROM journal_segment_kinds AS kinds
+                         WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?3)
+                    AS has_put,
+                  EXISTS(SELECT 1 FROM journal_segment_kinds AS kinds
                          WHERE kinds.segment_id = segment.segment_id AND kinds.kind != ?1)
                     AS has_other
            FROM journal_segments AS segment
            WHERE segment.start_sequence > ?2)",
-        params![OUTPUT_KIND, i64::try_from(after)?],
+        params![OUTPUT_KIND, i64::try_from(after)?, SESSION_PUT_KIND],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
     Ok(SealedRecords {
@@ -237,7 +441,13 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
     let path = staging_path(db_path);
     if path.is_file() {
         match open_existing_staging(&path, registry_id) {
-            Ok(Some(connection)) => return Ok(connection),
+            Ok(Some(connection)) => {
+                // A swap attempt of an earlier start left it in rollback
+                // journal mode; the background build writes beside readers.
+                connection.query_row("PRAGMA journal_mode=WAL", [], |_| Ok(()))?;
+                ensure_build_state(&connection)?;
+                return Ok(connection);
+            }
             Ok(None) => eprintln!("cmux-tui: output cleanup: discarding a stale staging file"),
             Err(error) => {
                 eprintln!(
@@ -269,8 +479,9 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
          );",
     )?;
     connection.execute_batch(CHUNK_SCHEMA)?;
+    connection.execute_batch(SESSION_PUTS_SCHEMA)?;
     let tx = connection.unchecked_transaction()?;
-    for (key, value) in [
+    for (key, value) in SESSION_PUTS_STATE.into_iter().chain([
         ("format", STAGING_FORMAT),
         ("registry_id", registry_id),
         ("staged_through", "0"),
@@ -280,10 +491,11 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
         ("live_archive_end", "0"),
         ("live_head", "0"),
         ("live_output", "0"),
-    ] {
+    ]) {
         tx.execute("INSERT INTO output_cleanup_state(key, value) VALUES(?1, ?2)", [key, value])?;
     }
     tx.commit()?;
+    ensure_build_state(&connection)?;
     Ok(connection)
 }
 
@@ -344,6 +556,7 @@ pub(super) fn stage_segments(
 ) -> anyhow::Result<Staged> {
     let total: i64 =
         source.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get(0))?;
+    let mut puts = SessionPuts::load(staging)?;
     let mut since_space_check = 0_u64;
     let mut last_log = Instant::now();
     loop {
@@ -378,6 +591,8 @@ pub(super) fn stage_segments(
             "journal segments contain a gap before sequence {start}"
         );
         let kept = kept_segment_records(source, &segment_id, start, end, record_count)?;
+        let split = puts.split_segment(kept, start);
+        let kept_count = i64::try_from(split.staged.len())? + i64::try_from(split.held)?;
         let tx = staging.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO output_cleanup_segments(
@@ -387,11 +602,12 @@ pub(super) fn stage_segments(
                 i64::try_from(start)?,
                 i64::try_from(end)?,
                 record_count,
-                i64::try_from(kept.len())?,
-                record_count - i64::try_from(kept.len())?
+                kept_count,
+                record_count - kept_count
             ],
         )?;
-        insert_chunk(&tx, &kept)?;
+        insert_chunk(&tx, &split.staged)?;
+        puts.record_split(&tx, &split)?;
         tx.execute(
             "UPDATE output_cleanup_state SET value = ?1 WHERE key = 'staged_through'",
             [end.to_string()],
@@ -434,18 +650,45 @@ pub(super) fn stage_segments(
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Runs once between Phase A's staging pass and its live row count: a
+    /// test seals a segment there, as the owner can.
+    pub(super) static BEFORE_LIVE_COUNT: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[derive(Debug)]
+enum LiveCount {
+    Counted,
+    /// The sealed journal ends past the staged segments, at this sequence:
+    /// nothing was recorded.
+    Sealed(u64),
+}
+
 /// Counts the live rows after the sealed segments in one read snapshot, in
 /// the background: that they are contiguous (the count equals the range) and
 /// how many are output. The swap then checks kept plus removed against these
-/// numbers and counts only rows that came later.
-fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<()> {
+/// numbers and counts only rows that came later. The snapshot's sealed
+/// journal must end where the staged segments do, or the live step would
+/// skip the records of a segment no one staged.
+fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<LiveCount> {
+    let staged_through = i64::try_from(state_u64(staging, "staged_through")?)?;
     source.execute_batch("BEGIN DEFERRED")?;
-    let counted = (|| -> anyhow::Result<(i64, i64, i64)> {
+    let counted = (|| -> anyhow::Result<Result<(i64, i64, i64), i64>> {
         let archive_end: i64 = source.query_row(
             "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
             [],
             |row| row.get(0),
         )?;
+        if archive_end != staged_through {
+            anyhow::ensure!(
+                archive_end > staged_through,
+                "{STAGED_WORK_CHANGED}: the sealed journal ends at sequence {archive_end}, \
+                 before the staged segments"
+            );
+            return Ok(Err(archive_end));
+        }
         let head: i64 = source.query_row(
             "SELECT COALESCE(MAX(sequence), ?1) FROM session_journal",
             [archive_end],
@@ -468,10 +711,13 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
             params![archive_end, head, OUTPUT_KIND],
             |row| row.get(0),
         )?;
-        Ok((archive_end, head, output))
+        Ok(Ok((archive_end, head, output)))
     })();
     source.execute_batch("COMMIT")?;
-    let (archive_end, head, output) = counted?;
+    let (archive_end, head, output) = match counted? {
+        Ok(counted) => counted,
+        Err(sealed_end) => return Ok(LiveCount::Sealed(u64::try_from(sealed_end)?)),
+    };
     let tx = staging.unchecked_transaction()?;
     for (key, value) in
         [("live_archive_end", archive_end), ("live_head", head), ("live_output", output)]
@@ -482,7 +728,7 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
         )?;
     }
     tx.commit()?;
-    Ok(())
+    Ok(LiveCount::Counted)
 }
 
 /// The non-output records of one sealed segment with their stored actors.
@@ -490,6 +736,20 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
 /// output, since a legacy kind backfill killed partway leaves a mixed
 /// segment with only some of its kinds, and records dropped here are gone.
 fn kept_segment_records(
+    source: &Connection,
+    segment_id: &str,
+    start: u64,
+    end: u64,
+    record_count: i64,
+) -> anyhow::Result<Vec<StagedRecord>> {
+    Ok(inflated_segment_records(source, segment_id, start, end, record_count)?
+        .into_iter()
+        .filter(|record| record.1 != OUTPUT_KIND)
+        .collect())
+}
+
+/// Every record of one sealed segment, output included, with its actor.
+pub(super) fn inflated_segment_records(
     source: &Connection,
     segment_id: &str,
     start: u64,
@@ -536,7 +796,6 @@ fn kept_segment_records(
     };
     records
         .into_iter()
-        .filter(|record| record.kind != OUTPUT_KIND)
         .map(|record| {
             let actor = actors.remove(&record.sequence.to_string());
             let bytes = json.get(record.bytes).with_context(|| {

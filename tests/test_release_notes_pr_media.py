@@ -475,6 +475,17 @@ class GalleryRenderPlanTests(unittest.TestCase):
         text_at = lambda rev, path: files.get(rev)
         self.assertEqual(self.tool.infer(row, cases, text_at, lambda c, p: set()), "a.b/new")
 
+    def test_infer_takes_the_added_variant_its_note_calls_selected(self):
+        # A new file's first variant was its closed row, which showed nothing of the cards it added (2026-11-09).
+        cases = [self.case("a.b", "closed"), self.case("a.b", "cards")]
+        files = {"c": 'variants: {\n  closed: {},\n  cards: {},\n}\n'}
+        row = {"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"}
+        # The notes come from the entries (notes.ts), so a note anywhere in a variant counts, and a nested prop's never.
+        notes = {"a.b": {"closed": "Closed, one row.", "cards": "Selected: opened."}}
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set(), notes),
+                         "a.b/cards")
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set()), "a.b/closed")
+
     def test_infer_takes_the_variant_whose_lines_the_commit_changed_most(self):
         cases = [self.case("a.b", v) for v in ("first", "picked", "picked-solid")]
         text = "variants: {\n  first: {\n    x: 1,\n  },\n  picked: {\n    x: 2,\n    y: 3,\n  },\n  \"picked-solid\": {},\n}\n"
@@ -504,29 +515,29 @@ class GalleryRenderPlanTests(unittest.TestCase):
         # Without --parent, the befores rendered there are left out.
         self.assertEqual([c["id"] for c in self.tool.manifest(rows, at_parent)[0]], ["h--after"])
 
-    GALLERY = ('variants: {\n  "notes-sections": {\n    note: "Picked and shipped",\n  },\n'
-               '  "notes-sections-light": {\n    note: "Light",\n  },\n  "notes-flat": {\n'
-               '    note: "Before: one flat list",\n  },\n  "card-button": {\n    note: \'Before (the old card)\',\n  },\n'
-               '  "card-solid": {},\n}\n')
+    NOTES = {"a.b": {"notes-sections": "Picked and shipped", "notes-sections-light": "Light",
+                     "notes-flat": "Before: one flat list", "card-button": "Before (the old card)"}}
+    GALLERY = ('variants: {\n  "notes-sections": {},\n  "notes-sections-light": {},\n  "notes-flat": {},\n'
+               '  "card-button": {},\n  "card-solid": {},\n}\n')
 
     def test_a_before_is_the_old_look_its_entry_marks_rendered_beside_the_after(self):
         cases = [self.case("a.b", v) for v in ("notes-sections", "notes-sections-light", "notes-flat", "card-button", "card-solid")]
         # The note-marked variant sharing the longest name prefix wins over other marked ones.
-        self.assertEqual(self.tool.marked_before("a.b/notes-sections", cases, self.GALLERY), "a.b/notes-flat")
-        self.assertEqual(self.tool.marked_before("a.b/card", cases, self.GALLERY), "a.b/card-button")
+        self.assertEqual(self.tool.marked_before("a.b/notes-sections", cases, self.NOTES), "a.b/notes-flat")
+        self.assertEqual(self.tool.marked_before("a.b/card", cases, self.NOTES), "a.b/card-button")
         # A name in OLD_LOOK's words counts when no note says Before.
         self.assertEqual(self.tool.marked_before("a.b/card", [self.case("a.b", v) for v in ("card", "card-solid")],
-                                                 "variants: {\n  card: {},\n  \"card-solid\": {},\n}\n"), "a.b/card-solid")
-        self.assertIsNone(self.tool.marked_before("a.b/x", [self.case("a.b", "x"), self.case("a.b", "y")], "x: {}\ny: {}\n"))
+                                                 {}), "a.b/card-solid")
+        self.assertIsNone(self.tool.marked_before("a.b/x", [self.case("a.b", "x"), self.case("a.b", "y")], {}))
         # Another surface's old look is not this one's, and "Before/after" is a name, not a mark.
-        self.assertIsNone(self.tool.marked_before("a.b/popover-compact", cases, self.GALLERY))
-        other = 'variants: {\n  "compare-slider": {},\n  "compare-side": {\n    note: "Before/after variant B",\n  },\n}\n'
+        self.assertIsNone(self.tool.marked_before("a.b/popover-compact", cases, self.NOTES))
+        other = {"a.b": {"compare-side": "Before/after variant B"}}
         self.assertIsNone(self.tool.marked_before("a.b/compare-slider",
                                                   [self.case("a.b", "compare-slider"), self.case("a.b", "compare-side")], other))
         rows = [{"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"},
                 {"id": "h", "role": "before", "sources": ["src/a.gallery.tsx"], "commit": "c", "parent": "p"}]
         files = {"c^": "variants: {\n}\n", "c": self.GALLERY}
-        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), lambda state, cases: self.GALLERY)
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), self.NOTES)
         self.assertEqual(missing, [])
         self.assertEqual([(r["role"], r["state"], r.get("parent")) for r in out],
                          [("after", "a.b/notes-sections", None), ("before", "a.b/notes-flat", None)])
@@ -536,8 +547,21 @@ class GalleryRenderPlanTests(unittest.TestCase):
     def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
         rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
-        out, _ = self.tool.resolve(rows, cases, source_text=lambda state, cases: "x: {}\ny: {}\n")
-        self.assertEqual((out[0]["state"], out[0]["parent"]), ("a.b/x", "p"))
+        files = {("p", "webviews/src/a.gallery.tsx"): "x: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get((rev, path)), {})
+        self.assertEqual((out[0]["state"], out[0]["parent"], missing), ("a.b/x", "p", []))
+
+    def test_a_before_whose_state_its_commit_added_is_named_not_rendered_at_the_parent(self):
+        # agent-file-result-cards added its gallery file: at the parent there was nothing to render (2026-11-09).
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40}]
+        for at_parent in (None, "y: {}\n"):
+            with self.subTest(at_parent=at_parent):
+                out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent, {})
+                self.assertEqual(out, [])
+                self.assertEqual(len(missing), 1)
+                self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
+                self.assertIn('"Before:"', missing[0])
 
     def test_parents_come_newest_highlight_first(self):
         import json

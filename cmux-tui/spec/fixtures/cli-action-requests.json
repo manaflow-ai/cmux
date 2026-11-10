@@ -2474,17 +2474,6 @@
     },
     {
       "params": {
-        "action": "cloud tunnel-rotate-key",
-        "args": {
-          "publicKey": "/tmp/contract"
-        },
-        "cli": true,
-        "wait": true
-      },
-      "source": "cmux cloud tunnel-rotate-key --public-key /tmp/contract"
-    },
-    {
-      "params": {
         "action": "cloud firewall-get",
         "args": {
           "path": "/tmp/contract"

@@ -198,8 +198,9 @@ export function waveProgress(shape: WaveShape, index: number, focus: number, amp
 /// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
 /// smooth wave and a flick never jumps.
 export const WAVE_FOLLOW_MS = 30;
-/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
-/// of progress over its duration: the wave grows in on it when the pointer arrives.
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`) as points of progress over its
+/// duration: the wave grows in on it when the pointer arrives. It reaches full size at 58.75% and
+/// stays there: no point is over 1 (Lawrence: no bounce in any motion).
 const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
   [0.1, 0.398],
@@ -207,9 +208,7 @@ const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0.3, 0.843],
   [0.4, 0.925],
   [0.5, 0.972],
-  [0.6, 1.004],
-  [0.7, 1.008],
-  [0.8, 1.003],
+  [0.5875, 1],
   [1, 1],
 ];
 export const WAVE_IN_MS = MOTION_MS.micro;
@@ -445,6 +444,24 @@ export function railFades(
     bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
   };
 }
+
+/// How deep each edge fade of the list draws, 0 to 1 of its full size: none at the very end, growing
+/// with how far the list has scrolled from that end until it is full RAIL_FADE_RAMP fades on, so the
+/// rows roll under the edge like a wheel turning (Leo, 2026-11-07: "if you scroll to the very top, there
+/// should be no fade. But then as you scroll down, like gradually, there's more and more of a fade on
+/// the top edges" and, from the bottom, "the bottom should gradually have that same kind of fade").
+export const RAIL_FADE_RAMP = 2;
+export function railFadeReach(count: number, height: number, top: number, pitch = ROW_PITCH) {
+  const ramp = Math.max(1, railFade(height) * RAIL_FADE_RAMP);
+  const reach = (distance: number) => Math.max(0, Math.min(1, distance / ramp));
+  return { top: reach(top), bottom: reach(count * pitch - top - height) };
+}
+
+/// The transcript's edge fades (conversation.css `--acpmux-fade-*-reach`) the same way: none at either
+/// end of the chat, full once the view is TRANSCRIPT_FADE_RAMP px from it.
+export const TRANSCRIPT_FADE_RAMP = 96;
+export const transcriptFadeReach = (distance: number) =>
+  Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
 
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
@@ -1095,6 +1112,34 @@ export function foldIncoming(
   }
   for (; at < turns.length; at += 1) folded.push(turns[at]!);
   return { turns: folded, ticks: runs.ticks };
+}
+
+/// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
+/// right-click the left scroll rail, you should be able to ... filter out the other agent messages to
+/// only your own, or filtering out your own to only the agent messages"): every prompt, the person's
+/// own, or only other agents' messages (a tick with a sender, promptSender).
+export type RailFilter = "all" | "mine" | "agents";
+
+/// The turns and ticks a filter keeps, in order, and where the loaded ones now start (`loadedStart`
+/// counts the earlier, indexed turns kept before it). Pending ticks are not here: they have no sender
+/// yet, so a filtered rail draws none (ThreadMinimap).
+export function filterTurns(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  filter: RailFilter,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (filter === "all") return { turns, ticks, loadedStart };
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < ticks.length; at += 1) {
+    if ((ticks[at]!.from !== undefined) !== (filter === "agents")) continue;
+    if (at < loadedStart) start += 1;
+    keptTurns.push(turns[at]!);
+    keptTicks.push(ticks[at]!);
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
 }
 
 const runsByTicks = new WeakMap<
