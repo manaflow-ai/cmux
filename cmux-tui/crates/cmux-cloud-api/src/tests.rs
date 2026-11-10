@@ -1881,7 +1881,9 @@ mod turn_checkpoints {
         // A 429 whose window is only in its Retry-After header waits that window, not the default.
         let header_only = turns::refusal_with(
             429,
-            Some(&json!({ "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "retryable": true })),
+            Some(
+                &json!({ "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "retryable": true }),
+            ),
             Some("120"),
         );
         assert_eq!(turns::wait(&header_only, fast()), Duration::from_secs(120));

@@ -202,7 +202,7 @@ async fn call_query(
         .await?;
     let object = reply.json();
     if !reply.ok() {
-        return Err(refusal(reply.status, object.as_ref()));
+        return Err(refusal_with(reply.status, object.as_ref(), reply.retry_after.as_deref()));
     }
     match object {
         Some(Value::Object(mut o)) if o.get("ok") == Some(&Value::Bool(true)) => {
@@ -216,6 +216,15 @@ async fn call_query(
 /// The platform's refusal: `{_tag, code, message, retryable, retryAfterSeconds}` or
 /// `{error: {code, message}}`.
 pub(crate) fn refusal(status: u16, body: Option<&Value>) -> Failure {
+    refusal_with(status, body, None)
+}
+
+/// [`refusal`] with the answer's Retry-After header, a rate limit's window when the body names none.
+pub(crate) fn refusal_with(
+    status: u16,
+    body: Option<&Value>,
+    retry_after: Option<&str>,
+) -> Failure {
     let nested = body.and_then(|b| b.get("error")).filter(|e| e.is_object());
     let read = |name: &str| {
         body.and_then(|b| b.get(name))
@@ -223,7 +232,7 @@ pub(crate) fn refusal(status: u16, body: Option<&Value>) -> Failure {
             .or_else(|| nested.and_then(|e| e.get(name)).and_then(Value::as_str))
             .map(str::to_owned)
     };
-    let facts = refusals::Facts::read(body, None);
+    let facts = refusals::Facts::read(body, retry_after);
     match Failure::http(status, read("code"), read("message")) {
         Failure::Http { status, code, message, action, trace_id, .. } => Failure::Http {
             status,

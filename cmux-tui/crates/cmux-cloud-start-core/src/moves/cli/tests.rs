@@ -55,7 +55,10 @@ fn a_refused_start_keeps_whether_it_may_be_retried() {
     let busy = encoded(
         r#"{"ok":false,"error_code":"cloud.machine.busy","error":"e","handling":"retry","retryable":true}"#,
     );
-    assert_eq!((busy["retryable"].clone(), busy["retryAfterS"].clone()), (json!(true), Value::Null));
+    assert_eq!(
+        (busy["retryable"].clone(), busy["retryAfterS"].clone()),
+        (json!(true), Value::Null)
+    );
     let capped = encoded(
         r#"{"ok":false,"error_code":"cloud.quota.vm_limit","error":"e","handling":"final","retryable":false}"#,
     );

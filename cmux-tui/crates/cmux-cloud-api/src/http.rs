@@ -136,6 +136,8 @@ pub(crate) struct Reply {
     pub(crate) status: u16,
     /// `x-cmux-vm-error`, classic's code header.
     pub(crate) header_code: Option<String>,
+    /// `Retry-After`: a rate limit's window, in seconds.
+    pub(crate) retry_after: Option<String>,
     pub(crate) body: Vec<u8>,
 }
 
@@ -251,6 +253,11 @@ impl Http {
             .get("x-cmux-vm-error")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
         let body =
             match tokio::time::timeout(timeout, bounded_body(response, crate::MAX_ANSWER_BYTES))
                 .await
@@ -267,7 +274,7 @@ impl Http {
                 }
                 Ok(Ok(bytes)) => bytes,
             };
-        Ok(Reply { status, header_code, body })
+        Ok(Reply { status, header_code, retry_after, body })
     }
 
     /// A classic call (`/api/runs`): a 2xx body as JSON (`null` when it has none),
