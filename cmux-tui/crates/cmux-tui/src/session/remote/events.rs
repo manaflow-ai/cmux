@@ -452,11 +452,19 @@ impl RemoteSession {
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
                     if let Some(title) = value.get("title").and_then(Value::as_str) {
-                        let updated = self.tree.lock().unwrap().update_title(id, title.to_string());
+                        // The cache keeps what the tab shows (D2): a raw title
+                        // would bring back a spinner frame on the next tree read.
+                        let shown = remote_shown_title(title, &value);
+                        let updated =
+                            self.tree.lock().unwrap().update_title(id, shown.text.to_string());
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
-                        self.emit(remote_title_event(id, title, &value));
+                        self.emit(MuxEvent::TitleChanged {
+                            surface: id,
+                            title: title.into(),
+                            shown,
+                        });
                     } else if self.invalidate_tree_once() {
                         self.emit(MuxEvent::TreeChanged);
                     }
@@ -715,18 +723,16 @@ impl RemoteSession {
     }
 }
 
-/// A remote daemon's `title-changed` as a local event: its `text` and
-/// `activity` when it sends them (D2), else the terminal rule over `title`
-/// (a daemon from before them).
-fn remote_title_event(surface: SurfaceId, title: &str, value: &Value) -> MuxEvent {
-    let title = Arc::<str>::from(title);
+/// What a remote daemon's `title-changed` shows: its `text` and `activity`
+/// when it sends them (D2), else the terminal rule over `title` (a daemon
+/// from before them).
+fn remote_shown_title(title: &str, value: &Value) -> cmux_tui_core::TabTitle {
     let Some(text) = value.get("text").and_then(Value::as_str) else {
-        return MuxEvent::terminal_title(surface, title);
+        return cmux_tui_core::TabTitle::terminal(title);
     };
     let activity = value
         .get("activity")
         .and_then(Value::as_str)
         .and_then(cmux_tui_core::TitleActivity::from_wire);
-    let shown = cmux_tui_core::TabTitle { text: Arc::from(text), activity };
-    MuxEvent::TitleChanged { surface, title, shown }
+    cmux_tui_core::TabTitle { text: Arc::from(text), activity }
 }
