@@ -94,6 +94,17 @@ test("a stall only counts while nothing waits on the person, and only for its ow
   expect(cloudStartStalled(asking, "k-1")).toBe(asking);
 });
 
+test("a start that stalls while its chat opens unlocks the composer too", () => {
+  const opening = cloudStartPushed(begun(), { key: "k-1", step: "opening", machine: "paint-dev" });
+  expect(cloudStartLocksComposer(opening)).toBe(true);
+  expect(cloudStartLocksComposer(cloudStartStalled(opening, "k-1"))).toBe(false);
+});
+
+test("the stalled card says plainly, before any typing, that a late success loses what is typed", () => {
+  const markup = renderToStaticMarkup(<CloudStartView start={{ ...begun(), step: "machine", stalled: true }} bubble />);
+  expect(markup).toContain("what you type here is lost");
+});
+
 test("a stalled start keeps the composer open as its steps still move, and ends as usual", () => {
   const stalled = cloudStartStalled(begun(), "k-1");
   const pushed = cloudStartPushed(stalled, { key: "k-1", step: "folder", machine: "paint-dev" });
