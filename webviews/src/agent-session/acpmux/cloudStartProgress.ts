@@ -69,6 +69,10 @@ export type CloudStartProgress = {
   /// This Mac's pane refused the start before it reached Cloud (a `transport.*` code: a folder that
   /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
   refusedHere?: boolean;
+  /// The host has said nothing about this start for CLOUD_START_STALL_MS (no push, no answer) while
+  /// nothing waits on the person: the card says so and the composer takes input again
+  /// (cloudStartLocksComposer). It holds until the start ends, so the composer is never locked again.
+  stalled?: true;
 };
 
 /// What a start asks (AgentPaneCloudAsk): its first Claude login, the one-time login copy consent, Codex's
@@ -208,6 +212,8 @@ export function cloudStartPushed(
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
+  // A stalled start stays stalled until it ends: the composer it gave back is never taken away
+  // again mid-typing; the steps still move.
   const next = { ...current };
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
@@ -424,7 +430,7 @@ export function cloudStartEnded(
   }
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, ...ended } = current;
+  const { signingIn: _signingIn, ask: _ask, stalled: _stalled, ...ended } = current;
   return {
     ...ended,
     state: "failed",
@@ -485,3 +491,49 @@ const REFUSED_HERE = new Set([
   "cloud_folder_home",
   "cloud_folder_secret",
 ]);
+
+/// How long a start may go with no word from the host (no progress push, no answer) before the card
+/// says it stalled and the composer takes input again. Nothing on the host bounds a whole start
+/// (CloudStartChat `reply`: a Codex sign-in broker, the approvals prep and a tab open's hand-off wait
+/// have no deadline, and each CLI step may take 30 minutes), so without this a start that never
+/// answers locked the composer for good (Leo, 2026-11-09: "I can't click into the composer at all").
+/// A folder copy pushes about 4 lines a second; a new machine's boot says nothing for up to its 180 s
+/// link wait (CloudStartSession.connectWait) after its create, so this is longer than that.
+export const CLOUD_START_STALL_MS = 5 * 60_000;
+
+/// The composer takes no input while a start is out (on success the host closes this tab with only
+/// the sent prompt), unless the start stalled: then it is the person's again.
+export function cloudStartLocksComposer(start: CloudStartProgress | undefined): boolean {
+  return start?.state === "starting" && start.stalled !== true;
+}
+
+/// Start `key` had no word from the host for CLOUD_START_STALL_MS: stalled, unless it waits on the
+/// person (a question in the card, a browser sign-in), already ended, or is another start.
+export function cloudStartStalled(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (!current || current.key !== key || !cloudStartMayStall(current)) return current;
+  return { ...current, stalled: true };
+}
+
+/// Whether `start` is out with nothing waiting on the person, so silence from the host counts.
+function cloudStartMayStall(start: CloudStartProgress): boolean {
+  return start.state === "starting" && !start.stalled && !start.ask && !start.signingIn;
+}
+
+/// Arms the stall timer for `start` as it is now: `stall(key)` runs once after `ms` with no newer
+/// state (each push makes a new `start`, and the caller disarms the old timer). Returns the disarm.
+export function watchCloudStartStall(
+  start: CloudStartProgress | undefined,
+  stall: (key: string) => void,
+  ms: number = CLOUD_START_STALL_MS,
+  schedule: (run: () => void, ms: number) => () => void = (run, after) => {
+    const timer = setTimeout(run, after);
+    return () => clearTimeout(timer);
+  },
+): () => void {
+  if (!start || !cloudStartMayStall(start)) return () => undefined;
+  const key = start.key;
+  return schedule(() => stall(key), ms);
+}
