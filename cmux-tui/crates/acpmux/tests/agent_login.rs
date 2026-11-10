@@ -366,7 +366,10 @@ async fn gemini_and_grok_login_over_the_wire() {
     );
     let settings: Value =
         serde_json::from_slice(&std::fs::read(gemini.join("settings.json")).unwrap()).unwrap();
-    assert_eq!(settings, json!({"theme": "Dracula", "security": {"auth": {"selectedType": "gemini-api-key"}}}));
+    assert_eq!(
+        settings,
+        json!({"theme": "Dracula", "security": {"auth": {"selectedType": "gemini-api-key"}}})
+    );
     let e = c
         .call(method::MUX_AGENT_LOGIN_API_KEY, json!({"agent": "gemini", "key": "bad key"}))
         .await

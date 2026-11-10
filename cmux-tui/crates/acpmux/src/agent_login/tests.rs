@@ -453,7 +453,10 @@ fn gemini_key_merges_into_dotenv_and_settings() {
     .unwrap();
     merge_gemini_api_key(&store, "AIzaSyTest-key_1.2").unwrap();
     let env = std::fs::read_to_string(store.join(".env")).unwrap();
-    assert_eq!(env, "# mine\nGOOGLE_CLOUD_PROJECT=p1\nOTHER=x\nGEMINI_API_KEY=AIzaSyTest-key_1.2\n");
+    assert_eq!(
+        env,
+        "# mine\nGOOGLE_CLOUD_PROJECT=p1\nOTHER=x\nGEMINI_API_KEY=AIzaSyTest-key_1.2\n"
+    );
     let v: Value =
         serde_json::from_slice(&std::fs::read(store.join("settings.json")).unwrap()).unwrap();
     assert_eq!(v["theme"], "Dracula");

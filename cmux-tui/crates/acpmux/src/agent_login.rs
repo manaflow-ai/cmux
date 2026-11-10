@@ -128,7 +128,8 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
 
 /// The account-home variables pinned on the CLI's command (`Cli::command`), so it
 /// signs in where [`Cli::store`] looks.
-pub const HOME_ENV: &[&str] = &["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "GROK_HOME"];
+pub const HOME_ENV: &[&str] =
+    &["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "GROK_HOME"];
 
 /// `error.data.reason` values.
 pub mod reason {
@@ -490,9 +491,10 @@ pub fn merge_gemini_api_key(store: &Path, key: &str) -> Result<(), String> {
     auth.insert("selectedType".into(), Value::String("gemini-api-key".into()));
     let env_path = store.join(".env");
     let old = match std::fs::read(&env_path) {
-        Ok(bytes) => Zeroizing::new(String::from_utf8(bytes).map_err(|_| {
-            format!("{} is not text; fix it or remove it", env_path.display())
-        })?),
+        Ok(bytes) => Zeroizing::new(
+            String::from_utf8(bytes)
+                .map_err(|_| format!("{} is not text; fix it or remove it", env_path.display()))?,
+        ),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Zeroizing::new(String::new()),
         Err(e) => return Err(format!("read {}: {e}", env_path.display())),
     };
