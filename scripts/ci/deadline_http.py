@@ -101,7 +101,7 @@ def _timed_out(what: str, deadline: Deadline, stall: float | None, stalled: bool
 
 def _resolve(host: str, port: int, deadline: Deadline) -> list:
     """socket.getaddrinfo for HOST, waited on for the time left on DEADLINE (see the module docstring)."""
-    left = deadline.left(f"resolving {host}")
+    deadline.left(f"resolving {host}")  # no lookup starts once nothing is left
     found: dict[str, object] = {}
 
     def lookup() -> None:
@@ -113,7 +113,8 @@ def _resolve(host: str, port: int, deadline: Deadline) -> list:
 
     thread = threading.Thread(target=lookup, name="deadline-http-resolve", daemon=True)
     thread.start()
-    thread.join(left)
+    # The time left is read here, at the wait: a thread that was slow to start has spent part of it.
+    thread.join(max(deadline.at - deadline.clock(), 0))
     if thread.is_alive():
         raise RequestTimeout(f"resolving {host}: past the {deadline.seconds:g} s deadline")
     if "error" in found:
@@ -129,14 +130,19 @@ def _connect(address: tuple[str, int], deadline: Deadline, source_address=None,
     infos = _resolve(host, port, deadline)
     error: OSError | None = None
     for family, kind, proto, _, sockaddr in infos:
-        wait, stalled = _wait(deadline, stall, f"connecting to {host}")
         sock = socket.socket(family, kind, proto)
+        stalled = False
         try:
-            sock.settimeout(wait)
             if source_address:
                 sock.bind(source_address)
+            # The time left is read at the connect, after the socket's setup.
+            wait, stalled = _wait(deadline, stall, f"connecting to {host}")
+            sock.settimeout(wait)
             sock.connect(sockaddr)
             return sock
+        except RequestTimeout:
+            sock.close()
+            raise
         except _SOCKET_TIMEOUT:
             sock.close()
             raise _timed_out(f"connecting to {host}", deadline, stall, stalled) from None
