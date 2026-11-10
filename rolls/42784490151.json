@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42784490151",
+  "recorded_at": "2026-11-10T08:50:44Z",
+  "reason": "cmux-tui 532765637228 changes the image's cmux-tui (pinned 496e55ec4451)",
+  "dry_run": false,
+  "cmux_tui": "5327656372287d5b93a0f3f430e6949bbc1ba7e1",
+  "fixes": [
+    {
+      "sha": "5327656372287d5b93a0f3f430e6949bbc1ba7e1",
+      "mergedAt": "2026-11-10T08:25:27Z",
+      "subject": "chore(next): base autofix at 0a06a3c2af1e"
+    },
+    {
+      "sha": "0a06a3c2af1e6b3c49d7b1f6aa0155d758aefa3a",
+      "mergedAt": "2026-11-10T00:22:59-08:00",
+      "subject": "Cloud start and app calls: a slow path waits for its deadline, not a fixed count of tries (#40147)"
+    },
+    {
+      "sha": "340af88530b814adda56fc5e7c6743934867852c",
+      "mergedAt": "2026-11-10T00:19:10-08:00",
+      "subject": "cmux NEXT bookmarks: the bookmarks bar in React, one page per bar on screen (#38525)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T08:50:44Z",
+    "snapshot_id": "sh-cf731122abea4ec3a3201c7ecc73c042",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42784490151): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "84b98af2c8572f7caa7e84d01f2fb1e38b27f07b",
+    "image": "cloud-native-auto-53276563-42784490151-1",
+    "revision": "ci-42784490151-1",
+    "at": "2026-11-10T08:50:44Z"
+  },
+  "rolled_back": false
+}
