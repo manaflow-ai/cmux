@@ -257,6 +257,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           merge=$(git rev-parse HEAD)
@@ -265,7 +266,15 @@ jobs:
             [ "$(git rev-parse HEAD^2)" = "$PR_HEAD" ] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again"; exit 1; }
             head=$PR_HEAD
             base=$(git rev-parse HEAD^1)
+          elif [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            # A push is judged against the tip it replaced (the event's `before`): a state red there
+            # too was red before this push and is a warning here; only a state this push turned red
+            # fails it, so the red names the push that caused it.
+            head=$merge
+            base=$BEFORE
           else
+            # The nightly dispatch, or a new branch tip with no previous commit: no base, so every
+            # red state fails. The dispatch's full render is what keeps an old red from hiding.
             head=$merge
             base=
           fi
@@ -362,11 +371,12 @@ jobs:
             --output-dir "$RUNNER_TEMP/health" --shard-count 8 --shard-index "$SHARD"
 
       # The rulebook's base reds are warnings: each red state of a pull request is rendered again on
-      # the base it merged with (the merge's first parent), by the same checker, budgets and
-      # allowlist, and scripts/ci/test_reds.py (the one per-test classifier) compares them state by
-      # state. A state red the same way on the base is a warning; any other red state, a crashed
-      # render, a health.json that is missing or cut short, a base render that gives no whole
-      # result, and any red on a push (it has no base to compare with) fail the check.
+      # the base it merged with (the merge's first parent), and each red state of a push on the tip
+      # that push replaced (`before`), by the same checker, budgets and allowlist, and
+      # scripts/ci/test_reds.py (the one per-test classifier) compares them state by state. A state
+      # red the same way on the base is a warning; any other red state, a crashed render, a
+      # health.json that is missing or cut short, a base render that gives no whole result, and any
+      # red on the nightly dispatch (it has no base to compare with) fail the check.
       # It replays only the red states, never their whole entries: replaying entries re-rendered
       # 1,308 cases for one shard's ~40 red states (manifest --entries also matches by prefix, so
       # agent-pane.composer pulled in every agent-pane.composer-* entry), ran past the job's
@@ -385,8 +395,8 @@ jobs:
           classify="$RUNNER_TEMP/test_reds.py"
           cp scripts/ci/test_reds.py "$classify"
           head="$RUNNER_TEMP/health/health.json"
-          if [ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]; then
-            echo "::error::gallery health is red on this $EVENT, which has no base to compare with"
+          if [ -z "$BASE_SHA" ]; then
+            echo "::error::gallery health is red on this $EVENT, which has no base to compare with: every red state fails it"
             exit 1
           fi
           rc=0
