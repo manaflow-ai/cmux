@@ -687,6 +687,14 @@ if log:
     Path(log).open("a", encoding="utf-8").write(json.dumps(sys.argv[1:]) + "\\n")
 
 args = sys.argv[1:]
+if "--help" in args:
+    # asc 5 names the build selector --build-id; the Homebrew asc 2.x bottle
+    # that CI runners install still names it --build.
+    flag = os.environ.get("CMUX_FAKE_ASC_BUILD_FLAG", "--build-id")
+    print("FLAGS")
+    print(f"  {flag:<14} Build ID to attach")
+    sys.exit(0)
+
 if args[:2] == ["apps", "view"]:
     app_id = args[args.index("--id") + 1]
     print(json.dumps({
@@ -1725,7 +1733,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         None,
     )
     attach_build_call = next(
-        (call for call in asc_calls if call[:2] == ["versions", "attach-build"]),
+        (call for call in asc_calls if call[:2] == ["versions", "attach-build"] and "--help" not in call),
         None,
     )
     validate_call = next(
@@ -1764,13 +1772,36 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         _check(False, "submission state is prepared before canonical readiness validation")
 
 
-def test_validate_appstore_release_uses_asc5_build_flags() -> None:
-    script = (ROOT / "ios" / "scripts" / "validate-app-store-release.sh").read_text(encoding="utf-8")
-    # asc 5.0 removed --build from attach-build, release stage and review submit.
-    _check(
-        '--build "$BUILD_ID"' not in script,
-        "App Store validation helper passes --build-id, which asc 5 requires",
-    )
+def test_validate_appstore_release_matches_installed_asc_build_flag(tmp: Path, fakebin: Path) -> None:
+    """CI installs the Homebrew asc bottle (2.x, `--build`); local asc 5 uses `--build-id`."""
+    for flag in ("--build-id", "--build"):
+        run_tmp = tmp / flag.strip("-")
+        env = _base_env(run_tmp, fakebin)
+        env["ASC_APP_ID"] = ASC_APP_ID
+        env["CMUX_FAKE_ASC_BUILD_FLAG"] = flag
+        result = _run(
+            [
+                "bash",
+                str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+                "--build-id",
+                ASC_BUILD_ID,
+                "--prepare-submission",
+            ],
+            env=env,
+            tmp=run_tmp,
+            log_failure=False,
+        )
+        _check(result.returncode == 0, f"validation helper runs with an asc that names the build flag {flag}")
+        asc_log = run_tmp / "asc.jsonl"
+        calls = [json.loads(line) for line in asc_log.read_text(encoding="utf-8").splitlines()] if asc_log.exists() else []
+        attach = next(
+            (c for c in calls if c[:2] == ["versions", "attach-build"] and "--help" not in c),
+            None,
+        )
+        _check(
+            attach is not None and flag in attach and ASC_BUILD_ID == attach[attach.index(flag) + 1],
+            f"attach-build passes the build with {flag} when the installed asc names it so",
+        )
 
 
 def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
@@ -2026,7 +2057,9 @@ def main() -> None:
         test_bootstrap_appstore_availability_creates_all_territories_once(
             tmp / "availability-bootstrap-test"
         )
-        test_validate_appstore_release_uses_asc5_build_flags()
+        test_validate_appstore_release_matches_installed_asc_build_flag(
+            tmp / "validate-build-flag-test", fakebin
+        )
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

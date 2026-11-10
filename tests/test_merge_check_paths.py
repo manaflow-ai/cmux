@@ -32,10 +32,16 @@ def status(base, state="success", at="2026-10-21T13:00:00Z"):
 
 
 class FakeApi:
-    def __init__(self, statuses, tips=(TIP,), compares=None, check_paths=CHECK_PATHS, run_ids=True):
+    def __init__(self, statuses, tips=(TIP,), compares=None, check_paths=CHECK_PATHS, run_ids=True,
+                 mergeables=("MERGEABLE",)):
         self.statuses, self.tips, self.compares, self.text = list(statuses), list(tips), compares or {}, check_paths
-        self.run_ids = run_ids
+        self.run_ids, self.mergeables, self.mergeable_reads = run_ids, list(mergeables), 0
         self.dispatched, self.reads = [], 0
+
+    def mergeable(self, number):
+        """GitHub's mergeable state at the 1st, 2nd... read (the last one repeats)."""
+        self.mergeable_reads += 1
+        return self.mergeables[min(self.mergeable_reads, len(self.mergeables)) - 1]
 
     def check_paths(self, branch):
         if isinstance(self.text, Exception):
@@ -370,6 +376,42 @@ class CheckPathGate(unittest.TestCase):
                                                   "the current tip"):
             run(api)
         self.assertEqual(len(api.dispatched), 1)
+
+    # 2026-11-09: the #39027 try dispatched the fast gates, then gh pr merge refused for a conflict.
+    def test_a_conflicting_pr_dispatches_nothing(self):
+        landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        api = FakeApi([status(OLD)], compares=landed, mergeables=("CONFLICTING",))
+        with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
+            run(api)
+        self.assertEqual(api.dispatched, [])
+
+    def test_a_pr_that_turns_conflicting_before_a_rerun_is_not_rerun(self):
+        api = MovingTipApi(moves=1)
+        api.mergeables = ["MERGEABLE", "CONFLICTING"]
+        with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
+            run(api)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_an_unknown_mergeable_state_goes_on_at_once_with_no_re_read(self):
+        # UNKNOWN is no evidence of a conflict, and the gate never polls for it: one read per dispatch, no wait
+        # before the dispatch (the 40s are the run's own two polls).
+        landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        api = FakeApi([status(OLD), status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], compares=landed,
+                      mergeables=("UNKNOWN",))
+        (checked, waited), err = run(api)
+        self.assertEqual(checked, "check paths (fast gates rerun on the current tip)")
+        self.assertEqual(api.mergeable_reads, 1)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(waited, 40)
+        self.assertIn("still computing", err)
+
+    def test_an_unknown_state_that_turns_conflicting_refuses_before_the_rerun(self):
+        api = MovingTipApi(moves=1)
+        api.mergeables = ["UNKNOWN", "CONFLICTING"]
+        with self.assertRaisesRegex(gate.Refused, "conflicting: rebase"):
+            run(api)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(api.mergeable_reads, 2)
 
     # Review of #39764 at af898c35 (comment 6750889962): without return_run_details=true GitHub answers the dispatch
     # 204 with no body, so no run id, and every gate that needs a run refused after spending one Linux run.
