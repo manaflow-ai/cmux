@@ -58,7 +58,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       // As the daemon does: the newest `limit` events within `maxBytes` (daemonPage.ts).
       const { page, hasMore } = newestPage(chat.events, {
         limit: Number(params.limit ?? 400),
-        maxBytes: params.maxBytes === undefined ? undefined : Number(params.maxBytes),
+        maxBytes: params.maxBytes,
       });
       return { session: chat.session, lastSeq, events: page, hasMore };
     }

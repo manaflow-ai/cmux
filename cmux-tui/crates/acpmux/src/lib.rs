@@ -186,6 +186,8 @@ pub(crate) mod ssh_forward;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
+#[cfg(test)]
+mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;

@@ -268,24 +268,41 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 ## Load arm `oversub` (`busy_holder.py`)
 
 A developer's Mac can run all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads
-per core (agents, node, cargo), all at the default priority. A bench "load" arm with a host load under 15 is a
+per core (agents, node, cargo); a read of one gave 97 % of them below the default priority 31 (at 20 and at 4), from
+processes that also sleep on I/O. A bench "load" arm with a host load under 15 is a
 quiet machine next to that. `busy_holder.py` is the one busy loop of the bench owners: N CPU-bound threads at the
-default priority and QoS beside the app under test, for a short time.
+default priority and QoS beside the app under test, for a short time (shape `spin`), or N processes at utility and
+background QoS that burst, do I/O and sleep (shape `agents`).
 
 ```
 BH="/usr/bin/python3 scripts/perf-bench/busy_holder.py"
 PID=$($BH start --owner <task> --watch-pid $$ --threads 250 --procs 250 --max-seconds 120)   # prints the PID
+PID=$($BH start --owner <task> --watch-pid $$ --threads 320 --shape agents --max-seconds 120) # the other shape
 $BH status $PID      # threads, running, priority, CPU, load
 $BH stop $PID        # the summary: threads, processes, cores, threads per core, load at start and end
 $BH cooldown --below 8 --max-seconds 300 && $BH status    # inside the same hold; must print `live 0`
 $BH probe --label quiet    # the scheduling delay one thread of each QoS class gets (run quiet and under start)
-$BH selftest               # the safety rules with 4 threads for at most 10 s each
+$BH selftest               # the safety rules with 4 to 6 threads for at most 10 s each
 ```
 
 - `--procs 1` is one process with N threads; `--procs N` is N processes. macOS shares the cores between
   processes' thread groups first, so the two are different loads; a real Mac has many processes. Write the shape
   next to each number: threads, processes, cores, threads per core, the 1-minute load at the start and the end.
-- It is run-queue pressure only: no disk I/O, no memory pressure, no process churn, no GPU work.
+- `--shape spin` (default) is run-queue pressure only: threads that never sleep, no disk I/O, no process starts.
+  They start at the default priority 31 and the kernel lowers them: `ps -M` shows them at 0 to 24 during the arm.
+  A thread of the app that sleeps most of the time and wakes at 31 or more runs at once beside them; a thing that
+  needs the CPU for a long time at 31 or less (a CLI call that starts a process for each key) takes seconds.
+- `--shape agents` is N processes with one thread each, like a Mac full of agent CLIs and their helpers: two of
+  three at utility QoS (priority 20), one of three at background (4); each repeats a CPU burst of 2 to 24 ms, one
+  I/O step (write 64 KiB with an fsync each 8th turn, lstat 200 system files, start `/usr/bin/true` and wait for
+  it, read the 64 KiB back) and a sleep of 0 to 20 ms. Its files are in the tool's private state folder and are
+  removed at the end (after a hard kill of the supervisor: by `stop PID`). Each one is a new process, not a fork: macOS refuses the QoS class call in a forked child
+  (it stays at 31), and a process that does not get its class ends the holder with an error. Read the priorities
+  in the arm (`ps -M`, or the `selftest` on the bench host inside your hold) before you trust a row.
+  Say the shape next to each number; a row made with one shape does not pair with the other.
+- Neither shape copies memory pressure, page cache traffic of large files, GPU work or network.
+- Time each row with the app's own clock (or the frame on the display), not with the wall time of the call that
+  sends the input: under this load the call itself can take seconds while the app answers in one frame.
 - Safety, enforced by the tool: it ends itself after `--max-seconds` (default 240, hard limit 600); it ends when
   the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
   the first word of `~/perf-lead/gui.lock/owner` is `--owner` (a bench host inside the caller's own GUI lock hold; never a
@@ -308,7 +325,8 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
-- `busy_holder.py`: the load arm `oversub` (N busy threads at the default priority, with hard self-limits).
+- `busy_holder.py`: the load arm `oversub` (shape `spin`: N busy threads that start at the default priority; shape
+  `agents`: N processes at utility and background QoS that burst, do I/O and sleep; hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.
 
 ## The shared `real` session (`session_real.py`)
@@ -344,18 +362,65 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
 - `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
 - Only a tagged DEV build: each command refuses a daemon whose session is not `cmux-app-<tag>`
   (the release session, a shipped build's (`nightly`, `rc`, `staging`, `cmux-next`), an untagged build's, a person's own session).
-- `launch` ends with exit 1 when the model did not load, a step failed or the `clients` step
-  ended early; it quits the app and takes the installed session away first.
-- `clients --total 13` reads the daemon's client list and holds what is missing. The list moves
-  (a hook call is a client for a moment, the app's own connections come and go), so it prints
-  the count it reached and `SESSION-REAL-CLIENTS-DIFFER` when that is not the count asked for.
+- Exit codes: 0 done; 1 refused or stopped, and `launch` with a failure (the model did not load, a
+  step gave a non-zero exit, the `clients` step ended early or gave exit 3, the quit or the uninstall
+  failed); 2 wrong arguments; 3 the command ran to its end and wrote its output, but the result has
+  failures: it prints `SESSION-REAL-FAULTS <command> [...]` first. `make`: a count read back is not
+  the count asked for. `agents`: a `restart-tab` failed, a terminal took no input, or the agent
+  programs that run are not one per agent terminal. `clients`: the count is not the one asked for, or
+  the daemon closed a held connection. `map`: a row failed, was cut by the time budget, has fewer
+  runs than asked, has a failed run or a good run with no commit time, or a set-up action failed. A
+  slow action (`unusable`, over 1 s) is a result of the app, not a fault. Check the exit code.
+- `launch` quits the app, ends the tag's processes and takes the installed session away at its end,
+  each part also when the part before fails or SIGTERM comes. If the uninstall cannot run (the tag
+  still has processes) it prints `SESSION-REAL-STATE-LEFT` with the command to run.
+- `launch` sets `CMUX_MOCK_KEYCHAIN=1` for the app, so a Release or nightly bundle shows no keychain
+  dialog over the window on a host whose keychain is locked.
+- `launch` times (`window_and_socket_s`, `model_loaded_s`, `kept_terminals_restarted_s`) all start at
+  the spawn of the app; `before_spawn_s` is the time of the checks before it.
+- What the tool removes: only a folder that it made itself in this run, proved by a mark file in it
+  (a token of this process and the folder's inode), never by a name. `install` copies beside the
+  tag's state and changes the tag only at the end, by two renames that no signal can part: a failed
+  or killed copy leaves the tag as it was. `install` refuses when the tag has a state that is not an
+  installed copy and `<tag>.before-session-real` is there too. `launch --saved` deletes the copy
+  that it installed. The `uninstall` command of a later run does not delete: it moves the installed
+  copy to `<tag>.session-real-removed-<time>-<id>` beside the tag's state, puts the old state back and
+  prints the path (an APFS clone: it uses little disk; remove it yourself).
+- `clients --total 13` makes the daemon's list of steady clients 13 long and reads it back. A steady
+  client is named, or connected 10 s or more; an agent's hook call is an unnamed client for a moment
+  (p50 0.3 s, longest 9 s), and the app holds 2 named connections and 0 to 2 unnamed ones. So the
+  command holds 9 to 11 connections for a total of 13, not always 11. It prints `held`, `steady` and
+  `listed_with_short_ones`; a count that is not the one asked for is a fault (exit 3 at its end).
   A held client reads its events at once: the daemon closes a subscriber that does not read.
+- `agents` counts the agent programs in this daemon's own agent terminals (the daemon's
+  `terminal-resources`), not every program of that name on the host, and refuses counts that are
+  not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
+  lower bound that is not judged; an error reply of the command is exit 1.
+- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as on his Mac)
+  types the stored resume command, so on a host with `claude` on its PATH an agent terminal runs the real
+  `claude --resume session-real-real-NNNN` (measured 2026-11-10, aws-m4pro-3: 157 of 170 terminals, 12.6 GB footprint,
+  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as his does. `agents` then makes
+  the session the bench one: it ends each such CLI by its exact PIDs (the daemon's `terminal-resources` of that terminal,
+  the same start time, the session id that this tool gave that terminal; SIGTERM, SIGKILL after 5 s), types nothing into
+  it, and types the start line when only the shell is left and that shell is 25 s old (the product types its resume
+  command into a new shell in its first 20 s at the worst). Each round reads what runs and sends its lines at once
+  after the read, before any signal. It never types into and never signals another program, a running bench program,
+  or a terminal whose processes it cannot read: such a terminal is a fault (exit 3) with the reason. With a `--settle`
+  below about 30 s a tab that `agents` had to start again gets no line in time: that is a fault that says so. Its line says `resumed_cli_ended`, `resumed_cli_left`,
+  `other_programs` and `agent_programs_running`; exit 0 = one bench program in each agent terminal and no resumed CLI.
+  Run `agents` after EVERY restore and before `measure`, `map` or your own driver; a row made before it has the real CLIs.
+- `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
+  terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
+- `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says
+  that its times are not a person's. Use it for counts, memory and exit codes only.
+- `ptys_in_use_machine` counts this user's processes only (`ptys_in_use_scope` says so).
 - The daemon serves 64 connections. A start of 170 agents (about 500 hook calls) fills them for about
   2.5 s; in that time a new connection gets one `server.busy` line. The script's own connections
   try again for 20 s; a bench driver of your own must do the same.
 - `map` gives, per action (20 runs): `commit_ms` (the action's start to its committed frame, from
   `debug.action_budget`), the longest frame and the main-thread gap, and the longest stall the
   watchdog recorded with its frames. `--sample-rows <row>` runs a row beside a `sample` of the app:
-  those times are then not for a table. For the same map at another size, give `build` and `agents`
+  those times are then not for a table. The cold-switch row shows each workspace one time: with
+  fewer other workspaces than `--runs` the row is short and that is a fault. For the same map at another size, give `build` and `agents`
   the same counts in proportion, for example 60 workspaces:
   `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.

@@ -49,6 +49,19 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
+/// Indexes every open adds to a registry of any age (each `IF NOT EXISTS`,
+/// so older builds keep opening it). The live panes of one screen were read
+/// by scanning every pane row: once per screen at each open (the resource
+/// invariants), so an open at 4,000 workspaces spent 0.5 s there, and once
+/// per create (its stored subtree).
+pub(crate) fn create_lookup_indexes(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS live_resource_panes_by_screen
+           ON resource_panes(screen_id) WHERE deleted_revision IS NULL;",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
@@ -2677,9 +2690,13 @@ pub(crate) fn prune_unchanged_resource_changes(
                 | ResourceChange::SetTabOrder { .. }
         )
     };
+    let mut workspace_rows = None;
     let mut kept = Vec::with_capacity(patch.changes.len());
     for change in &patch.changes {
-        kept.push(!is_order(change) && !resource_change_is_stored(transaction, change)?);
+        kept.push(
+            !is_order(change)
+                && !resource_change_is_stored(transaction, &mut workspace_rows, change)?,
+        );
     }
     let mut workspace_order = false;
     let mut screen_parents = HashSet::<String>::new();
@@ -2743,15 +2760,16 @@ pub(crate) fn prune_unchanged_resource_changes(
         let keep = kept
             || match change {
                 ResourceChange::SetWorkspaceOrder { .. } => {
-                    workspace_order || !resource_change_is_stored(transaction, change)?
+                    workspace_order
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 ResourceChange::SetScreenOrder { workspace_id, .. } => {
                     screen_parents.contains(workspace_id.as_str())
-                        || !resource_change_is_stored(transaction, change)?
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 ResourceChange::SetTabOrder { pane_id, .. } => {
                     tab_parents.contains(pane_id.as_str())
-                        || !resource_change_is_stored(transaction, change)?
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 _ => false,
             };
@@ -2775,8 +2793,17 @@ fn content_tab_panes(
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn resource_change_is_stored(
-    transaction: &Transaction<'_>,
+const STORED_WORKSPACE_ROW: &str =
+    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
+            w.name_source, w.name_revision
+     FROM resource_workspaces rw
+     JOIN workspaces w ON w.workspace_key = rw.workspace_key
+     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
+       AND rw.deleted_revision IS NULL AND w.tombstoned = 0";
+
+fn resource_change_is_stored<'t>(
+    transaction: &'t Transaction<'_>,
+    workspace_rows: &mut Option<rusqlite::Statement<'t>>,
     change: &ResourceChange,
 ) -> anyhow::Result<bool> {
     Ok(match change {
@@ -2785,26 +2812,25 @@ fn resource_change_is_stored(
                 workspace.name_source,
                 workspace.name_revision,
             )?;
-            let stored = transaction
-                .query_row(
-                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
-                            w.name_source, w.name_revision
-                     FROM resource_workspaces rw
-                     JOIN workspaces w ON w.workspace_key = rw.workspace_key
-                     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
-                       AND rw.deleted_revision IS NULL AND w.tombstoned = 0",
-                    params![workspace.public_id.as_str(), workspace.key],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, Option<i64>>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
-                        ))
-                    },
-                )
+            // One statement for every workspace upsert of the patch: a
+            // projection restates each live workspace, so preparing it per
+            // upsert was most of a create's cost at thousands of them.
+            if workspace_rows.is_none() {
+                *workspace_rows = Some(transaction.prepare(STORED_WORKSPACE_ROW)?);
+            }
+            let stored = workspace_rows
+                .as_mut()
+                .context("the stored workspace row statement was just prepared")?
+                .query_row(params![workspace.public_id.as_str(), workspace.key], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
+                    ))
+                })
                 .optional()?;
             stored.is_some_and(
                 |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {

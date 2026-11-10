@@ -137,6 +137,7 @@ Starts an agent chat, right here unless --on names another target:
                      a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
+  --allow-large      Copy --from-folder even past 20 GB or 500,000 files (a Cloud chat)
   -w, --wait         Wait for the chat's turn to end and print the reply
   --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
                      default 15m, at most 4h)
@@ -189,6 +190,8 @@ pub(super) struct Start {
     pub environment: Option<String>,
     pub wait: bool,
     pub timeout: Option<String>,
+    /// `--allow-large`: a Cloud chat's `--from-folder` copied even past the copy's limits.
+    pub allow_large: bool,
 }
 
 // Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
@@ -280,6 +283,7 @@ pub(super) fn parse_with(
         environment: None,
         wait: false,
         timeout: None,
+        allow_large: false,
     };
     let mut index = 0;
     while let Some(word) = words.get(index).map(String::as_str) {
@@ -357,6 +361,7 @@ pub(super) fn parse_with(
             "--timeout" => start.timeout = Some(value()?),
             "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
+            "--allow-large" => start.allow_large = true,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
@@ -1038,6 +1043,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     if start.wait {
         words.push("--wait".to_owned());
     }
+    if start.allow_large {
+        words.push("--allow-large".to_owned());
+    }
     Ok(words)
 }
 
@@ -1048,6 +1056,9 @@ pub(super) fn read_stdin() -> Result<String, String> {
 }
 
 fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
+    if let Some(code) = cloud_start_chat::folder_refused(error, output) {
+        return code;
+    }
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 
