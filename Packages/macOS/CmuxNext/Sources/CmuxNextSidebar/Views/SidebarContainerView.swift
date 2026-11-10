@@ -337,7 +337,7 @@ public final class SidebarContainerView: NSView {
                  SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter,
                                                         // The sidebar's dim follows its tunables and the chrome shade live.
                                                         CGFloat(SidebarTunables.surfaceDimDark.value), CGFloat(SidebarTunables.surfaceDimLight.value),
-                                                        Metrics.mainPaneChromeShade(isDark: true)])
+                                                        Metrics.mainPaneChromeShade(isDark: true), Metrics.mainPaneChromeShade(isDark: false)])
             }) {
                 self?.handle.restingLineWidth = border
                 if let self, self.resizeBand != self.mountedBand || self.paneReach != self.mountedPaneReach {

@@ -22,7 +22,8 @@ final class ListHeaderRowView: SidebarRowView {
         name.setFont(SidebarStyle.headerFont)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
-        setAccessibilityLabel("\(name.stringValue), \(Strings.groupCount(count))")
+        // One list's heading names it only: its rows are the list itself, and `count` covers one computer's.
+        setAccessibilityLabel(header == .workspaces ? title : "\(title), \(Strings.groupCount(count))")
         needsLayout = true
     }
 

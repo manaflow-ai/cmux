@@ -171,8 +171,8 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
     source=C.hex(accent_color) if accent_color is not None else accent
     app=app_derive(bg,fg,app_pal,source)[1] if accent!='neutral' or accent_color is not None else None
     acc=app['accent'] if app else None
-    hover=fg.wa(0.06 if dark else 0.05); pressed=fg.wa(0.14 if dark else 0.11)
-    selection=acc.wa(0.26 if dark else 0.16) if acc else fg.wa(0.10 if dark else 0.08)
+    hover=fg.wa(0.05 if dark else 0.04); pressed=fg.wa(0.12 if dark else 0.10)
+    selection=acc.wa(0.26 if dark else 0.16) if acc else fg.wa(0.08 if dark else 0.06)
     # Swift: the lower-contrast of pressedFill and selectionFill over bg (pressed, with the neutral accent).
     worst=min([pressed.comp(bg),selection.comp(bg)],key=lambda c: fg.contrast(c))
     # See-through window: the quieter inks also hold over the tint on the worst desktop for the theme.
@@ -194,7 +194,7 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
       stripBackground=surf,
       sidebarStep=fg.wa(0.04),stripStep=BLACK.wa(0.22 if dark else 0.05),
       textPrimary=primary,textSecondary=secondary,textTertiary=tertiary,hoverFill=hover,selectionFill=selection,
-      secondarySelectionFill=acc.wa(0.18 if dark else 0.11) if acc else fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
+      secondarySelectionFill=acc.wa(0.18 if dark else 0.11) if acc else fg.wa(0.056 if dark else 0.042),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
       separator=fg.wa(0.08 if dark else 0.07),paneBorder=fg.wa(0.07 if dark else 0.09),focusRing=acc if acc else fg.wa(0.40),
       glassTint=bg.wa(0.40 if dark else 0.30),shadow=bg.mixed(BLACK,0.85),
       textSelection=csel if csel is not None else bg.mixed(fg,0.22),

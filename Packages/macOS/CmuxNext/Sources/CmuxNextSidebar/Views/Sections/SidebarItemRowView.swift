@@ -494,7 +494,7 @@ class SidebarItemRowView: NSView {
             self?.needsDisplay = true
         }
         return performWithTheme {
-            let ground = style == .favorite ? Palette.elevatedBackground : Palette.sidebarBackground
+            let ground = style == .favorite ? Palette.elevatedBackground : SidebarStyle.ground
             return faviconRenditions.drawing(favicon, side: side, scale: window?.backingScaleFactor ?? 2,
                                              ground: SidebarFaviconRenditions.groundLuminance(ground)).image
         }
