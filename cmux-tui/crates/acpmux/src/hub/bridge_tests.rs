@@ -259,6 +259,16 @@ async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
     let data = err.data.unwrap();
     assert_eq!(data["reason"], "bridge.not_running");
     assert_eq!(data["retryable"], true, "the outbox tries it again");
+    // Repro: a client removes the tag (any client may edit tags). The daemon's record still
+    // says registered, so the chat stays on the registered path (it waits for its own
+    // registered process) and never falls back to entrypoint listing.
+    session.meta.lock().unwrap().tags.remove(crate::hub::register::REGISTERED_TAG);
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub
+        .prompt_with(&session, blocks, "acpmux-outbox#3", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("bridge.not_running"), "tag removed: {}", err.message);
 }
 
 /// A registered chat whose live process handed over no token (a restarted session that has not

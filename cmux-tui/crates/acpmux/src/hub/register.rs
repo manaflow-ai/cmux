@@ -69,10 +69,11 @@ pub(super) fn mark_registered_for_test(id: &str) {
     with_registered(|set| set.insert(id.to_owned()));
 }
 
-/// Whether `session` is a chat its own session registered: the daemon's record, and its tag.
+/// Whether `session` is a chat its own session registered: the daemon's record alone. The
+/// `bridge.registered` tag only shows it; tags are a client's to edit (set, remove, or pass at
+/// creation), so neither adding nor removing one changes what is registered.
 pub(super) fn is_registered(session: &Session) -> bool {
-    session.meta().tags.get(REGISTERED_TAG).is_some_and(|t| t.value == "true")
-        && with_registered(|set| set.contains(&session.id))
+    with_registered(|set| set.contains(&session.id))
 }
 
 /// What `acpmux register` sends (`_acpmux/register`).

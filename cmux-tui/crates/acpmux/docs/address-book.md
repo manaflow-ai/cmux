@@ -30,8 +30,8 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   does not register: a process named `codex` with `CODEX_THREAD_ID` set is anyone's to start, so
   nothing proves the caller runs in the thread. A Codex session acpmux starts already has a name. A name
   another session has is refused (`register.name_taken`). The daemon alone records which chats
-  are registered (`~/.acpmux/bridge-registered.json`); the `bridge.registered` tag shows it, and
-  no client may set that tag (`tag.reserved`).
+  are registered (`~/.acpmux/bridge-registered.json`); the `bridge.registered` tag only shows it, and
+  no client may set or remove that tag (`tag.reserved`); editing tags never changes it.
 - Claude Code's own names (`ListAgents`) are auto titles, not identities. Register makes the
   acpmux name the identity; the title can stay as it is.
 
