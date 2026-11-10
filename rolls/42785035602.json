@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42785035602",
+  "recorded_at": "2026-11-10T08:57:58Z",
+  "reason": "cmux-tui 6989c68b5759 changes the image's cmux-tui (pinned 532765637228)",
+  "dry_run": false,
+  "cmux_tui": "6989c68b5759144d135330387adf9fc88edfb1a5",
+  "fixes": [
+    {
+      "sha": "6989c68b5759144d135330387adf9fc88edfb1a5",
+      "mergedAt": "2026-11-10T08:30:51Z",
+      "subject": "notices: an old python3 ends the notices tools with one line, before any download (#40239)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T08:57:58Z",
+    "snapshot_id": "sh-0c7d697b75f44bd8bfbe203c2fda64c3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42785035602): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1ef28a7cf3f3fff825f3b60fc98d930dfa36477c",
+    "image": "cloud-native-auto-6989c68b-42785035602-1",
+    "revision": "ci-42785035602-1",
+    "at": "2026-11-10T08:57:58Z"
+  },
+  "rolled_back": false
+}
