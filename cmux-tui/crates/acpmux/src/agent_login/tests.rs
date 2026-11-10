@@ -349,6 +349,12 @@ fn browser_shim_saves_the_link_owner_only_and_opens_nothing() {
 /// Plausible `grok login --device-auth` outputs (its exact words are not pinned): the code on the
 /// line naming it, on the line after it, quoted, after the link, and inside a link's query.
 const GROK_SHAPES: &[(&str, &str, &str)] = &[
+    // What grok 1.0.77 prints on Linux (`grok login --device-auth`, read on CI, code replaced).
+    (
+        "To sign in, open this URL in your browser:\n  https://accounts.x.ai/oauth2/device?user_code=WDJB-MJHT\nConfirm this code in your browser:\n  WDJB-MJHT\n\u{1b}[90mOnly continue with a code you requested. Don't share it with anyone.\u{1b}[0m\nWaiting for authorization...\n",
+        "https://accounts.x.ai/oauth2/device?user_code=WDJB-MJHT",
+        "WDJB-MJHT",
+    ),
     (
         "To sign in, open https://accounts.x.ai/device in your browser\nand enter the code: WDJB-MJHT\nWaiting for authorization...\n",
         "https://accounts.x.ai/device",
@@ -380,7 +386,7 @@ fn grok_link_and_code_in_plausible_shapes() {
     }
     // Before the code's line is complete, nothing is offered.
     let (text, _, _) = GROK_SHAPES[0];
-    let cut = &text[..text.find("WDJB-MJ").unwrap() + 7];
+    let cut = &text[..text.rfind("WDJB-MJ").unwrap() + 7];
     assert_eq!(offer(Agent::Grok, cut), None);
     // A link with no code, or a code with no allowed link, is no offer.
     assert_eq!(offer(Agent::Grok, "Open https://accounts.x.ai/device to sign in.\n"), None);

@@ -95,7 +95,8 @@ done
 [ -d "$GROK_HOME" ] || exit 68
 case "$*" in
   "login --device-auth"|"login --device-code")
-    printf 'Sign in to Grok\n\nOpen \033[36mhttps://accounts.x.ai/device\033[0m in a browser\nand enter the code: \033[1mWDJB-MJHT\033[0m\n\nWaiting for approval...\n'
+    # grok 1.0.77's own words on Linux.
+    printf 'To sign in, open this URL in your browser:\n  https://accounts.x.ai/oauth2/device?user_code=WDJB-MJHT\nConfirm this code in your browser:\n  WDJB-MJHT\n\033[90mOnly continue with a code you requested. Don'"'"'t share it with anyone.\033[0m\nWaiting for authorization...\n'
     sleep 1
     printf '{"access_token":"t","refresh_token":"r"}' > "$GROK_HOME/auth.json"
     echo 'Logged in.'
@@ -383,7 +384,7 @@ async fn gemini_and_grok_login_over_the_wire() {
         .unwrap_err();
     assert_eq!(reason(&e), "unsupported", "{e}");
     let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "grok"})).await.unwrap();
-    assert_eq!(s["url"], "https://accounts.x.ai/device");
+    assert_eq!(s["url"], "https://accounts.x.ai/oauth2/device?user_code=WDJB-MJHT");
     assert_eq!(s["userCode"], "WDJB-MJHT");
     assert_eq!(s["needsCode"], false);
     assert!(s.get("autoUrl").is_none());
