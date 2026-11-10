@@ -89,10 +89,8 @@ extension WindowManager {
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
-            if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
+            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, claimed: { claims.pending[$0] != nil }, orders:
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true) }
         }
     }
 

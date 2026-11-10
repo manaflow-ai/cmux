@@ -73,6 +73,17 @@ public struct WorkspaceSpawn: Sendable {
         opensNewTabPage = invocation.origin == .user && command == nil
     }
 
+    /// The close-selection relation this create into a window starts (plans/cmux-next/close-focus.md, "One
+    /// close-selection rule"), nil for none. Only a person's own New Workspace gets one: it opens the New Tab page
+    /// (a duplicate, a template, a move, a session transfer, an import and a command workspace never do), in a run
+    /// that is the person's and may change the view. True: the quick look-up (the setting puts it at the top or
+    /// the end). False: put after the current row, it lasts as a link tab's relation does. `setting` is read only
+    /// for such a create.
+    public func quickOpener(setting: @autoclosure () -> NewWorkspaceDefaultSlot) -> Bool? {
+        guard opensNewTabPage, ActionRunScope.isPersonsAction(), ActionRunScope.viewChangeAllowed() else { return nil }
+        return !setting().placesAfterCurrent
+    }
+
     /// A plain Cmd-N: the New Tab page with nothing of its own (no key, chat, session, command, browser profile or
     /// folder), which may show the workspace reserved before the key (``DaemonStore/reservedWorkspaceUse(plain:home:)``).
     public var isPlainNewTabPage: Bool {

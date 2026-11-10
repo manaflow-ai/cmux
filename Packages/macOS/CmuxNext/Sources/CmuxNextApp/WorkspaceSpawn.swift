@@ -55,6 +55,7 @@ struct WorkspaceSpawner {
         let use = daemon.connection == nil ? nil : daemon.store.reservedWorkspaceUse(plain: windowID != nil && spawn.isPlainNewTabPage && windows.services.agentTabs.showsWorkspaceAtOnce(on: daemon), home: windows.services.daemon.store)
         if let span = use?.span { BenchSpans.mark(span) }
         let key = spawn.key ?? use?.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        if let windowID, let quick = spawn.quickOpener(setting: NewWorkspacePlacements.rule(for: windowID, in: windows)) { windows.registry.closeSelection.expect(key.rawValue, in: windowID, quick: quick) } // before the window can show it
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
         let (row, rule) = spawn.placement(setting: NewWorkspacePlacements.rule(for: windowID, in: windows))
