@@ -208,7 +208,11 @@ describe("Cloud cleanup: native answers", () => {
       machine,
       revision: 7,
     });
-    expect(confirmedValue({ confirmed: true, machine, revision: 7 })).toEqual({ confirmed: true, machine, revision: 7 });
+    expect(confirmedValue({ confirmed: true, machine, revision: 7 })).toEqual({
+      confirmed: true,
+      machine,
+      revision: 7,
+    });
     expect(confirmedValue({ confirmed: false })).toEqual({ confirmed: false });
     expect(confirmedValue(null)).toBeNull();
   });

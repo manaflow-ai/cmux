@@ -989,9 +989,7 @@ export class CloudStore {
     const args = { machine, ...params, idempotency_key: key };
     try {
       // Recorded even after a session restart, so the intent cannot stay pending.
-      const result = native
-        ? await this.runNative(op, args)
-        : await this.client!.call<MachineResult>(op, args);
+      const result = native ? await this.runNative(op, args) : await this.client!.call<MachineResult>(op, args);
       if (native && (result as ActionRunResult | null)?.confirmed === false) {
         this.dropIntent(key);
         return undefined;

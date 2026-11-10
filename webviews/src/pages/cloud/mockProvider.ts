@@ -716,7 +716,9 @@ export class MockCloudProvider implements PageClient {
     if ((action === CloudOps.filePush || action === CloudOps.filePull) && !this.holdTransfers)
       queueMicrotask(() => this.finishTransfers());
     // A confirmed op answers under `value`, as the host's runConfirmed does; the others flat.
-    return CONFIRMED_ACTIONS.has(action) ? { confirmed: true, value: result } : { confirmed: true, ...(result as object) };
+    return CONFIRMED_ACTIONS.has(action)
+      ? { confirmed: true, value: result }
+      : { confirmed: true, ...(result as object) };
   }
 }
 
