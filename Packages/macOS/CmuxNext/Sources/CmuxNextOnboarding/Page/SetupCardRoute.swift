@@ -1,4 +1,5 @@
 public import CmuxNextPages
+public import CmuxNextSettings
 import CmuxNextCompat
 import Foundation
 
