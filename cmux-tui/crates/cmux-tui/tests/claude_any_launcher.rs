@@ -776,7 +776,7 @@ fn any_launcher_nested_claude_claim_keeps_clear_reporting_when_hooks_see_the_env
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
-    write_executable(&claude, FAKE_CLAUDE);
+    cmux_test_exec::write_executable(&claude, FAKE_CLAUDE).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
         fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
