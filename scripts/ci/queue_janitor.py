@@ -2343,7 +2343,10 @@ def plan_lost_reruns(
     settled at the same attempt and head it is re-run, unless a newer dispatch of its kind took its job
     (superseding_dispatch() over `dispatch_runs`, run id -> its workflow's dispatches on its branch, and
     `dispatch_jobs`, run id -> jobs). Its branch moving on is no reason: it tests a long-lived branch's commit.
-    One whose dispatches were not listed this sweep is kept.
+    One whose dispatches were not listed this sweep is kept. A hosted verification on a lane branch
+    (`verification`, is_lane_verification()) is the exception: a newer verification of the same lane, mode and
+    filter drops it, and so does its lane branch moving past its commit or being deleted (`branch_heads`; a head
+    not read this sweep keeps it).
     """
     cap = LOST_RERUN_MAX if rerun_cap is None else max(0, rerun_cap)
     decisions: list[LostRerun] = []
@@ -2378,7 +2381,7 @@ def plan_lost_reruns(
             if dispatch_runs is None or run_id not in dispatch_runs:
                 decisions.append(LostRerun(entry, "keep", "newer dispatches not listed this sweep", run))
                 continue
-            if entry["dispatch"].get("verification"):
+            if entry["dispatch"].get("verification") and is_lane_verification(run):
                 # A hosted verification (verification_kind()) is a proof of one lane commit: a newer one for the
                 # same lane, mode and filter replaces it, and a lane branch moved past its commit makes it moot.
                 newer_runs = newer_dispatches(entry, run, dispatch_runs[run_id])
@@ -3672,12 +3675,15 @@ TIP_DISPATCH_KINDS = frozenset({"cmux-next base tier", "cmux-next tip daemon sui
 # Newer dispatches whose jobs a sweep reads to judge supersession, over every pending entry; the in-flight ones
 # are in the inventory already. One listing of the workflow's dispatches per settled entry besides.
 DISPATCH_SUPERSEDE_JOB_READS = 6
-# A hosted verification dispatch (scripts/verify-cmux-tui-hosted.sh) has a caller waiting on its run id, on any
-# branch: the script dispatches it on the lane branch it verifies. Run 42730697263 (2026-11-10, a red proof on
+# A hosted verification dispatch (scripts/verify-cmux-tui-hosted.sh) has a caller waiting on its run id: the
+# script dispatches it on the lane branch it verifies. Run 42730697263 (2026-11-10, a red proof on
 # tui-feat-demux-followup-3-red) was cancelled here after its macOS job queued 2h03m and carried no re-run, so the
 # caller got a cancelled run with no macOS result. Its re-run waits for nothing newer: it is dropped when a newer
 # verification of the same lane branch, mode and filter exists, or when the lane branch moved past the run's
 # commit or is gone (plan_lost_reruns()); a red proof of a fixed commit is re-run only while it is still the lane.
+# These lane rules are for lane branches only (is_lane_verification()): a cmux-tui.yml dispatch on a long-lived
+# branch (403 on feat-cmux-next, 141 on main) keeps the ORPHAN_RERUN_BRANCHES rule, since its branch has almost
+# always moved by the time an orphan cancel comes (ci-rev-2 on #40111).
 VERIFICATION_DISPATCH_PATHS = frozenset({".github/workflows/cmux-tui.yml"})
 # Its run name is `cmux-tui <mode> <request_id> @ <commit>`, and verify-cmux-tui-hosted.sh makes request_id
 # `<sha12>-f<hash8>-<epoch>-<pid>` (focused: hash8 names the test filter) or `<sha12>-<epoch>-<pid>` (full). The
@@ -3695,6 +3701,12 @@ def verification_kind(run: Mapping[str, Any]) -> str | None:
     if not match or (match.group("mode") == "focused" and not match.group("filter")):
         return None
     return " ".join(part for part in ("cmux-tui", match.group("mode"), match.group("filter")) if part)
+
+
+def is_lane_verification(run: Mapping[str, Any]) -> bool:
+    """A hosted verification dispatch on a lane branch: the lane rules of plan_lost_reruns() judge its re-run."""
+    return run.get("path") in VERIFICATION_DISPATCH_PATHS and \
+        str(run.get("head_branch") or "") not in ORPHAN_RERUN_BRANCHES
 
 
 TITLE_SHA = re.compile(r"^(.*?) · [0-9a-f]{7,40}$")
@@ -3715,13 +3727,13 @@ def orphan_rerun_scope(orphan: Orphan) -> str | None:
     run = orphan.run
     branch = str(run.get("head_branch") or "")
     attempt = int(run.get("run_attempt") or 1)
-    verification = run.get("path") in VERIFICATION_DISPATCH_PATHS
+    lane_verification = is_lane_verification(run)
     if orphan.job_name is None or run.get("event") != "workflow_dispatch" or \
-            (branch not in ORPHAN_RERUN_BRANCHES and not verification):
+            (branch not in ORPHAN_RERUN_BRANCHES and not lane_verification):
         return None
     if attempt >= LOST_FAILOVER_MAX_ATTEMPT or orphan_protected_reason(run) is not None:
         return None
-    if verification and branch not in ORPHAN_RERUN_BRANCHES:
+    if lane_verification:
         return f"a hosted verification dispatch on {branch} at attempt {attempt}"
     return f"a {branch} dispatch at attempt {attempt}"
 
@@ -3748,7 +3760,7 @@ def orphan_reruns(decisions: Sequence[OrphanDecision], results: Mapping[int, str
         }
         if decision.orphan.job_id is not None and any(_failed(job) for job in jobs_by_run.get(run["id"]) or ()):
             entry["job_id"] = decision.orphan.job_id
-        if run.get("path") in VERIFICATION_DISPATCH_PATHS:
+        if is_lane_verification(run):
             entry["dispatch"]["verification"] = True
         entries.append(entry)
     return entries
