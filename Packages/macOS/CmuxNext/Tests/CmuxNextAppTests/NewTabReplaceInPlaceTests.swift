@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
@@ -159,8 +160,17 @@ import Testing
 
     /// New Tab to the Right: the daemon makes the tab at the end of the pane and it moved into its
     /// slot when the move landed, sliding across the strip. It grows in at its slot instead.
-    @Test func aTabOpenedToTheRightGrowsInAtItsSlot() async throws {
+    ///
+    /// The density is process-wide and a settings load elsewhere in the run leaves it at the file's
+    /// Default (`cozy`, #37274), so each case sets the one it measures: Compact (the in-memory
+    /// default) and Default (the fresh-install density).
+    @Test(.serialized, arguments: [DensityPreset.compact, .cozy])
+    func aTabOpenedToTheRightGrowsInAtItsSlot(density: DensityPreset) async throws {
         _ = NSApplication.shared
+        let design = DesignSettings.shared
+        let densityBefore = design.densityTokens
+        design.densityTokens = density.tokens
+        defer { design.densityTokens = densityBefore }
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
         store.connectionState = .connected(try Self.connected())
@@ -208,6 +218,6 @@ import Testing
         }
         #expect(xs.first.flatMap { $0 } != nil, "the new tab did not show when it was selected")
         #expect(xs.compactMap { $0 }.allSatisfy { abs($0 - slot.minX) <= 1 },
-                "the new tab did not grow in at its slot (x=\(Int(slot.minX))): \(xs.map { $0.map { Int($0) } })")
+                "\(density): the new tab did not grow in at its slot (x=\(Int(slot.minX))): \(xs.map { $0.map { Int($0) } })")
     }
 }
