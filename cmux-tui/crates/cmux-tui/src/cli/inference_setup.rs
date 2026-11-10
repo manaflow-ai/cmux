@@ -522,24 +522,35 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
 const PROBE_EXCERPT: usize = 1500;
 
 /// The probe's answer as it may be printed: headers that can carry a credential (a cookie, an authorization, a
-/// token) are dropped, and control characters other than line breaks are left out.
+/// token) are dropped with their folded continuation lines, and control characters other than line breaks are left
+/// out. Headers are the lines from a status line (`HTTP/...`, one per hop that answered) to the next empty line.
 fn shown_answer(answer: &str) -> String {
-    let secret = |line: &str| {
-        let name = line.split(':').next().unwrap_or("").trim().to_ascii_lowercase();
-        line.contains(':')
-            && !name.contains(' ')
-            && ["cookie", "authorization", "token", "secret", "key"]
-                .iter()
-                .any(|s| name.contains(s))
+    let secret = |name: &str| {
+        let name = name.trim().to_ascii_lowercase();
+        ["cookie", "authorization", "token", "secret", "key"].iter().any(|s| name.contains(s))
     };
-    answer
-        .lines()
-        .filter(|line| !secret(line))
-        .map(|line| line.chars().filter(|c| !c.is_control()).collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_owned()
+    let (mut in_headers, mut dropping) = (false, false);
+    let mut shown = Vec::new();
+    for line in answer.lines() {
+        if line.starts_with("HTTP/") {
+            (in_headers, dropping) = (true, false);
+        } else if in_headers && line.trim().is_empty() {
+            (in_headers, dropping) = (false, false);
+        } else if in_headers && line.starts_with([' ', '\t']) {
+            // A folded header goes on with the one before it.
+            if dropping {
+                continue;
+            }
+        } else if in_headers {
+            // A header line without a name (no `:`) is dropped too: it cannot be told from a credential's value.
+            dropping = line.split_once(':').is_none_or(|(name, _)| secret(name));
+            if dropping {
+                continue;
+            }
+        }
+        shown.push(line.chars().filter(|c| !c.is_control()).collect::<String>());
+    }
+    shown.join("\n").trim().to_owned()
 }
 
 fn login_present() -> &'static str {
@@ -685,6 +696,20 @@ mod tests {
         );
         // A body line that merely mentions a key word is kept: only header names are matched.
         assert_eq!(shown_answer("the token you sent: none"), "the token you sent: none");
+    }
+
+    #[test]
+    fn a_folded_credential_header_is_dropped_with_its_continuations() {
+        let answer = "HTTP/1.1 200 Connection established\r\nproxy-agent: p\r\n\r\n\
+                      HTTP/1.1 403 Forbidden\r\nSet-Cookie:\r\n\tsid=abc\r\n  more=def\r\nx-trace: t1\r\n\
+                      \tcontinued\r\nAuthorization:\r\n Bearer zzz\r\n\r\n  indented body line";
+        let shown = shown_answer(answer);
+        assert_eq!(
+            shown,
+            "HTTP/1.1 200 Connection established\nproxy-agent: p\n\nHTTP/1.1 403 Forbidden\nx-trace: t1\n\tcontinued\n\n  indented body line"
+                .replace('\t', "")
+        );
+        assert!(!shown.contains("sid=") && !shown.contains("more=") && !shown.contains("zzz"));
     }
 
     #[test]
