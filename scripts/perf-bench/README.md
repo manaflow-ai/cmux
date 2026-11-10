@@ -287,7 +287,7 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   through the hook helper (`$CMUX_TUI_HOOK claude <event>`), so the daemon lists 170 agents.
 - `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
 - Only a tagged DEV build: each command refuses a daemon whose session is not `cmux-app-<tag>`
-  (the release session, a channel build's, an untagged build's, a person's own session).
+  (the release session, a shipped build's (`nightly`, `rc`, `staging`, `cmux-next`), an untagged build's, a person's own session).
 - `launch` ends with exit 1 when the model did not load, a step failed or the `clients` step
   ended early; it quits the app and takes the installed session away first.
 - `clients --total 13` reads the daemon's client list and holds what is missing. The list moves

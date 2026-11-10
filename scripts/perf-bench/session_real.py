@@ -238,20 +238,22 @@ def daemon_of_app(app_socket):
     return int(pid), found.group(1)
 
 
-CHANNELS = ("nightly", "rc", "staging")
+# The tags of the shipped builds, which keep a person's session (`BuildIdentity` ownedTags in the app,
+# `SHIPPED_STATE_TAGS` in scripts/cmux-next/bench_launch.py). Compared in lower case: the default disk is case-blind.
+CHANNELS = ("nightly", "rc", "staging", "cmux-next")
 
 
 def bench_tag(session):
     """The tag of a tagged DEV build's session (`cmux-app-<tag>`), else None. Not a bench's: the release
-    session `cmux-app`, a channel build's (`cmux-app-nightly`, `-rc`, `-staging`), an untagged build's
+    session `cmux-app`, a shipped build's (`cmux-app-nightly`, `-rc`, `-staging`, `-cmux-next`), an untagged build's
     (`cmux-app--<hash>`) and every other session (a person's `cmux-next` or `main`)."""
     found = re.fullmatch(r"cmux-app-([A-Za-z0-9][A-Za-z0-9_.-]*)", session or "")
-    return found.group(1) if found and found.group(1) not in CHANNELS else None
+    return found.group(1) if found and found.group(1).lower() not in CHANNELS else None
 
 
 def check_tag(tag):
     """Refuses a tag that is no single folder name of a tagged DEV build."""
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", tag or "") or tag in CHANNELS:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", tag or "") or tag.lower() in CHANNELS:
         raise SystemExit(f"session_real: {tag!r} is not the tag of a tagged DEV build")
     return tag
 
@@ -1262,11 +1264,13 @@ def launch(args):
         app.stop(quit_timeout=args.quit_timeout)
         result["quit_s"] = round(time.monotonic() - began, 1)
         result["failures"] = failures
-        with open(os.path.join(args.out, "launch.json"), "w", encoding="utf-8") as handle:
-            json.dump(result, handle, indent=1)
-        print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps", "failures")}), flush=True)
-        if installed and not args.keep_installed:
-            uninstall(argparse.Namespace(tag=tag, home=None))
+        try:
+            with open(os.path.join(args.out, "launch.json"), "w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=1)
+            print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps", "failures")}), flush=True)
+        finally:  # the tag's old state comes back also when the result file cannot be written
+            if installed and not args.keep_installed:
+                uninstall(argparse.Namespace(tag=tag, home=None))
     if failures:
         raise SystemExit("session_real: the launch had failures: " + "; ".join(failures))
 
