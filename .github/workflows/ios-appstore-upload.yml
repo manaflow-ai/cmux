@@ -54,10 +54,14 @@ jobs:
           # Durable upload evidence is both the scheduled skip baseline and the
           # "What to Test" notes range base (every event, like the INTERNAL
           # lane): never advance it merely because a poll succeeded.
+          # A failed read (rate limit, outage) prints its error body on stdout
+          # and counts as no evidence, which builds (run 42798372848).
           LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
+          [[ "$LAST_UPLOAD_SHA" =~ ^[0-9a-f]{40}$ ]] || LAST_UPLOAD_SHA=""
           echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
           if [ "$EVENT_NAME" = schedule ]; then
-            LAST_SHA="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')"
+            LAST_SHA="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
+            [[ "$LAST_SHA" =~ ^[0-9a-f]{40}$ ]] || LAST_SHA=""
             if [ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]; then
               echo 'upload=false' >> "$GITHUB_OUTPUT"
               echo 'Latest main already reached official internal TestFlight.' >> "$GITHUB_STEP_SUMMARY"
@@ -65,12 +69,13 @@ jobs:
             fi
           fi
           if [ "$EVENT_NAME" = schedule ]; then
-            RUN_IDS="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=completed&head_sha=$HEAD_SHA&per_page=20" --jq '.workflow_runs[].id')"
+            RUN_IDS="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=completed&head_sha=$HEAD_SHA&per_page=20" --jq '.workflow_runs[].id' 2>/dev/null || true)"
+            [[ "$RUN_IDS" =~ ^[0-9[:space:]]*$ ]] || RUN_IDS=""
             for RUN_ID in $RUN_IDS; do
-              MARKER_ID="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "cmux-app-testflight-upload" and .expired == false) | .id')"
-              [ -n "$MARKER_ID" ] || continue
+              MARKER_ID="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "cmux-app-testflight-upload" and .expired == false) | .id' 2>/dev/null || true)"
+              [[ "$MARKER_ID" =~ ^[0-9][0-9[:space:]]*$ ]] || continue
               MARKER_DIR="$(mktemp -d)"
-              gh run download "$RUN_ID" --repo "$REPOSITORY" --name cmux-app-testflight-upload --dir "$MARKER_DIR"
+              gh run download "$RUN_ID" --repo "$REPOSITORY" --name cmux-app-testflight-upload --dir "$MARKER_DIR" || { rm -rf "$MARKER_DIR"; continue; }
               BUILD_NUMBER="$(python3 - "$MARKER_DIR/upload.json" "$HEAD_SHA" <<'PYCODE'
           import json, re, sys
           with open(sys.argv[1]) as f:
