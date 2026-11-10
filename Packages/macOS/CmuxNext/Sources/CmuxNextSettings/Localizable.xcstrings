@@ -124325,268 +124325,6 @@
         }
       }
     },
-    "settings.ui.animations.bounce": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Animation Bounce"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "アニメーションの弾み"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ارتداد الحركة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odskok animacije"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animationsfjedring"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animationsfederung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rebote de animación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rebond des animations"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rimbalzo delle animazioni"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការលោតនៃចលនា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "애니메이션 바운스"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animasjonsfjæring"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odbicie animacji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quique das animações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пружинистость анимации"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเด้งของภาพเคลื่อนไหว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animasyon sekmesi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пружність анімації"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Độ nảy của hiệu ứng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "动画弹跳"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "動畫彈跳"
-          }
-        }
-      }
-    },
-    "settings.ui.animations.bounce.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "なしではタブ、行、ペインがその位置でぴたりと止まります。控えめでは小さく弾んで落ち着きます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا شيء يوقف علامات التبويب والصفوف والأجزاء في مكانها تمامًا. خفيف يتركها تستقر بارتداد صغير."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ništa zaustavlja kartice, redove i okna tačno na mjestu. Suptilno ih pušta da se smire uz mali odskok."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen stopper faner, rækker og ruder præcis på deres plads. Diskret lader dem falde på plads med et lille fjed."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine hält Tabs, Zeilen und Bereiche genau an ihrem Platz an. Dezent lässt sie mit einem kleinen Federn einrasten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ninguno detiene pestañas, filas y paneles justo en su sitio. Sutil los deja asentarse con un pequeño rebote."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun arrête onglets, lignes et sous-fenêtres exactement à leur place. Discret les laisse se poser avec un petit rebond."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuno ferma schede, righe e riquadri esattamente al loro posto. Leggero li fa assestare con un piccolo rimbalzo."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មាន បញ្ឈប់ផ្ទាំង ជួរ និងផ្ទាំងបន្ទះនៅកន្លែងរបស់វាត្រឹមត្រូវ។ ស្រាល ឱ្យវាស្ងប់ដោយលោតបន្តិច។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "없음은 탭, 행, 창을 정확히 제자리에 멈춥니다. 은은하게는 작게 튕기며 자리 잡습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen stopper faner, rader og ruter nøyaktig på plassen sin. Diskret lar dem falle på plass med en liten fjæring."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak zatrzymuje karty, wiersze i panele dokładnie na miejscu. Subtelne pozwala im osiąść z lekkim odbiciem."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum para abas, linhas e painéis exatamente no lugar. Sutil os deixa assentar com um pequeno quique."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет останавливает вкладки, строки и панели точно на месте. Слегка даёт им встать на место с небольшим отскоком."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มี จะหยุดแท็บ แถว และบานหน้าต่างตรงตำแหน่งพอดี เล็กน้อย จะให้เด้งเล็กน้อยก่อนเข้าที่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yok sekmeleri, satırları ve bölmeleri tam yerinde durdurur. Hafif, küçük bir sekmeyle yerleşmelerini sağlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає зупиняє вкладки, рядки й панелі точно на місці. Легко дає їм стати на місце з невеликим відскоком."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không dừng tab, hàng và khung đúng vị trí. Nhẹ cho chúng nảy nhẹ trước khi dừng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无：标签页、行和窗格精确停在原位。轻微：以轻微弹跳落定。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無：分頁、列與窗格精確停在原位。輕微：以輕微彈跳落定。"
-          }
-        }
-      }
-    },
     "settings.choice.chromeStyle.blocks": {
       "extractionState": "manual",
       "localizations": {
@@ -167611,6 +167349,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式工作時，其工作清單顯示在最新訊息下方，而不是輸入框上方的列中。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.promptCoach": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Coach"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدرب الطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Savjetnik za upite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-coach"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Coach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asesor de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach de prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトコーチ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រូបង្វឹកប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 코치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ledetekst-coach"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trener promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помощник по запросам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem koçu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помічник із запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huấn luyện lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示词教练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示詞教練"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.promptCoach.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد محادثة احتاجت إلى عدة تصحيحات، يعرض كيف كان يمكن لطلبها الأول أن يقول كل شيء دفعة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon razgovora koji je trebao nekoliko ispravki, pokazuje kako je prvi upit mogao sve reći odjednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en chat, der krævede flere rettelser, vises hvordan den første prompt kunne have sagt det hele på én gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt nach einem Chat mit mehreren Korrekturen, wie der erste Prompt alles auf einmal hätte sagen können."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras un chat que necesitó varias correcciones, muestra cómo su primer prompt podría haberlo dicho todo de una vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une discussion qui a demandé plusieurs corrections, montre comment le premier prompt aurait pu tout dire d'un coup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo una chat che ha richiesto diverse correzioni, mostra come il primo prompt avrebbe potuto dire tutto in una volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何度か修正が必要だったチャットのあとに、最初のプロンプトで一度に伝える書き方を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីការជជែកដែលត្រូវកែតម្រូវច្រើនដង បង្ហាញពីរបៀបដែលប្រអប់បញ្ចូលដំបូងអាចនិយាយទាំងអស់ក្នុងពេលតែមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 번 고쳐야 했던 채팅이 끝나면, 첫 프롬프트로 한 번에 말할 수 있었던 방법을 보여줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en chat som trengte flere rettelser, viser hvordan den første ledeteksten kunne ha sagt alt på én gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po czacie, który wymagał kilku poprawek, pokazuje, jak pierwszy prompt mógł powiedzieć wszystko od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois de um chat que precisou de várias correções, mostra como o primeiro prompt poderia ter dito tudo de uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После чата, где понадобилось несколько исправлений, показывает, как первый запрос мог сказать всё сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจากแชตที่ต้องแก้ไขหลายครั้ง จะแสดงว่าพรอมต์แรกจะบอกทุกอย่างได้ในครั้งเดียวอย่างไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Birkaç düzeltme gerektiren bir sohbetten sonra, ilk istemin her şeyi tek seferde nasıl söyleyebileceğini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після чату, де знадобилося кілька виправлень, показує, як перший запит міг сказати все одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau một cuộc trò chuyện cần sửa nhiều lần, cho thấy lời nhắc đầu tiên có thể nói hết mọi thứ cùng lúc như thế nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在需要多次修正的对话之后，显示第一条提示词如何一次说清所有内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在需要多次修正的對話之後，顯示第一則提示詞如何一次說清所有內容。"
           }
         }
       }
