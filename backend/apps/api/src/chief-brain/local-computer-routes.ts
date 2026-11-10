@@ -28,6 +28,8 @@ export const LOCAL_CHIEF_COMPUTER_PATH = /^\/v1\/local-chiefs\/([A-Za-z0-9_-]{1,
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
 const ok = (value: unknown, status = 200) => Response.json({ ok: true, value }, { status, headers: NO_STORE })
+/** A server-side failure's text can name the provider: the person and the Chief read this sentence instead. */
+const neutral = (status: number, message: string | undefined): string => (status >= 500 ? "the computer did not answer" : message ?? "the computer did not answer")
 const ACT_OPS = new Set(["screenshot", "windows", "click", "move", "drag", "scroll", "type", "key", "open", "control", "request_human", "hand_back", "start"])
 
 export const handleLocalChiefComputer = async (request: Request, env: Env, chief: string, sub: string | undefined): Promise<Response> => {
@@ -58,9 +60,17 @@ export const handleLocalChiefComputer = async (request: Request, env: Env, chief
       const r = await sandboxes.ccComputerProvision(key, user)
       if (r.status === 200) return ok({ computer: r.computer })
       if (r.status === 202) return ok({ provisioning: true }, 202)
-      return fail({ status: r.status, code: r.code, message: r.error })
+      // Refused (no plan) or failed: nothing holds the slot, so it is free again at once.
+      await localRegistryOf(env, user).ccLocalComputerRelease(chief)
+      return fail({ status: r.status, code: r.code, message: neutral(r.status, r.error) })
     }
-    if (body.action !== "take_over" && body.action !== "hand_back") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over, hand_back or provision" })
+    if (body.action === "delete") {
+      // The Chief was deleted on the Mac: its computer goes for good, and its slot with it. Only the owner's own key.
+      const purged = await sandboxes.ccSandboxPurge()
+      await localRegistryOf(env, user).ccLocalComputerRelease(chief)
+      return ok({ deleted: purged.deleted })
+    }
+    if (body.action !== "take_over" && body.action !== "hand_back") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over, hand_back, provision or delete" })
     const r = await sandboxes.ccComputerControl(key, body.action)
     return r.status === 200 ? ok({ control: r.control }) : fail({ status: r.status, code: r.code, message: r.error })
   }
@@ -81,5 +91,5 @@ export const handleLocalChiefComputer = async (request: Request, env: Env, chief
   const json = (r.json ?? {}) as Record<string, unknown>
   if (r.status === 200) return ok(json)
   const code = typeof json.code === "string" ? json.code : r.status === 409 ? "computer.asleep" : r.status === 400 ? "validation.invalid" : "computer.unreachable"
-  return fail({ status: r.status, code, message: String(json.error ?? "the computer did not answer"), ...(json.control ? { extra: { control: json.control } } : {}) })
+  return fail({ status: r.status, code, message: neutral(r.status, typeof json.error === "string" ? json.error : undefined), ...(json.control ? { extra: { control: json.control } } : {}) })
 }

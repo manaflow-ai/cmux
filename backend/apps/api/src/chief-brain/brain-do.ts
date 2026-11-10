@@ -37,7 +37,7 @@ import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-sto
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccComputerControl, ccComputerProvisionStart, ccComputerInput, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
-import { reserveLocalComputer } from "../chief-brain-cc/local-computer.ts"
+import { releaseLocalComputer, reserveLocalComputer } from "../chief-brain-cc/local-computer.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 import { authorizeDefaultMachineFollowing } from "../chief-default-hand.ts"
@@ -650,6 +650,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** A slot for owner `user`'s local Chief `chief`'s computer, on the owner's `local:<user>/computers` object only (local-computer.ts). */
   async ccLocalComputerReserve(user: string, chief: string): Promise<Awaited<ReturnType<typeof reserveLocalComputer>>> {
     return reserveLocalComputer(this, user, chief)
+  }
+
+  /** Gives back local Chief `chief`'s slot on the owner's `local:<user>/computers` object (local-computer.ts). */
+  async ccLocalComputerRelease(chief: string): Promise<void> {
+    return releaseLocalComputer(this, chief)
   }
 
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */

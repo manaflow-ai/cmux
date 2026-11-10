@@ -71,3 +71,11 @@ export const reserveLocalComputer = (b: ChiefBrainDO, user: string, chief: strin
     writeConfig(b.sql, { [REGISTRY]: JSON.stringify([...held, { chief, at: now }]) })
     return { ok: true as const }
   })
+
+/** Gives back owner's local Chief `chief`'s slot: its provision was refused or failed, or its computer was deleted. */
+export const releaseLocalComputer = (b: ChiefBrainDO, chief: string): Promise<void> =>
+  serial(b, async () => {
+    const list = listOf(b)
+    const left = list.filter((r) => r.chief !== chief)
+    if (left.length !== list.length) writeConfig(b.sql, { [REGISTRY]: JSON.stringify(left) })
+  })
