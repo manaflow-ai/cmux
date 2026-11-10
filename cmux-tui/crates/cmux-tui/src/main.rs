@@ -1822,7 +1822,8 @@ fn warm_seeded_deps(folder: &Path) {
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
 pub fn main() -> std::process::ExitCode {
-    // SAFETY: the first statement of main: no other thread runs yet (G4).
+    cmux_tui_core::startup_timings::process_mark("process.start");
+    // SAFETY: the first statements of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
     // SAFETY: still the first statements of main: one thread. Under a test,
     // name the test process for every process this one starts (cx-leo45).
@@ -2054,6 +2055,7 @@ fn run_main() {
         client_log::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
+    cmux_tui_core::startup_timings::process_mark("process.args");
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
     let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
@@ -2065,6 +2067,7 @@ fn run_main() {
     }
     let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
+    cmux_tui_core::startup_timings::process_mark("process.config");
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
     #[cfg(unix)]
@@ -2393,6 +2396,7 @@ fn run_server(
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+    cmux_tui_core::startup_timings::process_mark("process.provider");
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
@@ -2402,6 +2406,7 @@ fn run_server(
     #[cfg(unix)]
     host_orphan_policy::install();
     owner_start::prepare(&args)?;
+    cmux_tui_core::startup_timings::process_mark("process.owner_prepare");
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2507,8 +2512,10 @@ fn run_server(
     // in a shared daemon that cannot see the terminal's environment, so only
     // its shim routes them. All three are this build's own, never the copies
     // another install on this machine wrote.
+    cmux_tui_core::startup_timings::process_mark("process.pane_options");
     #[cfg(unix)]
     own_build_helpers::configure_pane(&mut surface_options);
+    cmux_tui_core::startup_timings::process_mark("process.build_helpers");
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
@@ -2544,7 +2551,8 @@ fn run_server(
     // A saved state this build cannot open fails before the bind, so its
     // recovery text can still tell whether another server holds the socket.
     // Each start's steps to its first answer (startup-timings.jsonl in the session directory).
-    let mut startup_timings = cmux_tui_core::startup_timings::StartupTimings::start();
+    let mut startup_timings =
+        cmux_tui_core::startup_timings::StartupTimings::from_process_start("process.server_setup");
     if let Some(root) = state_root.as_deref()
         && let Err(error) =
             cmux_tui_core::WorkspaceRegistry::check_supported_schema(root, &args.session)
@@ -2784,9 +2792,14 @@ fn run_server(
     // period and are not marked keep (`terminal-reap-v1`). Every owner that
     // `ensure` starts (`cmux`, `cmux-tui`, `daemon ensure`, also over SSH:
     // the iOS remote and `remote_host/serve.rs`) gets the option, 30 s unless
-    // the client names another (local_owner.rs, W5-O). Only a daemon started
-    // directly with `--headless` and no option does not reap (the Mac app's
-    // SSH remote, `SSHCommandLine.swift`).
+    // the client names another (local_owner.rs, W5-O), and so does the mux
+    // owner `remote-link` starts for the Mac app's SSH remote
+    // (remote_cli/remote_link_mux.rs), and the owner the chatmux relay starts
+    // (chatmux-relay/src/pty_deps.rs). An owner reached through
+    // `--remote-mux-socket` (`remote-link --mux-socket`) is not started by
+    // `remote-link`, so it does not reap unless its own supervisor passed the
+    // option. A daemon started directly with `--headless` and no option does
+    // not reap.
     let terminal_reaper = match args.terminal_reap_grace {
         Some(grace) => {
             mux.set_terminal_reap_grace(grace)?;

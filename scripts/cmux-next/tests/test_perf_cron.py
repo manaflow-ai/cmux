@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -532,6 +532,15 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
         self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
 
+    def test_the_update_one_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scale"))
+        self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.update_one.chat.title.growth@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
+        self.assertEqual(cwd, "/r/webviews")
+
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
         base = {name: {**row(80.0, floor=8.0), "budget": 100}}
@@ -687,6 +696,18 @@ class IssueTests(unittest.TestCase):
         state["regressions"] = []
         self.assertEqual(cron.issue_plan(state, "recovered", T0, True, True, True), {"open": False, "comment": "recovered"})
         self.assertEqual(cron.issue_plan(state, "good", T0, False, True, False), {"open": False, "comment": None})
+
+    def test_a_failed_parts_reason_reaches_the_issue(self):
+        # 2026-10-23..11-10: every Mac part exited 0 and failed on a refused artifact read; the issue guessed a busy fleet.
+        state = cron.empty_state(T0)
+        cur = {"sha": "a" * 40, "kind": "tip", "parts_todo": ["switch", "launch"], "parts": {}}
+        state["current"] = cur
+        entry = cron.record_part(cur, "switch", {"state": "failed", "tail": [
+            "perf-cron fetch-result", "artifact not read: <HTTPError 403: 'Forbidden'>", ""]}, "r")
+        self.assertEqual(entry["why"], "artifact not read: <HTTPError 403: 'Forbidden'>")
+        self.assertNotIn("why", cron.record_part(cur, "launch", {"state": "done", "tail": ["ok"]}, "r"))
+        self.assertIn("Failed parts of the measurement in flight: switch: `artifact not read: <HTTPError 403: 'Forbidden'>`",
+                      cron.issue_body(state, "o/r", T0))
 
     def test_stale_opens_once(self):
         state = cron.empty_state(T0)

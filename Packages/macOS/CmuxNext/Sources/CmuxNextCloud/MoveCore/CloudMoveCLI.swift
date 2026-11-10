@@ -154,14 +154,12 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
     /// the record, no spare, a machine they do not own, or a refusal. With `end`, it reports the copy's end instead:
     /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
-    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil) async -> SpareWarm? {
+    /// With `claimed`, it asks no warm: a reserve's or a claim's answer named that machine, and Rust answers the copy onto
+    /// it unless a copy onto it is already in flight or given (keyed per machine, cmux-tui `spare_warm`).
+    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
+                                   claimed: String? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
-        switch end {
-        case .finished(let machine): request["finished"] = machine
-        case .abandoned(let machine): request["abandoned"] = machine
-        case nil: break
-        }
+        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed)
         guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
@@ -169,6 +167,30 @@ public nonisolated struct CloudMoveCLI: Sendable {
               let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
               copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
         return SpareWarm(machineID: machineID, account: account, team: team)
+    }
+
+    /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
+    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?) -> [String: Any] {
+        var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
+        switch end {
+        case .finished(let machine): request["finished"] = machine
+        case .abandoned(let machine): request["abandoned"] = machine
+        case nil: request["claimed"] = claimed
+        }
+        return request
+    }
+
+    /// The defaults key of ``copiesLoginOnClaim(_:)``.
+    public static let copyLoginOnClaimKey = "cmux.cloud.copyLoginOnClaim"
+
+    /// Whether a reserve's or a claim's machine starts the login copy onto that machine (cmux-platform#1084, item (a)).
+    /// Off unless `cmux.cloud.copyLoginOnClaim` is YES: until then only the warm on intent copies, as before.
+    public static func copiesLoginOnClaim(_ defaults: UserDefaults) -> Bool { defaults.bool(forKey: copyLoginOnClaimKey) }
+
+    /// The machine a reservation answer (``startChatReservation(release:request:access:install:)``, read as an object) reserved; nil for a refusal.
+    public static func reservedMachine(_ reply: [String: Any]) -> String? {
+        guard reply["ok"] as? Bool == true, let machine = reply["machine"] as? String, !machine.isEmpty else { return nil }
+        return machine
     }
 
     /// A start's wait on a spare warm's login copy onto `machine` (Rust's `wait-copy`, at most 80 s): returns once no

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextChiefPetWiring
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFloating
 import CmuxNextHomeEngine
@@ -673,17 +674,17 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional, machine: scoped.machine)?.handler.editShortcut(kind) }
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
-            guard let self else { return false }
+            guard let self, let registry = actionRegistry else { return .notRun }
             // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
             // on the machine this tab's chat runs on, resolved here: the page never names a machine.
             let target: ActionTargetRef
             if id == "machine.reconnect" {
-                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return false }
+                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return .notRun }
                 target = ActionTargetRef(kind: .machine, id: machine)
             } else {
                 target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
             }
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil)) ?? false
+            return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil), showsInApp: CmuxSignInOffer.signInReasons.contains)
         }
         model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional, machine: scoped.machine), op, session) }
         wireHeader(model, key: provisional, machine: scoped.machine)

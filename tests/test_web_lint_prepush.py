@@ -11,12 +11,15 @@ import ast
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import sys
+import time
 import unittest
 from unittest import mock
 import git_fixture_env  # disables git auto maintenance
@@ -1180,6 +1183,102 @@ class WebLintPrePushTests(unittest.TestCase):
             self.assertIn("GOMAXPROCS", env)
             self.assertIn("GOMEMLIMIT", env)
             self.assertIn("--max-old-space-size", env.get("NODE_OPTIONS", ""))
+
+    def test_timings_name_each_step_before_it_spawns_so_a_stalled_one_is_the_last_named(self):
+        # A dispatched fast-gates run whose `bun install` stalled was stopped by its job timeout with nothing in the log
+        # after "::group::web lint": the step that hung was unnamed. With --timings, each spawn is named as it starts.
+        self.heavy_fixture()
+        (self.repo / "webviews/bun.lock").write_text("{}\n")
+        self.commit("a lockfile, so the run installs")
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        stderr = io.StringIO()
+        spawned = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "nice":
+                words = words[3:]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            if Path(words[0]).name == "sh" and words[1:2] == ["-c"]:  # a check given as a shell string
+                words = words[2:]
+            spawned.append((" ".join([Path(words[0]).name, *words[1:]]), stderr.getvalue()))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def run_lint(*argv):
+            stderr.seek(0)
+            stderr.truncate()
+            spawned.clear()
+            with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": "", "CI": ""}), \
+                    mock.patch.object(lint.subprocess, "run", spy), mock.patch("sys.stderr", stderr):
+                self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~2", "--head", "HEAD", *argv]), 0)
+            return stderr.getvalue()
+
+        def open_steps(text):
+            lines = [line for line in text.splitlines() if line.startswith("web-lint: ")]
+            started = [line[len("web-lint: "):-len(": started")] for line in lines if line.endswith(": started")]
+            return [name for name in started
+                    if not any(re.fullmatch(rf"web-lint: {re.escape(name)}: \d+\.\ds", line) for line in lines)]
+
+        out = run_lint("--timings")
+        self.assertTrue(any("bun install" in command for command, _ in spawned), spawned)
+        for command, before in spawned:
+            names = open_steps(before)
+            kind = "bun install" if command.startswith("bun install") else command
+            self.assertTrue([name for name in names if name.endswith(kind)],
+                            f"{command!r} spawned while no started step named it: {names}\n{before}")
+        self.assertEqual(open_steps(out), [], out)
+        self.assertIn("web-lint: webviews: bun install: started", out)
+
+        self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
+
+    def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
+        # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
+        # job's 15 min. In CI the type-aware ones now share a slot per two cores (99.9 and 135.8 s); elsewhere
+        # capped_env and nice already keep them off a person's machine.
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        lock = threading.Lock()
+        running, peak, overlapped = set(), {}, []
+
+        def weighty(words):
+            return words[:2] in (["vp", "lint"], ["vp", "check"]) or "check:nested" in words
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "nice":
+                words = words[3:]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            if Path(words[0]).name == "sh" and words[1:2] == ["-c"]:
+                words = words[2:]
+            words = [Path(words[0]).name, *words[1:]]
+            name = " ".join(words)
+            with lock:
+                running.add(name)
+                heavy_now = [n for n in running if weighty(n.split())]
+                peak["heavy"] = max(peak.get("heavy", 0), len(heavy_now))
+                if not weighty(words) and heavy_now:
+                    overlapped.append(name)
+            time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
+            with lock:
+                running.discard(name)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        for ci, expected in (("true", 1), ("", 2)):
+            peak.clear()
+            overlapped.clear()
+            with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": ci, "CI": ""}), \
+                    mock.patch.object(lint.subprocess, "run", spy), \
+                    mock.patch.object(lint.os, "sched_getaffinity", lambda pid: {0, 1}, create=True), \
+                    mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head]), 0)
+            self.assertEqual(peak.get("heavy"), expected, f"CI={ci!r}: type-aware checks at once on 2 cores")
+            if ci:
+                self.assertTrue(overlapped, "light checks run beside the type-aware one, not after it")
 
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,

@@ -17,7 +17,7 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. `customize: true` gives the launch its own empty customize folder
+settings. `launch_args` are arguments the app launches with (`--showcase`). `customize: true` gives the launch its own empty customize folder
 (`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
 which every terminal of the app has too), so a step can write a customize app
 there and the daemon installs and reloads it; every tour gets its own folder either
@@ -108,7 +108,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env", "customize"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -216,6 +216,9 @@ def load_tour(path: Path) -> dict[str, Any]:
         raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
     if "customize" in data and not isinstance(data["customize"], bool):
         raise TourError(f"{path}: `customize` must be true or false")
+    launch_args = data.get("launch_args", [])
+    if not isinstance(launch_args, list) or not all(isinstance(arg, str) for arg in launch_args):
+        raise TourError(f"{path}: `launch_args` must be a list of strings (arguments the app launches with)")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -280,7 +283,7 @@ def load_tour(path: Path) -> dict[str, Any]:
         if step.get("cmux"):
             step["cmux"] = fill_repo(step["cmux"], repo, f"{path}: step {number}")
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
-            "env": launch_env, "customize": data.get("customize", False)}
+            "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -1193,11 +1196,14 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(customize) if tour.get("customize")
                                            else customize)
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
-              launch_env=launch_env)
+              launch_env=launch_env, launch_args=tour.get("launch_args"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
     video_started = False
+    # When the recording (video or stills) began: each step's `at` is its start on that clock, which
+    # whats-new-clips.py's render-tour uses to cut a step range out of capture.mov.
+    clock: float | None = None
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
                                 "capture_mode": screen.mode}
@@ -1231,6 +1237,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         else:
             video.pid = app.pid()
             video_started = video.start()
+            clock = time.monotonic()
             if video_started:
                 manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
             else:
@@ -1239,7 +1246,10 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
                 recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
+            step_started = time.monotonic()
             result = run_step(app, screen, step, index, shots)
+            if clock is not None:
+                result["at"] = round(step_started - clock, 3)
             manifest["steps"].append(result)
             print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)

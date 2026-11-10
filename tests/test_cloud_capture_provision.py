@@ -76,8 +76,8 @@ class FakeStack:
         raise AssertionError(f"unexpected {method} {path}")
 
 
-def stack(fake):
-    return provision.Stack(provision.STAGING_PROJECT_ID, "server-key", "client-key", transport=fake)
+def stack(fake, project=provision.STAGING_PROJECT_ID):
+    return provision.Stack(project, "server-key", "client-key", transport=fake, expected_project=project)
 
 
 @unittest.skipIf(SODIUM is None, "libsodium is not installed")
@@ -215,6 +215,71 @@ class Provision(unittest.TestCase):
         self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmux", "cmux-next-cloud-journey"))
         self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
         self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
+
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_production_team_target_has_its_own_account_sealed_beside_the_probes(self):
+        # cmuxterm-hq's cloud-chat-replies-production-team row (cmuxterm-hq#8541): a second production account that
+        # joins a shared team. The hourly probe's account must stay in no shared team, so it is never this one.
+        probe = provision.TARGETS["production"]
+        fake = FakeStack([{"id": "user-1", "primary_email": probe.email, "password": "probe-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["production-team"]
+        self.assertEqual(target.project, provision.PRODUCTION_PROJECT_ID)
+        self.assertNotIn(target.email, [t.email for n, t in provision.TARGETS.items() if n != "production-team"])
+        prod = provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                               expected_project=provision.PRODUCTION_PROJECT_ID)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(prod, out, log=logs.append, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "probe-password")  # the probe's account is untouched
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-prod-team@manaflow.dev")
+        self.assertEqual(created[0][3]["client_read_only_metadata"], {"cmuxVmPlan": "pro"})
+        self.assertIs(created[0][3]["primary_email_verified"], True)  # a team invitation needs a verified email
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmuxterm-hq", "cloud-capture"))
+        self.assertEqual(sorted(bundle["secrets"]),
+                         ["CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertIn("production test account", logs[0])
+
+    def test_the_workflow_offers_production_team_with_the_production_key_and_no_grant_only(self):
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
+        self.assertIn("production-team", options)
+        environment = next(line for line in text.splitlines() if line.strip().startswith("environment:"))
+        self.assertIn("inputs.target == 'production-team'", environment)  # the production project's server key
+        grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.target != 'production-team'", grant)
+
+    def test_the_platform_targets_seal_to_cmux_platform_repository_secrets_with_their_own_accounts(self):
+        key, pk, sk = keypair()
+        for name, project, email, secrets in (
+                ("platform-staging", provision.STAGING_PROJECT_ID, "cmux-cloud-capture-platform@manaflow.dev",
+                 ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]),
+                ("platform-production", provision.PRODUCTION_PROJECT_ID, "cmux-cloud-capture-platform-prod@manaflow.dev",
+                 ["CMUX_JOURNEY_PROD_STACK_EMAIL", "CMUX_JOURNEY_PROD_STACK_PASSWORD"])):
+            target = provision.TARGETS[name]
+            self.assertEqual(target.project, project)
+            # Its own account: never one another target rotates.
+            self.assertNotIn(email, [t.email for n, t in provision.TARGETS.items() if n != name])
+            fake = FakeStack()
+            logs = []
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "bundle.json"
+                provision.provision(stack(fake, project), out, log=logs.append, lib=SODIUM, key_id="42", key=key,
+                                    make_password=lambda: PASSWORD, target=target)
+                bundle = sealed_secrets.read_bundle(out)
+            created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+            self.assertEqual(created[0][3]["primary_email"], email)
+            self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmux-platform", None))
+            self.assertEqual(sorted(bundle["secrets"]), secrets)
+            self.assertEqual(open_sealed(bundle["secrets"][secrets[1]], pk, sk), PASSWORD)
+            self.assertIn("manaflow-ai/cmux-platform repository secrets", logs[-1])
 
     def test_an_existing_account_is_rotated_keeping_other_metadata(self):
         fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL.upper(), "password": "old",
@@ -382,6 +447,20 @@ class Put(unittest.TestCase):
         sealed_secrets.put(self.BUNDLE, run=run, log=lambda _: None)
         self.assertEqual(calls[1][:5], ["gh", "api", "-X", "PUT", "repos/o/r/environments/env/secrets/A_SECRET"])
         self.assertIn("key_id=42", calls[1])
+
+    def test_a_bundle_with_no_environment_goes_to_the_repository_secrets(self):
+        bundle = self.BUNDLE | {"environment": None}
+        calls, run = self.fake_gh({"key_id": "42", "key": self.BUNDLE["key"]})
+        sealed_secrets.put(bundle, run=run, log=lambda _: None)
+        self.assertEqual(calls[0][-1], "repos/o/r/actions/secrets/public-key")
+        self.assertEqual(calls[1][:5], ["gh", "api", "-X", "PUT", "repos/o/r/actions/secrets/A_SECRET"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "b.json"
+            path.write_text(json.dumps(bundle))
+            self.assertIsNone(sealed_secrets.read_bundle(path)["environment"])
+            path.write_text(json.dumps(self.BUNDLE | {"environment": ""}))
+            with self.assertRaisesRegex(sealed_secrets.SealError, "environment is not valid"):
+                sealed_secrets.read_bundle(path)
 
     def test_a_bundle_with_a_short_value_is_not_a_sealed_box(self):
         with tempfile.TemporaryDirectory() as tmp:

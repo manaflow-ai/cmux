@@ -460,7 +460,7 @@ select {
   min-width: 0;
 }
 
-.cloud-input:focus {
+.cloud-input:focus-visible {
   border-color: var(--cloud-text-2);
 }
 

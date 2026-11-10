@@ -46,8 +46,10 @@ for line in sys.stdin:
     params = request.get("params", {})
     rid = request.get("id")
     if method == "initialize":
+        # It runs no tool, so it asks before every one it runs: any acpmux policy holds.
         send({"id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {
-            "loadSession": True, "promptCapabilities": {}},
+            "loadSession": True, "promptCapabilities": {},
+            "_meta": {"acpmux": {"asksBeforeTools": True}}},
             "agentInfo": {"name": "workflow-fixture", "version": "1"},
             "_meta": {"steering": {"supported": True}}}})
     elif method == "session/new":

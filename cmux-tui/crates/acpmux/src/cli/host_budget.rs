@@ -21,11 +21,58 @@ pub(crate) fn host_pressure_line(p: &Value) -> Option<String> {
 }
 
 /// Prints an acceptance's host warning (`host_pressure.warning`) to stderr: the
-/// sender learns the target host is over its CPU/RAM budget. Nothing is held.
+/// sender learns the target host is over its CPU/RAM budget. Nothing is held. One caller (the
+/// session its shell runs in, else the person) hears it once per host per
+/// [`WARNING_EVERY_MS`] (W5-S, bench round 4 friction 9, 2026-11-08: the line came on every
+/// send, in agents' tool output too, where it costs context). `--json` prints none.
 pub(crate) fn warn_host_pressure(accepted: &Value) {
-    if let Some(line) = accepted.pointer("/host_pressure/warning").and_then(Value::as_str) {
+    let Some(line) = accepted.pointer("/host_pressure/warning").and_then(Value::as_str) else {
+        return;
+    };
+    let caller = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.trim().is_empty());
+    let dir = crate::config::home().join("host-warnings");
+    if warning_due(&dir, caller.as_deref().unwrap_or("person"), line, crate::store::now_ms()) {
         eprintln!("{line}");
     }
+}
+
+/// How long one caller hears no second over-budget line for the same host.
+pub(crate) const WARNING_EVERY_MS: u64 = 10 * 60 * 1000;
+
+/// Whether `caller` is due `warning` (a `host-budget: HOST over ...` line) at `now_ms`: not when
+/// it heard one for the same host less than [`WARNING_EVERY_MS`] ago. The time it is due is kept
+/// in `dir`, one small file per caller and host; a file that cannot be read or written makes
+/// the line due (a warning lost is worse than one repeated). Only `dir` itself is made, owner
+/// only, never a missing parent (the acpmux home: review of #39057).
+pub(crate) fn warning_due(dir: &std::path::Path, caller: &str, warning: &str, now_ms: u64) -> bool {
+    let host = warning
+        .strip_prefix("host-budget: ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or(warning);
+    let file = dir.join(format!("{:016x}", fnv1a([caller, host])));
+    let last = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<u64>().ok());
+    if last.is_some_and(|at| now_ms.saturating_sub(at) <= WARNING_EVERY_MS) {
+        return false;
+    }
+    let mut folder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut folder, 0o700);
+    let made = match folder.create(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(e),
+        _ => Ok(()),
+    };
+    let _ = made.and_then(|()| std::fs::write(&file, now_ms.to_string()));
+    true
+}
+
+/// FNV-1a (64-bit) of `parts`, each ended by a zero byte: a file name that stays the same across
+/// Rust versions and processes, unlike `DefaultHasher`, whose algorithm std may change.
+fn fnv1a<const N: usize>(parts: [&str; N]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in parts.iter().flat_map(|p| p.bytes().chain([0])) {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 /// The most stdin `machine verdict` reads: a fleet's readings fit many times over.
@@ -69,7 +116,7 @@ pub(crate) fn verdicts_for(text: &str, now: u64) -> anyhow::Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::verdicts_for;
+    use super::{verdicts_for, warning_due};
 
     #[test]
     fn machine_verdict_judges_one_object_or_an_array() {
@@ -85,5 +132,40 @@ mod tests {
         assert_eq!(v[1]["reason"], "unknown:stale");
         assert!(verdicts_for("{\"lod1\": 1}", 0).is_err());
         assert!(verdicts_for("not json", 0).is_err());
+    }
+
+    /// W5-S, bench round 4 friction 9 (2026-11-08): the over-budget line came on every send, in
+    /// agents' tool output too. One caller hears it once per host per 10 minutes.
+    #[test]
+    fn w5s_a_host_warning_comes_once_per_caller_and_host_per_ten_minutes() {
+        let dir = std::env::temp_dir().join(format!("w5s-host-warning-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let over =
+            |host: &str| format!("host-budget: {host} over its CPU/RAM budget: load1 190 >= 18");
+        let t0 = 1_800_000_000_000;
+        assert!(warning_due(&dir, "person", &over("gray"), t0));
+        // The numbers change from send to send; the host is what counts.
+        let again = "host-budget: gray over its CPU/RAM budget: load1 191 >= 18";
+        assert!(!warning_due(&dir, "person", again, t0 + 60_000));
+        assert!(warning_due(&dir, "session-a", &over("gray"), t0 + 60_000), "another caller");
+        assert!(warning_due(&dir, "person", &over("cmux16"), t0 + 60_000), "another host");
+        assert!(!warning_due(&dir, "person", &over("gray"), t0 + 9 * 60_000));
+        assert!(warning_due(&dir, "person", &over("gray"), t0 + 10 * 60_000 + 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review of #39057: the warning never creates a missing acpmux home (`ACPMUX_HOME` named
+    /// but not made yet, or a typo); it makes only its own folder inside an existing one. The
+    /// line is still due.
+    #[test]
+    fn w5s_a_host_warning_does_not_create_a_missing_acpmux_home() {
+        let base = std::env::temp_dir().join(format!("w5s-host-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let home = base.join("not-made");
+        let line = "host-budget: gray over its CPU/RAM budget: load1 190 >= 18";
+        assert!(warning_due(&home.join("host-warnings"), "person", line, 1));
+        assert!(!home.exists(), "the warning made the missing home {}", home.display());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

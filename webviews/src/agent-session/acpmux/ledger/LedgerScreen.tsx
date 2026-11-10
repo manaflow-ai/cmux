@@ -10,9 +10,14 @@
 // input reads as many times what it is. What those reads saved against the input price is its own
 // tile, and the note line says what share of all input came from cache.
 //
+// Cache reads and cache writes have tiles of their own, and each row says its share from cache.
+//
 // Copy CSV puts the rows shown (the range and the grouping) on the clipboard as CSV, the columns
-// `acpmux ledger --csv` prints, for an audit or a spreadsheet.
+// `acpmux ledger --csv` prints, for an audit or a spreadsheet. Save writes the same range and
+// grouping to a file through the host's save panel, as that CSV or as JSON (`ledgerJson`): every
+// session, read again at acpmux's most when the page holds only the top ones.
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { VirtualList } from "../../../ui/VirtualList";
@@ -23,14 +28,19 @@ import {
   formatCount,
   formatDuration,
   groupLabel,
+  LEDGER_EXPORT_LIMIT,
   LEDGER_GROUPS,
   LEDGER_RANGES,
   ledgerCsv,
+  ledgerFileName,
+  ledgerJson,
+  ledgerShortfall,
   ledgerLines,
   ledgerParams,
   readLedger,
   tokensIn,
   type CostSource,
+  type LedgerExportKind,
   type LedgerGroup,
   type LedgerLine,
   type LedgerRange,
@@ -38,6 +48,7 @@ import {
   type LedgerTotals,
 } from "./ledgerModel";
 import { isOlderDaemon } from "../queue/queueModel";
+import { UNKNOWN } from "../usageStats";
 import "./ledger.css";
 
 /// How rows read (gallery `agent-pane.costs`): `bars` a label over a share bar with the cost at the
@@ -68,6 +79,13 @@ export function createLedgerCache(): LedgerCache {
   };
 }
 
+/// What the note line says after a Save.
+type SaveWord = "saved" | "copied" | "failed";
+
+/// How a Save ended: the file was saved, the host could not save it so it went to the clipboard,
+/// or the person dismissed the save panel.
+export type LedgerSaveOutcome = "saved" | "copied" | "cancelled";
+
 type Props = {
   /// `_acpmux/ledger` with `params` (direct.ts `ledger`).
   load(params: Record<string, unknown>): Promise<unknown>;
@@ -75,6 +93,11 @@ type Props = {
   openSession(sessionId: string): void;
   /// Copies text, false when the clipboard refused it; without it there is no Copy CSV.
   copy?: (text: string) => Promise<boolean>;
+  /// Saves a file (queue/historyPages.ts: the host's save panel, else the clipboard); rejects when
+  /// neither took it. Unset: no Save.
+  save?(text: string, suggestedName: string, kind: LedgerExportKind): Promise<LedgerSaveOutcome>;
+  /// The Save menu starts open (the gallery).
+  initialSaveOpen?: boolean;
   look?: LedgerLook;
   initialRange?: LedgerRange;
   initialGroup?: LedgerGroup;
@@ -86,6 +109,8 @@ export function LedgerScreen({
   load,
   openSession,
   copy,
+  save,
+  initialSaveOpen,
   look = "bars",
   initialRange = "7d",
   initialGroup = "session",
@@ -103,6 +128,14 @@ export function LedgerScreen({
   // What the last Copy CSV did, for the answer and grouping it copied: a new read or grouping
   // clears it.
   const [copied, setCopied] = useState<{ ok: boolean; of: LedgerReply; group: LedgerGroup } | undefined>();
+  // What the last Save did, for the range and grouping it wrote.
+  const [lastSave, setLastSave] = useState<{
+    range: LedgerRange;
+    group: LedgerGroup;
+    outcome: SaveWord;
+    /// Sessions the file is missing: more than acpmux returns in one read.
+    shortfall?: { shown: number; total: number };
+  }>();
   const request = useRef(0);
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -159,6 +192,33 @@ export function LedgerScreen({
         }
       : undefined;
   const copyNotice = copied && copied.of === reply && copied.group === group ? copied : undefined;
+  const saved = lastSave?.range === range && lastSave.group === group ? lastSave : undefined;
+  const saveNotice = saved?.outcome;
+  // Like Copy CSV, only the answer for the range shown.
+  const saveFile =
+    save && state.phase === "ready" && reply && lines.length > 0
+      ? async (kind: LedgerExportKind) => {
+          const done = (outcome: SaveWord | undefined, shortfall?: { shown: number; total: number }) =>
+            setLastSave(outcome ? { range, group, outcome, ...(shortfall ? { shortfall } : {}) } : undefined);
+          try {
+            // The page holds the top sessions only: the file reads them all, for the same range.
+            const data =
+              group === "session" && reply.totals.sessions > reply.rows.length
+                ? readLedger(
+                    await loadRef.current(
+                      ledgerParams(range, reply.range.until ?? now ?? Date.now(), LEDGER_EXPORT_LIMIT),
+                    ),
+                  )
+                : reply;
+            const text = kind === "csv" ? ledgerCsv(data, group) : ledgerJson(data, range, group);
+            const outcome = await save(text, ledgerFileName(data, range, group), kind);
+            // A file short of sessions says so, saved or copied: its rows are not the whole range.
+            done(outcome === "cancelled" ? undefined : outcome, ledgerShortfall(data, group));
+          } catch {
+            done("failed");
+          }
+        }
+      : undefined;
   const fromCache = reply ? cacheShare(reply.totals) : undefined;
   // acpmux returns at most LEDGER_ROW_LIMIT sessions, the most recent; the totals count them all.
   const moreSessions =
@@ -208,6 +268,21 @@ export function LedgerScreen({
             {t("ledger.copyCsv")}
           </button>
         )}
+        {save && (
+          <Menu {...(initialSaveOpen ? { open: true } : {})}>
+            <MenuButton className="cst-link" data-menu="costs-save" label={t("ledger.export")} disabled={!saveFile}>
+              {t("ledger.export")}
+            </MenuButton>
+            <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("ledger.export")}>
+              <MenuItem className="acpmux-quick-item" onSelect={() => void saveFile?.("csv")}>
+                {t("ledger.export.csv")}
+              </MenuItem>
+              <MenuItem className="acpmux-quick-item" onSelect={() => void saveFile?.("json")}>
+                {t("ledger.export.json")}
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        )}
         <Select
           label={t("ledger.group")}
           value={group}
@@ -243,6 +318,21 @@ export function LedgerScreen({
             {t(copyNotice.ok ? "ledger.copied" : "ledger.copyFailed")}
           </output>
         )}
+        {saveNotice && (
+          <output
+            className="cst-copied"
+            data-tone={saveNotice === "failed" ? "error" : saved?.shortfall ? "warning" : "ok"}
+          >
+            {t(`ledger.export.${saveNotice}`)}
+            {/* Whole numbers: a compact 5K of 6K would hide how many are missing. */}
+            {saved?.shortfall && saveNotice !== "failed"
+              ? ` · ${t("ledger.export.partial", {
+                  shown: new Intl.NumberFormat(locale).format(saved.shortfall.shown),
+                  total: new Intl.NumberFormat(locale).format(saved.shortfall.total),
+                })}`
+              : null}
+          </output>
+        )}
         <span className="cst-fill" />
         {/* What the marks after a cost mean, for the marks this list shows. */}
         {LEGEND.filter((source) => lines.some((line) => line.source === source)).map((source) => (
@@ -257,6 +347,9 @@ export function LedgerScreen({
           <span className="cst-head-label">{t(`ledger.group.${group}`)}</span>
           <span>{t("ledger.total.cost")}</span>
           <span>{t("ledger.total.tokensIn")}</span>
+          <span data-col="cacheRead">{t("ledger.column.cacheRead")}</span>
+          <span data-col="cacheWrite">{t("ledger.column.cacheWrite")}</span>
+          <span data-col="fromCache">{t("ledger.column.fromCache")}</span>
           <span>{t("ledger.total.tokensOut")}</span>
           <span>{t("ledger.total.turns")}</span>
           <span>{t("ledger.total.time")}</span>
@@ -294,6 +387,8 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
   const tiles: [string, string][] = [
     [t("ledger.total.cost"), value((each) => formatCost(each.costUsd, locale))],
     [t("ledger.total.tokensIn"), value((each) => formatCount(tokensIn(each), locale))],
+    [t("ledger.total.cacheRead"), value((each) => formatCount(each.cacheReadTokens, locale))],
+    [t("ledger.total.cacheWrite"), value((each) => formatCount(each.cacheWriteTokens, locale))],
     [t("ledger.total.tokensOut"), value((each) => formatCount(each.outputTokens, locale))],
     [t("ledger.total.cacheSaved"), value((each) => formatCost(each.cacheSavedUsd, locale))],
     [t("ledger.total.turns"), value((each) => formatCount(each.turns, locale))],
@@ -310,6 +405,15 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
       ))}
     </dl>
   );
+}
+
+/// The share of a row's input read from cache (`cacheShare`), as the note line writes it; the
+/// unknown mark with no input.
+function fromCacheText(totals: LedgerTotals, locale: string): string {
+  const share = cacheShare(totals);
+  return share === undefined
+    ? UNKNOWN
+    : new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(share);
 }
 
 const SOURCE_KEY: Record<
@@ -346,22 +450,43 @@ const Line = memo(function Line({
   const sourceKey = SOURCE_KEY[line.source];
   const source = sourceKey ? t(sourceKey) : undefined;
   const cost = formatCost(totals.costUsd, locale);
-  const meta = t("ledger.row.meta", {
+  const counts = t("ledger.row.meta", {
     turns: formatCount(totals.turns, locale),
     tokens: formatCount(tokensIn(totals) + totals.outputTokens, locale),
   });
+  // A row with no input still says so ("— from cache"), as the table's column does.
+  const fromCache = t("ledger.row.fromCache", { share: fromCacheText(totals, locale) });
+  const meta = `${counts} · ${fromCache}`;
   const bar = (
     <span className="cst-bar" style={{ "--cst-share": line.share } as React.CSSProperties} aria-hidden="true" />
   );
   const body =
     look === "table" ? (
       <>
-        <span className="cst-label">{label}</span>
+        {/* The tooltip keeps the cache counts where a narrow page drops their columns. */}
+        <span
+          className="cst-label"
+          title={`${label}\n${t("ledger.row.cache", {
+            read: formatCount(totals.cacheReadTokens, locale),
+            write: formatCount(totals.cacheWriteTokens, locale),
+          })} · ${fromCache}`}
+        >
+          {label}
+        </span>
         <span className="cst-num" title={source}>
           {cost}
           <SourceMark source={line.source} />
         </span>
         <span className="cst-num">{formatCount(tokensIn(totals), locale)}</span>
+        <span className="cst-num" data-col="cacheRead">
+          {formatCount(totals.cacheReadTokens, locale)}
+        </span>
+        <span className="cst-num" data-col="cacheWrite">
+          {formatCount(totals.cacheWriteTokens, locale)}
+        </span>
+        <span className="cst-num" data-col="fromCache">
+          {fromCacheText(totals, locale)}
+        </span>
         <span className="cst-num">{formatCount(totals.outputTokens, locale)}</span>
         <span className="cst-num">{formatCount(totals.turns, locale)}</span>
         <span className="cst-num">{formatDuration(totals.wallMs, locale)}</span>

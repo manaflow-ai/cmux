@@ -43,6 +43,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
 /// re-fold clears rows that stayed working after either.
 pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
+/// The oldest roster version whose snapshot [`AgentRoster::migrate`] takes.
+/// Version 6 added the hook session fences: a snapshot without them would
+/// let a late event from an ended session bring its row back while the
+/// rebuild runs.
+const AGENT_ROSTER_MIGRATES_FROM: u32 = 6;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -1080,6 +1085,19 @@ impl AgentRoster {
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]
     }
 
+    /// Each terminal's hook session id (ended or not) and the harness its
+    /// roster entry names, from the journal: a restarted daemon shows the
+    /// session a resume needs again (W5-R).
+    pub(crate) fn hook_sessions(&self) -> Vec<(String, String, Option<String>)> {
+        self.hook_fences
+            .iter()
+            .map(|(terminal, fence)| {
+                let agent = self.entries.get(terminal).and_then(|entry| entry.agent.clone());
+                (terminal.clone(), fence.session_id.clone(), agent)
+            })
+            .collect()
+    }
+
     /// Drop a terminal that left the session (tab closed, terminal
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
@@ -1131,6 +1149,19 @@ impl AgentRoster {
 
     pub(crate) fn snapshot(&self) -> Value {
         serde_json::to_value(self).unwrap_or(Value::Null)
+    }
+
+    /// The roster of a snapshot an older reducer version (`from_version`)
+    /// saved, or `None` when its format no longer restores. Every bump so
+    /// far kept the format (new fields default) and fixed the fold's logic,
+    /// so a migrated roster can hold state the current reducer would not
+    /// have produced: it is served marked stale while the full history is
+    /// folded again in the background (`mux/agent_roster_rebuild.rs`).
+    pub(crate) fn migrate(from_version: u32, snapshot: &str) -> Option<Self> {
+        if !(AGENT_ROSTER_MIGRATES_FROM..=AGENT_ROSTER_REDUCER_VERSION).contains(&from_version) {
+            return None;
+        }
+        Self::restore(snapshot)
     }
 
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {

@@ -486,9 +486,10 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
     for (tag, terminal, n) in &terminals {
         let record = launch_record(&root, &daemon, tag);
-        // The session's place in the model's context, exactly once.
+        // The session's place in the model's context, exactly once. Its guide line names the
+        // pane's own cmux (`"$CMUX_TUI_CLI" skill show`, W5-Q #39040), so match its opening.
         assert_eq!(
-            session_start_outputs_with(&record, "cmux skill show"),
+            session_start_outputs_with(&record, "cmux: you run in a cmux terminal"),
             1,
             "{tag}: SessionStart must add the cmux session context once: {record}"
         );

@@ -175,6 +175,8 @@ public final class HomeNativeTranscriptView: NSView {
     let headerPanels = HomeHeaderPanelBar()
     /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
     var pinned: (view: NSView, height: CGFloat?)?
+    /// The Set Up cmux card under the pinned section (HomeNativeTranscriptView+PinnedSection.swift) and its height.
+    var setupCard: (view: NSView, height: CGFloat)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).

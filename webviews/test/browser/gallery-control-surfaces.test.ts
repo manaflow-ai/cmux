@@ -297,6 +297,12 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
               groups += baseline.groups;
               failures.push(...baseline.findings.map((f) => `${name}: ${f.kind} ${f.selector}: ${f.detail}`));
               for (let index = 0; index < baseline.controls; index++) {
+                // FOCUS-RING: a stage that focused a field from its play shows that field's ring until
+                // the pointer moves past its slop (ui/focusModality.ts). The pointer is in use before
+                // the baseline (a move inside the page; one outside it fires no event), so the hover
+                // below measures the hover alone, not the ring leaving.
+                await page.mouse.move(1, 1);
+                await page.mouse.move(1, 20);
                 await page.mouse.move(-10, -10);
                 const point = await page.evaluate(
                   (i) => (window as unknown as AuditWindow).controlSurfaceAudit.before(i),

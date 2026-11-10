@@ -133,6 +133,46 @@ class UIFontTests(unittest.TestCase):
         result = self.check("--rev", "HEAD", "--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_every_file_whose_change_moves_a_finding_is_in_its_inputs(self):
+        # prepush-gate.py skips this check on a push that changes none of the paths `--inputs` prints (2026-11-09,
+        # #39765). A file that moves a finding but is not in them would let such a push through unchecked.
+        result = self.check("--inputs")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        inputs = tuple(line for line in result.stdout.splitlines() if line)
+        self.assertTrue(inputs, "--inputs printed nothing")
+        mutations = {
+            "schemas/type-scale/type-scale.json": json.dumps(type_scale(stack=['"Inter"'] + STACK)),
+            "schemas/type-scale/ui-font-pin.json": json.dumps(pin(note="moved")),
+            "webviews/src/pages/shared/desktop.css": desktop_css(stack='"Inter", ' + ", ".join(STACK)),
+            FONTS + "InterVariable.woff2": b"wOF2fake",
+            "webviews/src/agent/row.css": '.row { font-family: "Inter", system-ui; }\n',
+            "Native/OptChat/optchat-chief/inspector/index.html": 'body { font: 13px "Inter", system-ui; }\n',
+        }
+        for path, content in mutations.items():
+            with self.subTest(path=path):
+                self.write(path, content)
+                self.commit(f"change {path}")
+                moved = self.check("--rev", "HEAD", "--base", self.base)
+                self.git("reset", "-q", "--hard", self.base)
+                self.assertEqual(moved.returncode, 1, f"{path}: the change must move a finding\n{moved.stdout}")
+                self.assertTrue(path.startswith(inputs), f"{path} moves a finding but --inputs is {inputs}")
+
+    def test_a_read_outside_its_inputs_stops_the_check(self):
+        # A new read must join INPUTS, or the gate would skip a push that changes only that file.
+        copy = self.repo / "copy" / "check-ui-font.py"
+        copy.parent.mkdir()
+        entry = "def check_tree(tree: Tree) -> list[str]:\n"
+        text = CHECK.read_text(encoding="utf-8")
+        self.assertIn(entry, text)
+        copy.write_text(text.replace(entry, entry + "    tree.read(\"README.md\")\n", 1), encoding="utf-8")
+        for args in ((), ("--rev", "HEAD")):
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, "-I", str(copy), "--repo", str(self.repo), *args],
+                                        capture_output=True, text=True, timeout=60)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("README.md", result.stdout + result.stderr)
+                self.assertIn("INPUTS", result.stdout + result.stderr)
+
     def test_the_repository_keeps_the_system_font(self):
         result = subprocess.run([sys.executable, "-I", str(CHECK), "--repo", str(SOURCE)], capture_output=True,
                                 text=True, timeout=120)
