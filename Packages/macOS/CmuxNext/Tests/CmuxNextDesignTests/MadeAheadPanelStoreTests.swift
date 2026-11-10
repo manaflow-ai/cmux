@@ -38,6 +38,31 @@ struct MadeAheadPanelStoreTests {
         }
     }
 
+    /// Makes working panels and keeps no strong reference to them: `alive` counts the ones that some owner still
+    /// holds. The app's `NSOpenPanel` stands behind each: while one is alive, its panel service
+    /// (`com.apple.appkit.xpc.openAndSavePanelService`) keeps the folder it shows in sync on every file-system event.
+    @MainActor private final class LivePanels {
+        private final class Ref {
+            weak var panel: Panel?
+            init(_ panel: Panel) { self.panel = panel }
+        }
+        private var refs: [Ref] = []
+        /// The panels made so far.
+        var made: Int { refs.count }
+        /// The panels made that are still alive.
+        var alive: Int { refs.filter { $0.panel != nil }.count }
+        func make() -> Panel {
+            let panel = Panel(prompt: "Open")
+            refs.append(Ref(panel))
+            return panel
+        }
+    }
+
+    /// One pick from the click to its end: the caller takes the panel, shows it, and lets it go when its handler ran.
+    private static func pickAndEnd(_ store: MadeAheadPanelStore<Panel>) -> Bool {
+        store.panel() != nil
+    }
+
     private static func store(_ factory: Factory, clock: ManualClock = ManualClock(),
                               check: OpenPanelWarmCheck = .ready) -> MadeAheadPanelStore<Panel> {
         MadeAheadPanelStore(clock: clock, makePanel: { factory.make() }, warmCheck: { check })
@@ -133,5 +158,29 @@ struct MadeAheadPanelStoreTests {
         _ = await runs.next()
         #expect(factory.made.isEmpty, "the warm-up made a panel off the console session")
         #expect(!store.isMade && !store.isWarming)
+    }
+
+    /// At rest the app keeps no open panel alive. A live `NSOpenPanel` cost Lawrence's Mac 2.8 to 4.8 % of a core
+    /// for the life of each app (2026-11-10): its panel service ran DesktopServicesPriv `TNode::SynchronizeChildren`
+    /// for the shown folder on each file-system event. The warm-up pays the process's first panel and lets it go.
+    @Test func theWarmUpLeavesNoPanelAlive() async throws {
+        let live = LivePanels()
+        let clock = ManualClock()
+        let store = MadeAheadPanelStore(clock: clock, makePanel: { live.make() }, warmCheck: { .ready })
+        var runs = store.checksRan.makeAsyncIterator()
+        store.warmWhenIdle()
+        try await Self.fire(clock)
+        _ = await runs.next()
+        #expect(live.made == 1, "the warm-up made no panel: the first click pays the process's first panel")
+        #expect(live.alive == 0, "the warm-up's panel is still alive at rest: its panel service keeps a folder in sync")
+    }
+
+    /// The same after a pick: when its sheet ended and the caller let the panel go, the store holds none.
+    @Test func aPickThatEndedLeavesNoPanelAlive() {
+        let live = LivePanels()
+        let store = MadeAheadPanelStore(clock: ManualClock(), makePanel: { live.make() }, warmCheck: { .ready })
+        #expect(Self.pickAndEnd(store), "a working panel made on the click was not handed out")
+        #expect(live.made == 1)
+        #expect(live.alive == 0, "the panel of a pick that ended is still alive at rest")
     }
 }
