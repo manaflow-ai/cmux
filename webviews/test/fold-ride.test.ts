@@ -223,3 +223,27 @@ test("a ride hands over its rows' shifts to the placement of its heights", () =>
   ride.settled([row], false);
   expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
 });
+
+// A chat switch lets go of the ride and of its hand-over: the new chat's first placement of new
+// heights must not move a row whose id the old chat used by the old fold (review of #39917 at
+// e2f830ca: "offset 1200 to 1160 after a 40 px fold in the previous chat").
+test("a reset forgets the hand-over as well as the ride", () => {
+  const rows = transcript(4);
+  const [row, below] = rows as [HTMLElement, HTMLElement];
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const drawn = {};
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    drawn: () => drawn,
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+  height.set(row, 140);
+  expect(ride.ride([row])).toBe(true);
+  ride.reset();
+  expect(ride.riding).toBe(false);
+  expect(below.style.translate).toBe("");
+  expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
+});

@@ -160,6 +160,13 @@ export class FoldRide {
     if (drawn !== this.handedOn) this.handed = undefined;
   }
 
+  /// Lets every row go and forgets everything, the hand-over too: the transcript shows another chat,
+  /// whose placement has nothing of this one's to account for.
+  reset(): void {
+    this.release();
+    this.handed = undefined;
+  }
+
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.
   release(): false {
     if (this.moved.size) {

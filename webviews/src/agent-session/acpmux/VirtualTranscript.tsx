@@ -2204,7 +2204,7 @@ function TranscriptView({
     },
   });
   // Another chat's rows ride nothing of this one's.
-  useEffect(() => () => void foldRide.current?.release(), [sessionId]);
+  useEffect(() => () => foldRide.current?.reset(), [sessionId]);
   const observer = useMemo(
     () =>
       typeof ResizeObserver === "undefined"
