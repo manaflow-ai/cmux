@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42781848198",
+  "recorded_at": "2026-11-10T08:28:03Z",
+  "reason": "cmux-tui 9f4d45c420d9 changes the image's cmux-tui (pinned 27ea9f2103a6)",
+  "dry_run": false,
+  "cmux_tui": "9f4d45c420d968d55cb18b2779d5abb5b3161210",
+  "fixes": [
+    {
+      "sha": "9f4d45c420d968d55cb18b2779d5abb5b3161210",
+      "mergedAt": "2026-11-10T00:04:23-08:00",
+      "subject": "Chief: every action is Direct, Task or Workspace; organize never makes a workspace (#40148)"
+    },
+    {
+      "sha": "4d5895ecee1d01263e02f6e09bcc46dc8dc5884c",
+      "mergedAt": "2026-11-10T00:03:18-08:00",
+      "subject": "Account menu, Switch Active Team and Cloud: the active team is a checked choice (#39949)"
+    },
+    {
+      "sha": "f669482e338f9214a5210219d7b14185af5bad40",
+      "mergedAt": "2026-11-10T00:02:46-08:00",
+      "subject": "cmux NEXT Feed: the Inbox, panel, sidebar and Needs you host the React page; CmuxNextFeed is deleted (#37378)"
+    },
+    {
+      "sha": "4532a74259d8b59193e647a17581d5cf49c8c403",
+      "mergedAt": "2026-11-10T00:02:19-08:00",
+      "subject": "cmux CLI: one error shape, --json anywhere, retired spellings as aliases, convention detector (#40028)"
+    },
+    {
+      "sha": "2251111f419de99b2587f96b173d9e8f14b47f33",
+      "mergedAt": "2026-11-10T00:01:41-08:00",
+      "subject": "cmux-tui app requests: a chunked reply and the liveness ping both end at the request deadline (#40167)"
+    },
+    {
+      "sha": "688a417caaeac579fc5b84e037ca9c9c7e088cdb",
+      "mergedAt": "2026-11-10T00:01:38-08:00",
+      "subject": "Cloud: show the team's spending cap (warning, pause, refusals) (#40036)"
+    },
+    {
+      "sha": "8c14cae03c5c5d82b7f4ab8ff42aa7767a9fb555",
+      "mergedAt": "2026-11-10T07:54:29Z",
+      "subject": "Fix review-bot findings: acpmux gh env, terminal tail escapes, CSV formulas, native views (#39978)"
+    },
+    {
+      "sha": "bb7ac146066d8556847e9f552f73a00df18575a6",
+      "mergedAt": "2026-11-09T23:53:25-08:00",
+      "subject": "Paid Cloud plans have no machine-count cap: metered, and the spending cap is the stop (#40102)"
+    },
+    {
+      "sha": "2b8515b7dca8e0eaa6d1577246b1920d038c1163",
+      "mergedAt": "2026-11-09T23:49:55-08:00",
+      "subject": "Cloud: Move to Another Machine moves a chat from one Cloud machine to another (#40090)"
+    },
+    {
+      "sha": "b7d534e7f6fd6dd8694ba7bc50dd6b3a9e7db571",
+      "mergedAt": "2026-11-09T23:41:49-08:00",
+      "subject": "cmux NEXT Home: the Messages view is the React home-messages page (#37736)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T08:28:03Z",
+    "snapshot_id": "sh-77be9b4a40c5459da377b272f8663de7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42781848198): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f761a640488d4f4a3dc17d3dda51c09d5ead8c37",
+    "image": "cloud-native-auto-9f4d45c4-42781848198-1",
+    "revision": "ci-42781848198-1",
+    "at": "2026-11-10T08:28:03Z"
+  },
+  "rolled_back": false
+}
