@@ -208,9 +208,10 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("teamleaderleo", {m["login"] for m in g["teammates"]})
 
     def test_exclude_matches_the_vercel_ignore_script(self) -> None:
-        if not IGNORE.exists():
-            self.skipTest("sparse checkout without web/")
-        skipped = re.findall(r'":\(exclude\)([^"]+)"', IGNORE.read_text())
+        # The ignore script's own exclusions; a checkout without web/ compares against this copy of them.
+        skipped = ["tests/", "e2e/", "scripts/", "README.md", "AGENTS.md", "CLAUDE.md"]
+        if IGNORE.exists():
+            skipped = re.findall(r'":\(exclude\)([^"]+)"', IGNORE.read_text())
         want = sorted("web/" + (s + "**" if s.endswith("/") else s) for s in skipped)
         self.assertEqual(sorted(CFG["deploy_guard"]["exclude"]), want)
 
