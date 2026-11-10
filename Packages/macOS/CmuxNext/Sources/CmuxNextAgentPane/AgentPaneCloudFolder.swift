@@ -30,13 +30,24 @@ public nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
         }
     }
 
+    /// The first of ``secretFolders`` that `folder` (canonical) is in anywhere on this Mac (`/Users/me/backup/.aws`), by
+    /// path components and in any case: its copy would hold only the files inside, whose own names say nothing. cmux-tui's
+    /// `skips.rs` `credential_folder_of` is the same rule. Reads no disk.
+    public static func nestedSecretFolder(of folder: String) -> String? {
+        let names = folder.lowercased().split(separator: "/")
+        return secretFolders.first { relative in
+            let parts = relative.lowercased().split(separator: "/")
+            return names.count >= parts.count && (0...(names.count - parts.count)).contains { Array(names[$0..<($0 + parts.count)]) == parts }
+        }
+    }
+
     /// The refusal of `folder` (absolute, `.` and `..` resolved) read from its words alone, before the disk is read
     /// (``AgentPaneCloudStart/checkedFolder(_:home:)`` reads it later): home, above it or the disk's root, or a
     /// credential folder; nil for none.
     public static func written(_ folder: String, home: String) -> Self? {
         let home = (home as NSString).standardizingPath
         if AgentHome.isHomeOrAbove(folder, home: home) { return .homeOrAbove }
-        return secretFolder(of: folder, home: home).map { .secret("~/" + $0) }
+        return secretFolder(of: folder, home: home).map { .secret("~/" + $0) } ?? nestedSecretFolder(of: folder).map { .secret($0) }
     }
 
     public var code: String {
@@ -48,7 +59,7 @@ public nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
     }
 
     /// The reply: the secret's message is the folder's `~/` spelling, which the page's words name.
-    var reply: [String: Any] {
+    public var reply: [String: Any] {
         if case .secret(let folder) = self { return AgentPaneReply.failure(code: code, message: folder) }
         return AgentPaneReply.failure(code: code, message: code)
     }
@@ -96,6 +107,7 @@ extension AgentPaneCloudStart {
             if let canonicalHome, let secret = AgentPaneCloudFolderRefusal.secretFolder(of: folder, home: canonicalHome) {
                 return .failure(.secret("~/" + secret))
             }
+            if let secret = AgentPaneCloudFolderRefusal.nestedSecretFolder(of: folder) { return .failure(.secret(secret)) }
             return .success(folder)
         }.value
     }

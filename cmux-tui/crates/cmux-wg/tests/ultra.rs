@@ -8,8 +8,11 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use cmux_transport::{DatagramClass, classify};
-use cmux_wg::testing::{LoopbackPair, loopback_pair};
-use cmux_wg::{Origin, Received, UdpUnderlay, UltraMode, Underlay, WgNet};
+use cmux_wg::testing::sim::{LinkProfile, SimNet};
+use cmux_wg::testing::{LoopbackPair, config_pair, loopback_pair};
+use cmux_wg::{
+    Origin, Priority, Received, SocketPath, UdpUnderlay, UltraMode, Underlay, WgError, WgNet,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -167,4 +170,68 @@ async fn duplication_is_agreed_too() {
     echo(&client, &server, target, 256 * 1024).await;
     assert!(client.ultra_stats().copies_sent > 0);
     assert!(server.ultra_stats().copies_sent > 0, "the server agreed to copies");
+}
+
+/// Remote desktop's overlay port (transport.md: service `remote-desktop`).
+const REMOTE_DESKTOP: u16 = 4103;
+
+/// A peer from before the in-tunnel hello, with remote desktop bound on
+/// 4103: it hands every datagram to 4103 to remote desktop, and drops
+/// what goes to the control port 4102 unless it is a probe. The first
+/// hellos went to 4103, so it would have read them as media. Now they go
+/// to 4102: remote desktop gets exactly what the viewer sent, through every
+/// hello retry, and the upgraded side gives up and keeps its own mode. A
+/// payload on 4103 that looks like a version-1 hello is media to the
+/// upgraded side too.
+#[tokio::test(start_paused = true)]
+async fn an_older_peer_with_remote_desktop_on_4103_never_gets_a_hello() {
+    let (client_addr, server_addr): (SocketAddr, SocketAddr) =
+        ("192.0.2.120:51820".parse().unwrap(), "192.0.2.121:51820".parse().unwrap());
+    let sim = SimNet::new();
+    let link = LinkProfile { latency: Duration::from_millis(10), ..LinkProfile::default() };
+    sim.set_link(client_addr, server_addr, link);
+    let configs = config_pair(server_addr);
+    let rs = UltraMode::Rs { group: 4, parity: 4 };
+    let client_path = SocketPath::new(sim.bind(client_addr).unwrap(), Some(server_addr));
+    let client = WgNet::start_with_ultra(configs.client.clone(), client_path, rs).unwrap();
+    let server_path = SocketPath::new(sim.bind(server_addr).unwrap(), None);
+    let older =
+        WgNet::start_without_hello(configs.server.clone(), server_path, UltraMode::Off).unwrap();
+    let mut desktop = older.bind_datagram(REMOTE_DESKTOP).await.unwrap();
+    let mut viewer = client.bind_datagram(REMOTE_DESKTOP).await.unwrap();
+    for net in [&client, &older] {
+        let control = net.bind_datagram(4102).await;
+        assert!(matches!(control, Err(WgError::ListenerBusy(4102))), "the control port is owned");
+    }
+
+    // Input every 250 ms for 10 s: past every hello retry (0.25 + 0.5 + 1
+    // + 2 s after the first).
+    let peer = SocketAddr::new(configs.server_v6, REMOTE_DESKTOP);
+    let mut sent = Vec::new();
+    for i in 0..40u8 {
+        let payload = vec![i; 100];
+        viewer.send_to(&payload, peer, Priority::Interactive).await.unwrap();
+        sent.push(payload);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let mut got = Vec::new();
+    while let Ok(Some((payload, _))) =
+        tokio::time::timeout(Duration::from_secs(2), desktop.recv_from()).await
+    {
+        got.push(payload);
+    }
+    got.sort();
+    assert_eq!(got, sent, "remote desktop got the viewer's datagrams and nothing else");
+
+    let old_hello = [b'C', b'M', b'X', b'U', 1, 0, 3, 4, 4];
+    let viewer_addr = SocketAddr::new(configs.client_v6, REMOTE_DESKTOP);
+    desktop.send_to(&old_hello, viewer_addr, Priority::Interactive).await.unwrap();
+    let (payload, _) = tokio::time::timeout(TIMEOUT, viewer.recv_from()).await.unwrap().unwrap();
+    assert_eq!(payload, old_hello, "remote desktop's payload is not taken as a hello");
+
+    let (client_stats, older_stats) = (client.ultra_stats(), older.ultra_stats());
+    assert!(client_stats.parity_sent > 0, "the upgraded side keeps its own mode");
+    assert_eq!(older_stats.parity_sent, 0, "the older peer keeps its own: {older_stats:?}");
+    client.shutdown().await;
+    older.shutdown().await;
 }

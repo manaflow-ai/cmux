@@ -18,11 +18,11 @@ import os
 /// person's model, mode and option picks (`session/set_model`,
 /// `session/set_mode`, `session/set_config_option`, through the daemon's `agent-session-set-*`,
 /// `agent-session-settings-v1`; the host already checked their gesture and full-access rule),
-/// and the owner's side chats of the chat (`/side` and `/btw`, through the daemon's
-/// `agent-session-side`, `agent-session-side-v1`): `acp.session.fork` here is a side chat's fork,
-/// which that machine's daemon tags in the same step, `_acpmux/btw` its side question, and a
-/// `session/prompt`, `_acpmux/side` or `_acpmux/kill` may name only a side chat this wire opened.
-/// Every other method, and any frame that names another session, is answered
+/// the composer's inline `/btw` (`_acpmux/btw` with `inline: true`, through the daemon's
+/// `agent-session-btw`, `agent-session-btw-v1`; the host already checked its gesture; never on an
+/// observation), and New side chat and `/side [prompt]` (`_acpmux/side_chat`, through the daemon's
+/// `agent-session-side`, `agent-session-side-v1`: the side chat runs on that machine, in the chat's
+/// folder there, and opens beside the chat as a local one does). Every other method, and any frame that names another session, is answered
 /// `remote.unsupported`: nothing on the other machine reads a folder or spawns a process from here.
 ///
 /// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
@@ -36,6 +36,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public static let readOnly = "agent_session.read_only"
     /// A sign-in step acpmux refused (its reason in `data.reason`).
     public static let loginRefused = "agent_login.refused"
+    /// A side question acpmux refused (its reason in `data.reason`).
+    public static let btwRefused = "btw.refused"
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
@@ -84,13 +86,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         /// The latest model, mode or option pick: the next one waits for it, so picks reach the
         /// daemon in the order the person made them (a model switch can reset its options).
         var lastPick: Task<Void, Never>?
-        /// The side chats this wire opened on that machine (the daemon's own answers): the only
-        /// sessions besides the chat that a prompt, a side tag or a discard may name.
-        var sides: Set<String> = []
     }
-
-    /// The operations a remote chat's `initialize` may name: a side chat's fork and a side question.
-    public static let sideOperations = ["acp.session.fork", "_acpmux/btw"]
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
@@ -103,6 +99,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// False for a chat on a Cloud machine: it reaches models through the machine's edge and holds no
     /// provider login, so its page never offers the on-machine sign-in, whatever its daemon serves.
     private let machineSignIn: Bool
+    /// A new chat's machine opens side chats (`agent-session-side-v1`, the host's own daemon read).
+    private let servesSide: Bool
     private let cloudRepositoryRequest: CloudRepository?
     private let cloudRepositoryStart: CloudRepositoryStart?
     private let host: String?
@@ -118,6 +116,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         start = nil
         servesLogin = false
         self.machineSignIn = machineSignIn
+        servesSide = false
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
@@ -130,10 +129,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, machineSignIn: Bool = true) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
+                machineSignIn: Bool = true) {
         self.start = start
         self.servesLogin = servesLogin && machineSignIn
         self.machineSignIn = machineSignIn
+        self.servesSide = servesSide
         self.host = host
         self.linksAlias = linksAlias
         self.trust = trust
@@ -166,17 +167,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let client = state.withLock { $0.client }
             // A new chat has no client yet: its machine's daemon read stands in (``servesLogin``).
             guard ownerCloud != nil || client != nil else {
-                return reply(id, Self.initialized(extensions: extensions, ownerCloud: false, login: servesLogin))
+                return reply(id, Self.initialized(extensions: extensions, ownerCloud: false, login: servesLogin, side: servesSide))
             }
-            // task-owner: one owner-answer, sign-in and side chat read per initialize; its reply ends it
-            Task { [weak self, ownerCloud, servesLogin, machineSignIn] in
+            // task-owner: one owner-answer and sign-in read per initialize; its reply ends it
+            Task { [weak self, ownerCloud, servesLogin, servesSide, machineSignIn] in
                 let owned = await ownerCloud?() ?? false
                 // `agent_login`: the daemon relays the chat's own sign-in (the card's offer).
                 var login = servesLogin
                 if let client, machineSignIn { login = await client.servesLogin() }
-                // The fork operation only where that machine's daemon opens side chats: an older
-                // machine's page offers neither `/side` nor `/btw`, as before. Never an observer's.
-                let side = if let client, !client.isReadOnly { await client.servesSide() } else { false }
+                // `side_chat`: that machine opens the chat's side chats (New side chat, `/side`).
+                var side = servesSide
+                if let client { side = await client.servesSide() }
                 self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned, login: login, side: side))
             }
         case "_acpmux/status":
@@ -233,42 +234,6 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             reply(id, ["paths": paths, "sites": [:], "policy": [
                 "outsideRoots": "text", "remoteImages": "always", "clickFreeImageHosts": [String](),
             ]])
-        case "session/prompt" where isSide(params["sessionId"]):
-            // `/side <prompt>`'s prompt to the side chat this wire just opened: text only, to that
-            // machine's daemon, which takes it only for a side chat of this attachment.
-            guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard let side = params["sessionId"] as? String, let text = Self.text(params["prompt"]), !text.isEmpty else {
-                return refuse(id, method)
-            }
-            let meta = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            let prompt = meta?["promptId"] as? String ?? UUID().uuidString.lowercased()
-            run(id) { client in
-                let accepted = try await client.side("prompt", ["session": side, "prompt_id": prompt, "text": text])
-                let turn = ((try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any])?["turn_id"] ?? NSNull()
-                return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
-            }
-        case "acp.session.fork":
-            // A side chat's fork (`/side`, New side chat): through a finished turn, or the chat as
-            // it is now. The daemon forks its attached chat and tags the fork in one step.
-            guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard names(params["sessionId"]), let boundary = Self.sideBoundary(params) else { return refuse(id, method) }
-            openSide(id, "open", boundary)
-        case "_acpmux/btw":
-            // A side question: acpmux on that machine starts its read-only side session.
-            guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard names(params["sessionId"]), Set(params.keys).subtracting(["_meta"]) == ["sessionId", "question"],
-                  let question = params["question"] as? String, !question.isEmpty else { return refuse(id, method) }
-            openSide(id, "btw", ["text": question])
-        case "_acpmux/side":
-            // The fork is tagged already (the daemon's one step): answered for the pair this wire made.
-            guard isSide(params["sessionId"]), names(params["chat"]) else { return refuse(id, method) }
-            reply(id, [:])
-        case "_acpmux/kill" where isSide(params["sessionId"]):
-            // A side chat that never opened beside its chat is taken back (direct.ts takeBackFork).
-            guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard let side = params["sessionId"] as? String, params["purge"] as? Bool == true else { return refuse(id, method) }
-            state.withLock { _ = $0.sides.remove(side) }
-            run(id) { client in try await client.side("discard", ["session": side]) }
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let blocks = params["prompt"] as? [[String: Any]], !blocks.isEmpty,
@@ -370,6 +335,38 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                     self?.fail(id, code: Self.unsupported, message: String(describing: error))
                 }
             }
+        case "_acpmux/btw":
+            // `/btw <question>` on this chat, answered inline on its machine: the daemon pins the
+            // session and owns the read-only side question. A side session to open beside the chat
+            // (no `inline`) has no pane here, so only the inline form is served.
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), params["inline"] as? Bool == true,
+                  params["model"] == nil || params["model"] is NSNull,
+                  // A guest's second opinion (`targetHarness`) needs another harness the daemon's
+                  // verb never starts: refused, not answered by this chat's own harness.
+                  params["targetHarness"] == nil || params["targetHarness"] is NSNull,
+                  let question = params["question"] as? String,
+                  !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let client = state.withLock({ $0.client }) else { return refuse(id, method) }
+            // task-owner: one side question per frame; its reply ends it
+            Task { [weak self] in
+                do {
+                    let answer = try await client.btw(question)
+                    let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any]
+                    guard let refused = object?["refused"] as? [String: Any] else {
+                        self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
+                        return
+                    }
+                    let reason = refused["reason"] as? String ?? "failed"
+                    self?.fail(id, code: Self.btwRefused, message: "side question refused: \(reason)", data: ["reason": reason])
+                } catch let error as AgentSessionRemoteError {
+                    self?.fail(id, code: error.code, message: error.message)
+                } catch {
+                    self?.fail(id, code: Self.unsupported, message: String(describing: error))
+                }
+            }
+        case Self.sideChatMethod:
+            sideChat(id, params)
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -395,6 +392,61 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         }
     }
 
+    /// New side chat and `/side [prompt]` of this chat (direct.ts `sideChatOnMachine`), served where the
+    /// initialize answer named `side_chat`. The page names this chat and the fork's boundary.
+    public static let sideChatMethod = "_acpmux/side_chat"
+
+    /// The boundary and first prompt of a `_acpmux/side_chat` frame: `throughSeq` a whole positive
+    /// number, or `live: true` (nil `throughSeq`), never both; nil for any other shape.
+    static func sideChatRequest(_ params: [String: Any]) -> (throughSeq: Int?, prompt: String?)? {
+        guard params["prompt"] == nil || params["prompt"] is String else { return nil }
+        let prompt = (params["prompt"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        let live = params["live"] as? Bool == true
+        switch (live, params["throughSeq"]) {
+        case (true, nil):
+            return (nil, prompt)
+        case (false, let number as NSNumber) where CFGetTypeID(number) != CFBooleanGetTypeID():
+            // A whole positive number only: NSNumber would coerce 6.5 to a turn.
+            guard let seq = Int(exactly: number.doubleValue), seq > 0 else { return nil }
+            return (seq, prompt)
+        default:
+            return nil
+        }
+    }
+
+    /// Opens the side chat on that machine, then notes it as this chat's child, so the host opens
+    /// it beside the chat (``AgentPaneSideChat/holds``) once the page asks; only then it answers.
+    private func sideChat(_ id: String?, _ params: [String: Any]) {
+        guard !isReadOnly else { return refuseReadOnly(id, Self.sideChatMethod) }
+        guard names(params["sessionId"]), let request = Self.sideChatRequest(params),
+              state.withLock({ $0.client != nil }) else { return refuse(id, Self.sideChatMethod) }
+        // acpmux's id of the chat, as the page and the host name it (`tabSessionId`).
+        let parent = state.withLock { $0.resolved ?? $0.session } ?? ""
+        let linksHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
+        run(id) { client in
+            let answer = try await client.side(throughSeq: request.throughSeq, prompt: request.prompt,
+                                               promptID: UUID().uuidString.lowercased())
+            guard let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any],
+                  let side = object["sessionId"] as? String, !side.isEmpty else {
+                throw AgentSessionRemoteError(code: "agent_session.refused", message: "no side chat opened")
+            }
+            // The daemon's answer, never the page's: under the tab's host and the daemon's own.
+            await Self.noteSide(side, parent: parent, hosts: [linksHost] + (alias.map { [$0] } ?? []))
+            // `notSent`: acpmux did not take the prompt; the page opens the side chat and keeps it.
+            var reply: [String: Any] = ["sessionId": side]
+            if request.prompt != nil, object["prompted"] as? Bool != true {
+                reply["notSent"] = object["notSent"] as? String ?? "agent_session.refused"
+            }
+            return Self.json(reply)
+        }
+    }
+
+    /// Notes a side chat the daemon opened as `parent`'s child under each of `hosts` (two writes to
+    /// the links store, before the page asks the host to open it).
+    @MainActor private static func noteSide(_ side: String, parent: String, hosts: [String?]) {
+        for host in hosts { RemoteAgentSessionLinks.shared.noteFork(side, parent: parent, host: host) }
+    }
+
     public func cancel(code: Int, reason: String) {
         guard close(), let client = state.withLock({ $0.client }) else { return }
         // task-owner: ends the daemon attachment once; nothing waits on it
@@ -406,6 +458,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
         }
         return try await client.media(path: path)
+    }
+
+    public func loadRemoteMediaRange(_ path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.mediaRange(path: path, offset: offset, length: length, handle: handle)
     }
 
     /// A login frame as the daemon's `agent-session-login` step: its `op` and fields; nil when a
@@ -495,11 +554,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 }
                 // The page reconnects with a new wire, which finds the started chat.
                 guard open else { await client.close(); return }
-                // This wire's `initialize` came before any session: the new chat's page learns
-                // here whether its machine opens side chats (direct.ts reads the same list).
-                var answer: [String: Any] = ["sessionId": session]
-                if await client.servesSide() { answer["_meta"] = ["acpmux": ["operations": Self.sideOperations]] }
-                reply(id, answer)
+                reply(id, ["sessionId": session])
             } catch {
                 self?.state.withLock { $0.starting = false }
                 let refused = error as? AgentSessionRemoteError
@@ -632,42 +687,6 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return state.withLock { state in state.session != nil && (name == state.session || name == state.resolved) }
     }
 
-    /// True when `value` names a side chat this wire opened.
-    private func isSide(_ value: Any?) -> Bool {
-        guard let name = value as? String else { return false }
-        return state.withLock { $0.sides.contains(name) }
-    }
-
-    /// A side chat fork's boundary as the daemon's fields: `through_seq`, or `live`. Nil when the
-    /// frame names neither or both, or anything else (a folder, a name, an env).
-    static func sideBoundary(_ params: [String: Any]) -> [String: any Sendable]? {
-        // `_meta` is never read or sent on: only the boundary reaches the daemon.
-        let keys = Set(params.keys).subtracting(["_meta"])
-        if keys == ["sessionId", "live"], params["live"] as? Bool == true { return ["live": true] }
-        if keys == ["sessionId", "throughSeq"], let seq = (params["throughSeq"] as? NSNumber)?.uint64Value, seq > 0 {
-            return ["through_seq": seq]
-        }
-        return nil
-    }
-
-    /// Opens a side chat on that machine (`open` or `btw`) and answers the daemon's reply. Its
-    /// session (the daemon's answer, never the frame's) joins this wire's side chats and is noted
-    /// as the chat's fork before the reply, so the host opens it beside the chat (`chat.sideChat`).
-    private func openSide(_ id: String?, _ op: String, _ fields: [String: any Sendable]) {
-        let (chat, remoteHost) = (state.withLock { $0.resolved ?? $0.session }, host)
-        run(id) { [weak self] client in
-            let answer = try await client.side(op, fields)
-            guard let self, let chat,
-                  let side = ((try? JSONSerialization.jsonObject(with: answer)) as? [String: Any])?["sessionId"] as? String,
-                  !side.isEmpty, !names(side) else {
-                throw AgentSessionRemoteError(code: Self.unsupported, message: "the side chat did not start")
-            }
-            state.withLock { _ = $0.sides.insert(side) }
-            await RemoteAgentSessionLinks.shared.noteFork(side, parent: chat, host: remoteHost)
-            return answer
-        }
-    }
-
     /// Legacy text-only prompts. Metadata-bearing text uses content so pasted chips keep it.
     static func text(_ value: Any?) -> String? {
         guard let blocks = value as? [[String: Any]], !blocks.isEmpty else { return nil }
@@ -745,16 +764,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     /// The `initialize` answer: always `origin: "remote"`; `ownerCloud` only on the person's own Cloud VM;
-    /// the `agent_login` feature where that machine's daemon relays the chat's own sign-in; the
-    /// side chat `operations` where it opens side chats (`side`).
+    /// the `agent_login` feature where that machine's daemon relays the chat's own sign-in.
     static func initialized(extensions: [String], ownerCloud: Bool, login: Bool = false, side: Bool = false) -> [String: Any] {
         var acpmux: [String: Any] = ["origin": "remote", "extensions": extensions]
         if ownerCloud { acpmux["ownerCloud"] = true }
-        // The page reads a side chat's fork and side question from `operations` (operations.ts).
-        if side { acpmux["operations"] = Self.sideOperations }
         // A feature, not `capabilities`: a remote chat names no acpmux capability list, and the page
         // reads an absent list as "try the method" (turnRetry.ts).
-        if login { acpmux["features"] = ["agent_login"] }
+        // `btw_inline`: the page asks `/btw` here, inline (`_acpmux/btw`), not through the host.
+        acpmux["features"] = (login ? ["agent_login"] : []) + ["btw_inline"] + (side ? ["side_chat"] : [])
         return ["protocolVersion": 1, "agentCapabilities": [String: Any](), "_meta": ["acpmux": acpmux]]
     }
 

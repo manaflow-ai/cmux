@@ -191,6 +191,11 @@ path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_rollback_drill.py"
+lane = "manual"
+reason = "Run by hand after changing nightly-next-rollback-drill.yml, nightly-next-rollback.yml's drill call or scripts/ci/nightly_next_rollback_drill.py: python3 tests/test_nightly_next_rollback_drill.py (no network, no secrets); no new CI tests (CLAUDE.md)."
+
+[[test]]
 path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"
 

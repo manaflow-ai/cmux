@@ -423,8 +423,13 @@ impl Hub {
             policy: r.defaults.policy,
             remote: false,
         });
-        draft.cmux_preset_prompt =
-            crate::context_inventory::preset_override(&draft, &*self.config.read().await);
+        {
+            let cfg = self.config.read().await;
+            draft.cmux_preset_prompt = crate::context_inventory::preset_override(&draft, &cfg);
+            // The rules a new chat captures go on its command line (`launch_args`): a pooled
+            // agent started with the same ones has the same key, so the chat can take it.
+            draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
+        }
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
     }
 
@@ -935,6 +940,8 @@ impl Hub {
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
         }
+        // What it says about asking before its tools, and whether acpmux believes it.
+        self.note_asks_claim(session).await;
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());

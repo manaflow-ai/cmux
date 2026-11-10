@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextChiefPetWiring
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFloating
 import CmuxNextHomeEngine
@@ -245,7 +246,7 @@ final class AgentTabStore {
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
-    var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
     /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).
@@ -651,7 +652,7 @@ final class AgentTabStore {
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }
             let key = resolve(provisional, machine: scoped.machine)
-            (newTabPages[AgentTabKey(machine: scoped.machine, key: key)]?.handler ?? blankChatHandler?(key))?.open(key, request)
+            (newTabPages[AgentTabKey(machine: scoped.machine, key: key)]?.handler ?? blankChatHandler?(AgentTabKey(machine: scoped.machine, key: key)))?.open(key, request)
         }
         model.onRunAttach = { [weak self] request in guard let self, let runAttachScoped else { throw AgentPaneHostError.daemonStopped }; try await runAttachScoped(self.resolvedKey(scoped), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler($0.resolve(provisional, machine: scoped.machine), machine: scoped.machine)?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
@@ -665,26 +666,26 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(self?.resolve(provisional, machine: scoped.machine) ?? provisional, machine: scoped.machine)?.handler.editShortcut(kind) }
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
-            guard let self else { return false }
+            guard let self, let registry = actionRegistry else { return .notRun }
             // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
             // on the machine this tab's chat runs on, resolved here: the page never names a machine.
             let target: ActionTargetRef
             if id == "machine.reconnect" {
-                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return false }
+                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return .notRun }
                 target = ActionTargetRef(kind: .machine, id: machine)
             } else {
                 target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
             }
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil)) ?? false
+            return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil), showsInApp: CmuxSignInOffer.signInReasons.contains)
         }
         model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional, machine: scoped.machine), op, session) }
         wireHeader(model, key: provisional, machine: scoped.machine)
         model.onBrowseProject = { [weak self] in
-            guard let self, let handler = newTabPages[self.resolvedKey(scoped)]?.handler ?? blankChatHandler?(self.resolve(provisional, machine: scoped.machine)) else { return nil }
+            guard let self, let handler = newTabPages[self.resolvedKey(scoped)]?.handler ?? blankChatHandler?(self.resolvedKey(scoped)) else { return nil }
             return await handler.browseProject()
         }
         model.onListProjects = { [weak self] query in
-            guard let self, let handler = newTabPages[self.resolvedKey(scoped)]?.handler ?? blankChatHandler?(self.resolve(provisional, machine: scoped.machine)) else { return [] }
+            guard let self, let handler = newTabPages[self.resolvedKey(scoped)]?.handler ?? blankChatHandler?(self.resolvedKey(scoped)) else { return [] }
             return await handler.listProjects(query)
         }
         model.onOpenChat = { [weak self] key in
@@ -765,7 +766,7 @@ final class AgentTabStore {
     /// The New Tab page's handler, else a chat tab's (a chat's picks are remembered too, cx-q5x6r).
     func pageHandler(_ key: String, machine: String? = nil) -> NewTabPageHandler? {
         let scoped = tabKey(key, machine: machine)
-        return newTabPages[scoped]?.handler ?? blankChatHandler?(scoped.key)
+        return newTabPages[scoped]?.handler ?? blankChatHandler?(scoped)
     }
 
     /// The tab still shows the new tab page (it has not become a chat).

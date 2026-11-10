@@ -38,6 +38,12 @@ string is filled in on its own. Without --script the stub replies "Stub reply {{
 tools (Claude Code's title and topic side requests) always gets a short text reply and is logged with "side": true,
 so it never takes a script step.
 
+A script may also carry "turns": [{"match": REGEX, "steps": [...]}, ...], scripts of their own for one kind of turn
+in a longer session. A request whose conversation has a user message matching a turn's REGEX (case-insensitive) takes
+that turn's steps, from the latest matching message: its step is the number of tool results after that message, and
+{{result.N}} and {{prompt}} read only that turn (its results from 0, its matching message). A turn of 100 numbered
+tool calls (the Cloud chaos leg's counting turn) can so run in a session whose earlier turns already called tools.
+
 Every request is one JSON line in --log: the protocol, path, model, whether it streamed, the step it got, the tool
 names offered and the SHA-256 of the credential it carried (Authorization bearer or x-api-key, never the value), so
 a test can prove a forwarded login reached the harness without the test ever holding a real one. GET /__stub/info
@@ -63,7 +69,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 # Bump on any change a script or a test could notice (wire shapes, template grammar, log fields).
-STUB_VERSION = 3  # 2: {{prompt}} templates; 3: error steps, delay_ms, /__stub/faults
+STUB_VERSION = 4  # 2: {{prompt}} templates; 3: per-turn scripts ("turns"); 4: error steps, delay_ms, /__stub/faults
 
 DEFAULT_SCRIPT: dict[str, Any] = {"version": 1, "steps": [{"text": "Stub reply {{nonce}}."}]}
 # Codex's exec_command result starts with a header (Chunk ID, Wall time, exit code, token count) before "Output:";
@@ -75,9 +81,11 @@ _TEMPLATE = re.compile(r"\{\{\s*(nonce|(?:prompt|result\.(\d+))(?:~(.*?))?)\s*\}
 class Results(list):
     """A conversation's tool result texts, in order, with the text of its last user message as .prompt."""
 
-    def __init__(self, items: list[str] = (), prompt: str = "") -> None:
+    def __init__(self, items: list[str] = (), prompt: str = "", prompts: list[tuple[str, int]] | None = None) -> None:
         super().__init__(items)
         self.prompt = prompt
+        # Every user message's text, in order, with how many tool results came before it.
+        self.prompts = prompts if prompts is not None else []
 
 
 def check_error(error: Any, where: str) -> None:
@@ -122,7 +130,23 @@ def load_script(path: str | None) -> dict[str, Any]:
 def load_script_value(script: Any, path: str = "script") -> dict[str, Any]:
     if not isinstance(script, dict) or script.get("version") != 1 or not isinstance(script.get("steps"), list) or not script["steps"]:
         raise ValueError(f"{path}: a script is {{\"version\": 1, \"steps\": [...]}} with at least one step")
-    for i, step in enumerate(script["steps"]):
+    check_steps(path, script["steps"])
+    turns = script.get("turns", [])
+    if not isinstance(turns, list):
+        raise ValueError(f"{path}: turns is a list of {{\"match\": REGEX, \"steps\": [...]}}")
+    for t, turn in enumerate(turns):
+        if not (isinstance(turn, dict) and isinstance(turn.get("match"), str) and isinstance(turn.get("steps"), list) and turn["steps"]):
+            raise ValueError(f"{path}: turn {t} is {{\"match\": REGEX, \"steps\": [...]}} with at least one step")
+        try:
+            re.compile(turn["match"])
+        except re.error as e:
+            raise ValueError(f"{path}: turn {t}: bad match regex {turn['match']!r}: {e}") from None
+        check_steps(f"{path}: turn {t}", turn["steps"])
+    return script
+
+
+def check_steps(path: str, steps: list[Any]) -> None:
+    for i, step in enumerate(steps):
         if not isinstance(step, dict) or len({"text", "shell", "tool", "error"} & step.keys()) != 1:
             raise ValueError(f"{path}: step {i} must have exactly one of text, shell, tool or error")
         if "error" in step:
@@ -139,7 +163,6 @@ def load_script_value(script: Any, path: str = "script") -> dict[str, Any]:
                     re.compile(json.loads(f'"{m.group(3)}"'))
                 except (re.error, ValueError) as e:
                     raise ValueError(f"{path}: step {i}: bad template regex {m.group(3)!r}: {e}") from None
-    return script
 
 
 def render(template: str, nonce: str, results: list[str]) -> str:
@@ -182,7 +205,7 @@ def _text_of(content: Any) -> str:
 
 
 def anthropic_results(body: dict[str, Any]) -> Results:
-    out, prompt = [], ""
+    out, prompt, prompts = [], "", []
     for m in body.get("messages") or []:
         if not isinstance(m, dict):
             continue
@@ -194,7 +217,8 @@ def anthropic_results(body: dict[str, Any]) -> Results:
                 c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") == "text")
             if text.strip():
                 prompt = text
-    return Results(out, prompt)
+                prompts.append((text, len(out)))
+    return Results(out, prompt, prompts)
 
 
 def openai_results(body: dict[str, Any]) -> Results:
@@ -203,7 +227,7 @@ def openai_results(body: dict[str, Any]) -> Results:
         return Results([], items)
     if not isinstance(items, list):
         return Results()
-    out, prompt = [], ""
+    out, prompt, prompts = [], "", []
     for it in items:
         if isinstance(it, dict) and it.get("role") == "user":
             content = it.get("content")
@@ -211,6 +235,7 @@ def openai_results(body: dict[str, Any]) -> Results:
                 c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") in ("input_text", "text"))
             if text.strip():
                 prompt = text
+                prompts.append((text, len(out)))
         if isinstance(it, dict) and it.get("type") in ("function_call_output", "local_shell_call_output", "custom_tool_call_output"):
             raw = it.get("output")
             # Codex sends some outputs as a JSON string {"output": "...", "metadata": {...}}.
@@ -223,7 +248,7 @@ def openai_results(body: dict[str, Any]) -> Results:
                 if isinstance(parsed, dict) and isinstance(parsed.get("output"), str):
                     raw = parsed["output"]
             out.append(_CODEX_EXEC_HEADER.sub("", _text_of(raw), count=1))
-    return Results(out, prompt)
+    return Results(out, prompt, prompts)
 
 
 def tool_names(body: dict[str, Any]) -> list[str]:
@@ -284,12 +309,24 @@ class Stub:
                     return {k: v for k, v in fault.items() if k != "count"}
         return None
 
-    def step(self, results: list[str], offered: list[str]) -> tuple[int, dict[str, Any]]:
+    def step(self, results: Results, offered: list[str]) -> tuple[int, dict[str, Any], Results, int | None]:
+        """The request's step, the step itself, the tool results its templates read, and which turn script (if any)."""
         if not offered:
-            return -1, {"text": "Stub side reply."}
-        steps = self.script["steps"]
+            return -1, {"text": "Stub side reply."}, results, None
+        steps, turn = self.script["steps"], None
+        # The latest user message any turn script matches picks that script; the turn starts at that message.
+        best = None
+        for at, (text, before) in enumerate(results.prompts):
+            for t, spec in enumerate(self.script.get("turns") or []):
+                if re.search(spec["match"], text, re.I):
+                    best = (at, t, text, before)
+                    break
+        if best is not None:
+            _, turn, text, before = best
+            steps = self.script["turns"][turn]["steps"]
+            results = Results(list(results[before:]), text, [])
         i = min(len(results), len(steps) - 1)
-        return i, steps[i]
+        return i, steps[i], results, turn
 
     def log(self, row: dict[str, Any]) -> None:
         row = {"t": round(time.time(), 3), **row}
@@ -439,12 +476,11 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             return True
 
         def anthropic(self, body: dict[str, Any], row: dict[str, Any]) -> None:
-            results = anthropic_results(body)
-            i, step = stub.step(results, row["tools"])
+            i, step, results, turn = stub.step(anthropic_results(body), row["tools"])
             if self.scripted("/v1/messages", i, step, row, results):
                 return
             content, stop = self.anthropic_content(i, step, row["tools"], results)
-            stub.log({"protocol": "anthropic", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {})})
+            stub.log({"protocol": "anthropic", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {}), **({"turn": turn} if turn is not None else {})})
             model = body.get("model") or "stub-model"
             usage = {"input_tokens": 10, "output_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
             msg = {"id": f"msg_stub_{uuid.uuid4().hex[:12]}", "type": "message", "role": "assistant", "model": model}
@@ -483,12 +519,11 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
                     "action": {"type": "exec", "command": call["command"], "env": {}}}
 
         def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
-            results = openai_results(body)
-            i, step = stub.step(results, row["tools"])
+            i, step, results, turn = stub.step(openai_results(body), row["tools"])
             if self.scripted("/v1/responses", i, step, row, results):
                 return
             item = self.openai_item(i, step, row["tools"], results)
-            stub.log({"protocol": "openai", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {})})
+            stub.log({"protocol": "openai", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {}), **({"turn": turn} if turn is not None else {})})
             rid = f"resp_stub_{uuid.uuid4().hex[:12]}"
             usage = {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 5,
                      "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 15}

@@ -110,6 +110,8 @@ const EDGE = 16;
 const BAND = 12;
 const GAP = 8;
 const CONTROL_ROW = 28;
+/// The width of the chevron segment a plan's Approve plan is joined to (styles.css `.acpmux-plan-build-chevron`).
+const PLAN_BUILD_CHEVRON = 26;
 
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
   if (permission.question) return questionHeight(permission.question, width / scale) * scale;
@@ -148,9 +150,15 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     ...(external ? [translate("permission.external.openSettings")] : []),
   ];
   const taken = new Set(labels);
-  // Buttons are 12px either side of their label, which tracks as the detail step (styles.css).
+  // Buttons are 12px either side of their label, which tracks as the detail step (styles.css); a
+  // plan's Approve plan carries its build menu's chevron segment (PermissionCard `PlanBuildSplit`).
   const button = (label: string, weight = 400) => textWidth(label, body.size, weight, "detail");
-  const widths = labels.map((label, index) => button(label, allowOnce && index === 0 ? 500 : 400) + 24);
+  const widths = labels.map(
+    (label, index) =>
+      button(label, allowOnce && index === 0 ? 500 : 400) +
+      24 +
+      (plan && allowOnce && index === 0 ? PLAN_BUILD_CHEVRON : 0),
+  );
   for (const option of others) {
     const label = optionButtonLabel(option, translate, taken);
     taken.add(label);

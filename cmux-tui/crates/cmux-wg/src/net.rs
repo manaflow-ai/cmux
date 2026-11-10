@@ -114,6 +114,27 @@ impl WgNet {
         underlay: impl Underlay,
         mode: UltraMode,
     ) -> Result<Self, WgError> {
+        Self::start_negotiating(config, underlay, mode, Negotiation::new(mode))
+    }
+
+    /// A tunnel that behaves as a build without the in-tunnel ultra hello:
+    /// it sends in `mode` only, sends no hello, and treats a hello as an
+    /// ordinary packet. For tests of compatibility with older peers.
+    #[doc(hidden)]
+    pub fn start_without_hello(
+        config: WgConfig,
+        underlay: impl Underlay,
+        mode: UltraMode,
+    ) -> Result<Self, WgError> {
+        Self::start_negotiating(config, underlay, mode, Negotiation::without_hello(mode))
+    }
+
+    fn start_negotiating(
+        config: WgConfig,
+        underlay: impl Underlay,
+        mode: UltraMode,
+        negotiation: Negotiation,
+    ) -> Result<Self, WgError> {
         let routes: Arc<[IpNetwork]> = config.allowed_ips.clone().into();
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
@@ -122,7 +143,6 @@ impl WgNet {
         let ultra = Arc::new(UltraCounters::default());
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
-        let negotiation = Negotiation::new(mode);
         let driver = Driver::new(config, underlay, negotiation, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
         let drops = Arc::clone(&driver.pacer.drops);
@@ -513,7 +533,8 @@ impl Driver {
                     // The peer's ultra hello is taken before the datagram that
                     // carried it is reported authenticated, so a mode that
                     // turns rebuilding on keeps that datagram too.
-                    let hello = ultra_hello::decode(packet).filter(|_| allowed);
+                    let hello = ultra_hello::decode(packet)
+                        .filter(|_| allowed && self.negotiation.intercepts());
                     if let Some(hello) = hello {
                         let mode = self.negotiation.receive(hello);
                         self.underlay.set_mode(mode);
@@ -594,6 +615,9 @@ impl Driver {
     /// bytes between sockets and streams, then poll again so anything the
     /// streams produced leaves in the same pass.
     fn service(&mut self) {
+        if self.underlay.take_path_change() {
+            self.stack.path_changed();
+        }
         loop {
             let progressed = self.stack.step();
             self.flush_tx();

@@ -81,9 +81,7 @@ extension CloudStartChat {
                 plan.createSent = false
             }
         }
-        if let id = plan.machine {
-            invocation.arguments["machine"] = .string(id)
-        } else {
+        if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }

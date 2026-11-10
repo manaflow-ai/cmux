@@ -557,6 +557,17 @@ impl ResolvedRouteCandidate {
         Ok(Self { endpoint, routing, supported_client_auth })
     }
 
+    /// A route that `provider` dials, outside any registry (the Cloud
+    /// carrier builds its relay provider per attempt, around that attempt's
+    /// tickets).
+    pub(crate) fn for_provider(endpoint: Url, provider: &dyn TransportProvider) -> Self {
+        Self {
+            endpoint,
+            routing: BTreeMap::new(),
+            supported_client_auth: provider.supported_client_auth(),
+        }
+    }
+
     #[cfg(test)]
     pub fn supported_client_auth(&self) -> SupportedClientAuthModes {
         self.supported_client_auth
@@ -778,6 +789,11 @@ struct ClientReady {
 /// `recovering`: the link outlives a failed first connect, and says on stderr why each first
 /// dial failed (an owner that still reads only stderr learns the reason without waiting for an
 /// exit that no longer comes).
+/// The stderr line a recovering link writes once its `PATH.admin` socket is bound. The app
+/// matches it as `SSHMachineLink.socketReadyLine` (CmuxNextRemote/SSH/SSHMachineLink.swift);
+/// `tests/remote_connect_link_socket_ready.rs` checks the binary prints it before any dial reports.
+pub(crate) const LINK_SOCKET_READY_LINE: &str = "remote connect: link socket ready";
+
 async fn run_client(
     options: ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
@@ -790,6 +806,11 @@ async fn run_client(
             None => default_client_socket(&options.state_dir, options.session)?,
         };
         let sidecars = link_sidecars::PendingSidecars::start(&local_socket).await;
+        if recovering && sidecars.answers() {
+            // The owner forwards a person's wait as soon as the link's socket answers, before
+            // any dial reports (a stalled first dial says nothing on stderr).
+            eprintln!("{LINK_SOCKET_READY_LINE}");
+        }
         let (connection, route) = dial_first_connection(
             &options,
             shutdown.clone(),
@@ -927,19 +948,45 @@ async fn dial_first_connection(
     }
 }
 
-enum InitialRouteAttemptError {
-    Route { error: anyhow::Error, retryable: bool },
-    Fatal(anyhow::Error),
+/// A route attempt's error type, as the route runner needs it.
+pub(crate) trait RouteFailure: Sized + Send {
+    /// A failure that ends the round before or outside any one route.
+    fn terminal(message: String) -> Self;
+    /// This failure as one entry of a failed round's list.
+    fn summary(&self) -> String;
+    /// Every candidate failed: `failures` lists each as
+    /// `<route>: <summary>`, and `last` is the last dialed route's own
+    /// failure, when one was dialed.
+    fn all_failed(failures: Vec<String>, last: Option<Self>) -> Self;
+}
+
+impl RouteFailure for anyhow::Error {
+    fn terminal(message: String) -> Self {
+        anyhow!(message)
+    }
+
+    fn summary(&self) -> String {
+        format!("{self:#}")
+    }
+
+    fn all_failed(failures: Vec<String>, _last: Option<Self>) -> Self {
+        anyhow!("all remote route candidates failed: {}", failures.join("; "))
+    }
+}
+
+pub(crate) enum InitialRouteAttemptError<E = anyhow::Error> {
+    Route { error: E, retryable: bool },
+    Fatal(E),
 }
 
 #[derive(Debug)]
-struct InitialRouteSelectionError {
-    error: anyhow::Error,
-    retryable: bool,
+pub(crate) struct InitialRouteSelectionError<E = anyhow::Error> {
+    pub(crate) error: E,
+    pub(crate) retryable: bool,
 }
 
-impl InitialRouteSelectionError {
-    fn terminal(error: anyhow::Error) -> Self {
+impl<E> InitialRouteSelectionError<E> {
+    fn terminal(error: E) -> Self {
         Self { error, retryable: false }
     }
 }
@@ -950,45 +997,46 @@ impl From<DialStop> for InitialRouteSelectionError {
     }
 }
 
-impl fmt::Display for InitialRouteSelectionError {
+impl<E: fmt::Display> fmt::Display for InitialRouteSelectionError<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.error.fmt(formatter)
     }
 }
 
 #[async_trait]
-trait InitialRouteAttempt<T: Send> {
+pub(crate) trait InitialRouteAttempt<T: Send, E: Send = anyhow::Error> {
     async fn bootstrap_ssh(
         &mut self,
         endpoint: &Url,
         upgrade: bool,
-    ) -> Result<(), InitialRouteAttemptError>;
+    ) -> Result<(), InitialRouteAttemptError<E>>;
     async fn connect(
         &mut self,
         index: usize,
         request: ConnectRequest,
-    ) -> Result<T, InitialRouteAttemptError>;
+    ) -> Result<T, InitialRouteAttemptError<E>>;
 }
 
-async fn select_initial_route<T: Send>(
+pub(crate) async fn select_initial_route<T: Send, E: RouteFailure>(
     routes: &[ResolvedRouteCandidate],
     session: SessionId,
     lane_policy: LanePolicy,
     auth: AuthKind,
     upgrade: bool,
-    attempt: &mut impl InitialRouteAttempt<T>,
-) -> Result<T, InitialRouteSelectionError> {
+    attempt: &mut impl InitialRouteAttempt<T, E>,
+) -> Result<T, InitialRouteSelectionError<E>> {
     if routes.is_empty() {
-        return Err(InitialRouteSelectionError::terminal(anyhow!(
-            "remote connection has no route candidates"
+        return Err(InitialRouteSelectionError::terminal(E::terminal(
+            "remote connection has no route candidates".into(),
         )));
     }
     if upgrade && routes[0].endpoint.scheme() != "ssh" {
-        return Err(InitialRouteSelectionError::terminal(anyhow!(
-            "--upgrade requires SSH to be the initial route"
+        return Err(InitialRouteSelectionError::terminal(E::terminal(
+            "--upgrade requires SSH to be the initial route".into(),
         )));
     }
     let mut failures = Vec::new();
+    let mut last = None;
     let mut retryable = false;
     for (index, candidate) in routes.iter().enumerate() {
         let display_endpoint = sanitized_route(&candidate.endpoint);
@@ -1002,8 +1050,9 @@ async fn select_initial_route<T: Send>(
             ));
             continue;
         }
-        let request = connect_request(candidate, session, lane_policy)
-            .map_err(InitialRouteSelectionError::terminal)?;
+        let request = connect_request(candidate, session, lane_policy).map_err(|error| {
+            InitialRouteSelectionError::terminal(E::terminal(format!("{error:#}")))
+        })?;
         let endpoint = request.endpoint.clone();
         let upgrade_candidate = upgrade && index == 0;
         if endpoint.scheme() == "ssh" {
@@ -1011,12 +1060,17 @@ async fn select_initial_route<T: Send>(
                 Ok(()) => {}
                 Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
                     if upgrade_candidate {
-                        return Err(InitialRouteSelectionError::terminal(anyhow!(
-                            "SSH bootstrap failed for {display_endpoint}: {error:#}"
-                        )));
+                        return Err(InitialRouteSelectionError::terminal(E::terminal(format!(
+                            "SSH bootstrap failed for {display_endpoint}: {}",
+                            error.summary()
+                        ))));
                     }
                     retryable |= route_retryable;
-                    failures.push(format!("{display_endpoint}: SSH bootstrap failed: {error:#}"));
+                    failures.push(format!(
+                        "{display_endpoint}: SSH bootstrap failed: {}",
+                        error.summary()
+                    ));
+                    last = Some(error);
                     continue;
                 }
                 Err(InitialRouteAttemptError::Fatal(error)) => {
@@ -1028,22 +1082,21 @@ async fn select_initial_route<T: Send>(
             Ok(result) => return Ok(result),
             Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
                 if upgrade_candidate {
-                    return Err(InitialRouteSelectionError::terminal(anyhow!(
-                        "upgraded SSH route failed for {display_endpoint}: {error:#}"
-                    )));
+                    return Err(InitialRouteSelectionError::terminal(E::terminal(format!(
+                        "upgraded SSH route failed for {display_endpoint}: {}",
+                        error.summary()
+                    ))));
                 }
                 retryable |= route_retryable;
-                failures.push(format!("{display_endpoint}: {error:#}"));
+                failures.push(format!("{display_endpoint}: {}", error.summary()));
+                last = Some(error);
             }
             Err(InitialRouteAttemptError::Fatal(error)) => {
                 return Err(InitialRouteSelectionError::terminal(error));
             }
         }
     }
-    Err(InitialRouteSelectionError {
-        error: anyhow!("all remote route candidates failed: {}", failures.join("; ")),
-        retryable,
-    })
+    Err(InitialRouteSelectionError { error: E::all_failed(failures, last), retryable })
 }
 
 struct RuntimeInitialRouteAttempt<'a> {
@@ -1237,13 +1290,23 @@ fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
 
 /// What ssh prints when it reached the host and was refused: a failed authentication or a host
 /// key it will not accept. ssh exits 255 for these as for an unreachable host, but no redial can
-/// fix them, so a link that outlives a failed first connect must not redial them.
+/// fix them, so a link that outlives a failed first connect must not redial them. Matched without
+/// regard to case. The app names the same lines as an authentication or host key failure
+/// (`SSHFailure.hostKeyNeedles` and `authNeedles`), so every one of those is here too.
 const SSH_PERMANENT_REFUSALS: &[&str] = &[
+    // Authentication: ssh's own last word once every method failed. Per-key lines
+    // (`sign_and_send_pubkey: ...`, `no mutual signature algorithm`) are left out: ssh goes on to
+    // the next key, so a later transport failure after one is still worth redialing.
     "Permission denied",
-    "Host key verification failed",
     "Too many authentication failures",
     "No more authentication methods",
-    "REMOTE HOST IDENTIFICATION HAS CHANGED",
+    "Authentication failed",
+    // Host keys: only the lines that end the connection. Warnings (`Permanently added the ...
+    // host key for IP address ...`, the `REMOTE HOST IDENTIFICATION HAS CHANGED` banner, `host
+    // key is known for ...`) can precede a connection that goes on, so no bare prefix matches.
+    "Host key verification failed",
+    "has changed and you have requested strict checking",
+    "No matching host key type",
 ];
 
 fn ssh_refused_permanently(error: &BootstrapError) -> bool {
@@ -1251,7 +1314,8 @@ fn ssh_refused_permanently(error: &BootstrapError) -> bool {
     else {
         return false;
     };
-    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(refusal))
+    let stderr = stderr.to_lowercase();
+    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(&refusal.to_lowercase()))
 }
 
 /// Returns when the owner asks the runtime to stop or a termination signal
@@ -1331,7 +1395,7 @@ fn connect_request(
 }
 
 #[async_trait]
-trait ReconnectRouteAttempt<T: Send>: Send + Sync {
+pub(crate) trait ReconnectRouteAttempt<T: Send>: Send + Sync {
     async fn connect(
         &self,
         index: usize,
@@ -1469,28 +1533,42 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let count = self.options.routes.len();
-        if count == 0 {
-            return Err(ProviderError::Configuration("no reconnect routes configured".into()));
-        }
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
             prepared_ssh: &self.prepared_ssh,
             shutdown: self.shutdown.clone(),
         };
-        let start = self.next.fetch_add(1, Ordering::Relaxed) % count;
-        let (index, group) = select_reconnect_route(
+        next_reconnect_route(
+            &self.next,
             &self.options.routes,
-            start,
             self.options.session,
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
             &attempt,
         )
-        .await?;
-        self.next.store(index.saturating_add(1), Ordering::Relaxed);
-        Ok(group)
+        .await
     }
+}
+
+/// The next route of an established link after its current one failed:
+/// from `next` (one past the route that last connected) round the list,
+/// and `next` moves past the route that connects. `remote connect` and the
+/// Cloud carrier (`carrier::source`) both rotate this way.
+pub(crate) async fn next_reconnect_route<T: Send>(
+    next: &AtomicUsize,
+    routes: &[ResolvedRouteCandidate],
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &impl ReconnectRouteAttempt<T>,
+) -> Result<T, ProviderError> {
+    let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
+        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
+    };
+    let (index, group) =
+        select_reconnect_route(routes, start, session, lane_policy, auth, attempt).await?;
+    next.store(index.saturating_add(1), Ordering::Relaxed);
+    Ok(group)
 }
 
 struct RuntimeReconnectRouteAttempt<'a> {
@@ -1633,7 +1711,9 @@ fn daemon_runtime_socket_paths_in(
 ) -> anyhow::Result<(PathBuf, PathBuf)> {
     use std::os::unix::ffi::OsStrExt;
 
-    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
+    // The name from before NEXT's folder move, so a daemon from before it keeps its sockets' names.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(state);
+    let digest = format!("{:x}", Sha256::digest(identity.as_os_str().as_bytes()));
     let socket_names = |runtime: &Path| {
         (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
     };

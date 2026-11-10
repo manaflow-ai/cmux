@@ -78,7 +78,7 @@ public actor CloudCarrierServe {
     /// The current child's hold in its connector's ``CloudCarrierStreams``: an account end stops it at once.
     private var held: Int?
     /// Writes the next token line while the child runs; cancelled when it exits.
-    private let refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh")
+    private let refresher: DemandTimer
     /// Whether the token refresh runs (it ends with the child).
     private(set) var refreshing = false
     private let nextRefresh: @Sendable (String) -> Duration
@@ -89,10 +89,15 @@ public actor CloudCarrierServe {
         self.init(connector: connector, socket: paths.linkSocket(machineID: connector.dial.machine)) { try CloudLinkSocketPolicy.check($0) }
     }
 
+    /// `clock` paces the token refresh; tests pass a manual clock.
     init(connector: CloudCarrierDial.Connector, socket: String, refreshDelay: @escaping @Sendable (String) -> Duration = { CloudCarrierServe.refreshDelay($0) },
-         check: @escaping @Sendable (String) throws -> Void) {
+         clock: any Clock<Duration> = ContinuousClock(), check: @escaping @Sendable (String) throws -> Void) {
         (self.connector, self.socket, self.check, nextRefresh) = (connector, socket, check, refreshDelay)
+        refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh", clock: clock)
     }
+
+    /// The tasks waiting for the current child's exit (the exit watcher, and a launch waiting to replace it).
+    var childExitWaiters: Int { child?.exitWaiterCount ?? 0 }
 
     /// Why the link ended since the current connect: a refused dial's step, or the child no longer serving.
     var refusal: CloudLinkError? {

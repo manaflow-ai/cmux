@@ -37,7 +37,7 @@ extension AgentTabStore {
                          teammate: AgentSessionAttachClient.Teammate? = nil, reconnect: AgentSessionAttachClient.Reconnect? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
-        let scoped = tabKey(key, machine: machine)
+        let scoped = resolvedRemoteKey(AgentTabKey(machine: machine, key: key)) // a start under the provisional id outlives its dropped alias
         if let running = remoteStarts[scoped] { return try await running.value }
         // task-owner: one start per tab, stored before its first wait, so a ready and a reconnect
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
@@ -47,7 +47,7 @@ extension AgentTabStore {
                                             ownerLink: ownerLink, teammate: teammate, reconnect: reconnect, endpoint: endpoint)
         }
         remoteStarts[scoped] = task
-        defer { if remoteStarts[scoped] == task { remoteStarts[scoped] = nil } }
+        defer { for entry in remoteStarts.entries where entry.value == task { _ = remoteStarts.removeValue(forKey: entry.key) } } // wherever a rekey moved it
         return try await task.value
     }
 
@@ -56,7 +56,7 @@ extension AgentTabStore {
                                 teammate: AgentSessionAttachClient.Teammate?, reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
-        let scoped = tabKey(key, machine: machine)
+        let scoped = resolvedRemoteKey(AgentTabKey(machine: machine, key: key))
         if let pending = remoteCreations[scoped] { _ = try await pending.value() }
         let key = resolveRemote(key, machine: machine)
         let scopedKey = AgentTabKey(machine: machine, key: key)

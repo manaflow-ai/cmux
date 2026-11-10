@@ -74,11 +74,11 @@ pub(super) fn connect_and_attach(
     }
     // A side chat (acpmux's `side` tag on the page) is the owner's alone: it is remembered, and
     // a teammate's, team member's or link guest's attach to it ends here, before any record.
-    if side::tagged(&page) {
+    if side_known::tagged(&page) {
         sessions.sides.remember(&resolved);
         sessions.sides.remember(&record_session);
     }
-    if author.is_some() && (side::tagged(&page) || sessions.sides.contains(&resolved)) {
+    if author.is_some() && (side_known::tagged(&page) || sessions.sides.contains(&resolved)) {
         release(sessions);
         link.close();
         refuse(&writer, id, Refusal::NotTrusted);
@@ -120,7 +120,6 @@ pub(super) fn connect_and_attach(
         permissions: Mutex::default(),
         prompts: Mutex::default(),
         children: Mutex::default(),
-        sides: Mutex::default(),
     });
     if attachment.author.is_none()
         && let Ok(watched) = &watched
@@ -351,14 +350,8 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        // The attached chat's prompts, and the owner's to a side chat it opened here.
-        "_acpmux/prompt_accepted"
-            if same_session
-                || params
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| attachment.is_side(id)) =>
-        {
+        // A prompt this attachment sent: to its chat, or to a side chat it opened and follows.
+        "_acpmux/prompt_accepted" if same_session || attachment.follows_session(&params) => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
             if let Some(slot) = slot {

@@ -21,7 +21,7 @@ struct CustomDensitySettingTests {
             #expect(snapshot.selectedDensity == preset.tokens)
             #expect(snapshot.diagnostics.isEmpty)
         }
-        #expect(Self.parse([:]).selectedDensity == .compact)
+        #expect(Self.parse([:]).selectedDensity == DensityPreset.cozy.tokens, "Default is the fresh-install density")
     }
 
     @Test func aCustomDensityRoundTrips() throws {
@@ -47,7 +47,7 @@ struct CustomDensitySettingTests {
         #expect(snapshot.selectedDensity == DensityPreset.cozy.tokens)
         #expect(snapshot.diagnostics.contains { $0.path == "appearance.customDensity" })
         let unknown = Self.parse(["density": .string("huge")])
-        #expect(unknown.selectedDensity == .compact)
+        #expect(unknown.selectedDensity == DensityPreset.cozy.tokens)
         #expect(unknown.diagnostics.contains { $0.path == "appearance.density" })
     }
 

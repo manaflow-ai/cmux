@@ -99,11 +99,26 @@ struct CloudStartSessionFolderTests {
 
     @Test func theFolderIsAnAbsolutePathOfThisMacWrittenPlain() throws {
         #expect(try Self.fromFolder("/Users/me/code/app/") == "/Users/me/code/app")
-        #expect(try Self.fromFolder("/Users/me/code/./app/../web") == "/Users/me/code/web")
+        // As written: `..` resolves only after the symlinks before it, and a trailing space is part of the name.
+        #expect(try Self.fromFolder("/Users/me/code/./app/../web") == "/Users/me/code/./app/../web")
+        #expect(try Self.fromFolder("/tmp/project ") == "/tmp/project ")
         let request = try Self.request(["fromFolder": .string("/tmp/probe small")])
         #expect(request.fromFolder == "/tmp/probe small" && request.cwd == nil)
         #expect(request.command == "cmux cloud start-session --target machine:vm-a --agent claude --from-folder '/tmp/probe small'")
         #expect(try Self.request(["fromFolder": .string(" ")]).fromFolder == nil)
+    }
+
+    /// `/a/link/../project` with `link -> /b/child` is `/b/project`, as `start-chat` (which resolves the path first) copies.
+    @Test func dotDotResolvesAfterTheSymlinkBeforeIt() async throws {
+        let made = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: made, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: made) }
+        let root = URL(fileURLWithPath: try #require(realpath(made.path, nil).map { path in defer { free(path) }; return String(cString: path) }))
+        for dir in ["a", "b/child", "b/project", "a/project"] { try FileManager.default.createDirectory(at: root.appendingPathComponent(dir), withIntermediateDirectories: true) }
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("a/link").path, withDestinationPath: root.appendingPathComponent("b/child").path)
+        let folder = try #require(try Self.fromFolder(root.path + "/a/link/../project"))
+        guard case .success(let checked) = await AgentPaneCloudStart.checkedFolder(folder, home: Self.home) else { Issue.record("refused \(folder)"); return }
+        #expect(checked.folder == root.appendingPathComponent("b/project").path)
     }
 
     @Test(arguments: ["code/app", "~/code/app", "/a\u{7}b", "/.."])
@@ -129,7 +144,9 @@ struct CloudStartSessionFolderTests {
                       ("/Users/me/Library/Keychains", "~/Library/Keychains"), ("/Users/me/.config/gh", "~/.config/gh"),
                       ("/Users/me/.config/gh/extensions", "~/.config/gh"), ("/Users/me/.cargo", "~/.cargo"),
                       ("/Users/me/.cargo/registry/src", "~/.cargo"), ("/Users/me/.kube", "~/.kube"), ("/Users/me/.gem", "~/.gem"),
-                      ("/Users/me/.terraform.d", "~/.terraform.d"), ("/Users/me/.password-store", "~/.password-store")])
+                      ("/Users/me/.terraform.d", "~/.terraform.d"), ("/Users/me/.password-store", "~/.password-store"),
+                      // Anywhere else on this Mac too: a copy of `backup/.aws` would hold a bare `credentials`.
+                      ("/Users/me/backup/.aws", ".aws"), ("/Users/me/code/.Cargo/registry", ".cargo"), ("/Volumes/x/Library/Keychains", "Library/Keychains")])
     func aCredentialFolderIsRefused(folder: String, secret: String) {
         for invocation in Self.runs(["fromFolder": .string(folder)]) {
             #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderSecret(folder, secret: secret)), Self.label(invocation)) {

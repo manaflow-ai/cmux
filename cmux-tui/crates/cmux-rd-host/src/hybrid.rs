@@ -11,13 +11,104 @@
 //! egress, a firewall, no candidate pair), media stays on the stream.
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 /// What the host needs to offer `link.udp` (systemd mode; `--no-udp-link` turns it off).
 #[derive(Debug, Clone, Default)]
 pub struct LinkCfg {
-    /// STUN servers for the host's reflexive candidate (`--link-stun`).
+    /// STUN servers for the host's reflexive candidate (`--link-stun`), as named.
+    names: Vec<String>,
+    /// Their IPv4 addresses once resolved. Shared by every session of this host.
     #[cfg_attr(not(feature = "link"), allow(dead_code))]
-    pub stun: Vec<SocketAddr>,
+    resolved: Arc<Mutex<Stun>>,
+}
+
+/// How far resolving `--link-stun` got.
+#[derive(Debug, Default)]
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+enum Stun {
+    /// No session negotiated `link.udp` yet.
+    #[default]
+    Unasked,
+    Resolving,
+    Resolved(Vec<SocketAddr>),
+}
+
+impl LinkCfg {
+    pub fn new(names: Vec<String>) -> Self {
+        Self { names, resolved: Arc::default() }
+    }
+
+    /// Resolves the STUN names once, on their own thread, so neither a slow
+    /// resolver nor an unresolvable name holds a session or stops the host. A
+    /// name that does not resolve is left out. Nothing resolves (no socket
+    /// opens) until a session negotiated `link.udp`.
+    pub fn resolve_stun(&self) {
+        let Ok(mut slot) = self.resolved.lock() else { return };
+        if !matches!(*slot, Stun::Unasked) {
+            return;
+        }
+        if self.names.is_empty() {
+            *slot = Stun::Resolved(Vec::new());
+            return;
+        }
+        *slot = Stun::Resolving;
+        let (names, resolved) = (self.names.clone(), self.resolved.clone());
+        let spawned = std::thread::Builder::new().name("rd-link-stun".into()).spawn(move || {
+            let found: Vec<SocketAddr> = names
+                .iter()
+                .filter_map(|name| {
+                    let found = std::net::ToSocketAddrs::to_socket_addrs(name.as_str())
+                        .ok()
+                        .and_then(|mut a| a.find(SocketAddr::is_ipv4));
+                    if found.is_none() {
+                        eprintln!("cmux-rd: link: --link-stun {name} did not resolve; left out");
+                    }
+                    found
+                })
+                .collect();
+            if let Ok(mut slot) = resolved.lock() {
+                *slot = Stun::Resolved(found);
+            }
+        });
+        if spawned.is_err() {
+            eprintln!("cmux-rd: link: no thread to resolve --link-stun; no reflexive candidate");
+            *slot = Stun::Resolved(Vec::new());
+        }
+    }
+
+    /// The STUN servers resolved so far (none while they are still resolving).
+    #[cfg(all(test, feature = "link"))]
+    pub fn stun(&self) -> Vec<SocketAddr> {
+        match self.resolved.lock().as_deref() {
+            Ok(Stun::Resolved(found)) => found.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The STUN servers resolved so far and, while they are still resolving,
+    /// the list when it arrives ([`cmux_rd_link::net::Net::add_stun_later`]),
+    /// so the first session on a fresh machine still gets its reflexive candidate.
+    #[cfg(feature = "link")]
+    pub fn stun_now_or_later(
+        &self,
+    ) -> (Vec<SocketAddr>, Option<cmux_rd_link::net::Later<SocketAddr>>) {
+        match self.resolved.lock().as_deref() {
+            Ok(Stun::Resolved(found)) => (found.clone(), None),
+            Ok(Stun::Resolving) => {
+                let resolved = self.resolved.clone();
+                let later: cmux_rd_link::net::Later<SocketAddr> =
+                    Box::new(move || match resolved.lock().as_deref() {
+                        Ok(Stun::Resolving) => None,
+                        Ok(Stun::Resolved(found)) => Some(found.clone()),
+                        // Poisoned, or never asked: nothing more will come.
+                        _ => Some(Vec::new()),
+                    });
+                (Vec::new(), Some(later))
+            }
+            _ => (Vec::new(), None),
+        }
+    }
 }
 
 /// Datagrams larger than this stay on the stream (the link seals each one).
@@ -77,6 +168,12 @@ mod with_link {
             self.up
         }
 
+        /// As if a link path answered (the replacement test needs no second handshake).
+        #[cfg(test)]
+        pub fn force_up(&mut self) {
+            self.up = true;
+        }
+
         fn state(&mut self, up: bool, reason: Option<String>) -> io::Result<()> {
             if let Some(reason) = &reason {
                 eprintln!("cmux-rd host: udp link down: {reason}");
@@ -118,12 +215,13 @@ mod with_link {
                 Err(e) => return self.state(false, Some(format!("link key: {e}"))),
             };
             let public = crate::serve::hex(&keys.public);
+            let (stun, stun_later) = self.cfg.stun_now_or_later();
             let net = match Net::start(NetConfig {
                 role: Role::Responder,
                 session: session.into_bytes(),
                 local: keys,
                 expected_remote,
-                stun: self.cfg.stun.clone(),
+                stun,
                 bind: SocketAddr::from(([0, 0, 0, 0], 0)),
                 turn: Vec::new(),
                 relay_only: false,
@@ -131,6 +229,9 @@ mod with_link {
                 Ok(n) => n,
                 Err(e) => return self.state(false, Some(format!("link start: {e}"))),
             };
+            if let Some(later) = stun_later {
+                net.add_stun_later(later);
+            }
             self.net = Some(net);
             self.up = false;
             self.stream.send_control(&Control::LinkAnswer { key: public })?;
@@ -244,8 +345,10 @@ mod with_link {
     }
 }
 
-/// Parses `--link-stun HOST:PORT[,HOST:PORT...]` (IPv4; an unresolvable one is an error).
-pub fn parse_stun(list: Option<&str>) -> Result<Vec<SocketAddr>, String> {
+/// Parses `--link-stun HOST:PORT[,HOST:PORT...]`. Only the form is checked
+/// here (a malformed entry is an error); names resolve later
+/// ([`LinkCfg::resolve_stun`]), and one that does not is left out.
+pub fn stun_names(list: Option<&str>) -> Result<Vec<String>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());
     };
@@ -253,10 +356,10 @@ pub fn parse_stun(list: Option<&str>) -> Result<Vec<SocketAddr>, String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| {
-            std::net::ToSocketAddrs::to_socket_addrs(s)
-                .ok()
-                .and_then(|mut a| a.find(SocketAddr::is_ipv4))
-                .ok_or_else(|| format!("--link-stun {s}: not an IPv4 HOST:PORT"))
+            let ok = s.rsplit_once(':').is_some_and(|(host, port)| {
+                !host.is_empty() && host.len() <= 253 && port.parse::<u16>().is_ok_and(|p| p > 0)
+            });
+            ok.then(|| s.to_owned()).ok_or_else(|| format!("--link-stun {s}: not HOST:PORT"))
         })
         .collect()
 }
@@ -426,28 +529,6 @@ mod tests {
         }
         assert!(on_link, "media did not ride the link");
         assert!(!viewer.frames().iter().any(|(ty, _)| *ty == FRAME_DATAGRAM));
-        // A new offer replaces the live link: the viewer hears media is back on the stream.
-        let again = KeyPair::generate().expect("keys");
-        write_control(
-            &mut viewer.stream,
-            &Control::LinkOffer {
-                session: "cloud-2".into(),
-                key: crate::serve::hex(&again.public),
-                candidates: vec![],
-            },
-        )
-        .expect("offer");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut replaced = false;
-        while !replaced && Instant::now() < deadline {
-            carrier.receive(&mut out).expect("receive");
-            replaced = controls(&viewer.frames()).iter().any(|c| {
-                matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("replaced"))
-            });
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert!(replaced, "no link_state down when a new offer replaced the link");
-        assert!(!carrier.is_up());
         // The viewer closes its link: media falls back to the stream.
         drop(net);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -460,11 +541,77 @@ mod tests {
         assert!(viewer.frames().iter().any(|(ty, p)| *ty == FRAME_DATAGRAM && p == b"back"));
     }
 
+    /// A new offer while media rides the link: the viewer hears it is back on the stream
+    /// before the answer.
+    #[test]
+    fn a_replacement_offer_reports_media_back_on_the_stream() {
+        let (mut host, mut viewer) = pair();
+        let mut reader = FrameReader::default();
+        let stream = SocketCarrier::new(&mut host, &mut reader, None, DatagramOut::Stream);
+        let mut carrier = HybridCarrier::new(stream, LinkCfg::default());
+        carrier.force_up();
+        let keys = KeyPair::generate().expect("keys");
+        write_control(
+            &mut viewer.stream,
+            &Control::LinkOffer {
+                session: "cloud-2".into(),
+                key: crate::serve::hex(&keys.public),
+                candidates: vec![],
+            },
+        )
+        .expect("offer");
+        let mut out = Vec::new();
+        let mut seen = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !seen.iter().any(|c| matches!(c, Control::LinkAnswer { .. }))
+            && Instant::now() < deadline
+        {
+            carrier.receive(&mut out).expect("receive");
+            seen.extend(controls(&viewer.frames()));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let down = seen.iter().position(|c| {
+            matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("replaced"))
+        });
+        let answer = seen.iter().position(|c| matches!(c, Control::LinkAnswer { .. }));
+        assert!(matches!((down, answer), (Some(d), Some(a)) if d < a), "{seen:?}");
+        assert!(!carrier.is_up());
+    }
+
     #[test]
     fn link_stun_takes_a_list_and_refuses_a_bad_entry() {
-        assert_eq!(parse_stun(None).expect("none"), Vec::<SocketAddr>::new());
-        let list = parse_stun(Some("127.0.0.1:3478, 127.0.0.2:3478")).expect("list");
-        assert_eq!(list.len(), 2);
-        assert!(parse_stun(Some("nope")).is_err());
+        assert_eq!(stun_names(None).expect("none"), Vec::<String>::new());
+        let list = stun_names(Some("127.0.0.1:3478, stun.example.com:3478")).expect("list");
+        assert_eq!(list, vec!["127.0.0.1:3478", "stun.example.com:3478"]);
+        assert!(stun_names(Some("nope")).is_err());
+        assert!(stun_names(Some("host:0")).is_err());
+    }
+
+    #[test]
+    fn link_stun_resolves_only_when_asked_and_leaves_out_a_name_that_does_not_resolve() {
+        let cfg = LinkCfg::new(vec!["127.0.0.1:3478".into(), "stun.invalid:3478".into()]);
+        assert!(cfg.stun().is_empty(), "nothing resolves before a session asks");
+        cfg.resolve_stun();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while cfg.stun().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(cfg.stun(), vec!["127.0.0.1:3478".parse::<SocketAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn a_session_offered_while_stun_resolves_takes_the_servers_when_they_arrive() {
+        let cfg = LinkCfg::new(vec!["127.0.0.1:3478".into()]);
+        let (now, later) = cfg.stun_now_or_later();
+        assert!(now.is_empty() && later.is_none(), "nothing resolves before a session asks");
+        *cfg.resolved.lock().unwrap() = Stun::Resolving;
+        let (now, later) = cfg.stun_now_or_later();
+        assert!(now.is_empty());
+        let mut later = later.expect("a later list while resolving");
+        assert_eq!(later(), None);
+        let server: SocketAddr = "127.0.0.1:3478".parse().unwrap();
+        *cfg.resolved.lock().unwrap() = Stun::Resolved(vec![server]);
+        assert_eq!(later(), Some(vec![server]));
+        assert_eq!(cfg.stun_now_or_later().0, vec![server]);
     }
 }

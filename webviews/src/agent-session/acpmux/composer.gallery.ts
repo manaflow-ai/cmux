@@ -67,6 +67,42 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
 }
 
+/// The `attachments-placement` scenes (ask-bdaa08fba5): a screen recording, a screenshot and a file
+/// dropped together at the caret after `draft`, in the view `view`, as Leo's capture had them (the
+/// recording above the text, the screenshot in a second row). Each kind lands in the same one place.
+const MIXED_PATHS = ["/Users/dev/Desktop/Screenshot.png", VIDEO_PATH, "/Users/dev/Desktop/crash-report.zip"];
+const MIXED_NATIVE = {
+  "chat.attach.dropped": { items: MIXED_PATHS.map((path) => ({ path, folder: false })) },
+  "video.info": VIDEO_INFO,
+  "video.frames": VIDEO_FRAMES,
+};
+async function dropMixedKinds(ctx: PlayContext, view: "inline" | "strip", caret?: number) {
+  const window = ctx.document.defaultView!;
+  window.cmuxAcpmuxComposer?.({ attachmentView: view });
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  if (caret !== undefined) field.acpmuxMarkdownField!.setCaret(caret);
+  const png = Uint8Array.from(
+    atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+    (char) => char.charCodeAt(0),
+  );
+  const files = [
+    new window.File([png], "Screenshot.png", { type: "image/png" }),
+    new window.File([new Uint8Array([0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70])], VIDEO_PATH.split("/").pop()!, {
+      type: "video/quicktime",
+    }),
+    new window.File([new Uint8Array([0x50, 0x4b, 3, 4])], "crash-report.zip", { type: "application/zip" }),
+  ];
+  const drop = new window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+  const inText = ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] .acpmux-attachment").length;
+  const inStrip = ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length;
+  // One place for every kind: all three in the text, or all three in the row at the top.
+  if (view === "inline" ? inText !== 3 || inStrip !== 0 : inStrip !== 3)
+    throw new Error(`every attachment in one place (${view}): ${inText} in the text, ${inStrip} in the strip`);
+}
+
 /// The `attachment-inline-reorder` scenes: two screenshots, 1 (blue) and 2 (amber), pasted side by
 /// side at the end of the prompt's text.
 async function pasteTwoScreenshots(ctx: PlayContext) {
@@ -368,8 +404,10 @@ const steerThenQueued = (sentNow: boolean) => {
         newestOwnSteer: "user-steer-now",
       })
     : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  // Its own chat: what its Send now covers is kept per chat for the page's life (cmux#32846).
   return {
     ...running,
+    sessionId: "steer-send-now-queued",
     summary: {
       ...running.summary!,
       harness: "claude-sr2",
@@ -1116,6 +1154,54 @@ export default agentPaneEntry({
         await pasteBuildLog(ctx);
       },
     },
+    // ask-bdaa08fba5, Leo 2026-11-09: "we have inline stuff, so why is this not inline? This one went
+    // above the whole thing." and "In the right-click menu for the composer ... all attachments in
+    // line, or all attachments at the top like normal." One placement rule for every kind, in either
+    // view. Picked: attachments-inline-mixed, the default.
+    "attachments-inline-mixed": {
+      note: "Picked (Attachments Inline, the default): a screen recording, a screenshot and a file dropped after the words all sit in the text where they were dropped, in one line; none goes to a tray above.",
+      ready: { draft: "Why does the sidebar flicker here? " },
+      snapshot: chat(finished),
+      native: MIXED_NATIVE,
+      play: (ctx) => dropMixedKinds(ctx, "inline"),
+    },
+    "attachments-inline-mixed-mid-text": {
+      note: "Attachments Inline, dropped between words: the three kinds go in at the caret together and the words after them follow on, as typed.",
+      ready: { draft: "Compare the recording with the build that works." },
+      snapshot: chat(finished),
+      native: MIXED_NATIVE,
+      play: (ctx) => dropMixedKinds(ctx, "inline", "Compare the recording ".length),
+    },
+    "attachments-top-mixed": {
+      note: "Attachments at Top (as common chat apps draw it): the same three kinds all in one row over the text, the recording, the screenshot and the file side by side; never a second row split by kind.",
+      ready: { draft: "Why does the sidebar flicker here? " },
+      snapshot: chat(finished),
+      native: MIXED_NATIVE,
+      play: (ctx) => dropMixedKinds(ctx, "strip"),
+    },
+    "attachments-view-menu": {
+      note: "Right-click on the prompt: Attachments Inline (checked) and Attachments at Top, under the edit items. The same setting as Settings' Attachment View (agentPane.attachmentView).",
+      ready: { draft: "Why does the sidebar flicker here? " },
+      snapshot: chat(finished),
+      native: MIXED_NATIVE,
+      play: async (ctx) => {
+        await dropMixedKinds(ctx, "inline");
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const box = field.getBoundingClientRect();
+        field.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.right - 40,
+            clientY: box.top + 12,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+        const menu = ctx.document.querySelector('[role="menu"]')?.textContent ?? "";
+        if (!/Attachments Inline/.test(menu) || !/Attachments at Top/.test(menu))
+          throw new Error("the composer's right-click must offer Attachments Inline and Attachments at Top");
+      },
+    },
     // Keep as .txt in the inline card's right-click menu (review of #37516): beside Edit in Prompt.
     "text-pasted-inline-menu": {
       note: "Right-click on the inline paste card: Edit in Prompt, Keep as .txt, Remove.",
@@ -1451,6 +1537,28 @@ export default agentPaneEntry({
         video.pause();
         video.currentTime = 1;
         await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
+      },
+    },
+    "video-unplayable": {
+      note: 'Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". A dropped recording the host will not stream and Quick Look refuses too: a click says so on its tile, in the play glyph\'s place, instead of doing nothing.',
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { nativeError: { code: "media_refused" } },
+        "video.quickLook": { nativeError: { code: "media_refused" } },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video-unplayable"));
       },
     },
     "video-reading": {
@@ -2125,6 +2233,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
         );
+        // Neither steer offers Send now or the X again: the earlier one goes in with it.
+        if (ctx.document.querySelector(".cv-user__send-now, .cv-user__take-back"))
+          throw new Error("a steer sent now still shows Send now or the X");
       },
     },
     "steer-marks": {

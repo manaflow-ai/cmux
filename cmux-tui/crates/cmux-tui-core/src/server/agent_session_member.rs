@@ -252,7 +252,8 @@ pub(in crate::server) fn team_list(mux: &Mux, client: u64) -> Value {
     // A side chat is its owner's alone: never listed (and never attached, `attach`). acpmux's
     // own `side` tags are read now, so a daemon that restarted (and remembers none) lists none
     // either; a list that cannot be read shows no chat.
-    let tagged = if listed.is_empty() { Some(Default::default()) } else { side::tagged_now(mux) };
+    let tagged =
+        if listed.is_empty() { Some(Default::default()) } else { side_known::tagged_now(mux) };
     let known = &mux.control_clients.agent_sessions.sides;
     let mut chats: Vec<Value> = listed
         .into_iter()

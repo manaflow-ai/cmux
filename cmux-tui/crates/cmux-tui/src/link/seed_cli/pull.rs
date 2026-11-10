@@ -230,6 +230,8 @@ pub(super) fn keep(
         work: Some(work),
         stash: sha("stash"),
         stash_known: base.is_some_and(|base| base.get("stash").is_some()),
+        // The export answered, so the machine's checkout is whole.
+        filling: None,
     };
     // A record that could not be kept only makes the next pull merge from
     // the older base, where what came back already matches both sides.
@@ -279,6 +281,7 @@ mod tests {
             work: Some("w".into()),
             stash: None,
             stash_known: true,
+            filling: None,
         }
     }
 

@@ -59,7 +59,8 @@ mod person_key;
 use person_key::KEY_READY;
 #[cfg(unix)]
 pub(crate) use person_key::not_dumpable;
-#[cfg(unix)]
+// Only the Linux provisioning exec (provision::enroll_running) reads a key line from here.
+#[cfg(target_os = "linux")]
 pub(crate) use person_key::read_key_line;
 use person_key::read_person_key;
 #[cfg(unix)]
@@ -530,6 +531,24 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     crate::hub::watches::Watches::start(&hub);
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
+    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
+    #[cfg(feature = "hub-carrier")]
+    let _hub_carrier = if clone_unsettled {
+        None
+    } else {
+        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
+        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
+        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
+        let serving = crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await;
+        // A rekey (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new
+        // key with the key file and registers again, rather than reading it as replaced.
+        if let (Some(transport), Some(carrier)) = (wireguard.as_ref(), hub.hub_carrier.get()) {
+            let carrier = carrier.clone();
+            transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
+        }
+        serving
+    };
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -796,6 +815,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify::notify_loop(hub.clone()));
     // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
     tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
+    // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
+    // (`hub/desktop_bridge.rs`).
+    tokio::spawn(Hub::desktop_bridge_loop(Arc::downgrade(&hub)));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]

@@ -262,13 +262,13 @@ fn is_change_type(kind: u16) -> bool {
     [libc::RTM_NEWADDR, libc::RTM_DELADDR, libc::RTM_NEWLINK, libc::RTM_DELLINK].contains(&kind)
 }
 
-#[cfg(test)]
+// Every test here drives the Linux netlink watch.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
     /// Address and link messages are a change; a new route or neighbour (macOS clones a host
     /// route for many new connections) is none.
-    #[cfg(target_os = "linux")]
     #[test]
     fn only_address_and_link_messages_are_a_change() {
         assert!(is_change_type(libc::RTM_NEWADDR));
@@ -280,7 +280,6 @@ mod tests {
 
     /// The watch opens on Linux without privileges (netlink route groups are readable by any
     /// user), so a link on a fleet Linux host has it too.
-    #[cfg(target_os = "linux")]
     #[test]
     fn the_watch_opens_without_privileges() {
         assert!(imp::open().is_some());
@@ -288,7 +287,6 @@ mod tests {
 
     /// A burst of messages is one change, called once it settles; the thread ends when its
     /// owner is gone.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_burst_is_one_change_and_the_thread_ends_with_its_owner() {
         let generation = NetworkWatch::manual();

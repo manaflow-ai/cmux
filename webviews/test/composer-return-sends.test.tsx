@@ -580,6 +580,36 @@ test("Shift-Return right after an input method's commit Return adds a line and s
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
 });
 
+for (const inputType of ["insertParagraph", "insertLineBreak"]) {
+  for (const [reportsComposing, started] of [
+    [true, true],
+    [false, true],
+    [true, false],
+  ]) {
+    test(`${inputType} during composition never sends (event flag ${reportsComposing}, lifecycle ${started})`, async () => {
+      const { field, sent } = await composer(chat(), "日本語");
+      if (started) await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+      const proceeded = await dispatch(
+        field,
+        new window.InputEvent("beforeinput", {
+          inputType,
+          isComposing: reportsComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
+        1_500,
+      );
+      expect(proceeded).toBe(false);
+      expect(sent).toEqual([]);
+      expect(field.textContent).toBe("日本語");
+      await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+      await dispatch(field, key({ key: "Enter", keyCode: 229 }), 2_010);
+      await dispatch(field, key({ key: "Enter", keyCode: 13 }), 2_100);
+      expect(sent).toEqual([{ text: "日本語", steer: false }]);
+    });
+  }
+}
+
 test("a paragraph the input method inserts on its own sends instead", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
@@ -603,4 +633,36 @@ test("Shift-Return adds a line and sends nothing", async () => {
   expect(lines(field)).toBe(1);
   await dispatch(field, key({ key: "Enter", keyCode: 13, shiftKey: true }));
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
+});
+
+// A turn can start a moment before the pane hears of it (another agent's message, a trigger, an
+// automatic retry). A Return sent then went without steer, so acpmux queued it behind that turn
+// (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?"). To an agent that steers it goes as
+// a steer, which acpmux runs as a turn of its own when none runs.
+function steeringIdle(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
+  const snapshot = chat(fields);
+  return { ...snapshot, summary: { ...snapshot.summary!, steering: true } };
+}
+
+test("Return to an agent that steers goes as a steer even while the chat shows no turn", async () => {
+  const { field, sent } = await composer(steeringIdle(), "Use the cache dir");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "Use the cache dir", steer: true }]);
+});
+
+test("Send to an agent that steers goes as a steer even while the chat shows no turn", async () => {
+  const { sent } = await composer(steeringIdle(), "Use the cache dir");
+  const button = host.querySelector<HTMLButtonElement>("button[type=submit], .acpmux-send");
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  expect(sent).toEqual([{ text: "Use the cache dir", steer: true }]);
+});
+
+test("one of the agent's own commands still waits for the turn while the chat shows none", async () => {
+  const { field, sent } = await composer(
+    steeringIdle({ commands: [{ name: "compact", description: "Compact" }] }),
+    "/compact",
+  );
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "/compact", steer: false }]);
 });

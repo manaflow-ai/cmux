@@ -484,3 +484,59 @@ fn the_chat_relay_hides_an_incognito_workspace_in_any_key_spelling() {
     assert!(!mobile_chat::hides_workspace(&mux, &normal_key));
     assert!(!mobile_chat::hides_workspace(&mux, &normal_key.to_uppercase()));
 }
+
+/// A phone's Cloud carrier channel (hostd's `cloud_mobile_handshake`) declares
+/// `cloud-mobile-chat-v1` without `remote: true`. It is held as a remote device all the same:
+/// no incognito workspace is listed to it, and no chat of one can be attached.
+#[cfg(unix)]
+#[test]
+fn a_cloud_phones_channel_is_a_remote_device_without_saying_so() {
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let private_id = mux.with_state(|state| {
+        state.workspaces.iter().find(|w| w.public_id.as_str() == private).unwrap().id
+    });
+    let opened = line(
+        &mux,
+        &app,
+        json!({"id": "ns", "cmd": "new-screen", "workspace": private_id, "cols": 60, "rows": 8,
+               "shell_args": ["-c", "sleep 30"], "env": {"SHELL": "/bin/sh"}}),
+    );
+    assert_eq!(opened["ok"], true, "{opened}");
+    let surface = mux.with_state(|state| {
+        let workspace = state.workspaces.iter().find(|w| w.id == private_id).unwrap();
+        let pane = workspace.screens[0].active_pane;
+        state.panes[&pane].tabs[0]
+    });
+
+    let cloud_phone = connect(&mux);
+    let declared = line(
+        &mux,
+        &cloud_phone,
+        json!({"id": "cloud-mobile-host", "cmd": "set-client-info", "kind": "ios",
+               "device_kind": "iphone",
+               "capabilities": ["cloud-mobile-chat-v1", "conversation-tabs-v1",
+                                "agent-session-tabs-v1"]}),
+    );
+    assert_eq!(declared["ok"], true, "{declared}");
+    assert!(crate::server::incognito_remote::is_remote_device(&mux, cloud_phone.0));
+
+    let remote = listed(&mux, &cloud_phone);
+    assert!(row(&remote, &normal).is_some(), "{remote:?}");
+    assert!(
+        row(&remote, &private).is_none(),
+        "an incognito workspace reached the phone: {remote:?}"
+    );
+    assert!(!serde_json::to_string(&remote).unwrap().contains("private-space"));
+    for request in [
+        json!({"id": "a", "cmd": "agent-session-attach", "surface": surface, "limit": 10}),
+        json!({"id": "o", "cmd": "agent-session-of", "surface": surface}),
+    ] {
+        let reply = line(&mux, &cloud_phone, request.clone());
+        assert_eq!(reply["ok"], false, "{request} must be refused: {reply}");
+        assert!(!reply.to_string().contains("private-space"), "{reply}");
+    }
+    mux.shutdown();
+}

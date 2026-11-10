@@ -6,6 +6,7 @@
 // request, placeholder rows hold the space its rows will take, so no row pops in after it shows.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { until } from "./support/until";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
@@ -137,10 +138,11 @@ test("while the host reads, placeholder rows hold the card at its full size; the
     // The answer lands on the next ask (the store asks again while the host reads; here, now).
     answer = full;
     const { askPullRequest, pullRequestAnswer } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
-    await opened.act(async () => {
-      askPullRequest(PR_URL);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await opened.act(async () => askPullRequest(PR_URL));
+    await until(
+      () => Boolean(pullRequestAnswer(PR_URL)?.pullRequest),
+      () => opened.act(async () => {}),
+    );
     expect(pullRequestAnswer(PR_URL)?.pullRequest?.number).toBe(37155);
     // A crossfade in place (Leo 2026-11-08: "a bit too discontinuous and jumpy"): each row the
     // answer fills shares one grid cell with the placeholder it replaces, the row first, the
@@ -194,13 +196,21 @@ test("a chip's cache-only ask that found nothing still opens the card with its r
 });
 
 test("a settled answer stays settled when a later cache-only ask finds nothing (review of #37192, F3)", async () => {
-  const opened = await openCard(() => ({ pullRequest: null, reading: false }));
+  const cacheAsks: unknown[] = [];
+  const opened = await openCard((params) => {
+    if (params.cached) cacheAsks.push(params);
+    return { pullRequest: null, reading: false };
+  });
   try {
     const { askPullRequest, pullRequestAnswer } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
-    await opened.act(async () => {
-      askPullRequest(PR_URL);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    const asked = cacheAsks.length;
+    // An answer the same as the one held changes nothing to wait on: the host taking the ask is the
+    // signal, and the act it lands in returns only after a task turn, once the store took the reply.
+    await opened.act(async () => askPullRequest(PR_URL));
+    await until(
+      () => cacheAsks.length > asked,
+      () => opened.act(async () => {}),
+    );
     expect(pullRequestAnswer(PR_URL)?.cacheOnly).toBeUndefined();
     expect(opened.card()!.querySelector("[data-placeholder]")).toBeNull();
   } finally {
@@ -258,8 +268,11 @@ test("the pointer reaching a pull request link asks the host before the card ope
     const link = element.querySelector<HTMLElement>("a.cv-chip")!;
     await act(async () => {
       link.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true, clientX: 4, clientY: 4 }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await until(
+      () => pullRequestAnswer(PR_URL) !== undefined,
+      () => act(async () => {}),
+    );
     // The card is not open yet (its dwell runs), and the full read was asked for.
     expect(element.querySelector(".cv-link-preview")).toBeNull();
     expect(asked.some((params) => params.url === PR_URL && params.cached === undefined)).toBe(true);

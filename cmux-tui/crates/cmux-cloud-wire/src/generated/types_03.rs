@@ -83,6 +83,7 @@ wire_enum! {
         AutomationDynamicWorkers = "automation.dynamic_workers",
         EgressRequests = "egress.requests",
         ModelSpendUsd = "model.spend_usd",
+        CloudMachineUsd = "cloud.machine_usd",
     }
 }
 
@@ -897,10 +898,4 @@ wire_enum! {
         Community = "community",
         Unverified = "unverified",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsAllowedTiers {
-    pub value: Vec<TeamPolicyValuesAppsAllowedTiersValueItem>,
-    pub mode: PolicyMode,
 }

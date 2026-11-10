@@ -12,6 +12,9 @@ Patterns (matched in code and string literals; comments, test files, fixtures, m
 
   route:/api/vm         a classic VM route path: "/api/vm", "/api/vm/{id}/exec", `${base}/api/vm/domains`.
   route:/api/runs       a classic Run route path: "/api/runs/{id}/events".
+  segments:/api/vm      the same path as an array of path parts, the form a Rust client builds its URL from:
+                        &["api", "vm", id, "exec"] (cmux-cloud-api's Http::url). One array is one call.
+  segments:/api/runs    the same for a Run: &["api", "runs", id, "wait"].
   base:cmux.com         a bare cmux.com origin string ("https://cmux.com", "https://www.cmux.com/") on a line that
                         names an API base (api, base, origin, endpoint, server, backend), the form an API base
                         takes; a browser probe URL, a sample value or an OAuth client_uri does not match. cmux.com with a path (a deeplink, docs, /pair, /whats-new, an auth page,
@@ -22,9 +25,11 @@ The test fails when a file has a match with no entry, more matches than its entr
 count, so the list only shrinks), an entry with no match left (remove it), an unknown pattern, or an entry with no
 one-line reason starting "debt: " (a call NEXT still makes until it moves to cmux-platform) or "keep: " (a reviewed
 exception). In CI, CMUX_GUARDS_BASE_SHA (or CLASSIC_CLOUD_ROUTES_BASE) names the base commit: an entry added or
-raised since that commit's allowlist fails unless its reason starts with "keep: " and says why (a move of an
-existing call from Swift to Rust, say, that the same PR or its next step deletes on the other side), so a PR cannot
-allowlist a new classic call as debt; and the scanned paths may not shrink.
+raised past both that commit's allowlist and that commit's own matches (its tree scanned with this file's patterns,
+so a pattern added here counts calls the base already made, not new ones) fails unless its reason starts with
+"keep: " and says why (a move of an existing call from Swift to Rust, say, that the same PR or its next step
+deletes on the other side), so a PR cannot allowlist a new classic call as debt; and the scanned paths may not
+shrink.
 
 Run it: python3 tests/test_classic_cloud_routes.py. List the current matches: python3 tests/test_classic_cloud_routes.py --print
 """
@@ -47,6 +52,9 @@ REASON = re.compile(r"(debt|keep): \S[^\n]*$")
 PATTERNS = {
     "route:/api/vm": re.compile(r"/api/vm(?![\w-])"),
     "route:/api/runs": re.compile(r"/api/runs(?![\w-])"),
+    # A path-parts array: "api" then "vm" (or "runs") as its own string, then another part or the array's end.
+    "segments:/api/vm": re.compile(r"""(?<![\w"'])(["'])api\1\s*,\s*(["'])vm\2(?=\s*[,\]])"""),
+    "segments:/api/runs": re.compile(r"""(?<![\w"'])(["'])api\1\s*,\s*(["'])runs\2(?=\s*[,\]])"""),
     "base:cmux.com": re.compile(r"""(?<![\w.-])https?://(?:www\.)?cmux\.com/?(?=["'`])"""),
     "base:cmux-staging": re.compile(r"cmux-staging\.vercel\.app"),
 }
@@ -54,7 +62,7 @@ PATTERNS = {
 # server); a browser probe URL, a sample value, a demo tab or an OAuth client_uri is not.
 BASE_CONTEXT = re.compile(r"(?i)api|base|origin|endpoint|server|backend")
 # Every match needs one of these in its file: a fixed-string git grep narrows the tracked files first.
-PREFILTER = ("/api/vm", "/api/runs", "cmux.com", "cmux-staging.vercel.app")
+PREFILTER = ("/api/vm", "/api/runs", "cmux.com", "cmux-staging.vercel.app", '"api"', "'api'")
 
 TEST_PART = re.compile(r"^(?:tests?|__tests__|__mocks__|fixtures?|__fixtures__|testdata|test-support|generated|"
                        r"gallery|e2e|mocks?|bench|[A-Za-z0-9]*Tests|[A-Za-z0-9]*TestSupport)$", re.I)
@@ -132,18 +140,20 @@ def in_scope(rel: str, paths: dict) -> bool:
     return any(rel.startswith(p) for p in paths.get("include", []))
 
 
-def candidate_files(root: Path, paths: dict) -> list[str]:
+def candidate_files(root: Path, paths: dict, rev: str | None = None) -> list[str]:
+    """The in-scope files with a PREFILTER word: in the work tree, or in commit `rev`."""
     specs = list(paths.get("include", []))
     if not specs:
         return []
     argv = ["git", "-C", str(root), "grep", "-I", "-l", "-z", "-F"]
     for word in PREFILTER:
         argv += ["-e", word]
-    argv += ["--", *specs]
+    argv += ([rev] if rev else []) + ["--", *specs]
     p = subprocess.run(argv, capture_output=True)
     if p.returncode not in (0, 1):
         raise RuntimeError(p.stderr.decode(errors="replace"))
-    return sorted(rel for rel in p.stdout.decode().split("\0") if rel and in_scope(rel, paths))
+    names = (n.split(":", 1)[1] if rev else n for n in p.stdout.decode().split("\0") if n)
+    return sorted(rel for rel in names if in_scope(rel, paths))
 
 
 def scan(root: Path, paths: dict) -> dict[tuple[str, str], list[int]]:
@@ -155,6 +165,34 @@ def scan(root: Path, paths: dict) -> dict[tuple[str, str], list[int]]:
         try:
             text = path.read_text()
         except (UnicodeDecodeError, OSError):
+            continue
+        for name, lines in matches(text, rel).items():
+            found[(rel, name)] = lines
+    return found
+
+
+def scan_at(root: Path, rev: str, paths: dict) -> dict[tuple[str, str], list[int]]:
+    """``scan`` of commit `rev`'s tree (one `git cat-file --batch` for every file)."""
+    rels = candidate_files(root, paths, rev)
+    if not rels:
+        return {}
+    p = subprocess.run(["git", "-C", str(root), "cat-file", "--batch"], capture_output=True,
+                       input="".join(f"{rev}:{rel}\n" for rel in rels).encode())
+    if p.returncode:
+        raise RuntimeError(p.stderr.decode(errors="replace"))
+    found: dict[tuple[str, str], list[int]] = {}
+    out, at = p.stdout, 0
+    for rel in rels:
+        end = out.index(b"\n", at)
+        header = out[at:end].split()
+        at = end + 1
+        if len(header) < 3 or header[1] != b"blob":
+            continue
+        size = int(header[2])
+        blob, at = out[at:at + size], at + size + 1
+        try:
+            text = blob.decode()
+        except UnicodeDecodeError:
             continue
         for name, lines in matches(text, rel).items():
             found[(rel, name)] = lines
@@ -201,12 +239,13 @@ def problems(found: dict[tuple[str, str], list[int]], allow: dict) -> list[str]:
     return out
 
 
-def grown(base: dict, allow: dict) -> list[str]:
-    """Entries added or raised since the base, and scanned paths that shrank."""
+def grown(base: dict, allow: dict, base_found: dict[tuple[str, str], list[int]] | None = None) -> list[str]:
+    """Entries added or raised past the base (its allowlist, or its own matches in `base_found`: a call the base
+    already made that a new pattern now counts is not a new call), and scanned paths that shrank."""
     out = []
-    old = entries(base)
+    old, made = entries(base), base_found or {}
     for key, entry in sorted(entries(allow).items()):
-        was = old.get(key, {}).get("count", 0)
+        was = max(old.get(key, {}).get("count", 0), len(made.get(key, [])))
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("keep: "):
             out.append(f"{key[0]}: {key[1]} allowlist {was} -> {entry.get('count')} since the base: NEXT code "
                        f"may not add classic Cloud calls (use cmux-platform's API; a reviewed exception, such as a "
@@ -221,11 +260,18 @@ def grown(base: dict, allow: dict) -> list[str]:
     return out
 
 
-def base_allowlist(root: Path = ROOT) -> dict | None:
+def base_commit(root: Path = ROOT) -> str | None:
     base = (os.environ.get("CLASSIC_CLOUD_ROUTES_BASE") or os.environ.get("CMUX_GUARDS_BASE_SHA") or "").strip()
     if not base or set(base) == {"0"}:
         return None
     if subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{base}^{{commit}}"], capture_output=True).returncode:
+        return None
+    return base
+
+
+def base_allowlist(root: Path = ROOT, base: str | None = None) -> dict | None:
+    base = base or base_commit(root)
+    if base is None:
         return None
     p = subprocess.run(["git", "-C", str(root), "show", f"{base}:{ALLOWLIST.relative_to(ROOT).as_posix()}"],
                        capture_output=True, text=True)
@@ -236,9 +282,10 @@ class ClassicCloudRoutes(unittest.TestCase):
     def test_next_adds_no_classic_cloud_calls(self):
         allow = json.loads(ALLOWLIST.read_text())
         bad = problems(scan(ROOT, config(allow)), allow)
-        base = base_allowlist()
+        commit = base_commit()
+        base = base_allowlist(base=commit) if commit else None
         if base is not None:
-            bad += grown(base, allow)
+            bad += grown(base, allow, scan_at(ROOT, commit, config(allow)))
         self.assertEqual(bad, [], f"classic Cloud route guard ({HOW}):\n  " + "\n  ".join(bad))
 
     def test_paths_are_declared(self):
@@ -267,6 +314,20 @@ class Matcher(unittest.TestCase):
                          {"base:cmux.com": 1})
         self.assertEqual(self.count('let s = URL(string: "https://cmux-staging.vercel.app/api/auth")'),
                          {"base:cmux-staging": 1})
+
+    def test_rust_path_arrays_are_flagged(self):
+        rs = "cmux-tui/crates/x/src/classic.rs"
+        self.assertEqual(self.count('http.classic(Method::GET, &["api", "vm", "network"], &[], None)', rs),
+                         {"segments:/api/vm": 1})
+        self.assertEqual(self.count('let segments = [\n    "api",\n    "vm",\n    id,\n];', rs), {"segments:/api/vm": 1})
+        self.assertEqual(self.count('send(&["api", "runs"], body)', rs), {"segments:/api/runs": 1})
+        self.assertEqual(self.count("const p = ['api', 'runs', id].join('/')", "webviews/src/a/runApi.ts"),
+                         {"segments:/api/runs": 1})
+        # A comment, another API's path or another word does not count.
+        for source in ('// &["api", "vm", id]\nlet x = 1', 'let p = ["v1", "api", "vms", id];',
+                       'let w = ["api", "vmx"];', 'let a = ["xapi", "vm"];', 'let m = ["v1", "cloud", "machines"];'):
+            with self.subTest(source=source):
+                self.assertEqual(self.count(source, rs), {})
 
     def test_comments_and_other_cmux_urls_are_not_flagged(self):
         clean_cases = [
@@ -334,6 +395,13 @@ class Matcher(unittest.TestCase):
         self.assertEqual(len(grown(base, added)), 1)
         added["entries"][-1]["reason"] = "keep: moved from a.ts to Rust; a.ts drops it in the next step"
         self.assertEqual(grown(base, added), [])
+        # A newly counted pattern: the base already made these calls, so a debt entry of that size is not growth.
+        counted = json.loads(json.dumps(base))
+        counted["entries"].append({"file": "c.rs", "pattern": "segments:/api/vm", "count": 3,
+                                   "reason": "debt: newly counted, not a new call"})
+        self.assertEqual(grown(base, counted, {("c.rs", "segments:/api/vm"): [1, 2, 3]}), [])
+        self.assertEqual(len(grown(base, counted, {("c.rs", "segments:/api/vm"): [1, 2]})), 1)
+        self.assertEqual(len(grown(base, counted)), 1)
         dropped = json.loads(json.dumps(base))
         dropped["paths"]["include"] = []
         self.assertEqual(len(grown(base, dropped)), 1)

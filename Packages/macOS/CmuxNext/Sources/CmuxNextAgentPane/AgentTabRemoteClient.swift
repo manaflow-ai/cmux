@@ -66,6 +66,10 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func media(path: String) async throws -> Data { try await mapped { try await client.media(path: path) } }
 
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        try await mapped { try await client.mediaRange(path: path, offset: offset, length: length, handle: handle) }
+    }
+
     public func typing(_ on: Bool) async throws { _ = try await mapped { try await client.typing(on); return Data() } }
 
     public func view(_ visible: Bool) async throws { _ = try await mapped { try await client.view(visible); return Data() } }
@@ -94,14 +98,16 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.login(op, fields) }
     }
 
-    /// An observation opens no side chat.
+    public func btw(_ question: String) async throws -> Data { try await mapped { try await client.btw(question) } }
+
+    /// An observation never opens a side chat.
     public func servesSide() async -> Bool {
         guard mode != .observe else { return false }
         return await client.servesSide()
     }
 
-    public func side(_ op: String, _ fields: [String: any Sendable]) async throws -> Data {
-        try await mapped { try await client.side(op, fields) }
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        try await mapped { try await client.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID) }
     }
 
     public func close() async { await client.close() }

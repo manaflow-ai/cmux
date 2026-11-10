@@ -2,8 +2,8 @@
 //! instead of starting a detached daemon beside it.
 use super::*;
 
-// timeout: cleanup for a wedged systemctl health probe; the daemon request waits on liveness.
 #[cfg(target_os = "linux")]
+// timeout: cleanup for a wedged systemctl health probe; the daemon request waits on liveness.
 const PROBE_BUDGET: Duration = Duration::from_secs(1);
 
 /// A CLI may be launched without the service's `ACPMUX_HOME` (for example,

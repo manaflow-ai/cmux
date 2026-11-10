@@ -35,6 +35,16 @@ import Testing
         #expect(Metrics.standardWindowCornerRadius(macOSMajor: major) == CGFloat(radius))
     }
 
+    /// The window corner the chrome is concentric with is the one AppKit draws. macOS 15.7.4 reports a
+    /// 12 pt `_cornerRadius` but draws a 10 pt corner (measured from the window's pixels on a macOS 15
+    /// runner, 2026-11-08); macOS 26 reports and draws 16 pt, and more under a toolbar (20, 26).
+    @Test(arguments: [(15, 12.0 as Double?, 10.0), (14, 12.0, 10.0), (15, nil, 10.0), (26, 16.0, 16.0), (26, 26.0, 26.0),
+                      (27, nil, 16.0)] as [(Int, Double?, Double)])
+    func theWindowRadiusIsTheDrawnOne(major: Int, reported: Double?, drawn: Double) {
+        #expect(Metrics.drawnWindowCornerRadius(reported: reported.map { CGFloat($0) }, macOSMajor: major) == CGFloat(drawn),
+                "macOS \(major) reports \(String(describing: reported))")
+    }
+
     /// The running Mac's fallback matches what AppKit reports for a titled window here.
     @Test func theFallbackIsWhatAppKitDraws() {
         _ = NSApplication.shared

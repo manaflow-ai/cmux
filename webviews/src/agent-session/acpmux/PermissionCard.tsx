@@ -1,4 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
+import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
@@ -8,6 +10,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
+import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
@@ -131,6 +134,63 @@ const DENY_KEY: CardKey = { letter: "n", keys: ["Esc"], aria: "n Escape" };
 const ALLOW_KEY: CardKey = { letter: "y", keys: ["⌘", "↩"], aria: "y Meta+Enter" };
 const ALWAYS_KEY: CardKey = { letter: "a", keys: [], aria: "a" };
 
+/// Approve plan joined to its build menu, one split button: the primary half approves here with its
+/// ⌘↩ as before; the chevron half opens a menu of where else the plan can be built: Build here (the same
+/// answer), Build in a new worktree (a sub-session on its own branch, so this chat stays free), and
+/// Build on two agents and compare (the chat's harness and another, each in its own worktree).
+export function PlanBuildSplit({
+  harness,
+  cardKey,
+  onHere,
+  onBuild,
+  children,
+}: {
+  harness?: string;
+  cardKey?: CardKey;
+  onHere(): void;
+  onBuild(target: PlanBuildElsewhere): void;
+  /// The Approve plan button.
+  children: React.ReactNode;
+}) {
+  const t = useT();
+  const [first, second] = compareHarnesses(harness);
+  return (
+    <span className="acpmux-plan-build-split">
+      {children}
+      <Menu>
+        <MenuButton
+          className="acpmux-permission-primary acpmux-plan-build-chevron"
+          label={t("permission.plan.buildMenu")}
+          title={t("permission.plan.buildMenu")}
+          data-menu="plan-build"
+        >
+          <ChevronDown size={14} />
+        </MenuButton>
+        <MenuPopup
+          label={t("permission.plan.buildMenu")}
+          align="end"
+          className="acpmux-quick-menu acpmux-plan-build-menu"
+        >
+          <MenuItem data-value="here" shortcut={cardKey ? cardKey.keys.join("") : undefined} onSelect={onHere}>
+            {t("permission.plan.buildHere")}
+          </MenuItem>
+          <MenuItem data-value="worktree" onSelect={() => onBuild("worktree")}>
+            {t("permission.plan.buildWorktree")}
+          </MenuItem>
+          <MenuItem data-value="compare" onSelect={() => onBuild("compare")}>
+            <span className="acpmux-plan-build-item">
+              <span>{t("permission.plan.buildCompare")}</span>
+              <span className="acpmux-plan-build-detail">
+                {t("permission.plan.buildCompareDetail", { first: harnessName(first), second: harnessName(second) })}
+              </span>
+            </span>
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
+    </span>
+  );
+}
+
 /// A permission ask as Claude desktop draws its "Allow Claude to use …?" card (Leo, 2026-11-05: "The
 /// whole, like, allow whatever to use, allow for this session, or deny. And then it shows the
 /// hotkeys."): a glass card whose head, a shade lighter than the rest, holds what the call does, with
@@ -163,6 +223,7 @@ export function PermissionCard({
   alwaysAtSource = false,
   fullAccessMode,
   onDraft,
+  onBuildPlan,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -187,6 +248,10 @@ export function PermissionCard({
   /// Told when the deny's instructions open (true) and close, sent or not (false; also on unmount),
   /// so the pane keeps this card up while something is typed on it (permissionKeys.ts `heldOnCard`).
   onDraft?(open: boolean): void;
+  /// A plan approval's other builds (`_acpmux/plan/build`): in a new worktree, or on two harnesses
+  /// to compare. With it, Approve plan is a split button whose menu offers them; acpmux answers the
+  /// ask itself, and a promise that rejects is a refusal the card shows, as for `onAnswer`.
+  onBuildPlan?(target: PlanBuildElsewhere): Promise<unknown>;
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -293,6 +358,8 @@ export function PermissionCard({
   shown.current = permission.permissionId;
   /// The ask whose last answer acpmux refused: the card says so until the next answer.
   const [refused, setRefused] = useState<string>();
+  /// Why acpmux refused a plan build (its error's message), shown with the refusal.
+  const [refusedWhy, setRefusedWhy] = useState<string>();
   type Sent = { permissionId: string; attempt: number };
   /// Starts one answer for the ask shown now; undefined while one is out or taken for it.
   const begin = (): Sent | undefined => {
@@ -301,6 +368,7 @@ export function PermissionCard({
     const attempt = ++attempts.current;
     answers.current.set(permissionId, { attempt, out: true });
     setRefused(undefined);
+    setRefusedWhy(undefined);
     return { permissionId, attempt };
   };
   /// Whether `sent` is still its ask's answer: no newer attempt for that ask has replaced it.
@@ -322,10 +390,12 @@ export function PermissionCard({
     }
   };
   /// The ask's answer was refused: its keys and buttons answer it again, and the card says so.
-  const refuse = (sent: Sent) => {
+  const refuse = (sent: Sent, why?: string) => {
     if (!owns(sent)) return;
     answers.current.delete(sent.permissionId);
-    if (shown.current === sent.permissionId) setRefused(sent.permissionId);
+    if (shown.current !== sent.permissionId) return;
+    setRefused(sent.permissionId);
+    setRefusedWhy(why);
   };
   // After an answer the keyboard goes back to the composer, so a stray key never answers the next
   // ask in line.
@@ -346,6 +416,26 @@ export function PermissionCard({
     );
   };
   const answerByKey = answer;
+  /// Builds the plan elsewhere: one answer for the ask, like a button's, which acpmux gives itself.
+  const build = (target: PlanBuildElsewhere) => {
+    if (!onBuildPlan) return;
+    const sent = begin();
+    if (!sent) return;
+    let reply: unknown;
+    try {
+      reply = onBuildPlan(target);
+    } catch (error) {
+      reply = Promise.reject(error);
+    }
+    focusComposer?.();
+    // A build refused before anything started (limits, a missing harness, a worktree error)
+    // says why: no build card exists to say it.
+    Promise.resolve(reply).then(
+      () => taken(sent),
+      (failure: unknown) =>
+        refuse(sent, failure instanceof Error ? failure.message : typeof failure === "string" ? failure : undefined),
+    );
+  };
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
   const deny = (byKey = false) => {
     // An answer already out or taken for the ask (a deny with feedback sending) is not given again.
@@ -518,7 +608,7 @@ export function PermissionCard({
       <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && refused === permission.permissionId && (
         <p className="acpmux-permission-refused" role="alert">
-          {t("permission.error.refused")}
+          {refusedWhy ? t("permission.plan.buildRefused", { error: refusedWhy }) : t("permission.error.refused")}
         </p>
       )}
       {!writing && (
@@ -595,16 +685,31 @@ export function PermissionCard({
                   onClick={() => answer(allowAlways)}
                 />
               )}
-              {allowOnce && (
-                <PermissionActionButton
-                  label={plan ? t("permission.plan.approve") : t("permission.allowOnce")}
-                  aria-describedby={scopeText ? targetId : undefined}
-                  shortcut={shortcuts ? allowOnceShortcut : undefined}
-                  cardKey={shortcuts ? ALLOW_KEY : undefined}
-                  className="acpmux-permission-primary"
-                  onClick={() => answer(allowOnce)}
-                />
-              )}
+              {allowOnce &&
+                (() => {
+                  const approve = (
+                    <PermissionActionButton
+                      label={plan ? t("permission.plan.approve") : t("permission.allowOnce")}
+                      aria-describedby={scopeText ? targetId : undefined}
+                      shortcut={shortcuts ? allowOnceShortcut : undefined}
+                      cardKey={shortcuts ? ALLOW_KEY : undefined}
+                      className="acpmux-permission-primary"
+                      onClick={() => answer(allowOnce)}
+                    />
+                  );
+                  return plan && onBuildPlan ? (
+                    <PlanBuildSplit
+                      harness={harness}
+                      cardKey={shortcuts ? ALLOW_KEY : undefined}
+                      onHere={() => answer(allowOnce)}
+                      onBuild={build}
+                    >
+                      {approve}
+                    </PlanBuildSplit>
+                  ) : (
+                    approve
+                  );
+                })()}
             </span>
           )}
         </div>

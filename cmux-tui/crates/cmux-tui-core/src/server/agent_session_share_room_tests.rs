@@ -1730,20 +1730,18 @@ fn a_guest_relay_frame_of_an_unknown_type_reaches_nothing() {
     assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
     while fake.next_frame(Duration::from_millis(300)).is_some() {}
     for frame in [
-        json!({"t": "agent-session-side", "op": "open", "live": true}),
-        json!({"t": "agent-session-side", "op": "btw", "text": "why?"}),
-        json!({"t": "agent-session-side", "op": "prompt", "session": "acp_side_fork",
-            "prompt_id": "p", "text": "x"}),
-        json!({"t": "agent-session-side", "op": "discard", "session": "acp_side_fork"}),
-        json!({"t": "guest_side", "op": "open", "live": true}),
+        json!({"t": "agent-session-side", "live": true}),
+        json!({"t": "agent-session-side", "live": true, "prompt": "x", "prompt_id": "p"}),
+        json!({"t": "agent-session-btw", "question": "why?"}),
+        json!({"t": "guest_side", "live": true}),
         json!({"t": "guest_fork", "through_seq": 1}),
         json!({"t": "agent-session-fork", "through_seq": 1}),
         json!({"t": "acp.session.fork", "sessionId": SESSION, "live": true}),
-        json!({"t": "_acpmux/side", "sessionId": "acp_side_fork", "chat": SESSION}),
+        json!({"t": "_acpmux/side", "sessionId": "acp_side_1", "chat": SESSION}),
         json!({"t": "_acpmux/btw", "sessionId": SESSION, "question": "why?"}),
         json!({"t": "agent-session-attach", "surface": surface}),
         // A known type never carries a daemon verb either: `cmd` is not read.
-        json!({"t": "guest_typing", "on": true, "cmd": "agent-session-side", "op": "open",
+        json!({"t": "guest_typing", "on": true, "cmd": "agent-session-side",
             "live": true, "surface": surface}),
     ] {
         let mut frame = frame;
@@ -1755,7 +1753,7 @@ fn a_guest_relay_frame_of_an_unknown_type_reaches_nothing() {
     while let Some(sent) = fake.next_frame(Duration::from_millis(300)) {
         assert_eq!(sent["method"], "_acpmux/typing", "{sent}");
     }
-    assert!(!mux.control_clients.agent_sessions.sides.contains("acp_side_fork"));
+    assert!(!mux.control_clients.agent_sessions.sides.contains("acp_side_1"));
     // The relay still serves what it knows.
     room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c1",
         "text": "hello"}));

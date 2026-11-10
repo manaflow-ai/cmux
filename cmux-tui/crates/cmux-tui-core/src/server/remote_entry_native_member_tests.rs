@@ -2,9 +2,10 @@
 //! dial reaches the chat verbs only, stamped with the member the token names; its prompts steer
 //! like the owner's; answers, held-prompt decisions, starts, shares and terminals stay the owner's.
 use super::*;
-use crate::server::agent_session_attach_tests::{
-    Client, FakeAcpmux, Fixture, SESSION, SIDE_FORK, agent_tab,
-};
+use crate::server::agent_session_attach_tests::{Client, FakeAcpmux, Fixture, SESSION, agent_tab};
+
+/// The fake acpmux's fork of [`SESSION`]: the owner's side chat.
+const SIDE_FORK: &str = "acp_side_1";
 
 const MEMBER: &str = "user_0123456789abcdef0123";
 
@@ -125,13 +126,11 @@ fn a_team_member_attaches_and_steers_stamped_as_itself() {
         // A fork, a side chat and the chat's descendants are the owner's.
         json!({"cmd":"agent-session-fork", "surface":surface, "through_seq":1}),
         json!({"cmd":"agent-session-children", "surface":surface}),
-        json!({"cmd":"agent-session-side", "surface":surface, "op":"open", "live":true}),
-        json!({"cmd":"agent-session-side", "surface":surface, "op":"open", "through_seq":1}),
-        json!({"cmd":"agent-session-side", "surface":surface, "op":"btw", "text":"why?"}),
-        json!({"cmd":"agent-session-side", "surface":surface, "op":"prompt",
-            "session":"acp_side_fork", "prompt_id":"p", "text":"x"}),
-        json!({"cmd":"agent-session-side", "surface":surface, "op":"discard",
-            "session":"acp_side_fork"}),
+        json!({"cmd":"agent-session-side", "surface":surface, "live":true}),
+        json!({"cmd":"agent-session-side", "surface":surface, "through_seq":1}),
+        json!({"cmd":"agent-session-side", "surface":surface, "live":true, "prompt":"x",
+            "prompt_id":"p"}),
+        json!({"cmd":"agent-session-btw", "surface":surface, "question":"why?"}),
         json!({"cmd":"agent-session-share-create", "surface":surface}),
         json!({"cmd":"agent-session-of", "surface":surface}),
         json!({"cmd":"list-workspaces"}),
@@ -161,8 +160,7 @@ fn a_team_member_never_lists_or_attaches_the_owners_side_chat() {
     let mut owner = Client::connect(&entry.mux, "member-side-owner");
     assert_eq!(owner.request(json!({"cmd":"agent-session-attach", "surface":chat}))["ok"], true);
     assert_eq!(fake.frame()["method"], "_acpmux/attach");
-    let opened = owner
-        .request(json!({"cmd":"agent-session-side", "surface":chat, "op":"open", "live":true}));
+    let opened = owner.request(json!({"cmd":"agent-session-side", "surface":chat, "live":true}));
     assert_eq!(opened["data"]["sessionId"], SIDE_FORK, "{opened}");
     assert_eq!(fake.frame()["method"], "acp.session.fork");
     assert_eq!(fake.frame()["method"], "_acpmux/side");

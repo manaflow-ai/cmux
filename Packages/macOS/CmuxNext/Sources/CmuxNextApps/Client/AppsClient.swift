@@ -182,6 +182,11 @@ public final class AppsClient {
             mounts[mountID]?.model.status = .failed(reason)
         case let .host(app, state, reason):
             hostStates[app] = (state, reason)
+        case let .reloadFailed(app, reason):
+            // The supervisor kept the app's host: a drawn view keeps its scene and says the save was not taken.
+            for mount in mounts.values where mount.appID == app && mount.model.status == .ready {
+                mount.model.reloadFailure = reason
+            }
         case let .log(app, level, message, date):
             appendLog(app, level: level, message: message, date: date)
         }

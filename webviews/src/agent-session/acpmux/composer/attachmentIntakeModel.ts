@@ -688,37 +688,62 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// again. A send keeps waiting through a failure (`bound`): it goes with the chip once Retry makes
   /// it, or without it once its × drops it. Its × runs `stop` (the host stops sending) and drops
   /// whatever `make` answers later, as does the composer going away while `make` still runs.
+  /// The tile goes in at the caret, as a paste's does, and the chip `make` answers takes its id there:
+  /// it never waits in the strip above the text and then jumps into it (Leo, 2026-11-09: "the
+  /// attachments preview going into the top area of hte composer and THEN to where they shuld be").
+  /// `again`: Retry's, the failed tile made again where it is.
   const [attachLater] = useState(
-    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
-      const batch = { scope: live.current.options.scope, bound: true };
-      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
-      sources.current.set(chip.id, { make, name, failure, stop });
-      making.current.set(chip.id, stop);
-      batches.current.add(batch);
-      flushSync(() => setPending((chips) => [...chips, chip]));
-      void make()
-        .catch(() => undefined)
-        .then((attachment) => {
-          making.current.delete(chip.id);
-          batches.current.delete(batch);
-          if (!sources.current.has(chip.id)) return;
-          if (!attachment) {
-            setPending((chips) =>
-              chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
-            );
-            return;
-          }
-          sources.current.delete(chip.id);
-          setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
-          // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
-          const now = live.current.options;
-          if (batch.scope !== now.scope) {
-            if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
-            return;
-          }
-          setAttachments((staged) => appendAttachments(staged, [attachment]));
-        });
-    },
+    () =>
+      (
+        name: string,
+        make: () => Promise<ComposerAttachment | undefined>,
+        failure: string,
+        stop?: () => void,
+        again?: string,
+      ) => {
+        const batch = { scope: live.current.options.scope, bound: true };
+        const chip: PendingAttachment = {
+          id: again ?? crypto.randomUUID(),
+          name,
+          image: false,
+          scope: batch.scope,
+          bound: true,
+        };
+        sources.current.set(chip.id, { make, name, failure, stop });
+        making.current.set(chip.id, stop);
+        batches.current.add(batch);
+        flushSync(() =>
+          setPending((chips) =>
+            again !== undefined && chips.some((shown) => shown.id === again)
+              ? chips.map((shown) => (shown.id === again ? chip : shown))
+              : [...chips, chip],
+          ),
+        );
+        if (again === undefined) live.current.options.place?.([chip]);
+        void make()
+          .catch(() => undefined)
+          .then((made) => {
+            making.current.delete(chip.id);
+            batches.current.delete(batch);
+            if (!sources.current.has(chip.id)) return;
+            if (!made) {
+              setPending((chips) =>
+                chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
+              );
+              return;
+            }
+            sources.current.delete(chip.id);
+            const attachment = { ...made, id: chip.id };
+            setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
+            // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
+            const now = live.current.options;
+            if (batch.scope !== now.scope) {
+              if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
+              return;
+            }
+            setAttachments((staged) => appendAttachments(staged, [attachment]));
+          });
+      },
   );
   // The composer goes away: a host-made chip still being made has nowhere to land, so it stops,
   // and whatever its `make` answers later is dropped (its source goes too).
@@ -818,9 +843,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (originals.current.has(id)) return void retryOriginal(id);
     const source = sources.current.get(id);
     if (source && "make" in source) {
-      sources.current.delete(id);
-      setPending((chips) => chips.filter((chip) => chip.id !== id));
-      attachLater(source.name, source.make, source.failure, source.stop);
+      attachLater(source.name, source.make, source.failure, source.stop, id);
       return;
     }
     const file = source?.file;
@@ -932,13 +955,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// `chat.upload.begin` spent the Enter that a send bound only once the chip was ready (Leo,
 /// 2026-11-06, "Not sent: it needs your own key press or click."). `hold(send, kept)`: a send that
 /// already has its gesture (one an earlier hold bound) keeps it and binds none. A later hold keeps
-/// the gesture the held one bound: one send, one gesture.
+/// the gesture the held one bound: one send, one gesture. `hold(send, kept, bindOwn)`: a send whose
+/// gesture binds otherwise (`/side`'s, bound to no chat yet) binds with `bindOwn` instead.
 export function useSendWhenAttached<G = unknown>(
   pending: number,
   scope?: string,
   unsettled: number = pending,
   bind?: () => G | undefined,
-): ((send: (gesture?: G) => void, kept?: G) => boolean) & { cancel(): void } {
+): ((send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean) & { cancel(): void } {
   const held = useRef<{ send: (gesture?: G) => void; gesture: G | undefined } | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -955,9 +979,9 @@ export function useSendWhenAttached<G = unknown>(
   }, [unsettled]);
   const [hold] = useState(() =>
     Object.assign(
-      (send: (gesture?: G) => void, kept?: G) => {
+      (send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
         if (count.current === 0 && !held.current) return false;
-        held.current = { send, gesture: kept ?? held.current?.gesture ?? binder.current?.() };
+        held.current = { send, gesture: kept ?? held.current?.gesture ?? (bindOwn ?? binder.current)?.() };
         return true;
       },
       {
@@ -974,19 +998,21 @@ export function useSendWhenAttached<G = unknown>(
 /// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
 /// `hold(awaits, send, kept)`: when `awaits`, holds `send` (true; a later hold replaces it);
 /// otherwise the send goes now (false) and any held one is dropped, so it never goes later on its
-/// own with whatever draft the composer has then. A new `scope` drops it too. `bind` and `kept`: the
-/// held send's gesture, as useSendWhenAttached binds it.
+/// own with whatever draft the composer has then. A new `scope` drops it too. `bind`, `kept` and
+/// `bindOwn`: the held send's gesture, as useSendWhenAttached binds it.
 export function useSendWhenOriginals<G = unknown>(
   uploading: number,
   scope?: string,
   bind?: () => G | undefined,
-): (awaits: boolean, send: (gesture?: G) => void, kept?: G) => boolean {
+): (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean {
   const wait = useSendWhenAttached<G>(uploading, scope, uploading, bind);
-  const [hold] = useState(() => (awaits: boolean, send: (gesture?: G) => void, kept?: G) => {
-    if (awaits && wait(send, kept)) return true;
-    wait.cancel();
-    return false;
-  });
+  const [hold] = useState(
+    () => (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
+      if (awaits && wait(send, kept, bindOwn)) return true;
+      wait.cancel();
+      return false;
+    },
+  );
   return hold;
 }
 

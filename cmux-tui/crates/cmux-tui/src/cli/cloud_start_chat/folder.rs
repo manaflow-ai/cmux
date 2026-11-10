@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use super::UsageError;
-use crate::link::sync_cli::skips::{home_credential_folder, within};
+use crate::link::sync_cli::skips::{credential_folder_of, home_credential_folder, within};
 
 /// `--from-folder DIR`, checked as the app checks it: never with `--cwd`, at most 4096 bytes with no
 /// control character, an absolute folder that exists on this Mac, never
@@ -53,6 +53,11 @@ pub(super) fn local_folder_in(
     if let Some(secret) = home.as_deref().and_then(|home| home_credential_folder(&folder, home)) {
         return Err(UsageError::new(format!(
             "--from-folder {dir}: is or holds ~/{secret}, a folder of keys or logins, which never goes to a machine"
+        )));
+    }
+    if let Some(secret) = credential_folder_of(&folder) {
+        return Err(UsageError::new(format!(
+            "--from-folder {dir}: is in a {secret} folder, a folder of keys or logins, which never goes to a machine"
         )));
     }
     Ok(folder)

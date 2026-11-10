@@ -5,10 +5,10 @@
 // handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
 // report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
 // one report for one menu. On a code block, a command, a path or a link the report adds that
-// `part` (menuParts.ts), even outside a prompt or reply (a tool row).
+// `part` (menuParts.ts), even outside a prompt or reply (a tool row); with a selection, only a link.
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
@@ -65,10 +65,9 @@ export function messageMenuSessionMatches(
 }
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
-/// chat is on this computer (acpmux refuses the rest). `side`: for a side chat, which a chat on
-/// another machine forks too where its relay serves it (`canSide`).
-const forkServed = (snapshot: AcpmuxSnapshot, side = false) =>
-  Boolean(snapshot.canFork || (side && snapshot.canSide)) &&
+/// chat is on this computer (acpmux refuses the rest).
+const forkServed = (snapshot: AcpmuxSnapshot) =>
+  Boolean(snapshot.canFork) &&
   !snapshot.summary?.peer &&
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
@@ -83,42 +82,10 @@ export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !sn
 /// acpmux, the connection or the chat's machine does not serve the fork, "nothingYet" before the
 /// chat's first turn (a Claude chat with none has no conversation to copy). A working chat forks
 /// now, as it is: the person never waits for its turn to end (2026-10-21).
-export function forkRefusal(snapshot: AcpmuxSnapshot, side = false): "unavailable" | "nothingYet" | undefined {
-  if (!forkServed(snapshot, side)) return "unavailable";
+export function forkRefusal(snapshot: AcpmuxSnapshot): "unavailable" | "nothingYet" | undefined {
+  if (!forkServed(snapshot)) return "unavailable";
   if (!snapshot.isWorking && latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
   return undefined;
-}
-
-/// What a chat offers of side chats (`/side`, New side chat, Send in side chat) and side questions
-/// (`/btw`), read by every entry point so none offers what cannot work.
-/// - `sideHere`: a side chat can open beside this chat: it runs on this computer (`localCwd`), or on
-///   another machine whose relay forks it there (`canSide`, a Cloud chat). Never in Quick Chat,
-///   whose panel has no split beside it.
-/// - `sideFork`: why `/side` cannot fork now (`forkRefusal`), undefined when it can.
-/// - `sideRow`: the chat menu's New side chat forks a finished turn (not a working chat).
-/// - `side`: `/side` is offered.
-/// - `btw`: side questions are offered: not in Quick Chat, and not for a chat on another machine
-///   whose relay does not start them (`canBtw: false`).
-export function sideOffer(
-  snapshot: AcpmuxSnapshot,
-  chat: { localCwd: string | undefined; quick: boolean },
-): {
-  sideHere: boolean;
-  sideFork: "unavailable" | "nothingYet" | undefined;
-  sideRow: boolean;
-  side: boolean;
-  btw: boolean;
-} {
-  const remote = snapshot.origin === "remote" && snapshot.canSide === true;
-  const sideHere = !chat.quick && (chat.localCwd !== undefined || remote);
-  const sideFork = forkRefusal(snapshot, true);
-  return {
-    sideHere,
-    sideFork,
-    sideRow: sideHere && forkServed(snapshot, true) && !snapshot.isWorking,
-    side: sideHere && sideFork === undefined,
-    btw: !chat.quick && snapshot.canBtw !== false,
-  };
 }
 
 /// What Fork Conversation forks: a working chat as it is now (`live`: acpmux copies its running
@@ -178,15 +145,19 @@ export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): 
 
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
 /// `:fold`), or undefined for a row that is not a prompt or a reply. `sideChat`: the chat opens a
-/// side chat (the chat menu shows New side chat), so a turn that forks opens one too.
+/// side chat (the chat menu shows New side chat), so a turn that forks opens one too. `shown`: the
+/// rows of the subagent view the pane shows instead of the chat (App.tsx `childRows`), where its
+/// footer's More finds the subagent's reply; a subagent's message offers no Fork and no rail mark.
 export function messageMenuTarget(
   snapshot: AcpmuxSnapshot,
   rowId: string,
   sideChat = false,
+  shown?: readonly AcpmuxRow[],
 ): MessageMenuTarget | undefined {
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
-  const row = snapshot.rows.find((candidate) => candidate.id === id);
+  const row = (shown ?? snapshot.rows).find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
+  if (shown) return childMenuTarget(snapshot, row);
   // Pinning remains valid for an older completed turn while a later one works. Fork eligibility
   // is a separate concern: a working chat cannot offer Fork from here, but its completed summary
   // still owns the rail chapter marker shown by PinButton.
@@ -217,6 +188,24 @@ export function messageMenuTarget(
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
   if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
+  if (links.length > 0) target.links = links;
+  return target;
+}
+
+/// A message of a subagent's view: its text to copy, read aloud or reply to, and its links.
+function childMenuTarget(snapshot: AcpmuxSnapshot, row: AcpmuxRow): MessageMenuTarget {
+  const sessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const text = row.text ?? "";
+  const target: MessageMenuTarget = {
+    ...(sessionId ? { sessionId } : {}),
+    // A prompt copies and resends as written; a reply copies as plain text, its Markdown beside it.
+    text: row.kind === "user" ? text : plainText(text),
+    ...(row.kind === "assistant" && {
+      markdown: text,
+      replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
+    }),
+  };
+  const links = webLinks(text);
   if (links.length > 0) target.links = links;
   return target;
 }
@@ -409,7 +398,10 @@ export function installMessageMenuReporter(
     const picture = reportedImage?.querySelector("img") ?? target?.closest?.("img") ?? undefined;
     reportedPicture = picture && (picture.currentSrc || picture.getAttribute("src")) ? picture : undefined;
     const selection = selectionAt(doc, target);
-    const part = selection ? undefined : menuPartAt(target);
+    // A selection stands for the part under it, except a link: WebKit selects on right-click, and a
+    // link keeps Open Link and Copy Link (Leo, 2026-11-09: "feel like this should have a copy link button").
+    const pointed = menuPartAt(target);
+    const part = !selection ? pointed : pointed?.link ? { link: pointed.link } : undefined;
     const body: MessageMenuReport | null =
       message || selection || reportedImage || reportedPicture || part
         ? {

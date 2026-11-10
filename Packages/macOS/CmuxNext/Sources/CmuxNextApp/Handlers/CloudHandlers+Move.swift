@@ -50,5 +50,9 @@ extension CloudHandlers {
             guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
             try CloudTransferLocal(services: services).start(invocation, context: context)
         }
+        // A chat that cannot move now (no first message yet) shows its rows disabled with why, and every run refuses with it.
+        let refusal: @MainActor (ActionInvocation) -> String? = { CloudMove(services: services).refusal($0, context: context) }
+        context.setTargetReason(CloudMove.action, refusal)
+        ActionTargetTitles.setPaletteReason(CloudMove.action, in: registry) { [weak registry] in registry?.withoutRefusals { refusal(ActionInvocation()) } }
     }
 }

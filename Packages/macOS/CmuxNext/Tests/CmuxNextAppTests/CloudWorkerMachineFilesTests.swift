@@ -110,7 +110,8 @@ struct CloudWorkerMachineFilesTests {
         #expect(WorkerAPI.seen.first?.body["timeoutMs"] as? Int == CloudGitHubSetup.timeoutMs)
     }
 
-    @Test func theClassicClientKeepsItsRoutesAndHeaders() async throws {
+    /// Classic `/api/vm` is gone from NEXT: the sign-in client refuses a machine call before any request.
+    @Test func theSignInClientRefusesMachineCallsBeforeAnyRequest() async throws {
         WorkerAPI.seen = []
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
@@ -118,11 +119,22 @@ struct CloudWorkerMachineFilesTests {
         sessionConfiguration.protocolClasses = [WorkerAPI.self]
         let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
                                  session: URLSession(configuration: sessionConfiguration))
-        _ = try await api.exec("m1", command: "true")
-        #expect(WorkerAPI.seen.map(\.url) == ["https://vm-api.standin.invalid/api/vm/m1/exec"])
-        #expect(WorkerAPI.seen.first?.authorization == "Bearer access")
-        #expect(WorkerAPI.seen.first?.refresh == "refresh")
-        #expect(WorkerAPI.seen.first?.team == "team-1")
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
+            _ = try await api.exec("m1", command: "true")
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
+            try await api.writeFile("m1", path: "/tmp/x", data: Data("x".utf8))
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
+            _ = try await api.prepareSCP("m1", publicKey: "ssh-ed25519 AAAA")
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            _ = try await api.createPreviewShareLink("m1", port: 3000)
+        }
+        await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
+            _ = try await api.revokePreviewShareLink("m1", port: 3000, linkID: "link_1")
+        }
+        #expect(WorkerAPI.seen.isEmpty)
     }
 
     @Test func aWorkerRefusalNamesItsNestedCodeAndMessage() {
