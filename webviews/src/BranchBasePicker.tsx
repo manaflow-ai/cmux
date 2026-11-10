@@ -227,6 +227,9 @@ export function BranchBasePicker({
 
   const flat = buildFlatRows(groups, query, label);
   const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
+  /** What is highlighted now, read when a quiet refresh swaps the rows under it. */
+  const shownRows = useRef({ flat, highlight: clampedHighlight, query });
+  shownRows.current = { flat, highlight: clampedHighlight, query };
 
   const openPopover = () => {
     setOpen(true);
@@ -251,7 +254,15 @@ export function BranchBasePicker({
       loadRefs(picker, transport)
         .then((response) => {
           lastRefs.set(refsCacheKey(picker), response.groups);
+          // Keep the highlight on the same ref: the refreshed rows can sit at other indexes.
+          const shown = shownRows.current;
+          const was = shown.flat[shown.highlight];
+          const next = buildFlatRows(response.groups, shown.query, label);
+          const same = (entry: FlatRow) => !!was && entry.raw === was.raw && entry.row.ref === was.row.ref;
+          const inGroup = next.findIndex((entry) => same(entry) && entry.groupId === was?.groupId);
+          const index = inGroup >= 0 ? inGroup : next.findIndex(same);
           setGroups(response.groups);
+          setHighlight(index >= 0 ? index : 0);
         })
         .catch((error) => console.warn("cmux diff branch picker refs refresh failed", error));
     }

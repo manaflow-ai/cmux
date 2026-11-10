@@ -220,3 +220,93 @@ test("the cloud repository picker opened again lists the last repositories witho
   await act(async () => answers[1]!.resolve({ repos: [{ fullName: "you/first" }, { fullName: "you/second" }] }));
   expect(document.body.textContent).toContain("you/second");
 });
+
+const editable = (user: string) => ({
+  ...inventory("Guidance"),
+  canEditOverrides: true,
+  overrides: { defaultText: "Default guidance", user },
+});
+
+function typeInto(field: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+  act(() => {
+    setter.call(field, value);
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+}
+
+test("a refresh behind the last inventory keeps a draft typed before it answers", async () => {
+  const { ContextScreen } = await import("../src/agent-session/acpmux/context/ContextScreen");
+  let answer = deferred<unknown>();
+  const load = () => answer.promise;
+  const save = () => Promise.resolve(editable("Saved"));
+  let host = mount(<ContextScreen load={load} save={save} onClose={() => {}} />);
+  await act(async () => answer.resolve(editable("First")));
+  const field = () => host.querySelector<HTMLTextAreaElement>('[data-context-editor="guidance"] textarea')!;
+  expect(field().value).toBe("First");
+  await unmount();
+
+  // Untouched: the refresh's text replaces the last-known one.
+  answer = deferred<unknown>();
+  host = mount(<ContextScreen load={load} save={save} onClose={() => {}} />);
+  expect(field().value).toBe("First");
+  await act(async () => answer.resolve(editable("Changed elsewhere")));
+  expect(field().value).toBe("Changed elsewhere");
+  await unmount();
+
+  // Typed before the refresh answers: the draft stays.
+  answer = deferred<unknown>();
+  host = mount(<ContextScreen load={load} save={save} onClose={() => {}} />);
+  typeInto(field(), "My draft");
+  await act(async () => answer.resolve(editable("Changed again")));
+  expect(field().value).toBe("My draft");
+});
+
+test("the base picker's highlight stays on its ref when the refreshed rows move under it", async () => {
+  const { BranchBasePicker, resetLastKnownRefsForTests } = await import("../src/BranchBasePicker");
+  resetLastKnownRefsForTests();
+  const answers: ReturnType<typeof deferred<unknown>>[] = [];
+  const transport = {
+    request: () => {
+      const answer = deferred<unknown>();
+      answers.push(answer);
+      return answer.promise;
+    },
+  };
+  const render = (currentRef: string) => (
+    <BranchBasePicker
+      key={currentRef}
+      label={(key) => key}
+      onNavigate={() => {}}
+      onSelectBranchBase={() => {}}
+      picker={{ repoRoot: "/repo", capabilityToken: currentRef, currentRef, refsURL: "", regenerateURLTemplate: "" } as never}
+      transport={transport as never}
+    />
+  );
+  let host = mount(render("main"));
+  const open = () => act(() => host.querySelector<HTMLButtonElement>("button")!.click());
+  open();
+  await act(async () => answers[0]!.resolve({ type: "branches", value: { groups: groups(["main", "dev", "feat"], "main") } }));
+  await unmount();
+
+  host = mount(render("dev"));
+  open();
+  const input = document.body.querySelector<HTMLInputElement>("input[aria-activedescendant]")!;
+  const highlighted = () => document.getElementById(input.getAttribute("aria-activedescendant")!)?.textContent ?? "";
+  for (let i = 0; i < 2; i += 1)
+    act(() => input.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  expect(highlighted()).toContain("feat");
+  // The refresh adds a Suggested group on top: every row moves down one.
+  await act(async () =>
+    answers[1]!.resolve({
+      type: "branches",
+      value: {
+        groups: [
+          { id: "suggested", label: "Suggested", rows: [{ ref: "dev", label: "dev", current: true }] },
+          ...groups(["main", "dev", "feat"], "dev"),
+        ],
+      },
+    }),
+  );
+  expect(highlighted()).toContain("feat");
+});

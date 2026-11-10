@@ -8,7 +8,7 @@
 // Leo, 2026-11-04: "giving the users a better way to, like, see what's actually happening and to,
 // like, visualize what's happening ... as a viewer or whatever ... some people just want to edit it
 // a bit, right? Like, we can just expose that".
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PICKER_LAST_KNOWN } from "../../../lastKnown";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { Button } from "../../../ui/Button";
@@ -347,9 +347,17 @@ function TextEditor({
     kind: "idle",
   });
   // A scope switch or a save answer brings new text; what the person typed is kept until then.
-  useEffect(() => setDraft(initial), [initial]);
+  // A refresh behind a last-known inventory brings new text too, but never over an edited draft.
+  const shown = useRef({ initial, scope, saving: false });
+  useEffect(() => {
+    const last = shown.current;
+    shown.current = { initial, scope, saving: false };
+    if (last.initial === initial) return;
+    setDraft((current) => (last.scope !== scope || last.saving || current === last.initial ? initial : current));
+  }, [initial, scope]);
   const run = (text: string | null) => {
     if (!save) return;
+    shown.current.saving = true;
     setStatus({ kind: "saving" });
     save(text).then(
       () => setStatus({ kind: "saved" }),
