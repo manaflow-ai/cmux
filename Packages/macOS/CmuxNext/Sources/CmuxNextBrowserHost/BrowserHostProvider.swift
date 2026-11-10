@@ -83,8 +83,8 @@ public final class BrowserHostProvider {
     @ObservationIgnored var latestAccess: [String: ProviderTabAccess] = [:]
     @ObservationIgnored var announced: [String: ProviderTab] = [:]
     @ObservationIgnored var accessSent: [String: AccessKey] = [:]
-    /// Popups reported before the child's announce left: child id to opener id (`reportTabCreated`).
-    @ObservationIgnored var createdWaiting: [String: String] = [:]
+    /// Popups reported before the child's announce left, in report order (`reportTabCreated`).
+    @ObservationIgnored var createdWaiting: [(child: String, opener: String)] = []
     @ObservationIgnored var observation = 0
     @ObservationIgnored var calledTargets: Set<String> = []
     // CDP relays of the current connection (`+Relay`).
@@ -276,7 +276,7 @@ public final class BrowserHostProvider {
         for targetID in Array(relays.keys) { endRelay(targetID) }
         announced = [:]
         accessSent = [:]
-        createdWaiting = [:]
+        createdWaiting = []
         calledTargets = []
         let ended = leases.keys
         leases = [:]

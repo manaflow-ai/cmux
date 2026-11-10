@@ -65,18 +65,20 @@ extension BrowserHostProvider {
             }
         }
         // A popup reported before its announce left (`reportTabCreated`): its event follows the announce of this
-        // pass. It ends with its opener, or when its tab will not be announced (closed, moved to incognito).
-        for (child, opener) in createdWaiting {
-            guard announced[opener] != nil, current[opener] != nil, announced[child] == nil else {
-                createdWaiting[child] = nil
-                continue
+        // pass, in report order, and goes before the `tab.gone` below, so also a popup whose opener leaves in the
+        // pass that announces it is reported (the host still knows the opener here; CDP's `Target.targetCreated`
+        // names its opener the same way, alive or not). It ends when the host no longer knows its opener, or when
+        // its tab will not be announced (closed, moved to incognito).
+        if !createdWaiting.isEmpty {
+            var waiting: [(child: String, opener: String)] = []
+            for entry in createdWaiting where announced[entry.opener] != nil && announced[entry.child] == nil {
+                if let tab = current[entry.child] {
+                    sendTabCreated(tab, openerTargetID: entry.opener)
+                } else if tabSource?.isDrivable(entry.child) == true {
+                    waiting.append(entry)
+                }
             }
-            if let tab = current[child] {
-                createdWaiting[child] = nil
-                sendTabCreated(tab, openerTargetID: opener)
-            } else if tabSource?.isDrivable(child) != true {
-                createdWaiting[child] = nil
-            }
+            createdWaiting = waiting
         }
         for targetID in announced.keys where current[targetID] == nil {
             send(.event(name: "tab.gone", payload: .object(["targetId": .string(targetID)])))
@@ -100,14 +102,16 @@ extension BrowserHostProvider {
     /// The tab list can follow the store later than this call (the app's is
     /// one main-actor turn behind): a child the source will announce
     /// (`ProviderTabSource.isDrivable`) waits in `createdWaiting`, and its
-    /// event leaves with its announce, in any order of the two. The opener
-    /// not announced, or a child that is never announced (incognito, another
-    /// machine's): nothing goes out.
+    /// event leaves with its announce, in any order of the two, also when
+    /// its opener leaves the list in that pass. The opener not announced now,
+    /// or a child that is never announced (incognito, another machine's):
+    /// nothing goes out.
     public func reportTabCreated(targetID: String, openerTargetID: String) {
         observeTabs()
         guard connection != nil, announced[openerTargetID] != nil else { return }
         guard let tab = announced[targetID] else {
-            if tabSource?.isDrivable(targetID) == true { createdWaiting[targetID] = openerTargetID }
+            createdWaiting.removeAll { $0.child == targetID }
+            if tabSource?.isDrivable(targetID) == true { createdWaiting.append((targetID, openerTargetID)) }
             return
         }
         sendTabCreated(tab, openerTargetID: openerTargetID)
