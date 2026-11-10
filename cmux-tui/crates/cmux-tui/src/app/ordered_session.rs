@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cmux_tui_core::sizing_policy::TerminalSizingPolicy;
-use cmux_tui_core::{MuxEvent, SurfaceId};
+use cmux_tui_core::{MuxEvent, PaneId, SurfaceId};
 #[cfg(test)]
 use crossbeam_channel::Sender as SyncSender;
 
@@ -218,6 +218,13 @@ impl OrderedSession {
         client_id: Option<&str>,
     ) {
         self.inner.report_focus(previous, focus, client_id);
+    }
+
+    /// Moves the session focus (what `pane list` reports) to `pane`'s tab
+    /// at `tab` for the person: an attention jump is an explicit focus
+    /// request, unlike [`Self::report_focus`], which only writes memory.
+    pub(super) fn focus_tab_for_person(&self, pane: PaneId, tab: usize) {
+        self.inner.focus_tab_for_person(pane, tab);
     }
 
     pub(super) fn client_focus(&self, client_id: &str) -> Option<crate::session::ClientFocus> {
