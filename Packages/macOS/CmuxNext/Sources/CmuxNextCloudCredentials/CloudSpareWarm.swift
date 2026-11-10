@@ -29,6 +29,10 @@ public import os
     /// On unless `cmux.cloud.copyLoginOnClaim` is NO (``CloudMoveCLI/copiesLoginOnClaim(_:)``). A claim's registration
     /// with Rust is pending in `claims` until Rust answers, so a start onto that machine never asks `wait-copy` first.
     public func start(claimed: String? = nil) {
+        // Cloud intent: the signed Cloud capability is current before the start it precedes (cmux-platform#1126).
+        let capability = installIdentity.capability
+        // task-owner: none; one mint at most, ended by its transport's timeout.
+        Task { await capability.intent() }
         guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         let ask: @MainActor @Sendable () async -> Asked? = { [self] in
