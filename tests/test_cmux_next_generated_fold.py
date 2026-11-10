@@ -205,8 +205,9 @@ class GeneratedFoldTest(unittest.TestCase):
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
-        # generated-files also needs the fast tier's fleet client: it checks a fast-tier host's run the fleet reported.
-        own = [need for need in self.generated["needs"] if need != "fast-tier-fleet"]
+        # generated-files also needs the fast tier's fleet client and hand-back placement: it checks (and is placed for)
+        # a fast-tier host's run the fleet reported.
+        own = [need for need in self.generated["needs"] if need not in ("fast-tier-fleet", "fast-tier-handback-placement")]
         self.assertEqual(self.daemon["needs"], own)
         self.assertEqual(self.swift["needs"], own)
 
@@ -459,8 +460,17 @@ class GeneratedFoldTest(unittest.TestCase):
                 self.assertEqual(reported, folds)
                 self.assertEqual(folds, result == "skipped" or verdict == "queued")
         # A fast-tier host's run the fleet reported: placement left generated-files out of the cascade, so it takes
-        # Blacksmith 6 vCPU macOS, never the owned queue it would wait on (or the fork clause before it).
-        fallback = "github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'fast-tier' && fromJSON(vars.RUNNER_POOLS).macos_26 || "
+        # the hand-back placement's fresh reading (an idle owned Mac, else a healthy Blacksmith, else the owned
+        # route), after the fork clause.
+        fallback = "github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'fast-tier' && needs.fast-tier-handback-placement.outputs.runner || "
+        place = self.jobs["fast-tier-handback-placement"]
+        self.assertIn("fast-tier-handback-placement", self.generated["needs"])
+        for result, verdict, runs in (("skipped", "", False), ("success", "pass", True), ("failure", "", True),
+                                      ("success", "queued", True)):
+            ctx = {"github": {"repository_owner": "manaflow-ai"}, "vars": {"CI_PR_POOL_OWNED": "1"}, "cancelled": False,
+                   "needs": {"path_route": {"outputs": {"generated_host": "fast-tier"}},
+                             fleet: {"result": result, "outputs": {"verdict": verdict}}}}
+            self.assertEqual(truthy(Expr(place["if"], ctx).value()), runs, (result, verdict))
         for text in (self.generated["runs-on"], self.generated["env"]["CMUX_NEXT_RUNNER"]):
             self.assertIn(fallback, text)
             self.assertLess(text.index("'blacksmith-6vcpu-macos-26'"), text.index(fallback))

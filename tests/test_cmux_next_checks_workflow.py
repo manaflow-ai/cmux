@@ -4056,7 +4056,7 @@ esac
                                                         f"needs.{client}.outputs.verdict": "queued"}))
                     self.assertTrue(evaluate(fold, {**host, f"needs.{client}.result": "skipped"}))
                     self.assertFalse(evaluate(fold, {**base, f"needs.{client}.result": "skipped"}))
-                    self.assertEqual(evaluate(job["timeout-minutes"], {**host, f"needs.{client}.result": "skipped"}), 40)
+                    self.assertEqual(evaluate(job["timeout-minutes"], {**host, f"needs.{client}.result": "skipped"}), 45)
                 # In report mode the first step reports; every other step is off.
                 report, *rest = job["steps"]
                 self.assertEqual(report["if"], "env.CMUX_FAST_TIER_FLEET == 'report'")
@@ -4116,7 +4116,7 @@ esac
         # failed or predates it), Blacksmith 6 vCPU, as above.
         place = jobs["fast-tier-handback-placement"]
         self.assertIn("fast-tier-handback-placement", tier["needs"])
-        self.assertEqual(place["needs"], ["fast-tier-fleet"])
+        self.assertEqual(place["needs"], ["fast-tier-fleet", "path_route"])
         for label in ("glaeda-fast-light-xcode-26.6", "glaeda-side-std-xcode-26.6"):
             with self.subTest(handback=label):
                 self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": label}),
