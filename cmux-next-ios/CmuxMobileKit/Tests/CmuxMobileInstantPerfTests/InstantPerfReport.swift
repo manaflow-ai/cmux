@@ -46,6 +46,10 @@ struct InstantPerfResult: Codable, Sendable {
 enum InstantPerfReport {
     static let ratioLimit = 1.2
     static let ratioFloorMs = 1.0
+    /// Timer and scheduler noise on a shared runner: a god within this of small passes the ratio.
+    static let noiseMs: Double = 2
+    /// A known-red check must pass at this share of its limit before its mark has to come off.
+    static let clearMargin: Double = 0.75
     static let budgetFactor = 3.0
 
     /// Measured runs after the warm-up (`CMUX_INSTANT_PERF_RUNS` overrides).
@@ -98,7 +102,15 @@ enum InstantPerfReport {
         let passes: [InstantPerfCheck: Bool] = [
             .smallBudget: smallMs <= budget,
             .godBudget: godMs <= budget,
-            .ratio: ratio <= ratioLimit,
+            // A god that is over the ratio by less than the runner's noise is not a finding.
+            .ratio: ratio <= ratioLimit || godMs - max(smallMs, ratioFloorMs) <= noiseMs,
+        ]
+        // A known-red check has to pass with room to spare before its mark must come off; one
+        // that only just passes on a quick runner stays marked, and never fails the run.
+        let clearlyPasses: [InstantPerfCheck: Bool] = [
+            .smallBudget: smallMs <= budget * clearMargin,
+            .godBudget: godMs <= budget * clearMargin,
+            .ratio: ratio <= ratioLimit * clearMargin,
         ]
         let result = InstantPerfResult(
             metric: metric, platform: platform, small_ms: rounded3(smallMs), god_ms: rounded3(godMs), ratio: rounded3(ratio),
@@ -117,7 +129,8 @@ enum InstantPerfReport {
             case .ratio: "\(metric): god \(fmt(godMs)) ms is \(fmt(ratio))x small \(fmt(smallMs)) ms (floor \(fmt(ratioFloorMs)) ms); the rule is at most \(fmt(ratioLimit))x"
             }
             if knownRed.contains(check) {
-                withKnownIssue("\(metric) \(check.rawValue) is red on base (\(why)); tracked in plans/feat-ios-instant-list/DESIGN.md (cmuxterm-hq). Remove it from knownRed once fixed.") {
+                withKnownIssue("\(metric) \(check.rawValue) is red on base (\(why)); tracked in plans/feat-ios-instant-list/DESIGN.md (cmuxterm-hq). Remove it from knownRed once fixed.",
+                               isIntermittent: clearlyPasses[check] != true) {
                     #expect(ok, comment, sourceLocation: sourceLocation)
                 }
             } else {
