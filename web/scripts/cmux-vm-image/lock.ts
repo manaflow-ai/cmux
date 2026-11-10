@@ -28,6 +28,8 @@ export const KNOWN_PROGRAMS = [
   // Cursor's agent CLI (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
   // subscription"); acpmux runs it as `cursor-agent acp` (acpmux config/discover.rs).
   "cursor-agent",
+  "gemini",
+  "grok",
   "workerd",
   "gh",
   "juicefs",
