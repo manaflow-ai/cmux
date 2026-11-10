@@ -36,6 +36,7 @@ import { holdsOneConversation, listModel, visibleConversations } from "./list/mo
 import { NO_LIST_FACTS } from "./host";
 import { MessagesNav } from "./nav";
 import { closeNewMessage, followPageFocus, followTyping, reportedConversation, usePageCommands } from "./pageCommands";
+import { useSeeThrough } from "./seeThrough";
 import { MessagesSheetOps } from "./sheets/actions";
 import type {
   HiddenConversations,
@@ -90,6 +91,8 @@ export function MessagesApp({
   const { t, format, language } = strings;
   const [chrome, setChrome] = useState<MessagesChrome>({ windowControls: null });
   useEffect(() => messages.subscribeChrome(setChrome), [messages]);
+  // The floating Chief's see-through styles: no page background, the header's height to the host.
+  useSeeThrough(host);
   // Deleted from the list (Delete Conversation…): off it until a newer message.
   const [hidden, setHidden] = useState<HiddenConversations>(NONE_HIDDEN);
   useEffect(() => messages.subscribeHidden(setHidden), [messages]);

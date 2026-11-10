@@ -38,6 +38,7 @@ final class HomeConversationPage: NSView {
         host.toastAvoidance.attach(self, page: page)
         host.chiefShown = { [weak self] id in id == conversation ? self?.chief : nil }
         host.follow(chief)
+        host.seeThrough.onHeaderHeight = { [weak self] in self.map { HomeMessagesSeeThrough.relayout(from: $0) { $0 is ChiefPanelView } } }
         // A launch holds a Home still being made until its page paints (WorkspaceContentController).
         let reveal = services.launchReveal
         page.whenPainted { reveal.markReady(.home); DebugTimings.markLaunch("home.first_page") }
@@ -132,6 +133,9 @@ extension HomeConversationPage: HomeChiefShowing {
     var shownChief: HomeChiefSurface? { chief.showsChiefOnScreen ? chief : nil }
 }
 
+/// The see-through Chief: the page clears its background and reports its header (``HomeMessagesSeeThrough``).
 extension HomeConversationPage: ChiefPanelContent {
     var chiefIsAnswering: Bool { chief.isWorking }
+    var chiefShowsThrough: Bool { get { host.seeThrough.showsThrough } set { host.seeThrough.showsThrough = newValue } }
+    var chiefHeaderHeight: CGFloat { host.seeThrough.headerHeight(zoom: page.pageZoom) }
 }

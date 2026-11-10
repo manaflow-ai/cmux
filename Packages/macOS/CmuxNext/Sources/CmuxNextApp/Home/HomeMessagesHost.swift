@@ -47,15 +47,15 @@ import MessagesLabHome
 /// ``HomeMessagesFollow``), `headerPanels` (the toggles of
 /// the open conversation), `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the
 /// list, each listed again by a message after its seq), `chiefFace` (`{conversation, picture?, text?}`),
-/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``)
-/// and `dictation` (``HomePageDictation``; with its op), each sent on subscribe and on every change.
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``),
+/// `seeThrough` (``HomeMessagesSeeThrough``) and `dictation` (``HomePageDictation``; with its op), each sent on subscribe and on every change.
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
                            "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation", HomePageToastAvoidance.op,
-                           HomeMessagesBubbleOps.prefix].map { HomeMessagesPageRoute.prefix + $0 }
+                           HomeMessagesBubbleOps.prefix, HomeMessagesSeeThrough.stream].map { HomeMessagesPageRoute.prefix + $0 }
     private static let personOnly: Set<String> = ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "chief.settings",
                                                   "chief.place", "needsYou.open", "needsYou.answer", "needsYou.showAll"]  // a click only
 
@@ -79,11 +79,9 @@ final class HomeMessagesHostProvider: PageProvider {
     } }
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
     var firstRun: HomeMessagesFirstRunProvider?
-    private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    private var panelListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    /// The observation of what the streams read; runs only while one has a listener.
-    private var appearanceWatch: Task<Void, Never>?
-    private var panelsWatch: Task<Void, Never>?
+    /// The `appearance` and `headerPanels` streams (``HomePageStream``: observed only while one has a listener).
+    private lazy var appearanceStream = HomePageStream(observing: { [weak self] in self?.appearance() ?? .null })
+    private lazy var panelsStream = HomePageStream(observing: { [weak self] in self?.panels() ?? .null })
     private lazy var needsYouStream = HomePageStream(observing: { [weak self] in self?.needsYouRows() ?? .null })
     private let chiefFace = HomePageStream(initial: .null)
     private lazy var chiefPlace = HomePageStream(observing: { [weak self] in self?.place() ?? .null })
@@ -96,7 +94,8 @@ final class HomeMessagesHostProvider: PageProvider {
     var window: () -> NSWindow? = { nil }
     /// The files the app hands the page's composer, by token, while it reads them (``HomeComposerHandoff``).
     let composerFiles = HomeComposerFiles()
-    let dictation = HomePageDictation(), toastAvoidance = HomePageToastAvoidance()  // the mic; the compose bar's box toasts rest above
+    /// The mic, the compose bar's box toasts rest above, and the see-through Chief's switch and header height.
+    let dictation = HomePageDictation(), toastAvoidance = HomePageToastAvoidance(), seeThrough = HomeMessagesSeeThrough()
 
     init(services: AppServices, widthKey: String) {
         self.services = services
@@ -112,7 +111,8 @@ final class HomeMessagesHostProvider: PageProvider {
         let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
         if let userOnly, Self.personOnly.contains(name) { throw userOnly }
-        if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) ?? toastAvoidance.call(name, fields) { return answer }
+        let chiefAnswer = try await chiefTurn.call(name, fields, userGesture: context.userGesture)
+        if let answer = try chiefAnswer ?? toastAvoidance.call(name, fields) ?? seeThrough.call(name, fields) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
@@ -221,15 +221,7 @@ final class HomeMessagesHostProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         let key = UUID()
         switch stream {
-        case HomeMessagesPageRoute.prefix + "appearance":
-            appearanceListeners[key] = onEvent
-            onEvent(appearance())
-            if appearanceWatch == nil { watchAppearance() }
-            return PageSubscription { [weak self] in
-                guard let self else { return }
-                appearanceListeners[key] = nil
-                if appearanceListeners.isEmpty { appearanceWatch?.cancel(); appearanceWatch = nil }
-            }
+        case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "group.follow":
             guard let actions = services?.home.groupActions else { throw PageError.unavailable("cmux is closing") }
             let id = try conversation(filter.objectValue ?? [:])
@@ -241,17 +233,10 @@ final class HomeMessagesHostProvider: PageProvider {
         case HomeMessagesPageRoute.prefix + "hidden":
             hidden.subscribe(key, onEvent)
             return PageSubscription { [weak self] in self?.hidden.unsubscribe(key) }
-        case HomeMessagesPageRoute.prefix + "headerPanels":
-            panelListeners[key] = onEvent
-            onEvent(panels())
-            if panelsWatch == nil { restartPanels() }
-            return PageSubscription { [weak self] in
-                guard let self else { return }
-                panelListeners[key] = nil
-                if panelListeners.isEmpty { panelsWatch?.cancel(); panelsWatch = nil }
-            }
+        case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "dictation": return dictation.stream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + HomeMessagesSeeThrough.stream: return seeThrough.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefPlace":
             _ = services?.chiefTeleport.refresh()
             return chiefPlace.subscribe(onEvent)
@@ -297,7 +282,7 @@ final class HomeMessagesHostProvider: PageProvider {
     func reportShown(_ id: ConversationID?, composing: Bool) {
         guard let moved = page.report(id, composing: composing) else { return }
         onShown?(page.conversation, composing)
-        if moved { restartPanels(); [chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
+        if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
     }
 
     // MARK: Streams
@@ -305,19 +290,6 @@ final class HomeMessagesHostProvider: PageProvider {
     private func appearance() -> JSONValue {
         guard let home = services?.home else { return .null }
         return HomeChatColorStore.pageAppearance(home.chatColors, spellChecking: services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false)
-    }
-
-    private func watchAppearance() {
-        guard let chats = services?.home.chatColors else { return }
-        // task-owner: lives while the page listens to `appearance` (cancelled with its last listener); event-driven (Observation)
-        appearanceWatch = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in (chats.chats, DesignSettings.shared.homeBubbleColors, DesignSettings.shared.homeChiefBubblesThemed,
-                                                                   self?.services?.settings?.snapshot.agentPaneComposer.spellChecking) }) {
-                guard let self else { return }
-                let value = appearance()
-                for listener in appearanceListeners.values { listener(value) }
-            }
-        }
     }
 
     /// What the header's toggles read: the page's window and its open conversation's Chief.
@@ -339,20 +311,6 @@ final class HomeMessagesHostProvider: PageProvider {
             return .object(fields)
         }
         return .object(["enabled": .bool(HomeTunables.headerPanelToggles.value), "panels": .array(states)])
-    }
-
-    /// Follows the toggles while the page listens, for the conversation it shows now.
-    private func restartPanels() {
-        panelsWatch?.cancel()
-        panelsWatch = nil
-        guard !panelListeners.isEmpty else { return }
-        // task-owner: lives while the page listens to `headerPanels` (restarted on a new conversation, cancelled with its last listener); event-driven (Observation)
-        panelsWatch = Task { [weak self] in
-            guard let self else { return }
-            for await value in ObservationStream({ [weak self] in self?.panels() ?? .null }) {
-                for listener in panelListeners.values { listener(value) }
-            }
-        }
     }
 
     /// The bubble menus' app rows (``HomeMessagesBubbleOps``): Retry Reply through the Chief's control, Forward… as Send To…, the file rows.
