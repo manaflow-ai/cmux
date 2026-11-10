@@ -382,6 +382,13 @@ describe("property: a carry never grants more than the latest confirmed grant, o
       // Half the runs freeze the clock, so every read and write collides in one millisecond.
       const clock = r() < 0.5 ? vi.spyOn(Date, "now").mockReturnValue(Date.now()) : null
       const log: Array<string> = []
+      const started = performance.now()
+      let last = started
+      const lap = (what: string) => {
+        const now = performance.now()
+        if (now - last > 1000) log.push(`[${what} took ${Math.round(now - last)}ms]`)
+        last = now
+      }
       try {
         const t = await ownedTeamWithGrant("max")
         const alice = t.stackUser
@@ -453,6 +460,7 @@ describe("property: a carry never grants more than the latest confirmed grant, o
             })
             await fireAlarm(teamStub(t.team))
           }
+          lap(op)
           // A slow refresh started earlier finishes after this step's reads.
           if (slow !== null && op !== "slow") {
             slow.release()
@@ -467,6 +475,8 @@ describe("property: a carry never grants more than the latest confirmed grant, o
         // The truth when the team is deleted: the latest grant and owner Stack holds.
         const truthGrant = t.w.vmPlans.get(t.stackTeam) ?? null
         expect((await deleteInStack(t)).status).toBe(200)
+        lap("delete")
+        if (performance.now() - started > 1500) console.log(JSON.stringify({ msg: "grant carry property slow run", seed, ms: Math.round(performance.now() - started), log: log.join(" ") }))
         const c = await carried(t.team)
         const context = `seed ${seed}: ${log.join(" ")} -> ${JSON.stringify(c)} (truth ${truthGrant} to ${owner === alice ? "alice" : "bob"})`
         if (c?.outcome === "moved") {
