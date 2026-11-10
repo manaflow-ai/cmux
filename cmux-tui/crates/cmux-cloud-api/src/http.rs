@@ -100,11 +100,20 @@ impl Failure {
             Failure::Transport(message) => json!({ "kind": "transport", "message": message }),
             Failure::NoBackend => json!({ "kind": "no_backend" }),
             Failure::Http { status, code, message, action, trace_id, retryable, retry_after_s } => {
-                json!({
+                let mut line = json!({
                     "kind": "http", "status": status, "code": code, "message": message,
-                    "action": action, "trace_id": trace_id, "retryable": retryable,
-                    "retry_after_s": retry_after_s,
-                })
+                    "action": action, "trace_id": trace_id,
+                });
+                // Only when the refusal said: the app's error cases stay as they were otherwise.
+                if let Value::Object(object) = &mut line {
+                    if let Some(retryable) = retryable {
+                        object.insert("retryable".into(), json!(retryable));
+                    }
+                    if let Some(seconds) = retry_after_s {
+                        object.insert("retry_after_s".into(), json!(seconds));
+                    }
+                }
+                line
             }
             Failure::PlanRequired { message, upgrade_url, plan } => json!({
                 "kind": "plan_required", "message": message, "upgrade_url": upgrade_url, "plan": plan,
