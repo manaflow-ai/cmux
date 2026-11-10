@@ -64,7 +64,8 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
         ..crate::ResourceSelectors::default()
     };
     let before =
-        handle_command(&mux, client, Command::ListWorkspaces { known: None }, &writer).unwrap();
+        handle_command(&mux, client, Command::ListWorkspaces { known: None, limit: None }, &writer)
+            .unwrap();
     let before_revision = before["workspace_revision"].as_u64().unwrap();
     let created = mux
         .resource_create_empty_workspace_selected(
@@ -82,7 +83,8 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     // The browser then snapshots the registry and sends its alt+n create
     // with the reported revision, exactly like SyncWorkspaceRegistry.
     let listed =
-        handle_command(&mux, client, Command::ListWorkspaces { known: None }, &writer).unwrap();
+        handle_command(&mux, client, Command::ListWorkspaces { known: None, limit: None }, &writer)
+            .unwrap();
     let revision = listed["workspace_revision"].as_u64().unwrap();
     // A real registry change must advance the reported revision: clients
     // gate delta application and snapshot refreshes on it.
@@ -105,7 +107,8 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     .unwrap();
     assert_eq!(response["replayed"], false);
     let after =
-        handle_command(&mux, client, Command::ListWorkspaces { known: None }, &writer).unwrap();
+        handle_command(&mux, client, Command::ListWorkspaces { known: None, limit: None }, &writer)
+            .unwrap();
     assert_eq!(after["workspace_revision"].as_u64().unwrap(), revision + 1);
 }
 
@@ -140,7 +143,8 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
     )
     .unwrap();
     let listed =
-        handle_command(&mux, client, Command::ListWorkspaces { known: None }, &writer).unwrap();
+        handle_command(&mux, client, Command::ListWorkspaces { known: None, limit: None }, &writer)
+            .unwrap();
     let revision = listed["workspace_revision"].as_u64().unwrap();
     handle_command(
         &mux,
@@ -169,7 +173,8 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
     )
     .unwrap();
     let listed =
-        handle_command(&mux, client, Command::ListWorkspaces { known: None }, &writer).unwrap();
+        handle_command(&mux, client, Command::ListWorkspaces { known: None, limit: None }, &writer)
+            .unwrap();
     let revision = listed["workspace_revision"].as_u64().unwrap();
     handle_command(
         &mux,

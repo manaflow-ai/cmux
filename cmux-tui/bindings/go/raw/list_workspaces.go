@@ -10,7 +10,8 @@ func (c *Client) ListWorkspaces(ctx context.Context) (ListWorkspacesResult, erro
 	return c.ListWorkspacesWith(ctx, ListWorkspacesRequest{})
 }
 
-// ListWorkspacesWith sends `known` (list-workspaces-known-v1) without changing
+// ListWorkspacesWith sends `known` (list-workspaces-known-v1) or `limit`
+// (list-workspaces-limit-v1) without changing
 // ListWorkspaces's zero-argument API. A result with Unchanged set has no
 // workspaces: keep the tree the request named.
 func (c *Client) ListWorkspacesWith(ctx context.Context, request ListWorkspacesRequest) (ListWorkspacesResult, error) {

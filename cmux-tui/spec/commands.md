@@ -1399,11 +1399,23 @@ selection, a git branch a refresh reads) and never repeats across daemon
 runs; terminal output and scrolling leave it alone. A request without `known`
 (or with `known: null`) gets the result above, unchanged.
 
+With `list-workspaces-limit-v1`, `limit: N` returns only the first N
+workspaces in sidebar order (the sidebar document's order, else the personal
+order, then the workspaces neither places: the order of `workspace.list
+{order: "personal"}`), in that order, and `total`, the number of workspaces;
+only those rows are built. A client draws its first screen from it and reads
+the rest with a whole list after. A limited reply that holds fewer than
+`total` workspaces never carries `tree_revision`, so it is never a tree to
+send back as `known`; with `known`, a reply that holds them all does. `known`
+and `limit` together answer `unchanged` when the client's whole tree is
+current.
+
 Params:
 
 | Name | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
+| `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 
 Result:
 

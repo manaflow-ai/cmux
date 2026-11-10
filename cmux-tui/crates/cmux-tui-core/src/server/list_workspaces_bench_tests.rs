@@ -2,8 +2,9 @@
 //! daemon's `list-workspaces` with 1, 100, 1,000 and 4,000 workspaces
 //! (hq#8813; the daemon holds at most 4,096), each workspace holding one
 //! terminal tab with no process behind it, on a persistent registry.
-//! Per size: the whole reply (what every phone list costs today) and the
-//! `known` reply of a client whose tree is current, from the command to the
+//! Per size: the whole reply (what every phone list costs today), the
+//! `known` reply of a client whose tree is current, and the first screen
+//! (`limit: 50`), from the command to the
 //! serialized line, p50 and p95, with the line's bytes; then the first whole
 //! list after a restart of the daemon on the same registry. Prints
 //! LIST-WORKSPACES-BENCH lines and writes them to
@@ -46,6 +47,9 @@ fn known_of(line: &str) -> Value {
         "tree_revision": reply["tree_revision"],
     })
 }
+
+/// The rows a phone's first screen shows, with room to scroll.
+const FIRST_SCREEN: usize = 50;
 
 /// The owner on `root`'s registry, with the test surface runtime: each tab is a terminal tab
 /// with no process behind it, so 5,000 of them cost no PTYs.
@@ -98,35 +102,47 @@ fn list_workspaces_bench() {
             }
         }
         let seed_ms = seeded.elapsed().as_millis();
-        let (mut whole_times, mut known_times) = (Vec::new(), Vec::new());
-        let (mut whole_bytes, mut known_bytes) = (0, 0);
+        let (mut whole_times, mut known_times, mut first_times) =
+            (Vec::new(), Vec::new(), Vec::new());
+        let (mut whole_bytes, mut known_bytes, mut first_bytes) = (0, 0, 0);
         // Warm the caches (git HEADs, short ids) the way a running daemon has them.
         let first = run(&mux, &json!({"cmd": "list-workspaces", "known": {}}));
         let known = json!({"cmd": "list-workspaces", "known": known_of(&first)});
+        let screen = json!({"cmd": "list-workspaces", "limit": FIRST_SCREEN});
         for round in 0..runs {
-            let arms: [bool; 2] = if round % 2 == 0 { [false, true] } else { [true, false] };
-            for since in arms {
-                if since {
-                    let (ms, line) = timed(&mux, &known);
-                    assert!(
-                        line.contains("\"unchanged\":true"),
-                        "{}",
-                        &line[..200.min(line.len())]
-                    );
-                    known_bytes = line.len();
-                    known_times.push(ms);
-                } else {
-                    let (ms, line) = timed(&mux, &whole);
-                    whole_bytes = line.len();
-                    whole_times.push(ms);
+            // Each arm runs first, second and third in turn.
+            for arm in (0..3).map(|offset| (round + offset) % 3) {
+                match arm {
+                    0 => {
+                        let (ms, line) = timed(&mux, &whole);
+                        whole_bytes = line.len();
+                        whole_times.push(ms);
+                    }
+                    1 => {
+                        let (ms, line) = timed(&mux, &known);
+                        assert!(
+                            line.contains("\"unchanged\":true"),
+                            "{}",
+                            &line[..200.min(line.len())]
+                        );
+                        known_bytes = line.len();
+                        known_times.push(ms);
+                    }
+                    _ => {
+                        let (ms, line) = timed(&mux, &screen);
+                        first_bytes = line.len();
+                        first_times.push(ms);
+                    }
                 }
             }
         }
         lines_out.push(format!(
             "LIST-WORKSPACES-BENCH {profile} workspaces={count} lists={runs} seed_ms={seed_ms}: \
-             whole {whole_bytes} bytes, {}; known unchanged {known_bytes} bytes, {}",
+             whole {whole_bytes} bytes, {}; known unchanged {known_bytes} bytes, {}; \
+             first screen (limit {FIRST_SCREEN}) {first_bytes} bytes, {}",
             percentiles(&mut whole_times),
             percentiles(&mut known_times),
+            percentiles(&mut first_times),
         ));
 
         // Restart on the same registry: the first lists the new daemon answers.
@@ -138,12 +154,15 @@ fn list_workspaces_bench() {
         let (first_whole_ms, first_line) = timed(&mux, &whole);
         let listed: Value = serde_json::from_str(&first_line).unwrap();
         assert_eq!(listed["workspaces"].as_array().map(Vec::len), Some(count));
+        let (first_screen_ms, screen_line) = timed(&mux, &screen);
         let (first_known_ms, known_line) = timed(&mux, &known);
         let unchanged = known_line.contains("\"unchanged\":true");
         lines_out.push(format!(
             "LIST-WORKSPACES-BENCH {profile} workspaces={count} restart: open {open_ms:.1} ms; \
-             first whole list {first_whole_ms:.3} ms; first list with the old known \
-             {first_known_ms:.3} ms ({} bytes, unchanged={unchanged})",
+             first whole list {first_whole_ms:.3} ms; first screen {first_screen_ms:.3} ms \
+             ({} bytes); first list with the old known {first_known_ms:.3} ms ({} bytes, \
+             unchanged={unchanged})",
+            screen_line.len(),
             known_line.len(),
         ));
         mux.shutdown();
