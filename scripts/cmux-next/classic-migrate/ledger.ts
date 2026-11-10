@@ -5,8 +5,9 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs"
 // can at worst leave a torn last line, which the reader drops (that step then reads as in flight or not
 // started, and both re-send the same idempotent request).
 
-export type Step = "vm_api_import" | "platform_import"
-export const STEPS: readonly Step[] = ["vm_api_import", "platform_import"]
+// One step per classic VM: the platform route makes the VM API import, the snapshot row and the machine.
+export type Step = "platform_import"
+export const STEPS: readonly Step[] = ["platform_import"]
 
 export type LedgerEvent = "started" | "done" | "failed" | "rollback_started" | "rolled_back" | "rollback_failed"
 
@@ -78,22 +79,29 @@ export class Ledger {
     appendFileSync(this.path, `${prefix}${JSON.stringify(full)}\n`)
   }
 
-  /** Checks the ledger belongs to `migrationId` (one ledger per migration). */
+  /** Checks the ledger belongs to `migrationId` (one ledger per migration; its attempts are `<id>.rN`). */
   assertMigration(migrationId: string) {
-    const other = this.read().find((l) => l.migration_id !== migrationId)
+    const other = this.read().find((l) => baseMigrationId(l.migration_id) !== migrationId)
     if (other)
       throw new Error(`${this.path} belongs to migration ${other.migration_id}, not ${migrationId}; use another ledger`)
   }
 
-  state(): Map<string, VmState> {
+  /** Every attempt id in the ledger, oldest first. */
+  attempts(): string[] {
+    return [...new Set(this.read().map((l) => l.migration_id))]
+  }
+
+  /** Per classic VM, what the ledger shows of one attempt (default: the current one, the last line's). */
+  state(attempt = this.migrationId()): Map<string, VmState> {
     const vms = new Map<string, VmState>()
     this.read().forEach((l, i) => {
+      if (l.migration_id !== attempt) return
       let vm = vms.get(l.classic_vm_id)
       if (!vm) {
         vm = {
           classic_vm_id: l.classic_vm_id,
           first: i,
-          steps: { vm_api_import: { status: "pending" }, platform_import: { status: "pending" } },
+          steps: { platform_import: { status: "pending" } },
         }
         vms.set(l.classic_vm_id, vm)
       }
@@ -129,7 +137,16 @@ export class Ledger {
     return vms
   }
 
+  /** The current attempt: the migration id the last line was written under. */
   migrationId(): string | undefined {
-    return this.read()[0]?.migration_id
+    return this.read().at(-1)?.migration_id
   }
 }
+
+// Re-migration after a rollback (`apply --fresh`) is a new attempt inside the same ledger: the plan's migration id
+// with `.rN` (N >= 2), so the platform sees a new provenance and none of the rolled-back rows or idempotency keys.
+const ATTEMPT = /^(.*)\.r([0-9]+)$/
+
+export const baseMigrationId = (id: string) => ATTEMPT.exec(id)?.[1] ?? id
+export const attemptNumber = (id: string) => Number(ATTEMPT.exec(id)?.[2] ?? 1)
+export const attemptId = (base: string, n: number) => (n <= 1 ? base : `${base}.r${n}`)
