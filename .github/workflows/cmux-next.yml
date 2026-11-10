@@ -298,6 +298,27 @@ on:
       - cmux-tui/**
       - Assets.xcassets/**
       - Resources/**
+      # What the checks tier's tests import, run or read outside the paths above (tests/test_ci_workflow_paths_cover_inputs.py).
+      # scripts/ci/ is CI-only to the router (checks tier alone); the rest are pull-request only, like the lines above.
+      - scripts/ci/**
+      - .claude/settings.json
+      - .gitattributes
+      - .github/github-token-budget.json
+      - .github/runners.json
+      - README.md
+      - cmux-next-ios/scripts/set-test-notes.sh
+      - scripts/cef/test-embedder-step.sh
+      - scripts/cef/tests/test-embedder-step.test.sh
+      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/ghosttykit-checksums.txt
+      - scripts/install-git-hooks.sh
+      - scripts/launch-tagged-automation.sh
+      - scripts/lib/reload-shim.test.mjs
+      - scripts/lib/stop-app-instances.sh
+      - scripts/merge-pbxproj.py
+      - scripts/merge-xcstrings.py
+      - scripts/web-lint.sh
+      - scripts/web_lint_prepush.py
   push:
     branches: [main, feat-cmux-next]
     paths:
