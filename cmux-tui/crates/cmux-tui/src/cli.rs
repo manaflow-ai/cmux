@@ -104,6 +104,8 @@ mod inference_gateway;
 mod inference_setup;
 mod internal;
 mod keys_help;
+#[cfg(unix)]
+mod last_chat;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
