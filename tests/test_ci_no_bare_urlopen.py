@@ -288,6 +288,25 @@ class Transport(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "over 4 bytes"):
             deadline_http.request(server.url, self.BOUND, max_bytes=4)
 
+    def test_a_slow_start_of_the_lookup_thread_counts_against_the_deadline(self):
+        # The time left is read at the wait, not before the thread starts (Codex review of #40631, P2; the class of
+        # #40574's F2): a start that takes most of the bound must not buy the lookup a fresh bound.
+        server = self.serve(self.OK)
+        self.slow_lookup(3 * self.BOUND)
+        real_start = threading.Thread.start
+
+        def start(thread):
+            if thread.name == "deadline-http-resolve":
+                time.sleep(0.8 * self.BOUND)
+            return real_start(thread)
+
+        threading.Thread.start = start
+        self.addCleanup(setattr, threading.Thread, "start", real_start)
+        started = time.monotonic()
+        with self.assertRaises(deadline_http.RequestTimeout):
+            deadline_http.request(server.url, self.BOUND)
+        self.assertLess(time.monotonic() - started, self.BOUND + 0.1)
+
     def test_a_stream_gives_status_and_headers_before_the_body(self):
         # The headers and the body's first bytes at once; the rest never comes.
         server = self.serve(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-39/90\r\n"
