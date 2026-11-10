@@ -114,8 +114,8 @@ public final class DaemonService {
     /// `daemon_version_handoff`) for every service. The App sets it to its launch
     /// timing log (`DebugTimings.markLaunch`) before the first service starts.
     public nonisolated static var launchMark: @Sendable (String) -> Void {
-        get { launchMarkSink.withLock { $0 } }
-        set { launchMarkSink.withLock { $0 = newValue } }
+        get { launchMarkSink.load() }
+        set { launchMarkSink.store(newValue) }
     }
     /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
     /// `debug.daemon_requests` reads it off the main actor.

@@ -10,7 +10,9 @@ import Observation
 /// One observation per workspace (main-thread-scheduling.md section 3, O4): the workspace list is observed without
 /// reading any workspace's fields, each workspace's open tab favicons are their own observation, and ``byOrigin`` is
 /// written only when it changed. A navigation or a favicon change in one tab reads its workspace's tabs again, never
-/// every tab of the store.
+/// every tab of the store. What a workspace's observation reads must be that workspace's own (its fields, its tabs, a
+/// cell kept for it): a read of the store's tab index, its workspace list or the whole window registry there is woken
+/// by a tab added in any workspace, once per workspace.
 @Observable @MainActor public final class OpenTabFavicons {
     /// One open tab's favicon: its site origin and the favicon address it shows.
     nonisolated public struct Favicon: Equatable, Sendable {
@@ -30,12 +32,13 @@ import Observation
 
     public init() {}
 
-    /// Follows `workspaces` (the list only) and each workspace's tabs through `favicon` (nil: the tab gives none, as a
-    /// terminal or an incognito page) from now on. Once; a second call does nothing.
+    /// Follows `workspaces` (the list only) and each workspace through `favicons` (its open tab favicons in model order;
+    /// the app: ``favicons(of:incognito:faviconKey:)``) from now on. `favicons` runs inside that workspace's
+    /// observation, so it must read that workspace's own state only. Once; a second call does nothing.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
-                      favicon: @escaping @MainActor @Sendable (TabModel) -> Favicon?) {
+                      favicons: @escaping @MainActor @Sendable (WorkspaceModel) -> [Favicon]) {
         guard listTask == nil else { return }
-        observed = ObservedItems(item: { workspace in Self.favicons(of: workspace, favicon: favicon) }, same: { $0 == $1 },
+        observed = ObservedItems(item: { workspace in favicons(workspace) }, same: { $0 == $1 },
                                  changed: { [weak self] in self?.settle() })
         // task-owner: the app's services (live for the app); event-driven (Observation)
         listTask = Task { [weak self] in
@@ -52,10 +55,25 @@ import Observation
         workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(favicon)
     }
 
-    /// `tab`'s favicon as an open tab gives it to the sidebar links: a browser tab that is not `incognito`, with a
-    /// favicon address and a site origin (`faviconKey` of its page); nil for any other tab.
-    public static func favicon(_ tab: TabModel, incognito: @MainActor (String) -> Bool, faviconKey: (URL) -> String?) -> Favicon? {
-        guard tab.kind == .browser, let address = tab.faviconURL, !incognito(tab.id),
+    /// One workspace's open tab favicons as the sidebar links get them, in model order: none for an `incognito` workspace
+    /// (an incognito window's: every page of that window is incognito), else each browser tab's that has one
+    /// (``favicon(_:faviconKey:)``). `incognito` is the caller's one read for the workspace, from the workspace's own
+    /// facts (the app: `WindowManager.isIncognito(workspace:)` of the model: its `ephemeral` flag, its own registry cell,
+    /// its claim), so the observation of a workspace that a window lists reads no session-wide state. A workspace that
+    /// no window lists yet still reads the whole window registry there: that read is what lets it hear a new claim. A
+    /// per-tab read (`BrowserTabService.isIncognitoTab`) found the workspace through the store's tab index, its
+    /// workspace list and the whole window registry: one tab added anywhere woke every workspace's observation
+    /// (#40213 review).
+    public static func favicons(of workspace: WorkspaceModel, incognito: Bool, faviconKey: (URL) -> String?) -> [Favicon] {
+        guard !incognito else { return [] }
+        return favicons(of: workspace, favicon: { Self.favicon($0, faviconKey: faviconKey) })
+    }
+
+    /// `tab`'s favicon as an open tab gives it to the sidebar links: a browser tab with a favicon address and a site
+    /// origin (`faviconKey` of its page); nil for any other tab. It reads the tab only: whether the tab is incognito is
+    /// its workspace's fact (``favicons(of:incognito:faviconKey:)``).
+    public static func favicon(_ tab: TabModel, faviconKey: (URL) -> String?) -> Favicon? {
+        guard tab.kind == .browser, let address = tab.faviconURL,
               let origin = tab.url.flatMap(URL.init(string:)).flatMap(faviconKey) else { return nil }
         return Favicon(origin: origin, address: address)
     }
