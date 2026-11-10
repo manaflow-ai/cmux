@@ -261,7 +261,10 @@ export class StackTeamSync {
   private async reconcileOnce(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
     const commit = (op: string, params: Record<string, unknown>) => {
       const before = noOwnerOf(deps.state())
-      const res = deps.submitSystem(op, params, `stack-webhook:${ev.svix_id}:${op}:${hash(params)}`)
+      // Idempotency keys are at most 128 characters (owner-preflight.ts): a retried team.deleted's synthetic id made
+      // one of 129 and every retry was refused (validation.invalid), so the delete was dropped. A long key is hashed.
+      const key = `stack-webhook:${ev.svix_id}:${op}:${hash(params)}`
+      const res = deps.submitSystem(op, params, key.length <= 128 ? key : `stack-webhook:${hash(key)}`)
       const rej = res.frames.find((f) => f.t === "reject")
       if (rej && rej.t === "reject") return `reject:${rej.code}`
       if (!before && noOwnerOf(deps.state())) logNoOwner(deps.team)

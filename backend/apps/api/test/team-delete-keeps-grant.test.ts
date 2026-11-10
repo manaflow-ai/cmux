@@ -88,16 +88,12 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect((await deleteInStack(t)).body).toMatchObject({ ok: true, outcome: "queued" })
     expect((await teamState(t.team)).team?.deleted_at).toBeUndefined()
     expect(await carried(t.team)).toBeNull()
-    const before = await inDO(teamStub(t.team), async (_instance, state) => state.storage.sql.exec(`SELECT k, type, due_at, fails FROM stack_team_recheck`).toArray())
-    expect(before.length, JSON.stringify(before)).toBeGreaterThan(0)
     await inDO(teamStub(t.team), async (_instance, state) => {
       state.storage.sql.exec(`UPDATE stack_team_recheck SET due_at = 0`)
     })
     await fireAlarm(teamStub(t.team))
-    const rows = await inDO(teamStub(t.team), async (_instance, state) => state.storage.sql.exec(`SELECT k, type, due_at, fails, attempts FROM stack_team_recheck`).toArray())
-    const seen = await inDO(teamStub(t.team), async (_instance, state) => state.storage.sql.exec(`SELECT svix_id, outcome FROM stack_webhook_events ORDER BY at`).toArray())
-    const dbg = JSON.stringify({ rows, seen, writes: t.w.userVmPlanWrites, left: t.w.failWrites.left, carried: await carried(t.team) })
-    expect((await teamState(t.team)).team?.deleted_at, dbg).toBeTypeOf("number")
+    // The retry's synthetic delivery id once made a 129-character idempotency key, refused, so the delete was dropped.
+    expect((await teamState(t.team)).team?.deleted_at).toBeTypeOf("number")
     expect(t.w.userVmPlanWrites).toEqual([{ user: t.stackUser, vm_plan: "max" }])
     expect((await carried(t.team))?.outcome).toBe("moved")
   })
