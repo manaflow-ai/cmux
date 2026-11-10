@@ -5736,6 +5736,46 @@ class OrphanedDispatchRerunTests(unittest.TestCase):
         for result in ("stuck: GitHub refused cancel and force-cancel (x)", "failed: boom", "skipped (now completed)"):
             self.assertEqual(janitor.orphan_reruns(decisions, {run["id"]: result}, {run["id"]: jobs}, now=NOW), [])
 
+    def test_a_cmux_tui_verification_dispatch_on_a_lane_branch_comes_back(self):
+        """Run 42730697263 (2026-11-10): verify-cmux-tui-hosted.sh dispatched cmux-tui.yml on the short-lived branch
+        tui-feat-demux-followup-3-red as a red proof. `test (linux)` failed at 00:58Z (the red it was asked for) and
+        `macOS lint and tests` queued 2h03m on glaeda-side-std-xcode-26.6 while newer jobs there got runners. The
+        orphan pass cancelled it at 02:48:46Z and carried no re-run, so the caller waiting on the run got a cancelled
+        run with no macOS result. A hosted verification run has a caller waiting on it whatever its branch: the
+        cancel carries a re-run of the lost job alone, so the Linux red stays as it was."""
+        side = "glaeda-side-std-xcode-26.6"
+        run = make_run(event="workflow_dispatch", branch="tui-feat-demux-followup-3-red",
+                       path=".github/workflows/cmux-tui.yml", name="cmux-tui", sha="8a1d00cb" + "0" * 32, age=123.5)
+        run["display_title"] = ("cmux-tui focused 8a1d00cb1eae-fd14d7f91-1794271510-52646 @ " + run["head_sha"])
+        jobs = [
+            {"id": next(_ids), "name": "test (linux)", "labels": ["blacksmith-16vcpu-ubuntu-2404"],
+             "created_at": iso(123.4), "started_at": iso(123.3), "completed_at": iso(110.2), "status": "completed",
+             "conclusion": "failure", "runner_id": 4, "runner_name": "blacksmith-16vcpu-ubuntu-2404-opha"},
+            {"id": next(_ids), "name": "macOS lint and tests", "labels": [side], "created_at": iso(123.4),
+             "started_at": iso(123.4), "status": "queued", "conclusion": None, "runner_id": None,
+             "runner_name": None},
+        ]
+        served = make_run(event="pull_request", branch="other", age=41)
+        served_jobs = [{"id": next(_ids), "name": "macOS lint and tests", "labels": [side], "created_at": iso(40),
+                        "started_at": iso(39), "status": "in_progress", "runner_id": 9,
+                        "runner_name": "ultra1-glaeda-2"}]
+        orphans = find([run, served], {run["id"]: jobs, served["id"]: served_jobs})
+        self.assertEqual([o.run["id"] for o in orphans], [run["id"]])
+        self.assertIsNotNone(janitor.orphan_rerun_scope(orphans[0]))
+        decisions = orphan_plan(orphans, {run["head_branch"]: []})
+        self.assertEqual([d.action for d in decisions], ["cancel"])
+        entries = janitor.orphan_reruns(decisions, {run["id"]: "cancelled"}, {run["id"]: jobs}, now=NOW)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["job_id"], jobs[1]["id"])
+        # The next sweep re-runs it once the cancel settled: no newer dispatch carries this request's title.
+        cancelled = dict(run, status="completed", conclusion="cancelled")
+        decisions = janitor.plan_lost_reruns(entries, {run["id"]: cancelled}, {}, now=NOW, head_runs={},
+                                             dispatch_runs={run["id"]: []}, dispatch_jobs={})
+        self.assertEqual([d.action for d in decisions], ["rerun"])
+        # Other dispatches on a short-lived branch keep their old rule: cancelled, not re-run.
+        lane = dict(base_tier_dispatch(), head_branch="lane/odd-27327-spaces")
+        self.assertIsNone(janitor.orphan_rerun_scope(janitor.Orphan(lane, "e", "cmux-next daemon tests", NOW, 0, 1)))
+
     def test_a_dry_run_carries_no_orphan_re_run(self):
         run, jobs, fake = self.world()
         with tempfile.TemporaryDirectory() as temp:
