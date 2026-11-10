@@ -457,6 +457,11 @@ fn terminal_reap_ends_no_terminal_during_a_daemon_handoff() {
         TerminalLifecycle::Running,
         "the guarded reap close ended a terminal during a daemon handoff: {guarded:?}"
     );
+    let failure = guarded
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(failure, Some(TerminalCloseGuardFailed::HandingOff), "the guard names the handoff");
     // A cancelled handoff reaps again, one grace (at least a second) later.
     mux.cancel_daemon_handoff(requester);
     let later = Instant::now() + MIN_RETRY;
@@ -537,6 +542,57 @@ fn terminal_reap_legacy_close_keeps_an_attached_terminal() {
         "the legacy guarded close did not keep an attached terminal: {result:?}"
     );
     assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Running);
+    mux.close_terminal_with_mutation(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local("test-cleanup"),
+    )
+    .unwrap();
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// The legacy close path (a terminal without a resource id) also keeps every
+/// terminal during a daemon handoff.
+#[test]
+fn terminal_reap_legacy_close_ends_no_terminal_during_a_daemon_handoff() {
+    let mux = Mux::new_for_test("terminal-reap-legacy-handoff", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let requester = mux.control_clients.attach_test_stream(placed.id);
+    mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(true)).unwrap();
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, true)
+        .unwrap();
+    let result = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, false)
+        .unwrap();
+    let failure = result
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(
+        failure,
+        Some(TerminalCloseGuardFailed::HandingOff),
+        "the legacy guarded close did not keep a terminal during a handoff: {result:?}"
+    );
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Running);
+    mux.cancel_daemon_handoff(requester);
     mux.close_terminal_with_mutation(
         &terminal_id,
         None,

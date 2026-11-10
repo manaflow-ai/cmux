@@ -1649,7 +1649,8 @@ impl TerminalCloseGuard {
         !matches!(self, Self::None)
     }
 
-    /// The close needs no attach stream on the terminal.
+    /// The close needs no attach stream on the terminal and no daemon
+    /// shutdown handoff in progress (the reaper's guard gates both checks).
     pub(crate) fn requires_detached(self) -> bool {
         matches!(self, Self::UnplacedAndDetached)
     }
