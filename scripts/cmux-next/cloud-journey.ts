@@ -87,7 +87,8 @@
  * log, writes them to desktop-link.json in --out, and fails unless a note is `up` or `host_up`. No line means the
  * platform sent no rd_link (the team's CLOUD_RD_LINK is off). Then the machine is deleted (cloud-rd-link-readback.yml).
  * --cleanup-tag jr-… deletes the machine a run with that tag made (`cloud journey auto jr-…`, its exact name), for a
- * workflow's always() step after a run cut off before its own cleanup.
+ * workflow's always() step after a run cut off before its own cleanup. With --kept it also deletes the machine a
+ * --keep run with that tag made (`cloud journey jr-…`), for the operator who kept it.
  *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
@@ -819,7 +820,7 @@ export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "b
  * by exact name, never another run's), each logged first. For a workflow's always() step: the run's own cleanup is
  * the first line, this the second when the run was cut off.
  */
-async function cleanupTagMode(tag: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+async function cleanupTagMode(tag: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined, kept = false): Promise<number> {
   if (!/^jr-[0-9a-z]{1,16}$/.test(tag)) throw new Error(`--cleanup-tag ${JSON.stringify(tag.slice(0, 40))}: not a journey tag (jr-<base36>)`);
   if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
   const secrets = [password];
@@ -828,6 +829,8 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   const api = new Api(backend.api, team);
   api.bearer = s.access;
   const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
+  if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
   const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
   let failed = 0;
@@ -1653,7 +1656,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
   const cleanupTag = argValue("--cleanup-tag", argv);
-  if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team);
+  if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;

@@ -64,6 +64,14 @@ export const CELLS: Cell[] = [
     args: ["--agent", "codex"],
   },
   {
+    id: "codex-gateway-stub",
+    agent: "codex",
+    signIn: "none on the machine: the team's inference gateway (a second machine) in front of a stand-in proxy",
+    proof: "stubbed",
+    args: ["--agent", "codex", "--gateway", "$CMUX_BIN"],
+    needs: { env: "CMUX_BIN", why: "a cmux CLI for `cmux inference setup --gateway-machine`" },
+  },
+  {
     id: "cursor-signed-out",
     agent: "cursor",
     signIn: "none: must fail fast with Cursor's sign-in error",
@@ -156,7 +164,9 @@ export function main(argv: string[]): number {
     const env = { ...process.env };
     if (!cell.needs) delete env.CODEX_AUTH_JSON;
     const t0 = Date.now();
-    const r = spawnSync("bun", [journey, ...pass, ...cell.args, "--out", dir], { env, encoding: "utf8", maxBuffer: 64 << 20 });
+    // `$NAME` in a cell's args is that environment value (a path that differs per host).
+    const args = cell.args.map((a) => (a.startsWith("$") ? (process.env[a.slice(1)] ?? "") : a));
+    const r = spawnSync("bun", [journey, ...pass, ...args, "--out", dir], { env, encoding: "utf8", maxBuffer: 64 << 20 });
     writeFileSync(path.join(dir, "stdout.txt"), `${r.stdout ?? ""}${r.stderr ?? ""}`);
     const file = path.join(dir, "journey.json");
     const steps: Step[] = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")).steps ?? []) : [];
