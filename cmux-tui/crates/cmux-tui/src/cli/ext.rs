@@ -93,12 +93,12 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--kind" => {
-                        kind = words.next().ok_or_else(|| usage("--kind needs a kind"))?.clone()
+                        kind = words.next().ok_or_else(|| usage("--kind needs a kind"))?.clone();
                     }
                     "--dir" => {
                         dir = Some(PathBuf::from(
                             words.next().ok_or_else(|| usage("--dir needs a path"))?,
-                        ))
+                        ));
                     }
                     flag if flag.starts_with('-') => {
                         return Err(usage(&format!("unknown option {flag}")));
@@ -147,7 +147,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     "--build" => {
                         options.build = Some(
                             words.next().ok_or_else(|| usage("--build needs a command"))?.clone(),
-                        )
+                        );
                     }
                     "--build-timeout" => {
                         let seconds = words
