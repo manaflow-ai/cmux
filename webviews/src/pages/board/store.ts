@@ -49,7 +49,7 @@ export interface RowView {
 type Held =
   | BoardEvent
   | { kind: "answer"; machine: TeamMachine; stale?: boolean }
-  | { kind: "refusal"; id: string; message: string };
+  | { kind: "refusal"; id: string; message: string; endsStop: boolean };
 
 export type Schedule = (flush: () => void) => void;
 
@@ -168,7 +168,7 @@ export class BoardStore {
     this.held = null;
     for (const event of held) {
       if (event.kind === "answer") this.answer(event.machine, event.stale);
-      else if (event.kind === "refusal") this.refuse(event.id, event.message);
+      else if (event.kind === "refusal") this.refuse(event.id, event.message, event.endsStop);
       else this.record(event);
     }
   }
@@ -320,7 +320,7 @@ export class BoardStore {
       if (machine?.id === id && !newer) this.answer(machine);
       else this.endStopping(id);
     } catch (error) {
-      this.refuse(id, errorMessage(error));
+      this.refuse(id, errorMessage(error), true);
     }
   }
 
@@ -330,21 +330,22 @@ export class BoardStore {
     try {
       await this.client.call(BoardOps.open, { machine: id });
     } catch (error) {
-      this.refuse(id, errorMessage(error));
+      this.refuse(id, errorMessage(error), false);
     }
   }
 
   /**
-   * Shows why the host refused Stop or Open, and ends Stopping. A snapshot read under way would rebuild the row
-   * without it, so the refusal is held and shown over the snapshot.
+   * Shows why the host refused Stop or Open. A refused Stop ends Stopping; a refused Open leaves a pending Stop
+   * as it is. A snapshot read under way would rebuild the row without it, so the refusal is held and shown over
+   * the snapshot.
    */
-  private refuse(id: string, message: string): void {
+  private refuse(id: string, message: string, endsStop: boolean): void {
     if (this.held) {
-      this.held.push({ kind: "refusal", id, message });
+      this.held.push({ kind: "refusal", id, message, endsStop });
       return;
     }
     const now = this.rows.get(id);
-    if (now) this.setRow(id, { ...now, stopping: false, refused: message });
+    if (now) this.setRow(id, { ...now, stopping: endsStop ? false : now.stopping, refused: message });
   }
 
   /** Shows a Stop answer, and ends Stopping whatever it says. */

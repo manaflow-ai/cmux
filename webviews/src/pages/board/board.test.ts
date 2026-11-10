@@ -429,6 +429,44 @@ describe("store", () => {
     expect(store.getRow("b")).toMatchObject({ refused: "refused cmux.board.open" });
   });
 
+  test("an Open refusal leaves a pending Stop pending, during a snapshot read or not", async () => {
+    for (const reading of [false, true]) {
+      const provider = new MockBoardProvider({ snapshot: { machines: [machine("a")] } });
+      const { store, frame } = manualStore(provider);
+      await store.start();
+      frame();
+      const read = provider.call.bind(provider);
+      let answerStop = () => {};
+      let release = () => {};
+      provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+        if (op === "cmux.board.open") throw new Error("refused open");
+        if (op === "cmux.board.stop") {
+          await new Promise<void>((resolve) => (answerStop = resolve));
+          return machine("a", { state: "paused" }) as R;
+        }
+        if (op !== "cmux.board.snapshot") return read<R>(op, params);
+        const stale = { machines: [machine("a")] } as R;
+        await new Promise<void>((resolve) => (release = resolve));
+        return stale;
+      };
+      const refreshing = reading ? store.refresh() : null;
+      const stopping = store.stopMachine("a");
+      await store.openMachine("a");
+      if (refreshing) {
+        release();
+        await refreshing;
+      }
+      frame();
+      expect(store.getRow("a")).toMatchObject({ stopping: true, refused: "refused open" });
+      // A second press does not send a second Stop while the first is pending.
+      void store.stopMachine("a");
+      answerStop();
+      await stopping;
+      frame();
+      expect(store.getRow("a")).toMatchObject({ stopping: false, row: { state: "paused" } });
+    }
+  });
+
   test("with a filter on, a cost tick neither re-sorts nor refilters; a change of filter result does", async () => {
     const provider = new MockBoardProvider({
       snapshot: { machines: [machine("a", { createdAt: 2 }), machine("b", { createdAt: 1 })] },
