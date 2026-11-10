@@ -560,6 +560,12 @@ pub(super) fn refuse_line(
 }
 
 impl Hidden {
+    /// Whether the workspace with public id `public_id` is kept from the
+    /// device (`list-workspaces` `limit` leaves it out before it counts).
+    pub(super) fn hides_workspace(&self, public_id: &str) -> bool {
+        self.all || self.names.contains(public_id)
+    }
+
     /// Why a remote device's `request` is refused: the kind and selector of
     /// the hidden object it names, or the current workspace when it names
     /// none and acts on an incognito current workspace.

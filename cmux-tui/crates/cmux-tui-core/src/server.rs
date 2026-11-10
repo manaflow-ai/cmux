@@ -3070,7 +3070,7 @@ fn list_workspaces_reply_since(
     remote_view: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<Value> {
     if let Some(hidden) = remote_view {
-        return list_workspaces_reply_seen(mux, known, hidden);
+        return list_workspaces_reply_seen(mux, known, limit, hidden);
     }
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();
@@ -3099,7 +3099,7 @@ fn list_workspaces_reply_since(
         }));
     }
     if let Some(limit) = limit {
-        let (mut reply, whole) = list_workspaces_reply_first(mux, limit)?;
+        let (mut reply, whole) = list_workspaces_reply_first(mux, limit, None)?;
         // A part of the tree is not a tree to hold: only a whole one gets the revision
         // a later `known` sends back.
         if whole {
@@ -3116,8 +3116,13 @@ fn list_workspaces_reply_since(
 /// workspaces in sidebar order (the sidebar document's order, else the personal order, then
 /// the workspaces neither places, as `workspace.list {order: "personal"}` sorts them), with
 /// `total`, the number of workspaces. Only those rows are serialized. True with it when the
-/// reply holds every workspace.
-fn list_workspaces_reply_first(mux: &Mux, limit: usize) -> anyhow::Result<(Value, bool)> {
+/// reply holds every workspace. With `hidden` (a remote device, #31210), the workspaces it
+/// must not see are left out before the first `limit` are taken and before `total` counts.
+fn list_workspaces_reply_first(
+    mux: &Mux,
+    limit: usize,
+    hidden: Option<&incognito_remote::Hidden>,
+) -> anyhow::Result<(Value, bool)> {
     let order = crate::resource_api::read_committed_registry(mux, |connection, _| {
         Ok(match crate::state::sidebar_doc_order::document_order(connection)? {
             Some(order) => SidebarOrder::Document(order),
@@ -3128,9 +3133,8 @@ fn list_workspaces_reply_first(mux: &Mux, limit: usize) -> anyhow::Result<(Value
     })?;
     let notifications = mux.tree_decorations();
     let (mut reply, whole) = mux.with_state(|state| {
-        let first = order.first(state, limit);
-        let whole = first.len() == state.workspaces.len();
-        (tree_json::workspaces_json_at(state, &notifications, &first), whole)
+        let (first, total) = order.first(state, limit, hidden);
+        (tree_json::workspaces_json_at(state, &notifications, &first, total), first.len() == total)
     });
     let (registry_id, generation) = mux.registry_identity();
     reply.set("registry_id", json!(registry_id));
@@ -3146,12 +3150,21 @@ enum SidebarOrder {
 }
 
 impl SidebarOrder {
-    /// The indices in `state.workspaces` of the first `limit` workspaces in this order.
-    fn first(&self, state: &State, limit: usize) -> Vec<usize> {
+    /// The indices in `state.workspaces` of the first `limit` workspaces in this order that
+    /// `hidden` keeps, and how many it keeps.
+    fn first(
+        &self,
+        state: &State,
+        limit: usize,
+        hidden: Option<&incognito_remote::Hidden>,
+    ) -> (Vec<usize>, usize) {
         let mut rows = state
             .workspaces
             .iter()
             .enumerate()
+            .filter(|(_, workspace)| {
+                hidden.is_none_or(|hidden| !hidden.hides_workspace(workspace.public_id.as_str()))
+            })
             .map(|(index, workspace)| {
                 json!({"id": workspace.public_id, "active": index == state.active_workspace,
                        "index": index})
@@ -3175,11 +3188,13 @@ impl SidebarOrder {
                 });
             }
         }
-        rows.iter()
+        let first = rows
+            .iter()
             .take(limit)
             .filter_map(|row| row["index"].as_u64())
             .map(|i| i as usize)
-            .collect()
+            .collect();
+        (first, rows.len())
     }
 }
 
@@ -3188,10 +3203,12 @@ impl SidebarOrder {
 /// digest of the rows it is answered, so an incognito workspace's changes,
 /// which the daemon's revision counts, never move it. It costs the whole
 /// tree's rows, as the reply without `known` does; only the line it sends is
-/// small.
+/// small. With `limit`, the page is read after the digest, so a change between
+/// the two makes the next request read again.
 fn list_workspaces_reply_seen(
     mux: &Mux,
     known: &cmd_workspaces::KnownTree,
+    limit: Option<usize>,
     hidden: &incognito_remote::Hidden,
 ) -> anyhow::Result<Value> {
     use std::hash::{Hash, Hasher};
@@ -3216,6 +3233,13 @@ fn list_workspaces_reply_seen(
             "terminal_revision": reply["terminal_revision"],
             "tree_revision": tree_revision,
         }));
+    }
+    if let Some(limit) = limit {
+        let (mut page, whole) = list_workspaces_reply_first(mux, limit, Some(hidden))?;
+        if whole {
+            page.set("tree_revision", json!(tree_revision));
+        }
+        return Ok(page);
     }
     reply.set("tree_revision", json!(tree_revision));
     Ok(reply)

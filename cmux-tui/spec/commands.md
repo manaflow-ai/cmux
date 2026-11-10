@@ -1414,8 +1414,9 @@ and `limit` together answer `unchanged` when the client's whole tree is
 current.
 
 A remote device's connection (`set-client-info {remote: true}`) never sees an
-incognito workspace (#31210): once a workspace of the daemon was incognito,
-its `tree_revision` is a digest of the rows it is answered, so a change to an
+incognito workspace (#31210). Its `limit` page and `total` are taken from the
+workspaces it may see, and once a workspace of the daemon was incognito, its
+`tree_revision` is a digest of the rows it is answered, so a change to an
 incognito workspace never moves it.
 
 Params:

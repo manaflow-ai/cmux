@@ -55,12 +55,17 @@ pub(super) fn list_workspaces(
     known: Option<&KnownTree>,
     limit: Option<usize>,
 ) -> anyhow::Result<Value> {
+    // A remote device that must not see some workspaces (#31210) is answered
+    // from the ones it may see: its page, `total` and revision say nothing of
+    // the others.
+    let view = if known.is_some() || limit.is_some() {
+        super::incognito_remote::list_view(mux, client)
+    } else {
+        None
+    };
     let mut reply = match (known, limit) {
-        (Some(known), limit) => {
-            let view = super::incognito_remote::list_view(mux, client);
-            list_workspaces_reply_since(mux, known, limit, view.as_ref())?
-        }
-        (None, Some(limit)) => list_workspaces_reply_first(mux, limit)?.0,
+        (Some(known), limit) => list_workspaces_reply_since(mux, known, limit, view.as_ref())?,
+        (None, Some(limit)) => list_workspaces_reply_first(mux, limit, view.as_ref())?.0,
         (None, None) => list_workspaces_reply(mux)?,
     };
     if let Some(lines) = lines_written {
