@@ -2895,12 +2895,13 @@ fn a_drill_send_whose_exec_stalls_is_killed_and_never_sends() {
         &asked,
         "count".into(),
         ("vm-1".into(), "sess-1".into()),
-        began + Duration::from_secs(2),
+        // Room for one exec after the remote limit's grace and dispatch margin (`remote_script`).
+        began + Duration::from_millis(4_500),
     );
     let sent = std::thread::spawn(send).join().unwrap();
     let took = began.elapsed();
     assert!(sent.is_err(), "a killed send answered sent");
-    assert!(took < Duration::from_secs(6), "answered {took:?} after a 2 s deadline");
+    assert!(took < Duration::from_secs(8), "answered {took:?} after a 4.5 s deadline");
     assert!(gone(&dir.path().join("child.pid")), "the stalled exec's child outlived the deadline");
     assert!(!dir.path().join("sent").exists(), "the stalled exec finished");
 }
