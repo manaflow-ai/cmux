@@ -129,7 +129,7 @@ pub(super) fn new_and_wait(runner: &mut dyn Runner, request: &NewWait) -> Result
             started,
             timeout: request.timeout,
             created: &created,
-            replaces: None,
+            existing: &[],
         },
     )
 }
@@ -144,8 +144,8 @@ pub(super) struct Ready<'a> {
     pub(super) timeout: Duration,
     /// The create's answer (its `machine_config.status` may already say `failed`).
     pub(super) created: &'a Value,
-    /// The VM a redo deleted: never taken for the new one of the same name.
-    pub(super) replaces: Option<&'a str>,
+    /// The VMs listed before the create (a redo's): never taken for the new one, whatever their names.
+    pub(super) existing: &'a [String],
 }
 
 /// Running, then (for a configured VM) its config applied and its secrets delivered; one JSON answer.
@@ -159,7 +159,7 @@ pub(super) fn wait_until_ready(runner: &mut dyn Runner, ready: Ready<'_>) -> Res
         ));
     }
     let (id, title) =
-        wait_running(runner, ready.id.as_deref(), ready.name, ready.replaces, deadline)?;
+        wait_running(runner, ready.id.as_deref(), ready.name, ready.existing, deadline)?;
     let target = format!("vm:{id}");
     let mut answer = Map::new();
     answer.insert("machine_id".into(), json!(id));
@@ -188,7 +188,7 @@ fn wait_running(
     runner: &mut dyn Runner,
     id: Option<&str>,
     name: &str,
-    replaces: Option<&str>,
+    existing: &[String],
     deadline: Instant,
 ) -> Result<(String, String), Value> {
     let mut last = Value::Null;
@@ -197,7 +197,11 @@ fn wait_running(
         let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
         let row = rows.iter().find(|row| match id {
             Some(id) => text(row, "machine_id") == Some(id),
-            None => text(row, "title") == Some(name) && text(row, "machine_id") != replaces,
+            None => {
+                text(row, "title") == Some(name)
+                    && !text(row, "machine_id")
+                        .is_some_and(|id| existing.iter().any(|known| known == id))
+            }
         });
         if let Some(row) = row {
             let status = text(row, "status").unwrap_or("unknown");

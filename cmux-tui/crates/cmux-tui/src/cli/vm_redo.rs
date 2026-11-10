@@ -7,28 +7,31 @@
 //!
 //! 1. `cloud list-machines`: the VM by its id or its one name, or the only one ([`vm_short::resolve`]).
 //! 2. `cloud machine-status`: its name, size (`memory_mb`, `cpu`) and idle pause (`idle_pause_minutes`, 0 is Off).
-//! 3. `cloud kill-machine --confirm`: the old VM and everything on it. Without `--confirm` nothing happens, and
-//!    nothing is deleted while the new VM's words would be refused: a name `new-machine` does not take becomes
-//!    one it does ([`machine_name`]), and an unreadable `--machine-config` or a malformed `--repo` stops first.
+//!    Without `--confirm` nothing happens.
+//! 3. `cloud pause-machine`, when it runs: a plan at its VM cap then has room for the new one, and no other VM is
+//!    paused to make it.
 //! 4. `cloud new-machine --name NAME --size SIZE` (`--persistent` for an idle pause that was Off) with
 //!    `--machine-config FILE` (default `.cmux/machine.toml` here when it exists) or `--repo OWNER/NAME`, then
-//!    `vm new --wait`'s waits (vm_ready.rs): running, its config applied, its secrets delivered.
-//! 5. `cloud set-idle-pause` with the old VM's minutes, when it had some.
+//!    `vm new --wait`'s waits (vm_ready.rs): running, its config applied, its secrets delivered. The name is the
+//!    old one when `new-machine` takes it, else its slug ([`machine_name`]). Any refusal or failure up to here
+//!    keeps the old VM (resumed when step 3 paused it): creation's own checks are the only ones, run before
+//!    anything is deleted.
+//! 5. `cloud kill-machine --confirm`: the old VM and everything on it, once the new one is ready.
+//! 6. `cloud rename-machine` to the old title when it was not a plain name, and `cloud set-idle-pause` with the
+//!    old VM's minutes, when it had some.
 //!
-//! Output: `vm new --wait`'s answer with `replaced` (the old id), `size`, `idle_pause_minutes` and, when the old
-//! name was not one `new-machine` takes, `renamed_from`.
+//! Output: `vm new --wait`'s answer with `replaced` (the old id), `size` and `idle_pause_minutes`.
 
 #[cfg(test)]
 mod tests;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use cmux_cloud_start_core::machine_repo;
 use serde_json::{Value, json};
 
 use super::cloud_start_chat::{Runner, step_result};
-use super::vm_ready::{self, DEFAULT_TIMEOUT, NewWait, Ready};
+use super::vm_ready::{self, DEFAULT_TIMEOUT, Ready};
 use super::vm_short::{self, Resolved};
 
 /// The machine config a redo applies when none is named: this folder's, as a repository keeps it.
@@ -88,12 +91,12 @@ pub(super) fn parse(command: &[String]) -> Option<Result<Redo, String>> {
 pub(super) const HELP: &str = "\
 usage: cmux vm redo [NAME|ID] --confirm [--machine-config FILE | --repo OWNER/NAME] [--timeout SECONDS] [--json]
 
-Deletes the Cloud VM and everything on it, then makes it again: the same name,
-size and idle pause, with --machine-config FILE (default .cmux/machine.toml
-in this folder, when there is one) or --repo, and answers once it is running,
-configured and has its secrets, as `cmux vm new --wait` does. A name with
-characters a VM name cannot have (\"Cloud Machine\") is made again as its slug
-(\"Cloud-Machine\").";
+Makes the Cloud VM again, fresh: a new VM with the same name, size and idle
+pause, with --machine-config FILE (default .cmux/machine.toml in this folder,
+when there is one) or --repo. Once the new VM is running, configured and has
+its secrets, as `cmux vm new --wait` answers, the old VM and everything on it
+is deleted. The old VM is paused while the new one is made, and kept (resumed)
+when the new one cannot be made.";
 
 /// The `cloud new-machine --size` that makes a VM of this memory (MiB) or, without it, these vCPUs. A create
 /// sends the size's memory (cmux-cloud-handlers `CREATE_SIZES`: xlarge is 12 vCPU), a resize sets 16 for xlarge.
@@ -136,20 +139,47 @@ pub(super) fn machine_name(title: &str, id: &str) -> String {
     if is_plain_name(slug) { slug.to_owned() } else { id.to_owned() }
 }
 
-/// `file` as the CLI reads a path (`~/` is the home folder).
-fn local_path(file: &str) -> PathBuf {
-    match (file.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => Path::new(&home).join(rest),
-        _ => PathBuf::from(file),
-    }
-}
-
 fn refusal(code: &str, message: impl Into<String>, details: Value) -> Value {
     json!({"code": code, "message": message.into(), "details": details, "retryable": false})
 }
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
+}
+
+/// One step of the app's, as this binary with `--json`.
+fn step(runner: &mut dyn Runner, list: &[&str]) -> Result<Value, Value> {
+    let mut args = words(list);
+    args.push("--json".to_owned());
+    step_result(&runner.cmux(&args))
+}
+
+/// `error` with what a failed replacement left: the old VM kept (resumed when the redo paused it) and the new
+/// one, when it was made.
+fn kept(
+    runner: &mut dyn Runner,
+    mut error: Value,
+    old: &str,
+    paused: bool,
+    new: Option<&str>,
+) -> Value {
+    if paused {
+        let _ = step(runner, &["cloud", "resume-machine", "--target", &format!("machine:{old}")]);
+    }
+    let mut next = format!("vm:{old} is kept");
+    if let Some(new) = new {
+        next.push_str(&format!("; the new vm:{new} is not ready: cmux vm rm {new} --confirm"));
+    }
+    if let Some(error) = error.as_object_mut() {
+        let details = error.entry("details").or_insert_with(|| json!({}));
+        if !details.is_object() {
+            *details = json!({"error": details.take()});
+        }
+        details["kept"] = json!(old);
+        details["made"] = json!(new);
+        details["redo"] = json!(next);
+    }
+    error
 }
 
 /// The redo, with `local_config` the default machine config when the words name none.
@@ -159,27 +189,7 @@ pub(super) fn redo(
     local_config: Option<String>,
 ) -> Result<Value, Value> {
     let started = runner.now();
-    if let Some(spec) = &request.repo
-        && machine_repo::parse(spec).is_err()
-    {
-        return Err(refusal(
-            "usage.invalid",
-            format!(
-                "--repo {spec}: give OWNER/NAME on GitHub or an https git URL; nothing was deleted"
-            ),
-            json!({}),
-        ));
-    }
-    if let Some(file) = &request.machine_config
-        && std::fs::read(local_path(file)).is_err()
-    {
-        return Err(refusal(
-            "usage.invalid",
-            format!("--machine-config {file}: the file cannot be read; nothing was deleted"),
-            json!({"machine_config": file}),
-        ));
-    }
-    let listed = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))?;
+    let listed = step(runner, &["cloud", "list-machines"])?;
     let id = match vm_short::resolve(request.named.as_deref(), &listed) {
         Resolved::Id(id) => id,
         Resolved::Refused(error) => return Err(error),
@@ -191,14 +201,15 @@ pub(super) fn redo(
             ));
         }
     };
+    let existing: Vec<String> = listed
+        .get("machines")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row.get("machine_id").and_then(Value::as_str).map(str::to_owned))
+        .collect();
     let target = format!("machine:{id}");
-    let status = step_result(&runner.cmux(&words(&[
-        "cloud",
-        "machine-status",
-        "--target",
-        &target,
-        "--json",
-    ])))?;
+    let status = step(runner, &["cloud", "machine-status", "--target", &target])?;
     let title = status
         .get("title")
         .and_then(Value::as_str)
@@ -218,12 +229,12 @@ pub(super) fn redo(
         return Err(refusal(
             "usage.confirm",
             format!(
-                "cmux vm redo deletes {title} (vm:{id}) and everything on it before making it again; add --confirm"
+                "cmux vm redo deletes {title} (vm:{id}) and everything on it once its new VM is ready; add --confirm"
             ),
             json!({"machine_id": id, "next": format!("cmux vm redo {id} --confirm")}),
         ));
     }
-    let mut create = vec!["--name".to_owned(), name.clone()];
+    let mut create = words(&["cloud", "new-machine", "--name", &name]);
     if let Some(size) = size {
         create.extend(["--size".to_owned(), size.to_owned()]);
     }
@@ -238,57 +249,63 @@ pub(super) fn redo(
     if let Some(repo) = &request.repo {
         create.extend(["--repo".to_owned(), repo.clone()]);
     }
-    step_result(&runner.cmux(&words(&[
-        "cloud",
-        "kill-machine",
-        "--target",
-        &target,
-        "--confirm",
-        "--json",
-    ])))?;
-    let wait = NewWait {
-        create,
-        timeout: request.timeout.unwrap_or(DEFAULT_TIMEOUT),
-        name: name.clone(),
-        configured: config.is_some() || request.repo.is_some(),
+    create.push("--json".to_owned());
+    // The old VM pauses first, so a plan at its VM cap has room for the new one without pausing another.
+    // A VM whose provider cannot pause stays running.
+    let running = status.get("status").and_then(Value::as_str) == Some("running")
+        && step(runner, &["cloud", "pause-machine", "--target", &target]).is_ok();
+    // The new VM is made and ready before the old one goes: any refusal of the create keeps the old VM.
+    let created = match step_result(&runner.cmux(&create)) {
+        Ok(created) => created,
+        Err(error) => return Err(kept(runner, error, &id, running, None)),
     };
-    let mut new = words(&["cloud", "new-machine"]);
-    new.extend(wait.create.iter().cloned());
-    new.push("--json".to_owned());
-    let created = step_result(&runner.cmux(&new))?;
-    let mut answer = vm_ready::wait_until_ready(
+    let made = created.get("machine_id").and_then(Value::as_str).map(str::to_owned);
+    let ready = vm_ready::wait_until_ready(
         runner,
         Ready {
-            id: created.get("machine_id").and_then(Value::as_str).map(str::to_owned),
-            name: &wait.name,
-            configured: wait.configured,
+            id: made.clone(),
+            name: &name,
+            configured: config.is_some() || request.repo.is_some(),
             started,
-            timeout: wait.timeout,
+            timeout: request.timeout.unwrap_or(DEFAULT_TIMEOUT),
             created: &created,
-            replaces: Some(&id),
+            existing: &existing,
+        },
+    );
+    let mut answer = match ready {
+        Ok(answer) => answer,
+        Err(error) => {
+            let new = made.or_else(|| {
+                error.pointer("/details/machine_id").and_then(Value::as_str).map(str::to_owned)
+            });
+            return Err(kept(runner, error, &id, running, new.as_deref()));
+        }
+    };
+    let new_id = answer.get("machine_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let new_target = format!("machine:{new_id}");
+    step(runner, &["cloud", "kill-machine", "--target", &target, "--confirm"]).map_err(
+        |mut error| {
+            if let Some(map) = error.as_object_mut() {
+                map.insert("ready".into(), answer.clone());
+            }
+            error
         },
     )?;
-    let new_id = answer.get("machine_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // `new-machine --name` takes only plain names; a rename takes the old title as it was.
+    let renamed = name != title
+        && step(runner, &["cloud", "rename-machine", "--target", &new_target, "--name", &title])
+            .is_ok();
     if let Some(idle) = idle.filter(|minutes| IDLE_PAUSE_MINUTES.contains(minutes)) {
         let minutes = idle.to_string();
-        let new_target = format!("machine:{new_id}");
-        step_result(&runner.cmux(&words(&[
-            "cloud",
-            "set-idle-pause",
-            "--target",
-            &new_target,
-            "--minutes",
-            &minutes,
-            "--json",
-        ])))?;
+        step(runner, &["cloud", "set-idle-pause", "--target", &new_target, "--minutes", &minutes])?;
     }
     if let Some(map) = answer.as_object_mut() {
+        if renamed {
+            map.insert("title".into(), json!(title));
+        }
         map.insert("replaced".into(), json!(id));
         map.insert("size".into(), json!(size));
         map.insert("idle_pause_minutes".into(), json!(idle));
-        if name != title {
-            map.insert("renamed_from".into(), json!(title));
-        }
     }
     Ok(answer)
 }

@@ -42,7 +42,7 @@ fn its_words() {
     assert!(matches!(parse(&strings(&["vm", "redo", "--repo"])), Some(Err(_))));
 }
 
-/// F1: `--confirm=false` is refused, never read as `--confirm`.
+/// Round 1 F1: `--confirm=false` is refused, never read as `--confirm`.
 #[test]
 fn a_valued_confirm_is_refused() {
     for word in ["--confirm=false", "--confirm=true", "--confirm="] {
@@ -54,7 +54,7 @@ fn a_valued_confirm_is_refused() {
     }
 }
 
-/// F3: creation's sizes, by memory first (a create sends memory; xlarge is 12 vCPU made, 16 resized).
+/// Round 1 F3: creation's sizes, by memory first (a create sends memory; xlarge is 12 vCPU made, 16 resized).
 #[test]
 fn sizes_by_memory_then_vcpus() {
     assert_eq!(size_of(Some(4_096), Some(2)), Some("small"));
@@ -68,7 +68,7 @@ fn sizes_by_memory_then_vcpus() {
     assert_eq!(size_of(None, None), None);
 }
 
-/// F2: a name `new-machine --name` takes, from any title.
+/// Round 1 F2: a name `new-machine --name` takes, from any title.
 #[test]
 fn names_new_machine_takes() {
     assert_eq!(machine_name("dev", "vm-1"), "dev");
@@ -94,25 +94,26 @@ fn without_confirm_nothing_is_deleted() {
 }
 
 #[test]
-fn the_same_vm_again_with_its_size_idle_pause_and_this_folders_machine_config() {
+fn the_new_vm_is_made_and_ready_before_the_old_one_goes() {
     let mut fake = Fake::new(vec![
         (
             "list-machines",
             vec![
                 listed(&[row("vm-old", "dev", "running")]),
-                // The old VM is still listed under the same name while it goes: never taken for the new one.
-                listed(&[row("vm-old", "dev", "running"), row("vm-new", "dev", "provisioning")]),
-                listed(&[row("vm-new", "dev", "running")]),
+                // The old VM is still listed under the same name: never taken for the new one.
+                listed(&[row("vm-old", "dev", "paused"), row("vm-new", "dev", "provisioning")]),
+                listed(&[row("vm-old", "dev", "paused"), row("vm-new", "dev", "running")]),
             ],
         ),
         ("machine-status", vec![status("dev", 8, 30)]),
-        ("kill-machine", vec![json!({"machine_id": "vm-old"})]),
+        ("pause-machine", vec![json!({"machine_id": "vm-old"})]),
         ("new-machine", vec![json!({"pending": true})]),
         ("file-read", vec![config("done")]),
         (
             "deliver-secrets",
             vec![json!({"status": "unchanged", "delivered": [], "missing": ["API_KEY"]})],
         ),
+        ("kill-machine", vec![json!({"machine_id": "vm-old"})]),
         ("set-idle-pause", vec![json!({"machine_id": "vm-new", "idle_pause_minutes": 30})]),
     ]);
     let request = Redo { named: Some("dev".into()), confirm: true, ..Redo::default() };
@@ -127,18 +128,15 @@ fn the_same_vm_again_with_its_size_idle_pause_and_this_folders_machine_config() 
         strings(&[
             "list-machines",
             "machine-status",
-            "kill-machine",
+            "pause-machine",
             "new-machine",
             "list-machines",
             "list-machines",
             "file-read",
             "deliver-secrets",
+            "kill-machine",
             "set-idle-pause",
         ])
-    );
-    assert_eq!(
-        fake.ran[2],
-        strings(&["cloud", "kill-machine", "--target", "machine:vm-old", "--confirm", "--json"])
     );
     assert_eq!(
         fake.ran[3],
@@ -156,6 +154,10 @@ fn the_same_vm_again_with_its_size_idle_pause_and_this_folders_machine_config() 
     );
     assert_eq!(
         fake.ran[8],
+        strings(&["cloud", "kill-machine", "--target", "machine:vm-old", "--confirm", "--json"])
+    );
+    assert_eq!(
+        fake.ran[9],
         strings(&[
             "cloud",
             "set-idle-pause",
@@ -175,18 +177,20 @@ fn a_repo_takes_the_place_of_this_folders_config_and_an_off_idle_pause_stays_off
             "list-machines",
             vec![
                 listed(&[row("vm-old", "api", "running")]),
-                listed(&[row("vm-new", "api", "running")]),
+                listed(&[row("vm-old", "api", "paused"), row("vm-new", "api", "running")]),
             ],
         ),
         ("machine-status", vec![status("api", 2, 0)]),
-        ("kill-machine", vec![json!({})]),
+        ("pause-machine", vec![json!({})]),
         ("new-machine", vec![json!({"machine_id": "vm-new"})]),
         ("file-read", vec![config("done")]),
         ("deliver-secrets", vec![json!({"status": "delivered", "delivered": ["API_KEY"]})]),
+        ("kill-machine", vec![json!({})]),
     ]);
     let request = Redo { confirm: true, repo: Some("o/r".into()), ..Redo::default() };
     let answer = redo(&mut fake, &request, Some("/work/.cmux/machine.toml".into())).unwrap();
     assert_eq!(answer["machine_id"], "vm-new");
+    assert_eq!(answer["idle_pause_minutes"], 0);
     assert_eq!(
         fake.ran[3],
         strings(&[
@@ -215,57 +219,146 @@ fn a_name_it_does_not_know_is_refused_before_anything_is_deleted() {
     assert_eq!(fake.verbs(), strings(&["list-machines"]));
 }
 
-/// F2: the app's default name "Cloud Machine" (a space, which `new-machine --name` refuses) is made again as
-/// `Cloud-Machine`, and the answer says what it was.
+/// Round 1 F2: the app's default name "Cloud Machine" (a space, which `new-machine --name` refuses) is made as
+/// `Cloud-Machine`, then renamed to "Cloud Machine" (`rename-machine` takes any name).
 #[test]
-fn a_name_new_machine_refuses_is_made_one_it_takes() {
+fn a_name_new_machine_refuses_is_made_as_its_slug_then_renamed() {
     let mut fake = Fake::new(vec![
         (
             "list-machines",
             vec![
                 listed(&[row("vm-old", "Cloud Machine", "running")]),
-                listed(&[row("vm-new", "Cloud-Machine", "running")]),
+                listed(&[
+                    row("vm-old", "Cloud Machine", "paused"),
+                    row("vm-new", "Cloud-Machine", "running"),
+                ]),
             ],
         ),
         ("machine-status", vec![status("Cloud Machine", 4, 15)]),
-        ("kill-machine", vec![json!({})]),
+        ("pause-machine", vec![json!({})]),
         ("new-machine", vec![json!({"machine_id": "vm-new"})]),
-        ("deliver-secrets", vec![json!({"status": "delivered", "delivered": []})]),
+        ("kill-machine", vec![json!({})]),
+        ("rename-machine", vec![json!({})]),
         ("set-idle-pause", vec![json!({})]),
     ]);
     let request = Redo { confirm: true, ..Redo::default() };
     let answer = redo(&mut fake, &request, None).unwrap();
-    assert_eq!(answer["renamed_from"], "Cloud Machine");
+    assert_eq!(answer["title"], "Cloud Machine");
     assert_eq!(
         fake.ran[3],
         strings(&["cloud", "new-machine", "--name", "Cloud-Machine", "--size", "medium", "--json"])
     );
+    assert_eq!(
+        fake.ran[6],
+        strings(&[
+            "cloud",
+            "rename-machine",
+            "--target",
+            "machine:vm-new",
+            "--name",
+            "Cloud Machine",
+            "--json"
+        ])
+    );
 }
 
-/// F2: an unreadable `--machine-config` or a malformed `--repo` is refused before anything, so no kill-machine.
+/// Round 3 F1-F3: whatever creation refuses (an empty or oversized config, a size the backend has no
+/// `machine_create.size_name` for, a repo spec it does not take), the refusal comes before any delete: the old VM
+/// is kept and resumed, and kill-machine never runs. The spec is never echoed by redo.
 #[test]
-fn an_unreadable_config_or_a_malformed_repo_deletes_nothing() {
-    for request in [
-        Redo {
-            confirm: true,
-            machine_config: Some("/nonexistent/cmux-vm-redo/machine.toml".into()),
-            ..Redo::default()
-        },
-        Redo { confirm: true, repo: Some("not a repo".into()), ..Redo::default() },
-    ] {
+fn a_refused_create_never_deletes_the_old_vm() {
+    let refusals = [
+        ("machine-config", "The machine config /work/.cmux/machine.toml cannot be read."),
+        ("capability", "This backend cannot create a machine of a named size."),
+        ("repo", "--repo: give OWNER/NAME on GitHub or an https git URL."),
+    ];
+    for (case, message) in refusals {
         let mut fake = Fake::new(vec![
             ("list-machines", vec![listed(&[row("vm-old", "dev", "running")])]),
-            ("machine-status", vec![status("dev", 4, 0)]),
+            ("machine-status", vec![status("dev", 4, 30)]),
+            ("pause-machine", vec![json!({})]),
+            ("new-machine", vec![json!({"code": "action.failed", "message": message})]),
+            ("resume-machine", vec![json!({})]),
             ("kill-machine", vec![json!({})]),
         ]);
+        let request = Redo {
+            confirm: true,
+            repo: Some("https://TOKEN@github.com/o/r".into()),
+            ..Redo::default()
+        };
         let error = redo(&mut fake, &request, None).unwrap_err();
-        assert_eq!(error["code"], "usage.invalid", "{request:?}");
-        assert!(!fake.verbs().contains(&"kill-machine".to_owned()), "{request:?}");
+        assert_eq!(error["details"]["kept"], "vm-old", "{case}");
+        assert!(!error.to_string().contains("TOKEN"), "{case}: {error}");
+        assert_eq!(
+            fake.verbs(),
+            strings(&[
+                "list-machines",
+                "machine-status",
+                "pause-machine",
+                "new-machine",
+                "resume-machine"
+            ]),
+            "{case}"
+        );
     }
 }
 
-/// F4: an idle pause that was Off (0, persistent) is Off again: the create is `--persistent`, and an older app's
-/// `idle_pause` diagnostics still count.
+/// A new VM whose machine config fails keeps the old VM: no kill-machine, and the answer names both.
+#[test]
+fn a_new_vm_that_fails_its_config_keeps_the_old_one() {
+    let mut fake = Fake::new(vec![
+        (
+            "list-machines",
+            vec![
+                listed(&[row("vm-old", "dev", "running")]),
+                listed(&[row("vm-old", "dev", "paused"), row("vm-new", "dev", "running")]),
+            ],
+        ),
+        ("machine-status", vec![status("dev", 4, 30)]),
+        ("pause-machine", vec![json!({})]),
+        ("new-machine", vec![json!({"machine_id": "vm-new"})]),
+        ("file-read", vec![config("failed")]),
+        ("resume-machine", vec![json!({})]),
+        ("kill-machine", vec![json!({})]),
+    ]);
+    let request = Redo { confirm: true, ..Redo::default() };
+    let error = redo(&mut fake, &request, Some("/work/.cmux/machine.toml".into())).unwrap_err();
+    assert_eq!(error["code"], "vm.config_failed");
+    assert_eq!(error["details"]["kept"], "vm-old");
+    assert_eq!(error["details"]["made"], "vm-new");
+    assert!(!fake.verbs().contains(&"kill-machine".to_owned()));
+    assert_eq!(fake.verbs().last().unwrap(), "resume-machine");
+}
+
+/// Round 3 F4: a pending create is never taken for another VM that already had its name.
+#[test]
+fn a_pending_create_is_never_an_existing_vm_of_the_same_name() {
+    let mut fake = Fake::new(vec![
+        (
+            "list-machines",
+            vec![
+                listed(&[row("vm-old", "dev", "running"), row("vm-other", "dev", "running")]),
+                listed(&[
+                    row("vm-old", "dev", "paused"),
+                    row("vm-other", "dev", "running"),
+                    row("vm-new", "dev", "running"),
+                ]),
+            ],
+        ),
+        ("machine-status", vec![status("dev", 4, 30)]),
+        ("pause-machine", vec![json!({})]),
+        ("new-machine", vec![json!({"pending": true})]),
+        ("kill-machine", vec![json!({})]),
+        ("set-idle-pause", vec![json!({})]),
+    ]);
+    let request = Redo { named: Some("vm-old".into()), confirm: true, ..Redo::default() };
+    let answer = redo(&mut fake, &request, None).unwrap();
+    assert_eq!(answer["machine_id"], "vm-new");
+    assert_eq!(fake.ran.last().unwrap()[3], "machine:vm-new");
+}
+
+/// Round 1 F4: an idle pause that was Off (0, persistent) is Off again (`--persistent`), and an older app's
+/// `idle_pause` diagnostics still count; a VM whose provider cannot pause stays running and is not resumed.
 #[test]
 fn an_idle_pause_that_was_off_stays_off() {
     let mut fake = Fake::new(vec![
@@ -273,13 +366,12 @@ fn an_idle_pause_that_was_off_stays_off() {
             "list-machines",
             vec![
                 listed(&[row("vm-old", "api", "running")]),
-                listed(&[row("vm-new", "api", "running")]),
+                listed(&[row("vm-old", "api", "running"), row("vm-new", "api", "running")]),
             ],
         ),
         ("machine-status", vec![status("api", 8, 0)]),
-        ("kill-machine", vec![json!({})]),
         ("new-machine", vec![json!({"machine_id": "vm-new"})]),
-        ("deliver-secrets", vec![json!({"status": "delivered", "delivered": []})]),
+        ("kill-machine", vec![json!({})]),
     ]);
     let request = Redo { confirm: true, ..Redo::default() };
     let answer = redo(&mut fake, &request, None).unwrap();
@@ -298,23 +390,24 @@ fn an_idle_pause_that_was_off_stays_off() {
         ])
     );
     assert!(!fake.verbs().contains(&"set-idle-pause".to_owned()));
+    assert!(!fake.verbs().contains(&"resume-machine".to_owned()));
 
-    let older = json!({"machine_id": "vm-old", "title": "api", "status": "running", "idle_pause": {"minutes": 60}});
+    let older = json!({"machine_id": "vm-old", "title": "api", "status": "paused", "idle_pause": {"minutes": 60}});
     let mut fake = Fake::new(vec![
         (
             "list-machines",
             vec![
-                listed(&[row("vm-old", "api", "running")]),
-                listed(&[row("vm-new", "api", "running")]),
+                listed(&[row("vm-old", "api", "paused")]),
+                listed(&[row("vm-old", "api", "paused"), row("vm-new", "api", "running")]),
             ],
         ),
         ("machine-status", vec![older]),
-        ("kill-machine", vec![json!({})]),
         ("new-machine", vec![json!({"machine_id": "vm-new"})]),
-        ("deliver-secrets", vec![json!({"status": "delivered", "delivered": []})]),
+        ("kill-machine", vec![json!({})]),
         ("set-idle-pause", vec![json!({})]),
     ]);
     let answer = redo(&mut fake, &request, None).unwrap();
     assert_eq!(answer["idle_pause_minutes"], 60);
+    assert!(!fake.verbs().contains(&"pause-machine".to_owned()));
     assert_eq!(fake.ran.last().unwrap()[5], "60");
 }
