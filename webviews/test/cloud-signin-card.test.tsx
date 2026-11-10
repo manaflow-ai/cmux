@@ -217,6 +217,10 @@ test("only an allowed provider page over https opens", () => {
   expect(signInURL("https://evil.example/?next=https://claude.ai")).toBeUndefined();
   expect(signInURL("javascript:alert(1)")).toBeUndefined();
   expect(signInURL(undefined)).toBeUndefined();
+  expect(signInURL("https://cursor.com/loginDeepControl?challenge=c")).toBe(
+    "https://cursor.com/loginDeepControl?challenge=c",
+  );
+  expect(signInURL("https://cursor.com.evil.example/login")).toBeUndefined();
 });
 
 test("each refusal reason has its own failure", () => {
@@ -256,6 +260,7 @@ test("the sign-in is offered only for a connected Cloud Claude or Codex chat on 
   };
   expect(cloudAgentLogin(base)?.agent).toBe("claude");
   expect(cloudAgentLogin({ ...base, harness: "codex" })?.agent).toBe("codex");
+  expect(cloudAgentLogin({ ...base, harness: "cursor" })?.agent).toBe("cursor");
   expect(cloudAgentLogin({ ...base, harness: "opencode" })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, machineID: undefined })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, connected: false })).toBeUndefined();
@@ -381,6 +386,40 @@ test("Codex: one click opens the page with its device code copied; after approva
   expect(intents).toHaveLength(1);
   expect(sent).toHaveLength(1);
   expect(sent[0]![4]).toBe("ticket-1");
+});
+
+// Cursor (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor subscription"): one Sign in
+// to Cursor and no Use an API key (its key is the Cloud secret CURSOR_API_KEY); the click opens its
+// cursor.com page, the card waits for the approve with no code, and Send again takes its own click.
+test("Cursor: one click opens its page, the card waits for the approve with no code, then Send again", async () => {
+  let approve!: (value: unknown) => void;
+  const opened: string[] = [];
+  const { client, calls, sent } = mockClient({
+    start: () => ({ loginId: "login-c", url: "https://cursor.com/loginDeepControl?challenge=c", needsCode: false }),
+    finish: () => new Promise((resolve) => (approve = resolve)),
+  });
+  const { signIn, intents } = signInFor(client, { harness: "cursor", opened });
+  await render(
+    { route: { name: "Cursor", harness: "cursor", hostKind: "cloud" }, cloudSignIn: signIn },
+    "Authentication required",
+  );
+  expect(button("Sign in to Cursor")).toBeDefined();
+  expect(button("Use an API key")).toBeUndefined();
+  await act(async () => button("Sign in to Cursor")!.click());
+  await flush();
+  await flush();
+  expect(opened).toEqual(["https://cursor.com/loginDeepControl?challenge=c"]);
+  expect(host.querySelector('[data-testid="cloud-signin-code"]')).toBeNull();
+  expect(host.textContent).toContain("Approve on the sign-in page; it finishes on its own.");
+  expect(calls).toContainEqual(["finish", "login-c", "chat-1", undefined]);
+  await act(async () => approve({ signedIn: true, restarted: true }));
+  await flush();
+  expect(intents).toEqual([]);
+  expect(sent).toEqual([]);
+  await act(async () => button("Send again")!.click());
+  await flush();
+  await flush();
+  expect(sent).toHaveLength(1);
 });
 
 // A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):

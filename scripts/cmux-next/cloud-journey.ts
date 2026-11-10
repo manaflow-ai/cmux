@@ -1689,7 +1689,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
   // Codex's login is its auth.json (a ChatGPT sign-in), as the app copies it; CODEX_AUTH_JSON for a real run.
   const codexLogin = modelStub ? stubCodexAuth() : (process.env.CODEX_AUTH_JSON || creds.CODEX_AUTH_JSON || "").trim();
-  const provider: "claude" | "codex" | undefined = agent === "claude" || agent === "codex" ? agent : undefined;
+  // `claude/claude-sonnet-5-5` is the claude harness on that model (`acp ensure -m`): the same login and lifecycle legs.
+  const harness = agent.split("/")[0];
+  const provider: "claude" | "codex" | undefined = harness === "claude" || harness === "codex" ? harness : undefined;
+  const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
   const probeOut = argValue("--probe-out", argv);
@@ -2289,6 +2292,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
+      // `--agent claude/MODEL`: the session must run the model asked for (the session record, not the reply's own
+      // words, which a model gets wrong about itself).
+      if (askedModel && !modelStub) {
+        await J.step("session model", async () => {
+          const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
+          const named = [...new Set(r.stdout.match(/claude-(?:opus|sonnet|haiku)[a-z0-9.-]*/g) ?? [])];
+          if (!named.length) return { value: null, detail: `asked ${askedModel}; the session record names no Claude model` };
+          if (!named.includes(askedModel)) throw new Error(`asked ${askedModel}; the session runs ${named.join(", ")}`);
+          return { value: null, detail: `asked ${askedModel}; the session runs ${named.join(", ")}` };
+        });
+      }
       if (modelStub && provider) {
         await J.step("stub: forwarded login and a tool round trip", async () => {
           const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);

@@ -122,8 +122,6 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
-    /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
-    public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]

@@ -150,6 +150,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cookie-sync/",
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",

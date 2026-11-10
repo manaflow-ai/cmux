@@ -482,7 +482,18 @@ export const PAGES = {
   // next to it. The pane's build splits it into locales/<code>.js (build-agent-pane-web.sh).
   agentPane: {
     out: "webviews/src/agent-session/acpmux/generated/strings.json",
-    catalogs: [{ file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" },
+      // An app section's failure row (apps/scene/SceneFailure.tsx) says what the native
+      // AppFailureNSView says: the app platform's own `apps.failure.` and Reload keys.
+      {
+        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
+          ),
+      },
+    ],
   },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {

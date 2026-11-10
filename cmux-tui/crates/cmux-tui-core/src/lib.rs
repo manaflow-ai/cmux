@@ -93,6 +93,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
 mod session_shutdown;
@@ -218,6 +219,7 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
+pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,

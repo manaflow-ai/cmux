@@ -47,7 +47,6 @@ public final class SettingsApplier {
         if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
-        if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
         if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
         if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
