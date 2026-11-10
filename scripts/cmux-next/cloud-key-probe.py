@@ -279,18 +279,36 @@ REFRESH = dict(SHAPES)["an OAuth refresh token"]
 assert all(re.search(r"_(KEY|TOKEN|JSON)\b|_TOKEN_", n) for n in KEY_NAMES), "a key name the prefilter misses"
 
 
+# A quote, backslash or slash escaped for a shell string or JSON (`\"`), and a JSON-escaped quote (`\u0022`).
+ESCAPED = re.compile(r'\\(["\'\\/])|\\u0022')
+
+
+def readings(text):
+    """`text` as written, and as a shell or a JSON parser reads it once each layer of escaping is taken off (up to
+    three): a login's JSON inside a shell string, its quotes written as backslash-quote, holds a refresh token's
+    field only once they are unescaped. Every detector checks each reading, so an escaped credential is found as a plain one."""
+    out = [text]
+    while "\\" in out[-1] and len(out) < 4:
+        nxt = ESCAPED.sub(lambda m: m.group(1) or '"', out[-1])
+        if nxt == out[-1]:
+            break
+        out.append(nxt)
+    return out
+
+
 def shape_kinds(text):
     """The kinds of key `text` holds by shape, skipping public stand-ins. Never the values. Every text the probe
     checks (an environment value, an argument, a file's line or chunk) goes through here, so a refresh token is
     recorded for redaction wherever it was found. So is every other value a shape matched: redaction then replaces it
     as plain text wherever it shows up, whatever surrounds it."""
     kinds = set()
-    for kind, pattern in SHAPES:
-        for m in pattern.finditer(text):
-            if PUBLIC_VALUE.search(m.group(0)):
-                continue
-            kinds.add(kind)
-            found(m.group(1) if pattern.groups else m.group(0))
+    for reading in readings(text):
+        for kind, pattern in SHAPES:
+            for m in pattern.finditer(reading):
+                if PUBLIC_VALUE.search(m.group(0)):
+                    continue
+                kinds.add(kind)
+                found(m.group(1) if pattern.groups else m.group(0))
     return kinds
 
 
@@ -386,10 +404,11 @@ def named_kinds(text):
     """The key names `text` gives a literal secret (an assignment, or a JSON field named after a key), each value
     recorded for redaction."""
     seen = set()
-    for m in ASSIGN.finditer(text):
-        if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
-            found(m.group(2))
-            seen.add(m.group(1).upper())
+    for reading in readings(text):
+        for m in ASSIGN.finditer(reading):
+            if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
+                found(m.group(2))
+                seen.add(m.group(1).upper())
     return seen
 
 
@@ -422,14 +441,16 @@ def context_kinds(text, line_end):
     and YAML put it there freely): matches that start before `line_end` in `text`, the line and what follows it.
     Each value is recorded for redaction."""
     seen = set()
-    for m in REFRESH.finditer(text):
-        if m.start() < line_end and not PUBLIC_VALUE.search(m.group(0)):
-            found(m.group(1))
-            seen.add("an OAuth refresh token")
-    for m in ASSIGN.finditer(text):
-        if m.start() < line_end and m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
-            found(m.group(2))
-            seen.add(m.group(1).upper())
+    # Each reading's own line end: taking escapes off shortens the line.
+    for reading, end in zip(readings(text), (len(r) for r in readings(text[:line_end]))):
+        for m in REFRESH.finditer(reading):
+            if m.start() < end and not PUBLIC_VALUE.search(m.group(0)):
+                found(m.group(1))
+                seen.add("an OAuth refresh token")
+        for m in ASSIGN.finditer(reading):
+            if m.start() < end and m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
+                found(m.group(2))
+                seen.add(m.group(1).upper())
     return seen
 
 

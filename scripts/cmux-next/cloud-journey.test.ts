@@ -1402,6 +1402,33 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("an escaped credential (a shell string's \\\" or JSON's \\u0022) is found as a plain one", () => {
+    const refresh = "Zq8Wn3Rt6Lp2Vx9Kb5Hj1Dm4Fc7Gs0Ya";
+    const named = "Qz7mRt2Kp9Vw4Xn8Lb3Hc6Jd1Fg5Ys0";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // What a shell restores to a plain JSON login when it sources the file.
+      "workspace/project/.env": `export CODEX_AUTH_JSON="{\\"tokens\\":{\\"refresh_token\\":\\"${refresh}\\"}}"\n`,
+      // A JSON string holding JSON, its quotes escaped twice over, and one written as \u0022.
+      "workspace/project/settings.json": `{"inner": "{\\\\\\"MISTRAL_API_KEY\\\\\\":\\\\\\"${named}A\\\\\\"}"}\n`,
+      "workspace/project/other.json": `{"cfg": "{\\u0022MISTRAL_API_KEY\\u0022:\\u0022${named}B\\u0022}"}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [refresh, `${named}A`, `${named}B`]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/.env:1: an OAuth refresh token",
+        "file /workspace/project/[a name].json:1: MISTRAL_API_KEY",
+        "file /workspace/project/settings.json:1: MISTRAL_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key's name across a binary file's 4 MiB reads counts, and a refresh token's field counts in installed software", () => {
     const opaque = "Wv4Nq8Rt2Lp6Zx9Kb3Hj7Dm5Fc1Gs0";
     const root = plant({
