@@ -2412,16 +2412,21 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     }
 }
 
+/// Prepared statements each registry connection keeps compiled
+/// (`Connection::prepare_cached`, least recently used out first). The journal
+/// append, hook and journal read paths run the same few dozen statements for
+/// every agent hook; compiling them each time was about a fifth of the
+/// daemon's SQLite time on that path. A statement costs a few KiB.
+pub(crate) const REGISTRY_STATEMENT_CACHE_CAPACITY: usize = 128;
+
 fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
     let path = sqlite_filesystem_path(path)?;
     #[cfg(windows)]
-    {
-        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
-    }
+    let connection = Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?;
     #[cfg(not(windows))]
-    {
-        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
-    }
+    let connection = Connection::open_with_flags(path.as_ref(), flags)?;
+    connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
+    Ok(connection)
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
@@ -2479,6 +2484,7 @@ impl WorkspaceRegistry {
 
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
+        connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
         Self::initialize(
             connection,
             session_name.to_string(),
