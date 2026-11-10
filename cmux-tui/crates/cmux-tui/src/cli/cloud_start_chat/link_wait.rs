@@ -74,8 +74,10 @@ pub(super) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
             &mut lines,
             &mut early,
         )?;
+        let before = got.last_seq;
         got.page(&page);
-        more = page.get("hasMore") == Some(&Value::Bool(true));
+        // A page that read nothing new (one record over the page's cap) would be asked again forever: the pushes go on.
+        more = page.get("hasMore") == Some(&Value::Bool(true)) && got.last_seq > before;
     }
     for line in early {
         if got.ended.is_none() {
@@ -126,6 +128,22 @@ fn next(lines: &mut BufReader<UnixStream>, deadline: Instant) -> Result<Option<V
     }
 }
 
+/// A record that ends a turn (as acpmux's own wait reads them, `acpmux/src/cli/steer_reply.rs`): `Some(None)` for a
+/// `turn_end`, `Some(Some(record's msg))` for a failed turn (a `turn_error`, or a `turn_result` whose status is
+/// `failed`: such a turn writes no `turn_end`).
+pub(super) fn turn_ended(record: &Value) -> Option<Option<&Value>> {
+    if record.get("dir").and_then(Value::as_str) != Some("mux") {
+        return None;
+    }
+    let msg = record.get("msg");
+    match record.get("kind").and_then(Value::as_str)? {
+        "turn_end" => Some(None),
+        "turn_error" => Some(Some(msg.unwrap_or(&Value::Null))),
+        "turn_result" if msg.and_then(|msg| msg.get("status")).and_then(Value::as_str) == Some("failed") => Some(msg),
+        _ => None,
+    }
+}
+
 /// The records after the caller's seq, each once.
 pub(super) struct Got {
     pub records: Vec<Value>,
@@ -164,8 +182,7 @@ impl Got {
         }
         self.last_seq = seq;
         self.records.push(record.clone());
-        let mux = record.get("dir").and_then(Value::as_str) == Some("mux");
-        if mux && record.get("kind").and_then(Value::as_str) == Some("turn_end") {
+        if turn_ended(record).is_some() {
             self.ended = Some("turn_end");
         } else if self.records.len() >= KEPT {
             self.ended = Some("more");
@@ -233,6 +250,32 @@ mod tests {
         assert_eq!(observe(&path, 7, 0, Duration::from_secs(5)).unwrap()["ended"], "permission");
         let (_dir, path) = daemon(&[ATTACH], json!({"events": [], "hasMore": false}), vec![]);
         assert_eq!(observe(&path, 7, 0, Duration::from_millis(200)).unwrap()["ended"], "timeout");
+    }
+
+    #[test]
+    fn a_failed_turn_ends_the_wait_without_a_turn_end() {
+        let record = |seq: u64, kind: &str, msg: Value| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": msg});
+        let page = json!({"events": [record(1, "user_message", json!({}))], "hasMore": false});
+        let pushed = vec![json!({"event": "agent-session-record", "surface": 7,
+                                 "record": record(2, "turn_error", json!({"error": "agent process closed"}))})];
+        let (_dir, path) = daemon(&[ATTACH], page, pushed);
+        let answer = observe(&path, 7, 0, Duration::from_secs(5)).unwrap();
+        assert_eq!((answer["ended"].as_str(), answer["last_seq"].as_u64()), (Some("turn_end"), Some(2)));
+        let failed = record(3, "turn_result", json!({"status": "failed", "error": "e"}));
+        assert_eq!(turn_ended(&failed), Some(Some(&json!({"status": "failed", "error": "e"}))));
+        assert_eq!(turn_ended(&record(3, "turn_result", json!({"status": "completed"}))), None);
+    }
+
+    #[test]
+    fn pages_follow_the_attach_and_pushes_during_them_are_kept() {
+        let record = |seq: u64, kind: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {}});
+        // The attach answers one page with more; the fake's events answer is empty with no more, then the pushes.
+        let page = json!({"events": [record(1, "user_message")], "hasMore": true});
+        let pushed = vec![json!({"event": "agent-session-record", "surface": 7, "record": record(2, "turn_end")})];
+        let (_dir, path) = daemon(&[ATTACH], page, pushed);
+        let answer = observe(&path, 7, 0, Duration::from_secs(5)).unwrap();
+        assert_eq!(answer["ended"], "turn_end", "the push that came while the page was asked ends the wait");
+        assert_eq!(answer["last_seq"], 2);
     }
 
     #[test]

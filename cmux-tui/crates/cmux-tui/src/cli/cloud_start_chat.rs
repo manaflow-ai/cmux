@@ -1192,6 +1192,8 @@ fn steps(
         "session_id": session,
         "workspace_id": at(&started, "workspace_id"),
         "tab_id": at(&started, "tab_id"),
+        // The tab's surface on the machine's daemon: the pushed wait attaches to it (`pushed_turn`).
+        "surface_id": at(&started, "surface_id"),
         "host": at(&started, "host"),
         "agent": request.agent,
         "follow_up": follow_ups(machine_id, session),
@@ -1450,6 +1452,8 @@ struct PushedTurn {
     seq: u64,
     first_output_ms: Option<u64>,
     turn_ms: Option<u64>,
+    /// A failed turn's record (`turn_error`, or a failed `turn_result`): its `msg`.
+    failure: Option<Value>,
 }
 
 impl PushedTurn {
@@ -1468,12 +1472,12 @@ impl PushedTurn {
             if first_at.is_none() && prompt_at.is_some() && dir == Some("in") && is_agent_output(record) {
                 first_at = at;
             }
-            if dir == Some("mux") && kind == Some("turn_end") {
-                end = Some((record.get("seq").and_then(Value::as_u64).unwrap_or(0), at));
+            if let Some(failure) = link_wait::turn_ended(record) {
+                end = Some((record.get("seq").and_then(Value::as_u64).unwrap_or(0), at, failure.cloned()));
                 break;
             }
         }
-        let (seq, end_at) = end?;
+        let (seq, end_at, failure) = end?;
         let stop = transcript.items.iter().rev().find_map(|item| match item {
             acpmux::transcript::Item::TurnEnd { stop } => Some(stop.clone()),
             _ => None,
@@ -1483,7 +1487,8 @@ impl PushedTurn {
             _ => None,
         });
         let since = |to: Option<u64>| prompt_at.zip(to).map(|(from, to)| to.saturating_sub(from));
-        Some(Self { stop: stop.unwrap_or_else(|| "end_turn".to_owned()), reply, seq, first_output_ms: since(first_at), turn_ms: since(end_at) })
+        let stop = if failure.is_some() { "failed".to_owned() } else { stop.unwrap_or_else(|| "end_turn".to_owned()) };
+        Some(Self { stop, reply, seq, first_output_ms: since(first_at), turn_ms: since(end_at), failure })
     }
 
     fn outcome(self, mut answer: Value) -> Outcome {
@@ -1492,6 +1497,22 @@ impl PushedTurn {
         answer.set("wait_route", json!("link"));
         // Felt time on the machine's clock: the prompt to the agent's first output, and to the turn's end.
         answer.set("turn_ms", json!({"first_output": self.first_output_ms, "end": self.turn_ms}));
+        if let Some(failure) = self.failure {
+            // The agent's own error, typed as acpmux types it (`errorKind`, `recovery`) when it is.
+            let message = failure.get("error").and_then(Value::as_str).unwrap_or("the turn failed").to_owned();
+            for key in ["errorKind", "recovery", "code"] {
+                if let Some(value) = failure.get(key) {
+                    answer.set(key, value.clone());
+                }
+            }
+            if let Some(text) = self.reply {
+                answer.set("reply", json!(text));
+            }
+            return Outcome::Failed {
+                error: json!({"code": "chat.turn_failed", "message": message, "details": answer, "retryable": false}),
+                exit: 1,
+            };
+        }
         let Some(text) = self.reply else {
             return failed(
                 "chat.read_failed",
