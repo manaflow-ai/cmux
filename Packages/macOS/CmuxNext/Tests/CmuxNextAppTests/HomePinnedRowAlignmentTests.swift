@@ -84,8 +84,8 @@ import Testing
         list.convert(NSPoint(x: value, y: 0), from: view).x
     }
 
-    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts, centered
-    /// on its column (`SidebarIconColumnTests` checks the centers; Leo 2026-10-28: "the alignment").
+    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts (Leo
+    /// 2026-10-28: "the alignment").
     @Test(arguments: cases)
     func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -105,11 +105,11 @@ import Testing
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
-    /// house. Each started its ink at the row inset, so the narrow pin's center sat left of the house's. Home's row and a
-    /// pinned row share one fixed-width icon column (one x, one width), and each glyph's ink centers in it, at every
-    /// density, minimal mode, width and text size.
+    /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and each glyph's ink
+    /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
+    /// aligned with 'Fix…'"), at every density, minimal mode, width and text size.
     @Test(arguments: cases)
-    func homesGlyphAndThePinCenterInOneIconColumn(_ c: Case) throws {
+    func homesGlyphAndThePinStartOnOneEdge(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
@@ -121,12 +121,14 @@ import Testing
                     "\(c.testDescription): Home's icon column \(homeColumn.minX) + \(homeColumn.width), the pinned row's \(pinColumn.minX) + \(pinColumn.width)")
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
-            #expect(abs(homeInk.midX - homeColumn.midX) <= Self.tolerance,
-                    "\(c.testDescription): Home's glyph centers at \(homeInk.midX), its icon column at \(homeColumn.midX)")
-            #expect(abs(pinInk.midX - pinColumn.midX) <= Self.tolerance,
-                    "\(c.testDescription): the pin centers at \(pinInk.midX), its icon column at \(pinColumn.midX)")
-            #expect(abs(homeInk.midX - pinInk.midX) <= Self.tolerance,
-                    "\(c.testDescription): Home's glyph centers at \(homeInk.midX), the pin at \(pinInk.midX)")
+            let loose = try Self.row(list, Self.loose)
+            let titleX = Self.x(list, loose.title.frame.minX, in: loose)
+            for (name, ink) in [("Home's glyph", homeInk), ("the pin", pinInk)] {
+                #expect(abs(ink.minX - homeColumn.minX) <= Self.tolerance,
+                        "\(c.testDescription): \(name) starts at \(ink.minX), its icon column at \(homeColumn.minX)")
+                #expect(abs(ink.minX - titleX) <= Self.tolerance,
+                        "\(c.testDescription): \(name) starts at \(ink.minX), a text-only title at \(titleX)")
+            }
         }
     }
 
