@@ -5,14 +5,15 @@ import Testing
 /// The Release login copy's remote off switch (Leo, 2026-11-02: "A remote off switch, so if Anthropic
 /// objects we turn it off for everyone within minutes"). It fails closed.
 @Suite struct CloudHarnessLoginCopySwitchTests {
-    @Test func theRoutesAnswerDecodesPlainOrWrapped() throws {
-        let plain = try CloudOwnerAPIClient.decodeHarnessLoginCopy(Data(#"{"enabled":true,"ttlSeconds":120}"#.utf8))
-        #expect(plain == .init(enabled: true, ttlSeconds: 120))
-        let wrapped = try CloudOwnerAPIClient.decodeHarnessLoginCopy(Data(#"{"ok":true,"value":{"enabled":false,"ttlSeconds":60}}"#.utf8))
-        #expect(wrapped == .init(enabled: false, ttlSeconds: 60))
-        // A ttl longer than five minutes is cut to five: the switch always takes effect within that.
-        #expect(try CloudOwnerAPIClient.decodeHarnessLoginCopy(Data(#"{"enabled":true,"ttlSeconds":86400}"#.utf8)).ttlSeconds == 300)
-        #expect(throws: (any Error).self) { try CloudOwnerAPIClient.decodeHarnessLoginCopy(Data(#"{"enabled":"yes"}"#.utf8)) }
+    /// The answer (read and clamped to five minutes by cmux-cloud-machine `harness_copy::read`) is the daemon's.
+    @Test func theSwitchIsTheDaemonsOwnerRead() async throws {
+        let fake = CloudDaemonFake { _, _ in CloudDaemonFake.read(#"{"enabled":true,"ttlSeconds":120}"#) }
+        let owner = CloudOwnerAPIClient(baseURL: try #require(URL(string: "https://api.invalid")), accessToken: { "access" },
+                                        teamID: { "team_1" }, daemon: fake.daemon)
+        #expect(try await owner.harnessLoginCopy() == .init(enabled: true, ttlSeconds: 120))
+        #expect(fake.sent.map(\.operation) == ["cloud.owner.harness_login_copy"])
+        #expect(fake.sent.first?.params["auth"] as? String == "owner")
+        #expect(fake.sent.first?.params["team"] as? String == "team_1")
     }
 
     @Test func neverReadOrStaleIsOff() {
