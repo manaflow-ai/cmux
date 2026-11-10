@@ -34,6 +34,22 @@ impl Mux {
         *self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()) = hook;
     }
 
+    /// The next `count` hosted readers' frame demultiplexers fail to start,
+    /// as a failed socket clone or thread spawn does.
+    #[cfg(test)]
+    pub(crate) fn fail_host_frames_spawns_for_test(&self, count: u64) {
+        self.host_frames_spawn_failures.store(count, Ordering::Release);
+    }
+
+    /// Whether this frame demultiplexer start fails
+    /// ([`Self::fail_host_frames_spawns_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn take_host_frames_spawn_failure_for_test(&self) -> bool {
+        self.host_frames_spawn_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .is_ok()
+    }
+
     #[cfg(test)]
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics

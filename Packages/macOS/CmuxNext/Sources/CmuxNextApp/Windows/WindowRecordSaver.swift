@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -39,7 +40,9 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
+    private var selectedTabsCache: [String: TabSelectionRecord] = [:]
+    /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
+    var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -195,7 +198,7 @@ final class WindowRecordSaver {
                                           // full screen only for a page's fullscreen is not the window's own
                                           && controller?.pagePresentation?.entersWindowFullScreen != true)
                                           || states[window.id]?.restoresFullScreen == true,
-                                      selectedTabs: selectedTabs(window: window), machines: manager.seenMachine)
+                                      selectedTabs: selectedTabs(window: window, in: value), machines: manager.seenMachine)
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
             record?.focusedPanes = focusedPanes(window: window)
             return record
@@ -212,22 +215,14 @@ final class WindowRecordSaver {
         return panes.filter { listed.contains($0.key) }
     }
 
-    /// Remembered tab per pane across the window's workspaces, read again only when an input moved
-    /// (its tab memory, its workspaces, a daemon batch): a save after a switch reads no pane.
-    private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
-        guard let state = manager.states[window.id] else { return [:] }
-        let key = SelectedTabsKey(selection: state.selection.revision, workspaces: window.workspaceIDs,
-                                  batches: services.machines.daemons.map(\.store.appliedSequence))
-        if let cached = selectedTabsCache[window.id], cached.key == key { return cached.tabs }
-        var selected: [String: String] = [:]
-        for id in window.workspaceIDs {
-            for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
-                if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
-            }
-        }
-        selectedTabsCache[window.id] = (key, selected)
-        return selected
+    /// Remembered tab per pane across the window's workspaces, kept between saves (`TabSelectionRecord`): a save
+    /// after a switch reads no pane.
+    private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry) -> [String: String] {
+        guard let memory = manager.states[window.id]?.selection else { return [:] }
+        return selectedTabsCache[window.id, default: TabSelectionRecord()].tabs(
+            of: memory, workspaces: window.workspaceIDs, stores: services.machines.daemons.map(\.store),
+            workspace: { services.workspace(id: $0) },
+            // The registry names the first window that lists a workspace: this one's list only for another's.
+            lists: { registry.owner(of: $0) == window.id || window.workspaceIDs.contains($0) })
     }
 }
-
-private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], batches: [UInt64] }

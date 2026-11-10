@@ -416,38 +416,32 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
-/// Every action the app's catalog marks `waitsForPerson = true` gets the
-/// person deadline here too: the CLI must not give up before the app does.
+/// Every action the app's catalog marks `waitsForPerson` gets the person deadline here too: the
+/// CLI must not give up before the app does. Read from the catalog's dump, which the app's and
+/// cmux-action-catalog's tests both check against the catalog the app reads.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
-    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let dump =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plans/cmux-next/action-catalog.json");
+    let Ok(text) = std::fs::read_to_string(&dump) else { return };
+    let catalog: Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
     let mut checked = 0;
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
-            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
-            let variable = line.trim().split('.').next().unwrap_or_default();
-            let declared = format!("var {variable} = ActionDescriptor(");
-            let Some(start) = text.find(&declared) else { continue };
-            let body = &text[start..];
-            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
-            for key in ["id: \"", "cliName: \""] {
-                if let Some(at) = body.find(key) {
-                    let name = &body[at + key.len()..];
-                    let name = &name[..name.find('"').unwrap_or(0)];
-                    assert_eq!(
-                        waiting_run_timeout(name),
-                        PERSON_RUN_TIMEOUT,
-                        "{name} waits for a person in the app"
-                    );
-                    checked += 1;
-                }
+    for action in catalog["actions"].as_array().into_iter().flatten() {
+        if action["waitsForPerson"] != Value::Bool(true) {
+            continue;
+        }
+        for key in ["id", "cliName"] {
+            if let Some(name) = action[key].as_str() {
+                assert_eq!(
+                    waiting_run_timeout(name),
+                    PERSON_RUN_TIMEOUT,
+                    "{name} waits for a person in the app"
+                );
+                checked += 1;
             }
         }
     }
-    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+    assert!(checked > 0, "no waitsForPerson action found in {}", dump.display());
 }
 
 /// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
@@ -508,10 +502,14 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
     assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
     assert!(!retry_before_running(&json!({ "code": "busy" })));
-    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
-    // are asked again too; one that may have started is not.
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon
+    // (`state: not_run`), are asked again too; one that may have started is not, and neither is
+    // an `unavailable` the app decided (`refusal_tests.rs`).
     assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
-    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(retry_before_running(
+        &json!({ "code": "unavailable", "data": { "not_run": true, "state": "not_run" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
     assert!(!retry_before_running(
         &json!({ "code": "timeout", "data": { "state": "in_progress" } })
     ));
@@ -1147,6 +1145,12 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
             json!({ "path": "a.b", "confirm": true }),
         ),
         (&["settings", "unset", "a.b"][..], "settings.unset", json!({ "path": "a.b" })),
+        // `--yes` is the CLI's confirm word; `--confirm` is its old spelling.
+        (
+            &["settings", "reset", "a.b", "--yes"][..],
+            "settings.reset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
     ];
     for (words, method, params) in cases {
         let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
@@ -1154,7 +1158,7 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
     }
     assert!(parse(&args(&["settings", "set", "a.b"])).is_err());
     assert!(parse(&args(&["settings", "reset"])).is_err());
-    assert!(parse(&args(&["settings", "reset", "a.b", "--yes"])).is_err());
+    assert!(parse(&args(&["settings", "reset", "a.b", "--yeah"])).is_err());
 }
 
 /// RED: a user-only key the app refuses (`setting_user_only`) ends the
@@ -1756,6 +1760,9 @@ fn page_verbs_send_the_caller() {
 #[path = "right_tests.rs"]
 mod right;
 
+#[path = "refusal_tests.rs"]
+mod refusal;
+
 #[test]
 fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
     use super::run::safe_to_resend;
@@ -2065,7 +2072,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
     // Never accepted: the request and the `ping` wait in the backlog and nothing answers.
     let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let mut stream = UnixStream::connect(&socket).unwrap();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let answer = request(&mut stream, "system.identify", json!({}), Duration::from_millis(200));
     assert_eq!(answer, Err(wait::timeout_message(Duration::from_millis(200))));
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
@@ -2076,7 +2083,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
 #[test]
 fn a_not_run_refusal_is_retried_inside_the_cli() {
     let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+        "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 1 } } });
     let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
     let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
     let mut stream = connect(&socket).unwrap();
@@ -2090,6 +2097,111 @@ fn a_not_run_refusal_is_retried_inside_the_cli() {
     let connections = app.join().unwrap();
     assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
     assert_eq!(connections[0].len(), 3, "{connections:?}");
+}
+
+/// An app whose daemon connection takes 5 s to come back (every answer until then `unavailable`, `not_run`):
+/// the CLI asks again, with backoff, until the request's deadline, and the caller gets the answer. Five fixed
+/// tries (about 3 s) failed this slow-but-working daemon.
+#[test]
+fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-slow");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let back_after = Duration::from_secs(5);
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked, mut first) = (String::new(), 0, None);
+        while reader.read_line(&mut line).unwrap() > 0 {
+            line.clear();
+            asked += 1;
+            let since = *first.get_or_insert_with(Instant::now);
+            let answer = if since.elapsed() < back_after {
+                json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                    "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 100 } } })
+            } else {
+                json!({ "id": 1, "ok": true, "result": { "machines": [] } })
+            };
+            writeln!(writer, "{answer}").unwrap();
+            if answer["ok"] == true {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let started = Instant::now();
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
+    let took = started.elapsed();
+    drop(stream);
+    let asked = app.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["machines"], json!([]), "asked {asked} times in {took:?}");
+    // The retry behaviour, not a wall-clock window a loaded runner can miss: the app was asked again until it
+    // answered (more than the old five tries), and never before its 5 s were up.
+    assert!(took >= back_after, "{took:?}");
+    assert!(asked > 6, "more than the old five retries: {asked}");
+}
+
+/// A caller with its own short budget (an MCP tool call) keeps it: a refusal that never passes ends at that
+/// budget, not at the 30 s a person's command waits.
+#[test]
+fn a_short_caller_keeps_its_own_deadline() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-short");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked) = (String::new(), 0);
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            line.clear();
+            asked += 1;
+            let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 50 } } });
+            if writeln!(writer, "{refused}").is_err() {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let budget = Duration::from_millis(600);
+    let answer = request_with_retry_within(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        budget,
+    );
+    drop(stream);
+    let asked = app.join().unwrap();
+    let refusal = answer.unwrap().unwrap_err();
+    assert_eq!(refusal["code"], "unavailable", "{refusal}");
+    // Asked again within the budget, then the refusal is the answer: named, and far short of the 30 s floor.
+    assert!(asked > 1, "{asked}");
+    let waited = refusal["data"]["not_run_waited_ms"].as_u64().unwrap();
+    assert!(u128::from(waited) < run::NOT_RUN_DEADLINE_FLOOR.as_millis() / 2, "{refusal}");
+}
+
+/// A refusal that says nothing ran and never passes is answered at the request's deadline, never held past it.
+#[test]
+fn a_not_run_refusal_that_never_passes_ends_at_the_deadline() {
+    assert_eq!(run::not_run_deadline(None), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(READ_TIMEOUT)), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(WAITING_RUN_TIMEOUT)), WAITING_RUN_TIMEOUT);
+    let refused = json!({ "code": "busy", "data": { "not_run": true, "retry_after_ms": 100 } });
+    let waits: Vec<u128> = (0..6).map(|n| run::retry_wait(&refused, n).as_millis()).collect();
+    assert_eq!(waits, [100, 200, 400, 800, 1600, 2000]);
 }
 
 /// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
@@ -2113,4 +2225,52 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
     assert_eq!(open["action"], "cloud open-machine");
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
+}
+
+/// A reply that trickles in a byte at a time, each inside the read window, still ends at the
+/// request's deadline: every socket read gets only what is left of it, not a fresh window.
+#[test]
+fn a_reply_sent_in_chunks_ends_at_the_deadline() {
+    let (reader, mut writer) = UnixStream::pair().unwrap();
+    let sender = std::thread::spawn(move || {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(30));
+            if writer.write_all(b" ").is_err() {
+                return;
+            }
+        }
+        let _ = writer.write_all(b"{\"id\":1,\"ok\":true,\"result\":{}}\n");
+    });
+    let started = Instant::now();
+    let deadline = Some(started + Duration::from_millis(300));
+    let answer =
+        read_reply(&reader, "slow.get", Some(Duration::from_millis(100)), deadline, |_, _| true);
+    let waited = started.elapsed();
+    drop(reader);
+    sender.join().unwrap();
+
+    assert_eq!(answer, Ok(Err(deadline_passed("slow.get"))));
+    assert!(waited < Duration::from_millis(700), "{waited:?}");
+}
+
+/// The liveness ping is held to the request's deadline: it gets what is left, not a whole read
+/// window, and one that ends past the deadline gives the deadline refusal, not a transport error.
+#[test]
+fn the_ping_gets_only_what_is_left_of_the_deadline() {
+    let (reader, _writer) = UnixStream::pair().unwrap();
+    let windows = std::cell::RefCell::new(Vec::new());
+    let started = Instant::now();
+    let deadline = Some(started + Duration::from_millis(300));
+    let answer =
+        read_reply(&reader, "slow.get", Some(Duration::from_millis(200)), deadline, |_, window| {
+            windows.borrow_mut().push(window);
+            // A probe that takes its whole window and a little more, then finds nobody.
+            std::thread::sleep(window + Duration::from_millis(20));
+            false
+        });
+
+    assert_eq!(answer, Ok(Err(deadline_passed("slow.get"))));
+    let windows = windows.into_inner();
+    assert_eq!(windows.len(), 1, "{windows:?}");
+    assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }

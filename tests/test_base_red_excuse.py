@@ -58,6 +58,17 @@ def log(job, step, *lines):
     return "\n".join(f"{job}\t{step}\t2026-10-07T02:10:37.8032610Z {line}" for line in lines)
 
 
+def status_answer(route, statuses):
+    """A commit's statuses as GitHub answers ROUTE: the statuses list (newest first, each naming who posted it; the
+    one compile status poster unless a status names another) or the combined status (no creator)."""
+    statuses = copy.deepcopy(statuses)
+    if "/statuses" in route:
+        if not route.endswith("&page=1"):  # one page here: every later page is empty
+            return []
+        return [{"creator": dict(excuse.COMPILE_STATUS_POSTER), **status} for status in statuses]
+    return {"statuses": [{key: value for key, value in status.items() if key != "creator"} for status in statuses]}
+
+
 def failed_job(job_id, run_id, sha, name=SWIFT, step=TEST_STEP):
     return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name, "status": "completed",
             "conclusion": "failure", "steps": [
@@ -211,6 +222,95 @@ class JobListPages(unittest.TestCase):
         self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
 
 
+QUOTA_TEXT = ("API rate limit exceeded for installation ID 1. If you reach out to GitHub Support for help, please "
+              "include the request ID ABCD and timestamp 2026-11-10 06:00:00 UTC. " + "x" * 300)
+
+
+class StrBaseRunsGitHub(FakeGitHub):
+    """FakeGitHub whose list of a workflow's base runs comes back as a str, as it did while the REST quota was spent."""
+
+    def json(self, route, *, paginate=False):
+        if "/actions/workflows/7/runs?" in route:
+            self.routes.append(route)
+            return QUOTA_TEXT
+        return super().json(route, paginate=paginate)
+
+
+class UnreadShape(unittest.TestCase):
+    """2026-11-10: merge_hold refused cmux#39676 at 9be3f014 with a traceback, not a reason: list_base_runs read a
+    workflow's base runs while the REST quota was spent, the answer was a str, and `listed.get("workflow_runs")` raised
+    AttributeError. Every json read that is not a JSON object or list is now Refused as unread, naming what came back."""
+
+    def assert_unread(self, error, route):
+        said = str(error.exception)
+        self.assertIn(f"GitHub's answer to {route}", said)
+        self.assertIn("could not be read: " + QUOTA_TEXT[:excuse.SHAPE_CHARS], said)
+        self.assertNotIn(QUOTA_TEXT[:excuse.SHAPE_CHARS + 1], said)  # the first 200 characters only
+
+    def test_a_str_base_run_list_refuses_the_judge_with_a_reason(self):
+        github = StrBaseRunsGitHub()
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("could not be read: API rate limit exceeded", str(error.exception))
+
+    def test_main_reports_a_str_answer_as_not_excused(self):
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", StrBaseRunsGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 1)
+        self.assertIn("not excused: ", err.getvalue())
+        self.assertIn("could not be read: API rate limit exceeded", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+
+    def test_every_json_read_through_the_judges_reader_is_checked(self):
+        class Answers:
+            def __init__(self, found):
+                self.found = found
+
+            def json(self, route, *, paginate=False):
+                return self.found
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page=100"
+        for found, paginate in ((QUOTA_TEXT, False), (QUOTA_TEXT, True), ([{"check_runs": []}, QUOTA_TEXT], True)):
+            with self.subTest(found=str(found)[:20], paginate=paginate), self.assertRaises(excuse.Refused) as error:
+                excuse.rate_limit_aware(Answers(found)).json(route, paginate=paginate)
+            self.assert_unread(error, route)
+        # An object, a list, and a fake's None (nothing) still read as they did.
+        for found in ({"workflow_runs": []}, [], None, [{"check_runs": []}]):
+            self.assertEqual(excuse.rate_limit_aware(Answers(found)).json(route, paginate=True), found)
+
+    def test_list_base_runs_reads_a_str_as_unread(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page={excuse.BASE_RUNS_PAGE}"
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.list_base_runs(REPO, "feat-cmux-next", 7, excuse.rate_limit_aware(StrBaseRunsGitHub()), {})
+        self.assert_unread(error, route)
+
+    def reader(self, answers):
+        github = excuse.GitHub()
+        github.run = lambda args: answers.pop(0)
+        return github
+
+    def test_the_real_client_refuses_a_json_str_or_text_that_is_not_json(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page=100"
+        for said in (json.dumps(QUOTA_TEXT), QUOTA_TEXT, "null", "3"):
+            with self.subTest(said=said[:20]), self.assertRaises(excuse.Refused) as error:
+                self.reader([said]).json(route)
+            self.assertIn(f"GitHub's answer to {route} could not be read: ", str(error.exception))
+            if said.startswith(("\"", "A")):
+                self.assert_unread(error, route)
+        self.assertEqual(self.reader(['{"workflow_runs": []}']).json(route), {"workflow_runs": []})
+
+    def test_the_real_client_checks_each_page_before_the_pager_reads_it(self):
+        # A projected read (a run's jobs) and a whole one (a commit's check runs), paginated: a str page is unread,
+        # never the pager's TypeError.
+        for route in (f"repos/{REPO}/actions/runs/42/jobs?filter=all&per_page=100",
+                      f"repos/{REPO}/commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            with self.subTest(route=route), self.assertRaises(excuse.Refused) as error:
+                self.reader([json.dumps(QUOTA_TEXT)]).json(route, paginate=True)
+            self.assertIn("could not be read: " + QUOTA_TEXT[:excuse.SHAPE_CHARS], str(error.exception))
+
+
 class LastRealAttemptGitHub(FakeGitHub):
     """Head run 10 of cmux#35906 at e1d1894a (run 41931705470): attempt 1 ran and failed, then each later attempt
     in ATTEMPTS ran the jobs it lists, [] for one that ended in startup_failure with no jobs. GitHub's latest-attempt
@@ -243,7 +343,7 @@ class LastRealAttemptGitHub(FakeGitHub):
             return [{"check_runs": [self.check(job) for job in shown]}]
         if f"/commits/{HEAD}/status" in route:
             self.routes.append(route)
-            return {"statuses": []}
+            return status_answer(route, [])
         if f"actions/runs?head_sha={HEAD}" in route:
             self.routes.append(route)
             return {"workflow_runs": []}
@@ -3527,8 +3627,8 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         def json(self, route, *, paginate=False):
             if f"/commits/{HEAD}/check-runs" in route:
                 return [{"check_runs": copy.deepcopy(self.check_runs)}]
-            if route.endswith(f"/commits/{HEAD}/status"):
-                return {"statuses": copy.deepcopy(self.statuses)}
+            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100&page=1")):
+                return status_answer(route, self.statuses)
             if "/actions/jobs/" in route:
                 return copy.deepcopy(self.actions_jobs[int(route.rsplit("/", 1)[1])])
             return super().json(route, paginate=paginate)
@@ -3628,6 +3728,45 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     def test_no_verdict_is_ignored_when_cmux_next_compile_succeeded_at_the_head(self):
         self.gh.statuses = [{"context": "cmux-next/compile", "state": "success"}]
         self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
+
+    FALLBACK = {"context": "cmux-next/compile", "state": "success",
+                "description": "The app compiled and linked in SwiftPM Release (-Onone); fallback compile, controller down"}
+    LANE = {"login": "some-lane", "id": 1234, "type": "User"}
+
+    def test_a_look_alike_compile_status_from_anyone_but_its_poster_is_not_a_pass(self):
+        """Anyone who can write statuses here can post a cmux-next/compile success. Only its one poster's counts
+        (COMPILE_STATUS_POSTER): a lane's or a person's look-alike, or another App's, leaves the head uncompiled."""
+        for creator in (self.LANE, {**excuse.COMPILE_STATUS_POSTER, "id": 1}, {**excuse.COMPILE_STATUS_POSTER,
+                        "login": "cmux-bot"}, {**excuse.COMPILE_STATUS_POSTER, "type": "User"}, None):
+            with self.subTest(creator=creator):
+                self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
+                    self.judge()
+
+    def test_a_look_alike_newer_than_the_posters_red_does_not_hide_it(self):
+        """GitHub's combined status shows the newest per context, so a forged success posted after the poster's own
+        no-verdict reads as success there. The gate takes the newest of its poster's, which did not pass."""
+        self.gh.statuses = [{**self.FALLBACK, "creator": self.LANE},
+                            {"context": "cmux-next/compile", "state": "failure",
+                             "description": "No compile result for this head in 40 minutes"}]
+        with self.assertRaisesRegex(excuse.Refused, "nothing else compiled"):
+            self.judge()
+
+    def test_the_fallback_compile_status_passes_with_the_receipts_host_down(self):
+        """2026-11-10: with the controller off the receipts host answered HTTP 530 for every commit, and the fallback
+        compile's verdict reached the gate only as its poster's cmux-next/compile success. That is a pass at the head
+        whatever the receipts host says; it is read before the receipt."""
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        with unittest.mock.patch.object(excuse, "compile_receipt", down):
+            self.gh.statuses = [self.FALLBACK]
+            self.assertIn("ignored 'cmux-next fleet Release compile': it gave no compile verdict, but the "
+                          "cmux-next/compile status compiled", "\n".join(self.judge()))
+            # The look-alike is skipped, so the gate reads the receipt, which is down: no pass.
+            self.gh.statuses = [{**self.FALLBACK, "creator": self.LANE}]
+            with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
+                self.judge()
 
     def test_another_job_printing_the_marker_is_never_set_aside(self):
         """Only the compile jobs that can end without a verdict are set aside by a compile pass; any other
@@ -3831,9 +3970,10 @@ class InheritedCompileRed(unittest.TestCase):
             if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
                 self.gh.routes.append(route)
                 return [{"check_runs": []}]
-            if route.endswith(f"commits/{self.PR_HEAD}/status?per_page=100"):
+            if route.endswith((f"commits/{self.PR_HEAD}/status?per_page=100",
+                               f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 self.gh.routes.append(route)
-                return {"statuses": [copy.deepcopy(self.status)]}
+                return status_answer(route, [self.status])
             return original(route, paginate=paginate)
 
         self.gh.json = json
@@ -3889,6 +4029,260 @@ class InheritedCompileRed(unittest.TestCase):
         with unittest.mock.patch.object(excuse, "compile_receipt", unread):
             with self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
                 self.judge_status()
+
+
+class ReceiptDownGitHubDecides(unittest.TestCase):
+    """2026-11-10: the fleet controller was off and its receipts host answered HTTP 530 for every commit, so every
+    compile red inherited_compile_red judged was refused on the unread receipt and the landing queue stopped on one
+    service. While the host is unreachable, GitHub decides (github_compile_red): the head's cmux-next/compile fail is
+    the base's only when the merge-base (or the newest base commit with one completed) fails the same way."""
+
+    PR_HEAD = InheritedCompileRed.PR_HEAD
+    MERGE_BASE = InheritedCompileRed.MERGE_BASE
+    TIP = InheritedCompileRed.TIP
+    OLDER = "c" * 40
+    FAIL = "The app did not compile in SwiftPM Release (-Onone); see the log"
+
+    def setUp(self):
+        self.statuses = {self.PR_HEAD: ("failure", self.FAIL), self.MERGE_BASE: ("failure", self.FAIL)}
+        self.gh = FakeGitHub()
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{self.PR_HEAD}" in route:
+                self.gh.routes.append(route)
+                return {"merge_base_commit": {"sha": self.MERGE_BASE}, "base_commit": {"sha": self.TIP}}
+            if f"commits?sha=feat-cmux-next&per_page={excuse.BASE_STATUS_COMMITS}" in route:
+                self.gh.routes.append(route)
+                return [{"sha": self.TIP}, {"sha": self.MERGE_BASE}, {"sha": self.OLDER}]
+            for sha in (self.PR_HEAD, self.MERGE_BASE, self.TIP, self.OLDER):
+                if route.endswith((f"commits/{sha}/status?per_page=100", f"commits/{sha}/status",
+                                   f"commits/{sha}/statuses?per_page=100&page=1")):
+                    self.gh.routes.append(route)
+                    found = self.statuses.get(sha)
+                    return status_answer(route, [] if found is None else [
+                        {"context": "cmux-next/compile", "state": found[0], "description": found[1],
+                         "target_url": InheritedCompileRed.SOURCE_RUN, **dict(found[2:])}])
+            if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": []}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        patch = unittest.mock.patch.object(excuse, "compile_receipt", down)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            try:
+                return "\n".join(excuse.judge(REPO, "feat-cmux-next", self.PR_HEAD, [], self.gh,
+                                               checks=["cmux-next/compile"])), stderr.getvalue()
+            finally:
+                self.log = stderr.getvalue()
+
+    def test_receipt_down_and_a_look_alike_red_on_base_excuses_nothing(self):
+        """A red on the merge-base excuses the head's same red. A look-alike there, by anyone but the poster, is no
+        base verdict: the gate reads the poster's newest, and with none it can't compare."""
+        lane = ("creator", {"login": "some-lane", "id": 1234, "type": "User"})
+        self.statuses[self.MERGE_BASE] = ("failure", self.FAIL, lane)
+        with self.assertRaisesRegex(excuse.Refused, "neither path can decide"):
+            self.judge()
+
+    def test_receipt_down_and_a_flood_of_statuses_never_hides_the_merge_base_verdict(self):
+        """cmux#40609 review F1: 100 statuses under another context fill the statuses list's first page. The poster's
+        green at the merge-base is on page 2, so it is read there and the head's red stays its own; and when the
+        flood fills every page read, the read refuses instead of reading "none" and looking for a red on another
+        base commit (OLDER, which fails the same way)."""
+        self.statuses[self.MERGE_BASE] = ("success", "The app compiled and linked in SwiftPM Release (-Onone)")
+        self.statuses[self.OLDER] = ("failure", self.FAIL)
+        flood = [{"context": "noise", "state": "success", "creator": {"login": "some-lane", "id": 1234,
+                                                                       "type": "User"}}] * 100
+        original = self.gh.json
+        full_pages = {"n": 1}
+
+        def json(route, *, paginate=False):
+            if f"commits/{self.MERGE_BASE}/statuses?per_page=100&page=" in route:
+                page = int(route.rsplit("=", 1)[1])
+                if page <= full_pages["n"]:
+                    return copy.deepcopy(flood)
+                found = self.statuses[self.MERGE_BASE]
+                return [{"context": "cmux-next/compile", "state": found[0], "description": found[1],
+                         "creator": dict(excuse.COMPILE_STATUS_POSTER)}] if page == full_pages["n"] + 1 else []
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge()
+        full_pages["n"] = excuse.COMPILE_STATUS_PAGES
+        with self.assertRaisesRegex(excuse.Refused, "too many statuses"):
+            self.judge()
+
+    def test_receipt_down_and_the_red_also_on_base_is_excused(self):
+        audit, said = self.judge()
+        self.assertIn("excused 'cmux-next/compile'", audit)
+        self.assertIn("HTTP 530", audit)
+        self.assertIn(f"its merge-base {self.MERGE_BASE[:12]}", audit)
+        self.assertIn("decided over GitHub", audit)
+        self.assertIn("was decided by GitHub", said)
+
+    def test_receipt_down_and_no_merge_base_status_uses_the_newest_completed_base_commit(self):
+        del self.statuses[self.MERGE_BASE]
+        self.statuses[self.TIP] = ("pending", "The Release compile (-Onone) of this head is running")
+        self.statuses[self.OLDER] = ("failure", self.FAIL)
+        audit, _ = self.judge()
+        self.assertIn(f"feat-cmux-next {self.OLDER[:12]}", audit)
+
+    def test_receipt_down_and_the_red_green_on_base_is_refused(self):
+        self.statuses[self.MERGE_BASE] = ("success", "The app compiled and linked in SwiftPM Release (-Onone)")
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge()
+        self.assertIn(f"{self.MERGE_BASE[:12]} reads success", self.log)
+
+    def test_receipt_down_and_no_base_data_is_refused_saying_why(self):
+        del self.statuses[self.MERGE_BASE]
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 530.*no completed cmux-next/compile at its merge-base "
+                                                    f"{self.MERGE_BASE[:12]}.*neither path can decide"):
+            self.judge()
+        self.assertIn("neither the receipts nor GitHub can decide", self.log)
+
+    def test_receipt_down_and_a_no_verdict_head_is_never_a_base_red(self):
+        no_result = ("failure", "No compile result for this head in 40 minutes")
+        self.statuses[self.PR_HEAD] = self.statuses[self.MERGE_BASE] = no_result
+        # Judged as no verdict (COMPILE_STATUS_NO_VERDICT): nothing else compiled the head, so it is refused.
+        with self.assertRaisesRegex(excuse.Refused, "no compile verdict .*never a base red"):
+            self.judge()
+
+    def test_a_5xx_or_unreachable_host_is_unreachable_and_a_4xx_is_not(self):
+        def urlopen_raising(error):
+            def urlopen(request, timeout):
+                raise error
+            return unittest.mock.patch("urllib.request.urlopen", urlopen)
+        for error in (urllib.error.HTTPError("u", 530, "x", {}, None), urllib.error.HTTPError("u", 502, "x", {}, None),
+                      urllib.error.URLError("connection refused"), TimeoutError("timed out")):
+            with self.subTest(error=error), urlopen_raising(error), \
+                    self.assertRaises(excuse.ReceiptUnreachable):
+                REAL_COMPILE_RECEIPT(REPO, HEAD)
+        with urlopen_raising(urllib.error.HTTPError("u", 403, "x", {}, None)), \
+                self.assertRaises(excuse.Refused) as caught:
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
+        self.assertNotIsInstance(caught.exception, excuse.ReceiptUnreachable)
+
+
+class NoVerdictCompileStatus(InheritedCompileRed):
+    """2026-11-10: the controller was off from 01:00Z and its receipts answered HTTP 530, so every PR's
+    cmux-next/compile read "No compile result for this head in 40 minutes", and the unread receipt refused each one
+    (cmux#40041 at ab52ea3b). A no-verdict status is ignored when another compile passed at the head, as the
+    no-verdict fleet job is; with none, it is refused, never compared with the base."""
+
+    MAC = "cmux-next Release compile (Xcode 26)"
+
+    def setUp(self):
+        super().setUp()
+        self.status["description"] = "No compile result for this head in 40 minutes"
+        self.mac_runs = []
+        routed = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": self.mac_runs}]
+            if route.endswith((f"commits/{self.PR_HEAD}/status", f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
+                return status_answer(route, [self.status])
+            if route.endswith("actions/jobs/77"):
+                return {"head_sha": self.PR_HEAD, "name": self.MAC, "run_id": 70, "conclusion": "success",
+                        "steps": [{"name": "Release compile", "conclusion": "success"}]}
+            return routed(route, paginate=paginate)
+
+        self.gh.json = json
+
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        patch = unittest.mock.patch.object(excuse, "compile_receipt", down)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def mac_pass(self):
+        self.mac_runs.append({"id": 5, "name": self.MAC, "head_sha": self.PR_HEAD, "status": "completed",
+                              "conclusion": "success", "app": {"slug": "github-actions"},
+                              "details_url": f"https://github.com/{REPO}/actions/runs/70/job/77"})
+
+    def test_a_no_verdict_status_is_ignored_when_the_mac_compile_passed(self):
+        self.mac_pass()
+        audit = "\n".join(self.judge_status())
+        self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
+        self.assertIn(f"'{self.MAC}' (job 77)", audit)
+
+    # cmux#40667: the results service down. compile-status says so itself (no fallback runs) or compile-status-handoff
+    # does (the fallback never ran), each with the [no-verdict] marker; and the same prose without it.
+    SERVICE_DOWN = ("[no-verdict] No compile verdict: results service down (HTTP 530 for 300 s); no fallback compile "
+                    "runs here, re-run this job",
+                    "[no-verdict] No compile verdict: results service was down (HTTP 530) and no fallback compile ran; "
+                    "re-run all jobs",
+                    "No compile verdict: results service down (HTTP 530); no fallback compile runs here, re-run this job",
+                    "[no-verdict] No compile result for this head in 40 minutes",
+                    "[no-verdict] some future wording")
+
+    def test_a_service_down_status_is_ignored_when_the_mac_compile_passed(self):
+        self.mac_pass()
+        for description in self.SERVICE_DOWN:
+            with self.subTest(description=description):
+                self.status["description"] = description
+                audit = "\n".join(self.judge_status())
+                self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
+                self.assertIn(f"'{self.MAC}' (job 77)", audit)
+
+    def test_a_service_down_status_with_nothing_compiled_is_refused_not_inherited(self):
+        for state in ("error", "failure"):
+            for description in self.SERVICE_DOWN:
+                with self.subTest(state=state, description=description), \
+                        unittest.mock.patch.object(excuse, "inherited_compile_red",
+                                                   side_effect=AssertionError("judged as a compile red")):
+                    self.status["state"], self.status["description"] = state, description
+                    with self.assertRaisesRegex(excuse.Refused, "no compile verdict .* nothing else compiled"):
+                        self.judge_status()
+
+    def test_the_marker_is_what_cmux_next_yml_posts(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
+        self.assertGreaterEqual(workflow.count(f'"{excuse.COMPILE_STATUS_NO_VERDICT_MARKER} '), 5)
+
+    def test_a_no_verdict_status_with_nothing_compiled_is_refused(self):
+        for description in ("No compile result for this head in 40 minutes (last: running)",
+                            "The compile check gave no verdict (unavailable); re-run this job",
+                            "The compile result does not match this head; re-run this job"):
+            with self.subTest(description=description):
+                self.status["description"] = description
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict .* nothing else compiled .*HTTP 530"):
+                    self.judge_status()
+
+    def test_a_compile_fail_is_never_ignored_for_a_pass_elsewhere(self):
+        """A real fail goes to inherited_compile_red (receipts, else GitHub: ReceiptDownGitHubDecides), Mac pass or
+        not."""
+        self.mac_pass()
+        self.status["description"] = "The app did not compile in SwiftPM Release (-Onone); see the log"
+        with unittest.mock.patch.object(excuse, "inherited_compile_red",
+                                        lambda *args: "excused 'cmux-next/compile': inherited") as inherited:
+            self.assertIn("excused 'cmux-next/compile': inherited", "\n".join(self.judge_status()))
+
+    def test_the_no_verdict_fleet_job_is_ignored_when_the_mac_compile_passed(self):
+        self.gh.logs[1] = log(self.FLEET, self.STEP,
+                              f"##[error]cmux-next/compile is not a pass for {self.PR_HEAD} (no result)")
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
+            self.judge_job()
+        self.mac_pass()
+        self.assertIn(f"ignored '{self.FLEET}'", "\n".join(self.judge_job()))
+
+    # The inherited-red cases are InheritedCompileRed's; this class's status is no verdict and its receipts unread.
+    test_the_status_red_of_a_head_whose_merge_base_fails_is_excused = None
+    test_the_fleet_job_red_of_a_head_whose_merge_base_fails_is_excused = None
+    test_a_head_fail_on_a_merge_base_that_passes_is_the_heads = None
+    test_a_head_with_no_verdict_or_no_receipt_is_never_excused = None
+    test_a_merge_base_with_no_receipt_does_not_excuse = None
+    test_an_unread_receipt_refuses = None
 
 
 class CompileReceiptRead(unittest.TestCase):
@@ -5277,8 +5671,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
                 return {"status": self.case.compare}
-            if route.endswith(f"/commits/{HEAD}/status"):
-                return {"statuses": copy.deepcopy(self.case.statuses)}
+            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100&page=1")):
+                return status_answer(route, self.case.statuses)
             return super().json(route, paginate=paginate)
 
     STEP_B_PIN = "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48"
@@ -6085,6 +6479,133 @@ class GalleryBaseLoadCrash(unittest.TestCase):
         self.assertEqual(timers, [0.2])
         self.assertTrue(started[0].options.get("start_new_session"))  # gh in a group of its own
         self.assertEqual(killed[0], (4242, excuse.signal.SIGKILL))
+
+
+
+class FailingStepLogOnly(unittest.TestCase):
+    """The excuse quotes, and compares with the base, only the failing step's own lines. On cmux#40369 the static
+    checks job failed in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641
+    and 42820590433), yet the excuse quoted "pinned license manifest digest changed": expected stderr of a passing
+    negative-case test (test_ghostty_licenses.py's `fails("changed manifest", ...)`) in another step, which sent an
+    agent after the wrong cause."""
+
+    NAME = ("cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, "
+            "page strings)")
+    LICENSES = "The nightly's Ghostty license checks pass on fixtures"
+    STRINGS = "Every page's strings generate with no missing translation"
+    DIGEST = ("collect-ghostty-licenses.py: error: pinned license manifest is unusable: pinned license manifest "
+              f"digest changed: {'1' * 64} != {'2' * 64}")
+    COLLECT = "could not collect Ghostty licenses: pinned license manifest digest changed"
+
+    def job(self, job_id, run_id, sha):
+        return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": self.NAME, "status": "completed",
+                "conclusion": "failure", "steps": [
+                    {"name": "Set up job", "status": "completed", "conclusion": "success",
+                     "started_at": "2026-11-10T12:00:00Z", "completed_at": "2026-11-10T12:00:02Z"},
+                    {"name": self.LICENSES, "status": "completed", "conclusion": "success",
+                     "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
+                    {"name": self.STRINGS, "status": "completed", "conclusion": "failure",
+                     "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]}
+
+    def sections(self, missing, digest=True):
+        """(step, second, text) lines: the license step's negative case prints the digest stderr and passes; the
+        strings step fails with its own count."""
+        licenses = [(self.LICENSES, 10, "##[group]Run python3 cmux-tui/build-support/notices/ghostty/"
+                                        "test_ghostty_licenses.py"),
+                    (self.LICENSES, 10, "python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py"),
+                    (self.LICENSES, 10, "##[endgroup]")]
+        if digest:
+            licenses += [(self.LICENSES, 11, self.DIGEST), (self.LICENSES, 11, self.COLLECT)]
+        licenses.append((self.LICENSES, 11, "ok: changed manifest is refused"))
+        strings = [(self.STRINGS, 20, "##[group]Run node webviews/scripts/pages/gen-strings.mjs"),
+                   (self.STRINGS, 20, "node webviews/scripts/pages/gen-strings.mjs"),
+                   (self.STRINGS, 20, "##[endgroup]"),
+                   *((self.STRINGS, 21, line) for line in missing),
+                   (self.STRINGS, 21, "##[error]Process completed with exit code 1.")]
+        return licenses + strings
+
+    def raw(self, lines):
+        # The job-log endpoint judge reads (GitHub.log): a timestamp per line, no step column.
+        return "\n".join(f"2026-11-10T12:00:{second:02d}.5000000Z {text}" for _, second, text in lines)
+
+    def columns(self, lines):
+        # `gh run view --log`: job and step columns before the timestamp.
+        return "\n".join(f"{self.NAME}\t{step}\t2026-11-10T12:00:{second:02d}.5000000Z {text}"
+                         for step, second, text in lines)
+
+    def github(self, head, base):
+        github = FakeGitHub()
+        github.jobs = {1: self.job(1, 10, HEAD), 2: self.job(2, 20, BASE_SHA)}
+        github.logs = {1: head, 2: base}
+        return github
+
+    def test_the_excuse_quotes_the_failing_steps_error_not_a_passing_steps_negative_case_stderr(self):
+        missing = ["settings: 42 strings missing", "  settings.title: missing ja"]
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections(missing)), fmt(self.sections(missing)))
+                text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+                self.assertIn("excused", text)
+                self.assertIn("settings: # strings missing", text)
+                self.assertNotIn("digest changed", text)
+                self.assertNotIn("could not collect Ghostty licenses", text)
+
+    def test_a_refusal_names_the_failing_steps_error_not_a_passing_steps_negative_case_stderr(self):
+        # The base's license step printed no digest line; its strings step failed on another page. Only the strings
+        # error is the head's own, and only it may be named.
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections(["settings: 42 strings missing"])),
+                                     fmt(self.sections(["home: 3 strings missing"], digest=False)))
+                with self.assertRaises(excuse.Refused) as raised:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                self.assertIn("settings: # strings missing", str(raised.exception))
+                self.assertNotIn("digest changed", str(raised.exception))
+
+    def test_the_failing_steps_errors_are_matched_with_the_bases_same_step(self):
+        # The head's strings error printed by the base only in a passing step is not the base failing that way.
+        line = "settings: 42 strings missing"
+        base = self.sections(["home: 3 strings missing"])
+        base.insert(3, (self.LICENSES, 11, line))
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections([line])), fmt(base))
+                with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: settings"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+    def test_a_continue_on_error_step_that_failed_still_counts(self):
+        # The jobs API reads a continue-on-error step that failed as a success, and the job's rollup step fails for
+        # it. Its section's own `##[error]Process completed` line keeps its errors compared: a different red there
+        # is never excused by the rollup lines alone.
+        check, rollup = "Main-thread concurrency", "Fail on any red check"
+
+        def job(job_id, run_id, sha):
+            found = self.job(job_id, run_id, sha)
+            found["steps"] = [
+                {"name": check, "status": "completed", "conclusion": "success",
+                 "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
+                {"name": rollup, "status": "completed", "conclusion": "failure",
+                 "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]
+            return found
+
+        def lines(error):
+            return [(check, 10, "##[group]Run scripts/cmux-next/check-concurrency.sh"),
+                    (check, 10, "##[endgroup]"),
+                    (check, 11, f"concurrency: error: {error}"),
+                    (check, 11, "##[error]Process completed with exit code 1."),
+                    (rollup, 20, "##[group]Run scripts/ci/rollup.sh"),
+                    (rollup, 20, "##[endgroup]"),
+                    (rollup, 21, f"##[error]red check: {check}"),
+                    (rollup, 21, "##[error]Process completed with exit code 1.")]
+
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(lines("Sources/New.swift:9 blocks the main thread")),
+                                     fmt(lines("Sources/Old.swift:3 blocks the main thread")))
+                github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
+                with self.assertRaisesRegex(excuse.Refused, "New.swift"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
 if __name__ == "__main__":

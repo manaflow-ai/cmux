@@ -1608,6 +1608,24 @@
      "presence": "required",
      "nullable": false
     },
+    "title_text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "title_activity": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "size": {
      "type": {
       "kind": "ref",
@@ -9461,6 +9479,17 @@
      "nullable": true,
      "default": null,
      "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed."
+    },
+    "around": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "capability": "split-around-v1",
+     "description": "The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down."
     }
    },
    "additional_properties": false
@@ -14681,6 +14710,18 @@
        }
       ]
      },
+     "around": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-around-v1",
+      "description": "The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down."
+     },
      "before": {
       "type": {
        "kind": "scalar",
@@ -14808,6 +14849,50 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "set-divider-visible": {
+   "authority": "control",
+   "since": 12,
+   "capability": "split-divider-visibility-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The split must not be a viewport column or row boundary; the same value again changes nothing and sends no event."
+   ]
   },
   "set-viewport-pane-width": {
    "authority": "control",
@@ -30419,6 +30504,24 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "activity": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12
      }
     },
     "additional_properties": false
@@ -31453,6 +31556,77 @@
         "kind": "scalar",
         "name": "string"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-view-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-view-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-reports-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-reports-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

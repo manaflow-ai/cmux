@@ -105,7 +105,8 @@ enum SidebarStyle {
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
-    static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
+    /// The +'s side: the top row's one button size, the toolbar band's too (`TopRowSpacing`).
+    static var toolbarButtonSize: CGFloat { TopRowSpacing.buttonSide }
     /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
     /// joined to the + as one split button, not a third square button beside Back and Forward.
     static var toolbarMenuSegmentWidth: CGFloat { (toolbarButtonSize * 0.55).rounded() }

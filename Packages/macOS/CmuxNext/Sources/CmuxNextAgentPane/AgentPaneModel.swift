@@ -365,6 +365,9 @@ public final class AgentPaneModel {
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.
     @ObservationIgnored public var onTryAnotherApproach: (@MainActor (_ throughSeq: Int, _ session: String) async throws -> [String: Any])?
+    /// Runs a Cloud chat's turn checkpoint or rewind for the session this pane showed when the call
+    /// arrived; nil unless the app offers it (signed in, a Cloud chat, `cloud.turnCheckpoints` on).
+    @ObservationIgnored public var onCloudTurnRewind: (@MainActor (_ request: AgentPaneCloudTurnRewind, _ session: String) async throws -> [String: Any])?
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -417,7 +420,9 @@ public final class AgentPaneModel {
     /// Session Info's Remote Control switch (``AgentPaneRemoteControl``, the iPhone host's); nil: no row.
     @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
-    @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
+    @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines? { didSet { cloudMachines?.follow(self) } }
+    /// Runs when the account's active team changes (``AgentPaneCloudMachines/publishTeamChange()``): the view tells its page.
+    @ObservationIgnored var onCloudTeamChange: (() -> Void)?
     @ObservationIgnored public var onCloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     @ObservationIgnored public var onIMessage: (@MainActor (AgentPaneIMessageAction) async -> [String: Any])?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
@@ -568,7 +573,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
         case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
-        case .runAction(let id, let session, let environment): return runAction(id, session: session, environment: environment)
+        case .runAction(let id, let session, let environment, let handoff): return runAction(id, session: session, environment: environment, handoff: handoff)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
@@ -758,6 +763,21 @@ public final class AgentPaneModel {
                 return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq, session))
             } catch {
                 return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
+        case .cloudTurnRewind(let request):
+            guard remoteChat, newTab == nil, let session = sessionId, let onCloudTurnRewind else {
+                return Self.unsupported(request.method)
+            }
+            // A checkpoint follows each completed turn with no click (the setting is the person's
+            // consent); a rewind replaces the machine, so only the person's click starts one.
+            if case .rewind = request, !(userGesture || transport.gestures.consume()) {
+                return Self.transportFailure(.gestureRequired)
+            }
+            do {
+                return AgentPaneReply.success(try await onCloudTurnRewind(request, session))
+            } catch {
+                return AgentPaneReply.failure(code: "cloud_turn_rewind_failed", message: error.localizedDescription,
                                               details: nil, retryable: true, origin: "native")
             }
         case .btwInline(let question, let sessionId):

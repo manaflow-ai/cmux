@@ -8,7 +8,9 @@
 //! each its own text block, and the person's text is never changed or dropped:
 //!
 //! - Another agent's or session's message (`digest::agent_sender`): one line ahead of it,
-//!   `From another agent (NAME), not the person:`. A forward of the person's words inside one
+//!   `From another agent (NAME), not the person:`, or `(NAME, HARNESS)` when the daemon bound the
+//!   sender's harness (`fromHarness`), the same on every harness and in a bridged desktop app's
+//!   footer (`bridge.rs`). A forward of the person's words inside one
 //!   (a quote the agent relays) stays that agent's message, with the quote in it.
 //! - A prompt acpmux could not attribute to anyone (`kind: "unverified"`, a program that sent
 //!   no sender): `From a program (NAME it claims), not the person:`.
@@ -122,6 +124,20 @@ fn is_pasted(block: &Value) -> bool {
     block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true)
 }
 
+/// `name`, and the sender's harness when the daemon bound one on `provenance` (`fromHarness`,
+/// `prompt_provenance::stamp_sender`): `NAME, HARNESS`.
+pub(crate) fn with_harness(name: &str, provenance: Option<&Value>) -> String {
+    let harness = provenance
+        .and_then(|p| p.get(crate::prompt_provenance::FROM_HARNESS))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|h| !h.is_empty() && !h.contains(['\n', '\r']));
+    match harness {
+        Some(harness) if harness != name => format!("{name}, {harness}"),
+        _ => name.to_owned(),
+    }
+}
+
 /// The claimed name of an unverified prompt's sender: the first one it signed.
 fn claimed_name(provenance: &Value) -> Option<&str> {
     let claimed = provenance.get("claimed")?;
@@ -153,8 +169,8 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
             == Some(true);
         let line = match super::lane_report_subagents::label(sub) {
             Some(label) if gets_reply => subagent_line(name, &label),
-            Some(label) => agent_line(&format!("{name}'s {label}")),
-            None => agent_line(name),
+            Some(label) => agent_line(&with_harness(&format!("{name}'s {label}"), provenance)),
+            None => agent_line(&with_harness(name, provenance)),
         };
         blocks.insert(first, text_block(line));
         return;
@@ -330,6 +346,24 @@ mod tests {
                 "PR is green"
             ]
         );
+    }
+
+    /// (c2) The line names the sender's harness when the daemon bound one, the same for every
+    /// harness that receives it.
+    #[test]
+    fn an_agents_line_names_its_harness_when_bound() {
+        let mut params =
+            json!({"sessionId": "s", "prompt": [{"type": "text", "text": "PR is green"}]});
+        let provenance = json!({"kind": "session_message", "from": "s2", "fromName": "lane-a",
+            "fromHarness": "codex"});
+        mark(&mut params, Some("lane-a"), Some(&provenance));
+        assert_eq!(
+            texts(&params),
+            vec!["From another agent (lane-a, codex), not the person:", "PR is green"]
+        );
+        assert_eq!(with_harness("lane-a", None), "lane-a");
+        assert_eq!(with_harness("codex", Some(&json!({"fromHarness": "codex"}))), "codex");
+        assert_eq!(with_harness("x", Some(&json!({"fromHarness": "a\nb"}))), "x", "one line only");
     }
 
     /// (d) The person's typed prompt reaches the agent as it was.

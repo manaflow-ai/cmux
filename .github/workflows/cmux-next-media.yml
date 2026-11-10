@@ -136,6 +136,7 @@ jobs:
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/media_auto_tour.py
             scripts/cmux-next/media/path_map.py
             scripts/cmux-next/media/whats-new-clips.py
@@ -293,9 +294,10 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
       # Warm tour slots per Mac. The claim step sets TOUR_TAG to the slot's
-      # tag; base and head build as ${TOUR_TAG}-base and -head, so the two
-      # apps never share state or sockets. A tour past K takes an overflow
-      # slot (cold, pruned once idle) rather than wait.
+      # tag; base and head build as ${TOUR_TAG}-base and -head (swapped when
+      # the base is a reused -head app), so the two apps never share state or
+      # sockets. A tour past K takes an overflow slot (cold, pruned once idle)
+      # rather than wait.
       CMUX_MEDIA_TOUR_SLOTS: ${{ vars.CMUX_MEDIA_TOUR_SLOTS || '2' }}
       # A nightly tour compares the previous nightly-next tip with the new one.
       BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.before || github.sha }}
@@ -483,6 +485,11 @@ jobs:
       # the same slot number on any Mac). It is in that run's artifacts
       # (media_app_cache.py); fetching it skips the base's worktree, GhosttyKit
       # and ~6 min build. Any miss, refusal or failure builds as before.
+      # A nightly tour's base is the previous tip, which the previous tour
+      # built as its head: it shares that app under whichever slot tag it built
+      # it with. Each tour built the previous tip again before (1 base reuse in
+      # 170 tours, 2026-11-04..06). When the base comes from the -head tag, the
+      # head builds under -base instead, so the two apps still differ in tag.
       - name: Reuse the base app another tour built
         id: base_cache
         if: steps.scope.outputs.is_ui == 'true'
@@ -491,10 +498,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 "$MEDIA_TOUR_CI/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
-            --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" --recipe "$MEDIA_APP_RECIPE" \
-            --dest "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}-base/Build/Products/Debug" \
-            --github-output "$GITHUB_OUTPUT" || echo "no reusable base app; building it"
+          fetch() {
+            python3 "$MEDIA_TOUR_CI/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
+              --tag "$1" --sha "$MERGE_BASE" --recipe "$MEDIA_APP_RECIPE" \
+              --dest "$HOME/Library/Developer/Xcode/DerivedData/cmux-$1/Build/Products/Debug" \
+              --github-output "$GITHUB_OUTPUT"
+          }
+          fetch "${TOUR_TAG}-base" && exit 0
+          if fetch "${TOUR_TAG}-head"; then
+            echo "head_tag=${TOUR_TAG}-base" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "no reusable base app; building it"
 
       # The archive cache is the one glaeda CI jobs on these Macs already share
       # (ci-macos.yml): the two downloads took 2-7 min a tour without it.
@@ -571,6 +586,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         env:
           BASE_APP: ${{ steps.base_cache.outputs.app }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if [ -n "$BASE_APP" ]; then
@@ -582,9 +598,12 @@ jobs:
           [ -z "${BASE_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$BASE_TUI_TREE_KEY"
           ci="$MEDIA_TOUR_CI"
           "$ci/media_build_app.sh" "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
-          # Pack it for later tours (the next step uploads it). Best effort.
+          # Pack it for later tours (the share step uploads it). Best effort.
           # An app built on a stand-in cmux-tui tree is not this commit's app.
+          # A nightly tour shares its head instead: the next tip's tour asks
+          # for this tour's head, never for its base.
           [ -z "${BASE_TUI_TREE_KEY:-}" ] || exit 0
+          [ "${EVENT_NAME:-}" != push ] || exit 0
           app="$(sed -n 's/^base_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
           if python3 "$ci/media_app_cache.py" pack --app "$app" --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
               --recipe "$MEDIA_APP_RECIPE" --out "$RUNNER_TEMP/media-app/app.tar"; then
@@ -592,28 +611,46 @@ jobs:
               --recipe "$MEDIA_APP_RECIPE")" >> "$GITHUB_OUTPUT"
           fi
 
-      # Uploaded before the head builds, so a tour cancelled by a newer push
-      # still leaves its base for the next one.
-      - name: Share the base app with later tours
-        if: steps.build_base.outputs.artifact != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ steps.build_base.outputs.artifact }}
-          path: ${{ runner.temp }}/media-app/app.tar
-          if-no-files-found: ignore
-          compression-level: 1
-          retention-days: 1
-
+      # The head builds under the tag the base did not take (base_cache).
       - name: Build the head app
         id: build_head
         if: steps.scope.outputs.is_ui == 'true'
+        env:
+          HEAD_TAG: ${{ steps.base_cache.outputs.head_tag }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
           [ -z "${HEAD_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$HEAD_TUI_TREE_KEY"
           ci="$MEDIA_TOUR_CI"
-          "$ci/media_build_app.sh" "$GITHUB_WORKSPACE" "${TOUR_TAG}-head" "$RUNNER_TEMP/reload-head.out" head_app
+          tag="${HEAD_TAG:-${TOUR_TAG}-head}"
+          "$ci/media_build_app.sh" "$GITHUB_WORKSPACE" "$tag" "$RUNNER_TEMP/reload-head.out" head_app
+          # A nightly tip's head is the next tip's base: pack it for that tour.
+          [ "${EVENT_NAME:-}" = push ] || exit 0
+          [ -z "${HEAD_TUI_TREE_KEY:-}" ] || exit 0
+          app="$(sed -n 's/^head_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          if python3 "$ci/media_app_cache.py" pack --app "$app" --tag "$tag" --sha "$HEAD_SHA" \
+              --recipe "$MEDIA_APP_RECIPE" --out "$RUNNER_TEMP/media-app/app.tar"; then
+            echo "artifact=$(python3 "$ci/media_app_cache.py" name --tag "$tag" --sha "$HEAD_SHA" \
+              --recipe "$MEDIA_APP_RECIPE")" >> "$GITHUB_OUTPUT"
+          fi
+
+      # One app per tour is shared: a pull request or dispatch tour's base, or
+      # a nightly tour's head (the build steps pack at most one). Uploaded as
+      # soon as the head is built: nightly tips come about every 16 min and a
+      # tour takes about 37, so the next tip's tour has usually started by now.
+      # always(): a pull request tour cancelled by a newer push while its head
+      # builds still shares the base it already packed.
+      - name: Share a built app with later tours
+        if: ${{ always() && (steps.build_head.outputs.artifact != '' || steps.build_base.outputs.artifact != '') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.build_head.outputs.artifact || steps.build_base.outputs.artifact }}
+          path: ${{ runner.temp }}/media-app/app.tar
+          if-no-files-found: ignore
+          compression-level: 1
+          retention-days: 1
 
       - name: Capture before and after interactions
         id: capture
