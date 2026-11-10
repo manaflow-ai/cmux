@@ -1345,3 +1345,382 @@ fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
         assert_eq!(readiness::assess(&own_look), Readiness::Ready, "{source}");
     }
 }
+
+/// W6-F: a daemon that keeps a real split tree on a screen of fixed size,
+/// as the session does: a split puts the new pane after its target at half
+/// of it, `split ratio set` moves one split, and each terminal reports its
+/// pane's size (the daemon's rect rule: the first side is `round(extent *
+/// ratio)`, clamped to leave both sides a cell).
+struct Room {
+    size: (i64, i64),
+    root: Value,
+    tabs: Vec<Value>,
+    terminals: Vec<Value>,
+    next: u64,
+}
+
+/// A pane's place on the screen: x, y, width, height.
+type Rect = (i64, i64, i64, i64);
+
+const ROOM_SCREEN: &str = "screen_d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1";
+const ROOM_SHELL_PANE: &str = "pane_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e";
+
+impl Room {
+    /// The caller's shell in [`CALLER_PANE`] and, in any other pane of
+    /// `root`, a person's shell.
+    fn new(cols: i64, rows: i64, root: Value) -> Self {
+        let mut room =
+            Self { size: (cols, rows), root, tabs: Vec::new(), terminals: Vec::new(), next: 0 };
+        let mut panes = Vec::new();
+        room_leaves(&room.root, &mut panes);
+        for pane in panes {
+            if pane == CALLER_PANE {
+                room.tabs.push(json!({"id": "tab_c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+                    "name": null, "content_id": CALLER, "pane_id": pane}));
+                room.terminals.push(json!({"id": CALLER, "lifecycle": "running",
+                    "tab_id": "tab_c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0", "cwd": "/home"}));
+            } else {
+                room.open_tab(&pane, None);
+            }
+        }
+        room
+    }
+
+    fn id(&mut self, prefix: &str) -> String {
+        self.next += 1;
+        format!("{prefix}_{:032x}", 0xf6f0_0000_u64 + self.next)
+    }
+
+    /// A tab in `pane` and its terminal: an agent start launch when `name`
+    /// is given (`extra.agent_start`), else a shell.
+    fn open_tab(&mut self, pane: &str, name: Option<&str>) -> Value {
+        let (tab, terminal) = (self.id("tab"), self.id("term"));
+        self.tabs.push(json!({"id": tab, "name": name, "content_id": terminal, "pane_id": pane}));
+        let mut record = json!({"id": terminal, "lifecycle": "running", "tab_id": tab});
+        if name.is_some() {
+            record["extra"] = json!({"agent_start": true});
+        }
+        self.terminals.push(record);
+        created(pane, &tab, &terminal)
+    }
+
+    fn rects(&self) -> std::collections::BTreeMap<String, Rect> {
+        let mut rects = std::collections::BTreeMap::new();
+        room_rects(&self.root, (0, 0, self.size.0, self.size.1), &mut rects);
+        rects
+    }
+
+    fn pane_of_tab(&self, tab: &Value) -> Option<String> {
+        self.tabs.iter().find(|record| record["id"] == *tab)?["pane_id"].as_str().map(Into::into)
+    }
+
+    /// The panes whose tabs run agent start launches, in tree order.
+    fn agent_panes(&self) -> Vec<String> {
+        let mut panes = Vec::new();
+        room_leaves(&self.root, &mut panes);
+        panes.retain(|pane| {
+            self.terminals.iter().any(|terminal| {
+                terminal["extra"]["agent_start"] == true
+                    && self.pane_of_tab(&terminal["tab_id"]).as_deref() == Some(pane.as_str())
+            })
+        });
+        panes
+    }
+
+    fn snapshot(&self) -> Value {
+        let rects = self.rects();
+        let panes: Vec<Value> = rects
+            .keys()
+            .map(|pane| {
+                json!({"id": pane, "screen_id": ROOM_SCREEN,
+                "focused": pane == CALLER_PANE})
+            })
+            .collect();
+        let terminals: Vec<Value> = self
+            .terminals
+            .iter()
+            .map(|terminal| {
+                let mut terminal = terminal.clone();
+                let rect = self.pane_of_tab(&terminal["tab_id"]).and_then(|pane| rects.get(&pane));
+                if let Some((_, _, cols, rows)) = rect {
+                    terminal["cols"] = json!(cols);
+                    terminal["rows"] = json!(rows);
+                }
+                terminal
+            })
+            .collect();
+        json!({
+            "workspaces": [{"id": "ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "focused": true}],
+            "screens": [{"id": ROOM_SCREEN, "workspace_id": "ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
+                "focused": true}],
+            "panes": panes,
+            "tabs": self.tabs,
+            "terminals": terminals,
+            "agents": [],
+        })
+    }
+
+    fn answer(&mut self, operation: &str, params: &Value) -> Value {
+        let text = |key: &str| params[key].as_str().unwrap_or_default().to_owned();
+        match operation {
+            "session.snapshot" => self.snapshot(),
+            "screen.layout.export" => {
+                json!({"version": 1, "screen_id": ROOM_SCREEN, "root": self.root})
+            }
+            "pane.split" => {
+                let (pane, split) = (self.id("pane"), self.id("split"));
+                let direction = if text("direction") == "down" { "vertical" } else { "horizontal" };
+                let node = json!({"kind": "split", "split_id": split, "direction": direction,
+                    "ratio": 0.5,
+                    "first": {"kind": "leaf", "pane_id": text("pane"), "tab_ids": []},
+                    "second": {"kind": "leaf", "pane_id": pane, "tab_ids": []}});
+                assert!(room_replace(&mut self.root, &text("pane"), node), "{params}");
+                self.open_tab(&pane, None)
+            }
+            "pane.split_ratio.set" => {
+                let ratio = params["ratio"]
+                    .as_f64()
+                    .or_else(|| params["ratio"].as_str().and_then(|r| r.parse().ok()))
+                    .unwrap_or(f64::NAN);
+                room_set_ratio(&mut self.root, &text("split_id"), ratio);
+                json!({})
+            }
+            "pane.run" => {
+                let name = text("name");
+                self.open_tab(&text("pane"), Some(name.as_str()))
+            }
+            "terminal.close" => {
+                let terminal = text("terminal");
+                let tab = self
+                    .terminals
+                    .iter()
+                    .find(|record| record["id"] == terminal.as_str())
+                    .map(|record| record["tab_id"].clone());
+                self.terminals.retain(|record| record["id"] != terminal.as_str());
+                self.tabs.retain(|record| Some(&record["id"]) != tab.as_ref());
+                json!({})
+            }
+            "terminal.get" => json!({"id": params["terminal"], "lifecycle": "running"}),
+            "terminal.screen.read" => json!({"text": COMPOSER}),
+            "agent.list" => json!([]),
+            _ => json!({}),
+        }
+    }
+}
+
+fn room_leaves(node: &Value, panes: &mut Vec<String>) {
+    match node["kind"].as_str() {
+        Some("leaf") => panes.extend(node["pane_id"].as_str().map(str::to_owned)),
+        Some("split") => {
+            room_leaves(&node["first"], panes);
+            room_leaves(&node["second"], panes);
+        }
+        _ => {}
+    }
+}
+
+fn room_rects(node: &Value, rect: Rect, rects: &mut std::collections::BTreeMap<String, Rect>) {
+    let (x, y, w, h) = rect;
+    match node["kind"].as_str() {
+        Some("leaf") => {
+            rects.insert(node["pane_id"].as_str().unwrap_or_default().to_owned(), rect);
+        }
+        Some("split") => {
+            let ratio = node["ratio"].as_f64().unwrap_or(0.5);
+            let side = |extent: i64| ((extent as f64 * ratio).round() as i64).clamp(1, extent - 1);
+            if node["direction"] == "horizontal" {
+                let first = side(w);
+                room_rects(&node["first"], (x, y, first, h), rects);
+                room_rects(&node["second"], (x + first, y, w - first, h), rects);
+            } else {
+                let first = side(h);
+                room_rects(&node["first"], (x, y, w, first), rects);
+                room_rects(&node["second"], (x, y + first, w, h - first), rects);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn room_replace(node: &mut Value, pane: &str, with: Value) -> bool {
+    match node["kind"].as_str() {
+        Some("leaf") if node["pane_id"] == pane => {
+            *node = with;
+            true
+        }
+        Some("split") => {
+            room_replace(&mut node["first"], pane, with.clone())
+                || room_replace(&mut node["second"], pane, with)
+        }
+        _ => false,
+    }
+}
+
+fn room_set_ratio(node: &mut Value, split: &str, ratio: f64) {
+    if node["kind"] != "split" {
+        return;
+    }
+    if node["split_id"] == split {
+        node["ratio"] = json!(ratio.clamp(0.05, 0.95));
+    }
+    room_set_ratio(&mut node["first"], split, ratio);
+    room_set_ratio(&mut node["second"], split, ratio);
+}
+
+/// Starts agents `a1`..`a{count}` from the caller's terminal in `room`, as
+/// a plain `agent start NAME` does, and returns the pane rects after each
+/// start.
+fn room_starts(room: Room, count: usize, options: &Options) -> Vec<RoomView> {
+    let room = std::rc::Rc::new(RefCell::new(room));
+    let shared = std::rc::Rc::clone(&room);
+    let daemon =
+        Fake::new(move |operation, params, _count| shared.borrow_mut().answer(operation, params));
+    let mut views = Vec::new();
+    for n in 1..=count {
+        let name = format!("a{n}");
+        let (report, exit) = run_with_clock(|clock| start(&daemon, &env(), clock, &name, options))
+            .expect("agent start");
+        assert_eq!(exit, 0, "{report}");
+        let room = room.borrow();
+        views.push(RoomView { rects: room.rects(), agents: room.agent_panes() });
+    }
+    views
+}
+
+/// The panes after one start.
+struct RoomView {
+    rects: std::collections::BTreeMap<String, Rect>,
+    agents: Vec<String>,
+}
+
+impl RoomView {
+    fn rect(&self, pane: &str) -> Rect {
+        self.rects.get(pane).copied().unwrap_or_else(|| panic!("no pane {pane}: {:?}", self.rects))
+    }
+
+    /// The column starts of the caller's space (the caller and its agents).
+    fn columns(&self) -> Vec<(i64, i64)> {
+        let mut columns: Vec<(i64, i64)> = std::iter::once(CALLER_PANE)
+            .chain(self.agents.iter().map(String::as_str))
+            .map(|pane| {
+                let (x, _, w, _) = self.rect(pane);
+                (x, w)
+            })
+            .collect();
+        columns.sort_unstable();
+        columns.dedup();
+        columns
+    }
+}
+
+/// The checks every start must pass (W6-F, lead decision "region"): the
+/// panes outside the caller's original space keep their exact rects; the
+/// caller keeps at least 40 columns while it had them; the columns of the
+/// caller's space have the same width; no new column is under 40 columns
+/// while the space had room; and the agents stacked in one column have
+/// the same height.
+fn assert_region_rules(views: &[RoomView], outside: &[(&str, Rect)], caller_before: i64) {
+    for (n, view) in views.iter().enumerate() {
+        let n = n + 1;
+        for (pane, rect) in outside {
+            assert_eq!(view.rect(pane), *rect, "start {n}: {pane} changed: {:?}", view.rects);
+        }
+        let caller = view.rect(CALLER_PANE).2;
+        assert!(
+            caller >= caller_before.min(40),
+            "start {n}: the caller has {caller} columns: {:?}",
+            view.rects
+        );
+        let columns = view.columns();
+        let widths: Vec<i64> = columns.iter().map(|(_, w)| *w).collect();
+        let (narrow, wide) =
+            (widths.iter().min().copied().unwrap_or(0), widths.iter().max().copied().unwrap_or(0));
+        assert!(wide - narrow <= 1, "start {n}: uneven columns {columns:?}: {:?}", view.rects);
+        if columns.len() > 1 {
+            assert!(narrow >= 40, "start {n}: a column under 40: {columns:?}: {:?}", view.rects);
+        }
+        for (x, _) in &columns {
+            let heights: Vec<i64> = view
+                .agents
+                .iter()
+                .map(|pane| view.rect(pane))
+                .filter(|rect| rect.0 == *x)
+                .map(|rect| rect.3)
+                .collect();
+            let (low, high) = (
+                heights.iter().min().copied().unwrap_or(0),
+                heights.iter().max().copied().unwrap_or(0),
+            );
+            assert!(high - low <= 1, "start {n}: uneven agent stack {heights:?}: {:?}", view.rects);
+        }
+    }
+}
+
+fn caller_beside_shell(ratio: f64) -> Value {
+    json!({"kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": ratio,
+        "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
+        "second": {"kind": "leaf", "pane_id": ROOM_SHELL_PANE, "tab_ids": []}})
+}
+
+fn plain_start() -> Options {
+    Options { cmd: Some("sr2 claude".into()), ..Options::default() }
+}
+
+/// Bench round 5 orchestration row 8 (W6-F): from a 95-column pane,
+/// `split --right` and then agent starts left the caller 9 columns wide and
+/// the agents 15-16. The caller's space is 48 columns, too few for two
+/// columns of 40, so every agent stacks below it: the caller keeps its 48
+/// columns, the person's shell its 47, and the agents share one stack.
+#[test]
+fn w6f_agents_started_beside_a_narrow_caller_stack_and_keep_the_callers_width() {
+    let room = Room::new(95, 40, caller_beside_shell(0.5));
+    let shell = room.rects()[ROOM_SHELL_PANE];
+    let caller = room.rects()[CALLER_PANE].2;
+    let views = room_starts(room, 4, &plain_start());
+    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], caller);
+    for (n, view) in views.iter().enumerate() {
+        assert_eq!(view.rect(CALLER_PANE).2, caller, "start {}: {:?}", n + 1, view.rects);
+    }
+}
+
+/// W6-F: a 95-column caller takes one agent column (two columns of 40 fit);
+/// the second and later agents stack below the first agent, and the agent
+/// stack shares its height evenly.
+#[test]
+fn w6f_a_wide_caller_takes_an_agent_column_then_stacks_the_rest() {
+    let room = Room::new(95, 40, json!({"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []}));
+    let views = room_starts(room, 4, &plain_start());
+    assert_region_rules(&views, &[], 95);
+    for (n, view) in views.iter().enumerate() {
+        assert_eq!(view.columns().len(), 2, "start {}: {:?}", n + 1, view.rects);
+    }
+}
+
+/// W6-F: a 140-column caller beside a person's 60-column pane shares its
+/// space in up to three columns of at least 40 (the caller's too), then
+/// stacks; the person's pane keeps its exact place through every start.
+#[test]
+fn w6f_agent_columns_share_only_the_callers_space() {
+    let room = Room::new(200, 40, caller_beside_shell(0.7));
+    let shell = room.rects()[ROOM_SHELL_PANE];
+    assert_eq!(shell, (140, 0, 60, 40));
+    let views = room_starts(room, 4, &plain_start());
+    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], 140);
+    let columns: Vec<usize> = views.iter().map(|view| view.columns().len()).collect();
+    assert_eq!(columns, [2, 3, 3, 3], "{:?}", views.last().map(|view| &view.rects));
+}
+
+/// W6-F: `--pane P --split right` keeps its explicit meaning: it splits P
+/// to the right however narrow that leaves P.
+#[test]
+fn w6f_an_explicit_split_keeps_its_direction_and_pane() {
+    let room = Room::new(95, 40, caller_beside_shell(0.5));
+    let shell = room.rects()[ROOM_SHELL_PANE];
+    let options =
+        Options { pane: Some(CALLER_PANE.into()), split: Some("right".into()), ..plain_start() };
+    let views = room_starts(room, 1, &options);
+    let view = &views[0];
+    assert_eq!(view.rect(ROOM_SHELL_PANE), shell);
+    assert_eq!(view.rect(CALLER_PANE).2, 24, "{:?}", view.rects);
+    assert_eq!(view.columns().len(), 2, "{:?}", view.rects);
+}
