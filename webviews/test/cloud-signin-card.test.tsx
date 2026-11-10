@@ -908,7 +908,9 @@ test("Gemini and Grok are login agents, each with its own ways in", () => {
   expect(loginAgent("gemini")).toBe("gemini");
   expect(loginAgent("grok")).toBe("grok");
   expect(loginAgent("cursor")).toBe("cursor");
-  expect(loginAgent("opencode")).toBeUndefined();
+  expect(loginAgent("opencode")).toBe("opencode");
+  expect(loginAgent("opencode-v2")).toBeUndefined();
+  expect([signsInByPage("opencode"), takesApiKey("opencode")]).toEqual([false, true]);
   expect(loginAgent(undefined)).toBeUndefined();
   expect([signsInByPage("cursor"), takesApiKey("cursor")]).toEqual([true, false]);
   expect([signsInByPage("gemini"), takesApiKey("gemini")]).toEqual([false, true]);

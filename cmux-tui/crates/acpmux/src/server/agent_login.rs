@@ -224,6 +224,14 @@ pub(super) async fn handle(
     match m {
         method::MUX_AGENT_LOGIN_START => {
             let agent = agent_of(params)?;
+            // A key-only agent (Gemini, OpenCode) has no sign-in page: say so before looking for
+            // its CLI, so the answer is `unsupported` whether or not it is installed here.
+            if !agent.signs_in_by_link() {
+                return Err(error(LoginError::new(
+                    reason::UNSUPPORTED,
+                    format!("{} signs in on this machine with an API key", agent.name()),
+                )));
+            }
             let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
             let mut reply = json!({
