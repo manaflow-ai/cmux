@@ -1,6 +1,6 @@
-// `chat.thinkingIndicator` / `pulse`: one small round mark after the word swells and softens once per
-// breath (`--cmux-breath-period`, the settle curve, alternating): transform and opacity only
-// (thinkingIndicator.css).
+// `chat.thinkingIndicator` / `pulse`: one small round mark after the word swells in once as the think
+// starts (`--cmux-breath-period`, the settle curve) and then holds still: a mark that keeps breathing is
+// the breathing dot (test/no-breathing-dots.test.ts). Transform and opacity only (thinkingIndicator.css).
 import { ReservedLabel, type ThinkingIndicatorProps } from "./slot";
 
 export function PulseMark({ label, verbs }: ThinkingIndicatorProps) {

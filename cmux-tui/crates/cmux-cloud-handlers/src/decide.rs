@@ -56,12 +56,6 @@ pub fn machine(lookup: &Lookup) -> Result<Pick, Said> {
     if lookup.cloud_count == 1 { Ok(Pick::Only) } else { Err(Said::key("noMachine")) }
 }
 
-/// Whether a machine can take an attach now or after a resume: not changing state, and either
-/// answering or with no app link (a legacy machine may be paused behind a stale record).
-pub fn attachable(changing: bool, connected: bool, has_app_link: bool) -> bool {
-    !changing && (connected || !has_app_link)
-}
-
 /// What New Cloud Workspace does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -222,53 +216,6 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
 }
 
 /// How Open Desktop shows a machine's desktop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Desktop {
-    /// The remote view pane on the machine's `cmux-rd` host, watching the agent.
-    Rd,
-    /// The pane on the app's own VNC client (development builds).
-    Native,
-    /// The noVNC page in a Chromium tab.
-    Web,
-}
-
-/// The facts of an Open Desktop.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct DesktopFacts {
-    /// `--viewer`, else the machine's default.
-    pub viewer: Option<String>,
-    pub default_viewer: String,
-    /// The machine allows a desktop at all.
-    pub allows: bool,
-    /// Its capabilities declare `desktop` (the rd host).
-    pub capability: bool,
-    /// It has a private IPv4 address and a desktop URL that names it.
-    pub reachable: bool,
-    /// This build has the native viewer.
-    pub native_available: bool,
-    pub title: String,
-}
-
-pub fn desktop(facts: &DesktopFacts) -> Result<Desktop, Said> {
-    let refused = || Said::with("desktopUnavailable", [facts.title.clone()]);
-    if !facts.allows {
-        return Err(refused());
-    }
-    let viewer = facts.viewer.as_deref().unwrap_or(&facts.default_viewer);
-    if viewer == "rd" {
-        return if facts.capability { Ok(Desktop::Rd) } else { Err(refused()) };
-    }
-    if !facts.reachable {
-        return Err(refused());
-    }
-    if viewer == "native" {
-        return if facts.native_available { Ok(Desktop::Native) } else { Err(refused()) };
-    }
-    Ok(Desktop::Web)
-}
-
 /// A Cloud machine's state, as the diagnostics summary reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -353,18 +300,6 @@ pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -
         GitHubApp::Unknown => "gitHubFallbackUnknown",
     };
     vec![Said::key(reason), body("gitHubConfirmBody", "gitHubConfirmNoIdentity")]
-}
-
-/// The question a destructive Cloud action asks before it runs (its title, body and button are
-/// the app's strings `<prompt>Title`, `<prompt>Body`, `<prompt>Button`); none for any other action.
-pub fn confirmation(action: &str) -> Option<&'static str> {
-    match action {
-        "cloudKillMachine" => Some("killMachine"),
-        "palette.cloud.deleteSnapshot" => Some("deleteSnapshot"),
-        "cloudFileRemove" => Some("removeFile"),
-        "cloudFirewallDelete" => Some("deleteFirewallRule"),
-        _ => None,
-    }
 }
 
 /// An error's own words, without a trailing period (it sits inside a sentence).

@@ -46,7 +46,7 @@ struct RowMotion {
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
-        guard Motion.sidebar.animatesMovement else {
+        guard Motion.sidebar.animatesMovement(in: list.window) else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
             list.settleOpenings()
@@ -185,7 +185,7 @@ struct RowMotion {
         Motion.withoutAnimation {
             for (key, view) in list.rowViews where view.closingEnd == nil {
                 guard let row = list.displayed.row(for: key) else { continue }
-                let target = list.frame(for: row)
+                let target = list.drawnFrame(for: row)
                 if view.frame != target { view.frame = target }
             }
             list.groupLineViews.land()
@@ -231,7 +231,7 @@ struct RowMotion {
     /// or the new row motion's start and spring) instead of showing whole over
     /// the rows still making room (cx-ai79).
     static func place(_ view: SidebarRowView, at target: NSRect, opening: SidebarRowOpening?, hidden: Bool, in list: SidebarListView) {
-        guard let opening, !hidden, Motion.sidebar.animatesMovement else {
+        guard let opening, !hidden, Motion.sidebar.animatesMovement(in: list.window) else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
             return
@@ -289,7 +289,7 @@ struct RowMotion {
             list.addSubview(view, positioned: .above, relativeTo: top)
         }
         for view in passed {
-            guard let hide = Motion.sidebar.passOverAnimation(.move) else { return }
+            guard let hide = Motion.sidebar.passOverAnimation(.move, in: list.window) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
         }
     }

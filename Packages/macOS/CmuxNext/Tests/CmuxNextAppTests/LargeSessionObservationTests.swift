@@ -1,6 +1,8 @@
+import AppKit
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextAgentPane
+@testable import CmuxNextApp
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
@@ -24,8 +26,11 @@ struct LargeSessionFixture {
 
     let store: DaemonStore
 
-    init() {
-        store = DaemonStore()
+    init() { self.init(store: DaemonStore()) }
+
+    /// The large session in `store` (an app's local store: the app's own observers follow it).
+    init(store: DaemonStore) {
+        self.store = store
         _ = store.apply(.connected(DaemonIdentity(generation: "large"), generationChanged: true))
         store.apply(snapshot: Self.tree())
     }
@@ -216,7 +221,8 @@ struct LargeSessionObservationTests {
         let fixture = LargeSessionFixture()
         let doc = SidebarDocStore(remote: nil)
         let openTabs = OpenTabFavicons()
-        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces }, favicon: { Self.favicon($0) })
+        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces },
+                       favicons: { workspace in OpenTabFavicons.favicons(of: workspace) { Self.favicon($0) } })
         let byOrigin: @MainActor () -> [String: String] = { openTabs.byOrigin }
         SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: BookmarkURL.faviconKey(for:))
         await LargeSessionFixture.drainMain()
@@ -397,6 +403,146 @@ struct LargeSessionObservationTests {
         store.set("s-7", SidebarApprovalAnswerTests.lane("s-7", .input))
         await LargeSessionFixture.until { approvals.answerable["s-7"] != nil }
         #expect(approvals.answerable == ["s-7": "perm-s-7"])
+    }
+
+    /// O4, the app's own read (review of #40213): the app asked each tab with a favicon whether it is incognito
+    /// (`BrowserTabService.isIncognitoTab`), and that answer found the tab's workspace through the store's tab index
+    /// (`tabListRevision`), its workspace list and the whole window registry, inside each workspace's favicon
+    /// observation. One tab added in any workspace then woke every workspace's favicon observation. This starts the
+    /// app's own wiring (`SidebarDocument.start`, the first `sidebarLayout` read) over the large session in the app's
+    /// local store, gives each workspace's Chromium page a favicon (the app asks about incognito only for a tab that
+    /// has one), then adds one terminal tab in each workspace in turn: the stand-in tab of New Terminal Tab's turn
+    /// (`NewTabWakesDoNotGrowWithSessionTests`).
+    @Test(.timeLimit(.minutes(2)))
+    func o4FaviconsAreNotWokenByATabAddInAnotherWorkspace() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        defer { for controller in services.windows.controllers { controller.teardown(); controller.window?.close() } }
+        let fixture = LargeSessionFixture(store: services.machines.local.store)
+        _ = services.sidebarLayout // the app's sidebar document starts: its open tab favicons follow the local store
+        // What each probe below moves by one (a tab added, a favicon set): the wake helper waits on it, not on a yield count.
+        let moved: @MainActor @Sendable () -> Int = { [store = services.machines.local.store] in
+            store.workspaces.flatMap { $0.screens }.flatMap { $0.panes }.flatMap { $0.tabs }.reduce(0) { $0 + ($1.faviconURL == nil ? 1 : 2) }
+        }
+        // The open tab favicons' observers: the workspace list's and each workspace's (`ObservedItems`).
+        let observers = "CmuxNextBridge/OpenTabFavicons.swift"
+
+        // Each workspace's Chromium page gets its favicon: from here on the app reads whether its workspace is incognito.
+        let pages = fixture.tabs().filter { $0.tab.kind == .browser && $0.tab.url?.hasSuffix("/cef") == true }
+        try #require(pages.count == LargeSessionFixture.workspaces)
+        let favicons = pages.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            (item.workspace, { item.tab.faviconURL = "http://127.0.0.1:9/\(item.workspace)/icon.png" })
+        }
+        let lit = try await LargeSessionFixture.workspacesWaking(observers, changes: favicons, observing: moved)
+        let following = lit.values.reduce(into: Set<Int>()) { $0.formUnion($1.workspaces) }
+        try #require(following.count == LargeSessionFixture.workspaces,
+                     "fixture: the app's favicon observers follow \(following.count) of 60 workspaces")
+        try #require(services.openTabFaviconsByOrigin()["http://127.0.0.1:9"] == "http://127.0.0.1:9/1/icon.png",
+                     "fixture: the app gives no favicon for a normal window's page")
+
+        // The probe: one new terminal tab in the first pane of each workspace.
+        let store = fixture.store
+        let before = fixture.tabs().count
+        let changes = store.workspaces.enumerated().map { offset, workspace -> (workspace: Int, change: @MainActor () -> Void) in
+            let pane = workspace.screens[0].panes[0].handle
+            return (offset + 1, {
+                store.intend(.createTab(pane: pane, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
+                             transaction: ClientTransactionID.generate())
+            })
+        }
+        let woken = try await LargeSessionFixture.workspacesWaking(observers, changes: changes, observing: moved)
+        try #require(fixture.tabs().count == before + LargeSessionFixture.workspaces,
+                     "fixture: the probe made \(fixture.tabs().count - before) tabs, not 60")
+        // Each workspace's own observer reads its tab list: it wakes for its workspace's new tab.
+        let own = woken.values.reduce(into: Set<Int>()) { $0.formUnion($1.workspaces) }
+        #expect(own.count == LargeSessionFixture.workspaces, "fixture: a new tab woke a favicon observer in \(own.count) of 60 workspaces")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "favicon observers woken by a new tab in more than one workspace: \(wide)")
+    }
+
+    /// The app's open tab favicons leave out an incognito window's page (its favicon address would be stored on a
+    /// sidebar link item), and give a normal window's. The same before and after the incognito read became one per
+    /// workspace (`o4FaviconsAreNotWokenByATabAddInAnotherWorkspace`).
+    @Test func o4AnIncognitoWindowsPageGivesNoOpenTabFavicon() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        let window = services.windows.newIncognitoWindow()
+        let secret = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
+        let normalPage = TabSnapshot(surface: 1, kind: .browser, url: "https://normal.example/a", faviconURL: "https://normal.example/icon.png")
+        let secretPage = TabSnapshot(surface: 2, kind: .browser, url: "https://secret.example/a", faviconURL: "https://secret.example/icon.png")
+        let normalScreen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [normalPage])])
+        let secretScreen = ScreenSnapshot(id: 2, layout: .leaf(2), panes: [PaneSnapshot(id: 2, tabs: [secretPage])])
+        services.daemon.store.apply(snapshot: DaemonTree(workspaces: [
+            WorkspaceSnapshot(id: 1, key: .generate(), name: "normal", screens: [normalScreen]),
+            WorkspaceSnapshot(id: 2, key: secret, name: "secret", screens: [secretScreen]),
+        ]))
+        let table = services.openTabFaviconsByOrigin()
+        #expect(table["https://normal.example"] == "https://normal.example/icon.png", "a normal window's page gives no favicon: \(table)")
+        #expect(table["https://secret.example"] == nil, "an incognito window's page gave its favicon to the sidebar links")
+    }
+
+    /// O9, the session transfer wait (`SessionTransferService.hasConversationTab`): it waits for the chat tab of ONE
+    /// workspace, so a tab that comes in any other workspace must not wake it (the walk it replaced read only its own
+    /// workspace's tabs). The probe lists one new terminal in each workspace in turn, the way the app does (a snapshot
+    /// apply, which moves the session's tab list). The wait still hears its own workspace: first the workspace comes
+    /// under the key with a terminal only (no match), then its chat tab comes (match).
+    @Test(.timeLimit(.minutes(2)))
+    func o9TransferWaitIsNotWokenByATabOfAnotherWorkspace() async throws {
+        let fixture = LargeSessionFixture()
+        let store = fixture.store
+        let found = WaitHits()
+        let wait = Task {
+            for await listed in ObservationStream({ store.listsConversationTab(inWorkspace: "o9-key") }) where listed {
+                found.names.insert("transfer chat tab")
+                return
+            }
+        }
+        defer { wait.cancel() }
+        await LargeSessionFixture.drainMain()
+        #expect(found.names.isEmpty, "fixture: the transfer wait matched before its workspace came")
+
+        // The probe: workspace 1, then 2, ... gets one more terminal; each snapshot lists the tabs opened so far.
+        var tree = LargeSessionFixture.tree()
+        var listings: [DaemonTree] = []
+        for workspace in 1...LargeSessionFixture.workspaces {
+            let opened = TabSnapshot(surface: SurfaceID(rawValue: 20_000 + UInt64(workspace)),
+                                     tabResourceID: ResourceID(rawValue: "tab_\(workspace)_opened"), kind: .pty,
+                                     title: "opened \(workspace)", cwd: "/tmp/large/\(workspace)")
+            tree.workspaces[workspace - 1].screens[0].panes[0].tabs.append(opened)
+            listings.append(tree)
+        }
+        let snapshots = listings
+        let changes = snapshots.enumerated().map { offset, snapshot -> (workspace: Int, change: @MainActor () -> Void) in
+            (offset + 1, { store.apply(snapshot: snapshot) })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAppTests/LargeSessionObservationTests", changes: changes)
+        let tabsListed = LargeSessionFixture.workspaces * (LargeSessionFixture.tabsPerWorkspace + 1)
+        try #require(fixture.tabs().count == tabsListed, "fixture: the snapshots did not list the opened tabs")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "the transfer wait was woken by tabs of other workspaces: \(wide)")
+
+        // Its workspace comes under the key with a terminal only: the wait stays open.
+        let shell = TabSnapshot(surface: SurfaceID(rawValue: 9_998), tabResourceID: ResourceID(rawValue: "tab_o9_shell"), kind: .pty,
+                                title: "o9 shell", cwd: "/tmp/large/o9")
+        let pane = PaneSnapshot(id: PaneID(rawValue: 9_001), resourceID: ResourceID(rawValue: "pane_o9"), tabs: [shell])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 9_001), layout: .leaf(pane.id), panes: [pane])
+        tree.workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9_001), key: WorkspaceKey(rawValue: "o9-key"),
+                                                 resourceID: ResourceID(rawValue: "ws_o9"), name: "o9", screens: [screen]))
+        store.apply(snapshot: tree)
+        await LargeSessionFixture.drainMain()
+        try #require(store.workspace(key: WorkspaceKey(rawValue: "o9-key")) != nil, "fixture: the snapshot did not list the workspace under its key")
+        #expect(found.names.isEmpty, "the transfer wait matched a workspace that has no chat tab")
+
+        // Its chat tab comes: the wait ends.
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 9_999), tabResourceID: ResourceID(rawValue: "tab_o9"), kind: .conversation,
+                               title: "o9", browserRenderer: "frontend")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: LargeSessionFixture.host, session: "s-o9", harness: nil))
+        tree.workspaces[tree.workspaces.count - 1].screens[0].panes[0].tabs.append(chat)
+        store.apply(snapshot: tree)
+        await LargeSessionFixture.until { !found.names.isEmpty }
+        #expect(found.names == ["transfer chat tab"], "the transfer wait did not hear the chat tab come in its own workspace")
     }
 }
 

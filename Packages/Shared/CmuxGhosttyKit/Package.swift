@@ -197,6 +197,14 @@ import PackageDescription
 // layer's contents (pixel size, content or resize, sequence, host time); it
 // replaces cmux's setContents: swizzle on IOSurfaceLayer.
 //
+// Since c370b103a..0efdef967 (release/cmux-gi-land-2 merges c370b103a and
+// c31377f1a, release/cmux-gi-renderer-sync-1; ghostty-integration step 4):
+// RESIZE SYNC in the renderer (GHOSTTY_HOST_PRESENT_RENDERER_SYNCED replaces
+// EMBEDDER; the host-frame API is gone). On top, red 74b8bb04f and fix
+// 0efdef967: a new content scale of a host-sized surface goes to the layer
+// with the first frame drawn at it, in one transaction; cmux no longer sets
+// the layer's contentsScale.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -220,8 +228,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c370b103a8707897df449ba9ddd3f5586b227313-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "0669c1040f20e729f507bd3e52da3cb5a4b096c331cf8220b78941bde62811af"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-0efdef967bd28f1f3327eaaddc306ba29e693e97-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4cc00bf88b6f42a316c5ca520bee4964cc9cfe0c5d3a9540db61606cec275807"
         ),
     ]
 )

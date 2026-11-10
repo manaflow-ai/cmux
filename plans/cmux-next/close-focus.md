@@ -244,3 +244,50 @@ Rollout: the app links a pinned FFI build. `cmux_close_focus_tab` (the pinned sy
 2026-11-08's rule (`close_focus::tab_before`), so the automatic re-pin changes nothing the app
 shows; the app then moves to `cmux_close_focus_tab_chrome` (openers and groups) together with
 its Swift tests in one change, with no red window between.
+
+## One close-selection rule
+
+Tabs in a pane and workspaces in a window's sidebar follow the same rule after a close: Chrome's
+(the section above), with one decided difference. The state and the pick are one Rust module,
+`cmux-focus-core::close_selection` (`Openers`), behind the C ABI `cmux_close_selection_*` of
+`cmux-layout-reducer-ffi`. A strip is one pane's tabs or one window's workspaces.
+
+- R0: closing an item that is not selected never moves the selection.
+- R1: closing the selected item selects, first match: an item it opened (the first after it,
+  else the nearest before it), an item its opener opened, its opener, its group's or section's
+  neighbor, else the next item, and the previous one only when it was the last.
+- R2: a new item the person makes (Cmd-T, the plus button, New Workspace) keeps the item he came
+  from as its opener until the selection leaves the new item. A link's or a tab action's new tab
+  keeps its opener until R3 or R4 ends it. Nothing else has an opener: not an item made by
+  automation, a restore, a move or a drag. A new item in the foreground first forgets every
+  older relation of its strip, so one family is live at a time.
+- R3: a selection the person makes forgets every relation of the strip, unless the two items
+  have the same opener (or both have none) or one is the other's opener. A typed navigation
+  forgets them too, except the first one in a tab the person just made.
+- R4: a relation holds inside one strip. An item that closes or moves hands the items it opened
+  its own opener, and its own relation ends.
+- R5: where a new item is put changes none of this.
+
+The decided difference is R2's lifetime. Chromium ends a new tab's opener when the selection
+leaves the tab only for a tab at the end of the strip (`AddTab`); a tab it puts in the middle
+("New Tab to the Right") keeps its opener as a link's tab does. cmux puts a new item after the
+selected one by default and uses the one lifetime wherever the item is put. Observed on Chrome
+156 for a tab in the middle: closed at once it returns to the tab the person came from, as in
+cmux; after a visit to that tab and back it still returns there (cmux: the next item); with
+link tabs of the same opener beside it, it selects the first of them (cmux: the opener). The
+caller chooses the lifetime (`kind`, `foreground`), so this needs no change of the module.
+
+| Case | Strip, selected item in bold | Steps | Selected after |
+| --- | --- | --- | --- |
+| 1 | A **B** C D | new item N (after B), close N | B |
+| 2 | A **B** C D | the same with new items at the end | B |
+| 3 | A **B** C D | new item N, select D, select N, close N | C |
+| 4 | A **B** C D | close B | C |
+| 5 | A B C **D** | close D | C |
+| 6 | A **B** C D | B opens X and Y in the background, select X, close X | Y |
+| 7 | A **B** C | B opens X and Y in the background, close B | X |
+| 8 | A **B** C D | close C | B (no move) |
+
+The table test is `cmux-tui/crates/cmux-focus-core/tests/close_selection.rs`: each row runs as
+tabs and as workspaces. The module lands with no caller; the workspaces move to it first, the
+tabs after.
