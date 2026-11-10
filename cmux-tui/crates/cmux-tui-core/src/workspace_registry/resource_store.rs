@@ -49,6 +49,19 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
+/// Indexes every open adds to a registry of any age (each `IF NOT EXISTS`,
+/// so older builds keep opening it). The live panes of one screen were read
+/// by scanning every pane row: once per screen at each open (the resource
+/// invariants), so an open at 4,000 workspaces spent 0.5 s there, and once
+/// per create (its stored subtree).
+pub(crate) fn create_lookup_indexes(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS live_resource_panes_by_screen
+           ON resource_panes(screen_id) WHERE deleted_revision IS NULL;",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
@@ -2786,25 +2799,24 @@ fn resource_change_is_stored(
                 workspace.name_revision,
             )?;
             let stored = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
                             w.name_source, w.name_revision
                      FROM resource_workspaces rw
                      JOIN workspaces w ON w.workspace_key = rw.workspace_key
                      WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
                        AND rw.deleted_revision IS NULL AND w.tombstoned = 0",
-                    params![workspace.public_id.as_str(), workspace.key],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, Option<i64>>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
-                        ))
-                    },
-                )
+                )?
+                .query_row(params![workspace.public_id.as_str(), workspace.key], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
+                    ))
+                })
                 .optional()?;
             stored.is_some_and(
                 |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {
@@ -2820,25 +2832,24 @@ fn resource_change_is_stored(
         }
         ResourceChange::UpsertScreen(screen) => {
             let stored = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT workspace_id, position, name, layout_json, active_pane_id,
                             zoomed_pane_id, auto_layout_json, viewport_json
                      FROM resource_screens
                      WHERE public_id = ?1 AND deleted_revision IS NULL",
-                    [screen.public_id.as_str()],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                            row.get::<_, String>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            row.get::<_, Option<String>>(5)?,
-                            row.get::<_, Option<String>>(6)?,
-                            row.get::<_, String>(7)?,
-                        ))
-                    },
-                )
+                )?
+                .query_row([screen.public_id.as_str()], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, String>(7)?,
+                    ))
+                })
                 .optional()?;
             match stored {
                 None => false,
@@ -2864,19 +2875,18 @@ fn resource_change_is_stored(
         }
         ResourceChange::UpsertPane(pane) => {
             let stored = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT screen_id, name, active_tab_id, creation_ordinal
                      FROM resource_panes WHERE public_id = ?1 AND deleted_revision IS NULL",
-                    [pane.public_id.as_str()],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<String>>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
+                )?
+                .query_row([pane.public_id.as_str()], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                })
                 .optional()?;
             stored.is_some_and(|(screen_id, name, active_tab, ordinal)| {
                 screen_id == pane.screen_id.as_str()
@@ -2892,23 +2902,22 @@ fn resource_change_is_stored(
             };
             let name_source = serde_json::to_value(tab.name_source)?;
             let stored = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT pane_id, position, content_kind, content_id, name,
                             name_source, name_revision
                      FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NULL",
-                    [tab.public_id.as_str()],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, String>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            row.get::<_, Option<String>>(5)?,
-                            row.get::<_, Option<i64>>(6)?,
-                        ))
-                    },
-                )
+                )?
+                .query_row([tab.public_id.as_str()], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<i64>>(6)?,
+                    ))
+                })
                 .optional()?;
             stored.is_some_and(|(pane_id, position, kind, id, name, source, name_revision)| {
                 pane_id == tab.pane_id.as_str()
@@ -2922,12 +2931,13 @@ fn resource_change_is_stored(
         }
         ResourceChange::UpsertTerminal { public_id, terminal } => {
             let stored = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT terminal_id, lifecycle FROM resource_terminals
                      WHERE public_id = ?1 AND deleted_revision IS NULL",
-                    [public_id.as_str()],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                )
+                )?
+                .query_row([public_id.as_str()], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
                 .optional()?;
             match stored {
                 Some((host, lifecycle))
@@ -2940,18 +2950,17 @@ fn resource_change_is_stored(
         }
         ResourceChange::UpsertBrowser(browser) => {
             let stored = transaction
-                .query_row(
+                .prepare_cached(
                     "SELECT url, metadata_json, lifecycle FROM resource_browsers
                      WHERE public_id = ?1 AND deleted_revision IS NULL",
-                    [browser.public_id.as_str()],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
-                )
+                )?
+                .query_row([browser.public_id.as_str()], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
                 .optional()?;
             match stored {
                 Some((url, metadata, lifecycle)) => {

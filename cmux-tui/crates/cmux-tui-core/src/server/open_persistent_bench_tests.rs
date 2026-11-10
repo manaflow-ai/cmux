@@ -92,7 +92,7 @@ fn open_persistent_bench() {
     // that timed it).
     let entity_check = std::env::var("CMUX_OPEN_PERSISTENT_BENCH_ENTITY_CHECK").is_ok_and(|v| v == "1");
     if !entity_check {
-        super::tree_json::skip_entity_check_on_this_thread_for_bench();
+        tree_json::skip_entity_check_on_this_thread_for_bench();
     }
     let profile = if entity_check { format!("{profile} entity-check") } else { profile.to_string() };
     let sizes = std::env::var("CMUX_OPEN_PERSISTENT_BENCH_SIZES").ok().map_or_else(

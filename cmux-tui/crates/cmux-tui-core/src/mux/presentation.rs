@@ -265,6 +265,102 @@ impl Mux {
         }
     }
 
+    /// [`Self::tree_decorations`] holding only what the tab entities of
+    /// `surfaces` read: their notification markers and directories, and the
+    /// pending state, end and loss cause of the terminals they show. A tab
+    /// delta (one per lost terminal at a restart) built the whole session's
+    /// maps and copied every ended terminal's end: O(session) per delta, so
+    /// a restart that ended n terminals cost O(n^2).
+    #[track_caller]
+    pub(crate) fn tab_tree_decorations(&self, surfaces: &[SurfaceId]) -> TreeDecorations {
+        let (mut decorations, directories) = {
+            let state = self.state.lock().unwrap();
+            self.tab_tree_decorations_parts(&state, surfaces)
+        };
+        decorations.directories = self.resolve_tab_directories(directories, true);
+        decorations
+    }
+
+    /// [`Self::tab_tree_decorations`] for a caller that already holds the
+    /// state lock: git HEADs come from the cache only, as
+    /// [`Self::tree_decorations_in_state`].
+    pub(crate) fn tab_tree_decorations_in_state(
+        &self,
+        state: &State,
+        surfaces: &[SurfaceId],
+    ) -> TreeDecorations {
+        let (mut decorations, directories) = self.tab_tree_decorations_parts(state, surfaces);
+        decorations.directories = self.resolve_tab_directories(directories, false);
+        decorations
+    }
+
+    /// The decorations of `surfaces` but their directories, which come back
+    /// unresolved (the caller resolves their git HEADs).
+    fn tab_tree_decorations_parts(
+        &self,
+        state: &State,
+        surfaces: &[SurfaceId],
+    ) -> (TreeDecorations, Vec<(SurfaceId, String)>) {
+        let mut notifications = HashMap::new();
+        let mut directories = Vec::new();
+        let mut terminals = Vec::new();
+        {
+            let placement_notifications = self.placement_notifications.lock().unwrap();
+            let terminal_notifications = self.terminal_notifications.lock().unwrap();
+            for surface_id in surfaces {
+                let content_terminal = match state.resource_indexes.content_ids.get(surface_id) {
+                    Some(ContentPublicId::Terminal(terminal)) => Some(terminal),
+                    _ => None,
+                };
+                // As surface_notifications_in_state and surface_directories_in_state.
+                let notification = match state.surfaces.get(surface_id) {
+                    Some(surface) => {
+                        if state.pane_of(*surface_id).is_some()
+                            && let Some(directory) = surface.presented_directory()
+                        {
+                            directories.push((*surface_id, directory));
+                        }
+                        match surface.terminal_public_id() {
+                            Some(terminal) => terminal_notifications.get(terminal),
+                            None => placement_notifications.get(surface_id),
+                        }
+                    }
+                    None => content_terminal.and_then(|terminal| terminal_notifications.get(terminal)),
+                };
+                if let Some(notification) = notification {
+                    notifications.insert(*surface_id, *notification);
+                }
+                if let Some(terminal) = content_terminal {
+                    terminals.push(terminal.as_str().to_string());
+                }
+            }
+        }
+        let pending_terminals = {
+            let pending = self.pending_terminals.lock().unwrap();
+            terminals
+                .iter()
+                .filter_map(|id| Some((id.clone(), pending.get(id)?.1.clone())))
+                .collect()
+        };
+        let terminal_ends = {
+            let ends = self.terminal_ends.lock().unwrap();
+            terminals.iter().filter_map(|id| Some((id.clone(), ends.get(id)?.clone()))).collect()
+        };
+        let terminal_loss_causes = {
+            let causes = self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner);
+            terminals.iter().filter_map(|id| Some((id.clone(), causes.get(id)?.clone()))).collect()
+        };
+        let decorations = TreeDecorations {
+            notifications,
+            presentation: self.presentation_snapshot(),
+            directories: HashMap::new(),
+            pending_terminals,
+            terminal_ends,
+            terminal_loss_causes,
+        };
+        (decorations, directories)
+    }
+
     /// [`Self::tree_decorations`] for a create that places `placing` in the
     /// delta it emits (`pane-added`, `tab-added`). The new terminal has no
     /// pane yet when the decorations are read, and the directory scan keeps
@@ -374,7 +470,7 @@ impl Mux {
     /// tab added to an existing pane carries the transaction on its own
     /// `tab-added` instead and never gets this second one.
     pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
-        let decorations = self.tree_decorations();
+        let decorations = self.tab_tree_decorations(&[surface]);
         let delta = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             tab_delta(&state, &decorations, TreeDeltaKind::TabAdded, surface)
@@ -394,7 +490,7 @@ impl Mux {
         if placements.is_empty() {
             return;
         }
-        let decorations = self.tree_decorations();
+        let decorations = self.tab_tree_decorations(&placements);
         let deltas = {
             let state = self.state.lock().unwrap();
             placements
