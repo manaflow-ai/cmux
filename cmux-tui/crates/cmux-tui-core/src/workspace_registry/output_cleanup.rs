@@ -171,6 +171,15 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The retention floor a start reads, for a fixture on this thread that
+    /// stages at a floor it names (its own registry has none: every segment
+    /// is young and no fold is saved).
+    static START_FLOOR_FOR_TEST: std::cell::Cell<Option<u64>> =
+        const { std::cell::Cell::new(None) };
+}
+
 fn disk_margin() -> u64 {
     #[cfg(test)]
     if let Some(bytes) = DISK_MARGIN_FOR_TEST.with(std::cell::Cell::get) {

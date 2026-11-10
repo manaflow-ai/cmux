@@ -145,6 +145,8 @@ fn fixture(label: &str, below: usize) -> Fixture {
     let kept = records_after(&db_path, floor, head);
     assert!(kept.len() >= 44, "the records above the floor: {}", kept.len());
     assert!(floor as usize >= below, "the floor {floor} is above the {below} old records");
+    // The starts of these tests take the floor that the test stages at.
+    START_FLOOR_FOR_TEST.with(|start| start.set(Some(floor)));
     Fixture { root, db_path, terminal, roster, floor, head, kept }
 }
 
@@ -428,6 +430,58 @@ fn a_swap_at_a_floor_records_what_it_deleted_through() {
         pruned_through, *floor,
         "the swapped registry does not say that the records through the floor are gone"
     );
+}
+
+/// The floor can be lower at the next start than at the build: an update
+/// whose roster or agent history reducer has another version folds from the
+/// first record it finds (`journal_retention::reducer_cursor` is then 0), and
+/// so does a hook that is enabled again. A file built at the higher floor
+/// left out records that this start reads: the swap must not install it, or
+/// each agent whose records are all at or below that floor is gone from the
+/// roster the new build folds.
+#[test]
+fn a_swap_does_not_install_a_file_built_above_the_floor_of_this_start() {
+    let fixture = fixture("floor-moved", 1_100);
+    let Fixture { root, db_path, floor, head, .. } = &fixture;
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    // The saved roster is of another version, as after an update: this start
+    // reads its floor from the registry, as the product does.
+    {
+        let writer = Connection::open(db_path).unwrap();
+        writer
+            .execute(
+                "UPDATE meta SET value = json_set(value, '$.version', 0) WHERE key = ?1",
+                [format!("journal_reducer.{}", crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)],
+            )
+            .unwrap();
+    }
+    START_FLOOR_FOR_TEST.with(|start| start.set(None));
+    let start_floor =
+        super::super::journal_retention::journal_retention_floor(&read_only(db_path)).unwrap();
+    assert!(
+        start_floor < *floor,
+        "the fixture is wrong: the floor of this start is {start_floor}, the file was built at \
+         {floor}"
+    );
+    let all = records_after(db_path, 0, *head);
+    assert!(all.len() as u64 > *head - *floor, "the fixture is wrong: no record below the floor");
+
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(
+        !previous_path(db_path).exists(),
+        "the swap installed a file built at floor {floor}; this start keeps the journal after \
+         {start_floor}"
+    );
+    assert_eq!(
+        records_after(db_path, 0, *head).len(),
+        all.len(),
+        "records at or below the floor of the build are gone"
+    );
+    assert!(
+        !staging_path(db_path).exists(),
+        "the file built above this start's floor stays, for a later start to install"
+    );
+    assert!(!failed_path(db_path).exists(), "the cleanup was stopped for this build");
 }
 
 /// The swap folds a log left by a killed owner into the registry first. A
