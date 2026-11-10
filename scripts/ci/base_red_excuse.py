@@ -955,20 +955,23 @@ def _stamp_time(value) -> datetime | None:
     return parsed if parsed.tzinfo else None
 
 
-FAILED, PASSED, AMBIGUOUS = "failed", "passed", "ambiguous"
-# A section is failed, whatever the jobs API says, when it has one of these: a continue-on-error step that failed is a
-# success to the jobs API, but its section still has its `##[error]` lines and the runner's exit line.
-SECTION_RED = re.compile(r"^##\[error\]|Process completed with exit code [1-9]")
+FAILED, ERRORED, PASSED, AMBIGUOUS = "failed", "errored", "passed", "ambiguous"
+# A live runner annotation: `##[error]` at the start of a line, outside the group in which the runner echoes the
+# step's script. A continue-on-error step that failed is a success to the jobs API, but its section still has its
+# `##[error]` lines and the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads
+# like one (`expected: Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth
+# Codex BLOCK, F1).
+SECTION_RED = re.compile(r"^##\[error\]")
 # Past this many lines a log is not placed: every line is AMBIGUOUS (kept for a comment, never evidence for an excuse).
 STEP_OWNERS_MAX_LINES = 2_000_000
 
 
 def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
-    """Each line of LOG as (line, the index of the step of JOB that printed it or None, its status): FAILED or PASSED
-    when the log maps one to one onto the steps that ran (the jobs API's steps[], by number, without skipped ones),
-    AMBIGUOUS for every line when it does not. The one owner of a line's step: failed_steps_log, signature,
-    step_lines and every caller of theirs read lines through it. A comment shows FAILED and AMBIGUOUS lines; an excuse
-    refuses a log whose lines are AMBIGUOUS (judge, package_tests, quarantined_only).
+    """Each line of LOG as (line, the index of the step of JOB that printed it or None, its status) when the log maps
+    one to one onto the steps that ran (the jobs API's steps[], by number, without skipped ones), AMBIGUOUS for every
+    line when it does not. The one owner of a line's step: failed_steps_log, signature, step_lines and every caller of
+    theirs read lines through it. A comment shows every line but PASSED ones; an excuse refuses a log with any
+    AMBIGUOUS line (judge, package_tests, quarantined_only) and takes a base's FAILED lines alone as evidence.
 
     The runner opens every step's section with one STEP_START line ("Set up job", whose lines come first, and
     "Complete job", which shares the last section, print none). A one-to-one mapping is never inferred from counts or
@@ -985,8 +988,10 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
       be read off its name. A name alone never proves a header is a step's: the workflow's author picks it, so a
       silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
     Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
-    is FAILED when its step (or, for the last section, "Complete job") did not succeed or the section has a
-    SECTION_RED line, else PASSED."""
+    is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
+    SECTION_RED line after its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
+    and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
+    (#40542's fourth Codex BLOCK, F2)."""
     lines = log.splitlines()
     unknown = [(line, None, AMBIGUOUS) for line in lines]
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
@@ -1025,26 +1030,35 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
     bounds = [0, *starts, len(lines)]
     found = []
     for k in range(len(bounds) - 1):
-        owners = (k, len(steps) - 1) if k == len(bounds) - 2 else (k,)
         section = range(bounds[k], bounds[k + 1])
-        red = (any(steps[i].get("conclusion") != "success" for i in owners)
-               or any(SECTION_RED.search(texts[n]) for n in section))
-        found += [(lines[n], k, FAILED if red else PASSED) for n in section]
+        if steps[k].get("conclusion") != "success":
+            status = FAILED
+        elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
+            status = AMBIGUOUS
+        else:
+            # A step's section opens with its header's group, in which the runner echoes its script and env; the
+            # first `##[endgroup]` closes it (or, with none, the header line alone).
+            live = bounds[k] + 1 if k else bounds[k]
+            if k:
+                live = next((n + 1 for n in section if texts[n] == "##[endgroup]"), live)
+            status = ERRORED if any(SECTION_RED.match(texts[n]) for n in range(live, bounds[k + 1])) else PASSED
+        found += [(lines[n], k, status) for n in section]
     return found
 
 
 def placed(job: dict, log: str) -> bool:
-    """Whether step_owners maps LOG onto JOB's steps one to one (an empty log has nothing to place)."""
-    return not log.strip() or any(status != AMBIGUOUS for _, _, status in step_owners(job, log))
+    """Whether step_owners tells every line of LOG to the step of JOB that printed it (an empty log has nothing to
+    place)."""
+    return not log.strip() or all(status != AMBIGUOUS for _, _, status in step_owners(job, log))
 
 
 def failed_steps_log(job: dict, log: str) -> str:
-    """LOG without the lines of JOB's passing steps: its FAILED and AMBIGUOUS lines (step_owners). A job runs many
-    steps, and a passing one may print error-looking stderr on purpose: test_ghostty_licenses.py's negative cases print
-    "pinned license manifest digest changed" and pass. 2026-11-10: cmux#40369's static checks failed only in "Every
-    page's strings generate with no missing translation" (feat-cmux-next runs 42820823641, 42820590433), and the
-    excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told is kept:
-    what is shown of a red never hides its evidence."""
+    """LOG without the lines of JOB's passing steps: its FAILED, ERRORED and AMBIGUOUS lines (step_owners). A job
+    runs many steps, and a passing one may print error-looking stderr on purpose: test_ghostty_licenses.py's negative
+    cases print "pinned license manifest digest changed" and pass. 2026-11-10: cmux#40369's static checks failed only
+    in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641, 42820590433),
+    and the excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told
+    is kept: what is shown of a red never hides its evidence."""
     return "\n".join(line for line, _, status in step_owners(job, log) if status != PASSED)
 
 
@@ -1052,29 +1066,48 @@ def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[st
     """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
     runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
     excused because the base's log echoed the same `echo "::error::..."` lines of its step's script). Error lines come
-    from the failed steps' own lines (step_owners): a head's FAILED and AMBIGUOUS lines, so a line whose step cannot be
-    told stays evidence against it, and with BASE a base's FAILED lines alone, so a line a passing step may have
-    printed never matches a head error (cmux#40542 F1: a composite's extra STEP_START line put a passing step's
-    `Sources/New.swift` diagnostic in the base's errors, and judge() excused the head's new failure)."""
+    from the failed steps' own lines (step_owners): a head's lines that are not PASSED, so a line whose step cannot be
+    told stays evidence against it, and with BASE a base's FAILED lines alone (its failing tests too), so a line a
+    passing step may have printed never matches a head failure (cmux#40542 F1: a composite's extra STEP_START line put
+    a passing step's `Sources/New.swift` diagnostic in the base's errors, and judge() excused the head's new failure;
+    its fourth Codex BLOCK: a passing step's echoed exit line, or a failing "Complete job", made a passing step's
+    lines base evidence)."""
     steps = {step["name"] for step in job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
+    owned = step_owners(job, log)
+    tests = test_reds.failed_names(test_reds.lines_of(
+        "\n".join(line for line, _, status in owned if status == FAILED) if base else log))
+    return steps, tests, {error for _, error in step_errors(job, log, base, owned)}
+
+
+def step_errors(job: dict, log: str, base: bool = False, owned: list | None = None) -> set[tuple[str, str]]:
+    """(the name of the step that printed it, the error line with numbers masked) for each error line signature()
+    reads from LOG: with BASE, from FAILED sections alone. judge() excuses a head error only when a base printed it
+    from a failed step of the same name."""
+    owned = step_owners(job, log) if owned is None else owned
+    ran = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    if all(isinstance(step.get("number"), int) for step in ran):
+        ran.sort(key=lambda step: step["number"])
+    keep = (FAILED,) if base else (FAILED, ERRORED, AMBIGUOUS)
+    scope = [(line, k) for line, k, status in owned if status in keep]
+    text = "\n".join(line for line, _ in scope)
+    skip = test_reds.echoed(test_reds.log_lines(text))
     tests = test_reds.failed_names(test_reds.lines_of(log))
-    errors: set[str] = set()
-    keep = (FAILED,) if base else (FAILED, AMBIGUOUS)
-    scope = "\n".join(line for line, _, status in step_owners(job, log) if status in keep)
-    skip = test_reds.echoed(test_reds.log_lines(scope))
-    for n, text in enumerate(lines_of(scope)):
-        if n in skip or text.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(text):
+    found: set[tuple[str, str]] = set()
+    for n, line in enumerate(lines_of(text)):
+        if n in skip or line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
             continue
-        if ((ERROR.search(text)
-             or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(text))
+        if ((ERROR.search(line)
+             or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
              or (not tests and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())
-                 and SUMMARY_FAILURE.search(text)))
-                and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text)
-                and not SUCCESS_DIAGNOSTIC.search(text)):
-            errors.add(normalise_error(text))
-    return steps, tests, errors
+                 and SUMMARY_FAILURE.search(line)))
+                and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
+                and not SUCCESS_DIAGNOSTIC.search(line)):
+            k = scope[n][1]
+            step = str(ran[k].get("name") or "") if k is not None else ""  # step-name: classify
+            found.add((step, normalise_error(line)))
+    return found
 
 
 def no_verdict(log: str) -> str | None:
@@ -2752,16 +2785,17 @@ class Final(Refused):
 
 def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, window: list,
                    chromium_without_diagnostics: bool, *, flake_state: dict | None = None,
-                   workflow: str = "") -> str:
+                   workflow: str = "", head_pairs: set | None = None) -> str:
     """The audit line for red job NAME (HEAD: its signature) when each of its failures is on some red base verdict of
-    WINDOW (newest first: (run, log, signature)); raises Refused naming the first that is on none, Final when the
-    newest verdict's log alone (the Chromium check, a process signal, the panic ratchet) refuses it."""
-    base_run, base_log, _ = window[0]
+    WINDOW (newest first: (run, log, signature[, step_errors])); raises Refused naming the first that is on none, Final
+    when the newest verdict's log alone (the Chromium check, a process signal, the panic ratchet) refuses it. With
+    HEAD_PAIRS (step_errors), each compared head error must be printed on a base by a failed step of the same name."""
+    base_run, base_log, *_ = window[0]
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
     head_crash = crash_signals(head_log)
     base_steps, base_tests, base_errors, on = set(), set(), set(), {}
-    for run, _, (steps, tests, errors) in window:
+    for run, _, (steps, tests, errors), *_ in window:
         base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
         for test in tests:
             on.setdefault(test, run["id"])
@@ -2769,7 +2803,7 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
         raise Final(f"'{name}': no failing test or error line to match; nothing to compare with the base")
     known = test_reds.flaky_failures(head_log, name, workflow, flake_state) if base == "feat-cmux-next" else {}
     base_tests |= known.keys()
-    verdict = test_reds.classify_any(head_log, [(f"{base} run {run['id']}", text) for run, text, _ in window], name,
+    verdict = test_reds.classify_any(head_log, [(f"{base} run {run['id']}", text) for run, text, *_ in window], name,
                                    flake_state=flake_state if base == "feat-cmux-next" else None, workflow=workflow)
     if verdict is not None and verdict.own:
         raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
@@ -2796,6 +2830,12 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
+    if head_pairs is not None and compared[-1][0] == "errors":
+        printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
+        if missing := sorted(f"{error} (step '{step}')" for step, error in head_pairs
+                             if error in head_errors and (step, error) not in printed):
+            raise Refused(f"'{name}': errors not printed by the same failed step on {base} {runs}: "
+                          f"{'; '.join(missing)[:600]}")
     rows = [f"{crate}: clippy::{lint} {count} > {where}"
             for (crate, lint, where), count in sorted(ratchet_red(head_log)[0].items())] if ratchet else []
     what = ("; ".join(test if on.get(test) == base_run["id"] else
@@ -2844,8 +2884,8 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
 def step_lines(job: dict, head_log: str) -> list[tuple[dict, list[str], bool]] | None:
     """[(step, the lines of HEAD_LOG it printed, whether its section is FAILED)] for each step of JOB that ran, by
     number, as step_owners places them; None when it places nothing (the log does not map one to one onto the steps).
-    A step whose section has an `##[error]` or exit-code line counts as failed whatever the jobs API says. "Complete
-    job" shares the last section with the step before it. Each line is its stamp and text (`gh run view --log`'s job
+    A step whose section has a live `##[error]` annotation (ERRORED) counts as failed whatever the jobs API says.
+    "Complete job" shares the last section with the step before it. Each line is its stamp and text (`gh run view --log`'s job
     and step columns dropped)."""
     if not placed(job, head_log):
         return None
@@ -2857,7 +2897,7 @@ def step_lines(job: dict, head_log: str) -> list[tuple[dict, list[str], bool]] |
     for line, index, status in step_owners(job, head_log):
         parts = line.split("\t", 2)
         found[index].append(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line)
-        red[index] = red[index] or status == FAILED
+        red[index] = red[index] or status in (FAILED, ERRORED)
     return [(step, found[i], red[i] or step_failed(step)) for i, step in enumerate(steps)]
 
 
@@ -3738,12 +3778,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if not placed(found, text):
                 raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
                               "(step_owners), so no base line can be told to a failed step; nothing is compared")
-            return run, text, signature(found, text, base=True)
+            return run, text, signature(found, text, base=True), step_errors(found, text, base=True)
         window, newest, read = [red(base_run, base_job)], created(base_run), 1
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, head_log, window, chromium_without_diagnostics,
-                                            flake_state=flake_state, workflow=workflow_info.get("name", ""))
+                                            flake_state=flake_state, workflow=workflow_info.get("name", ""),
+                                            head_pairs=step_errors(job, head_log))
                              + (f"; {aside}" if aside is not None else ""))
                 break
             except Final:
