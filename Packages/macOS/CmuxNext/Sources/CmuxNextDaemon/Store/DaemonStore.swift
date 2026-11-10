@@ -222,6 +222,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Clock of the retry spacing (tests inject one that does not wait).
     @ObservationIgnored public var resyncClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
+    /// Where each rolled-back intent is recorded (``SlowRequestLog``); nil: nowhere. The local service sets it.
+    @ObservationIgnored public var slowRequestLog: SlowRequestLog?
 
     /// Tab ids of the first snapshot of the current connection: tabs the
     /// connection found already there (page history skips their reload).

@@ -20,6 +20,7 @@ extension DaemonService {
     func showLaunchSnapshot(session: String, stateDirectory: URL?) {
         guard let path = launchSnapshotLocation.path(session: session)
             ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
+        noteSessionFolder(ofLaunchSnapshot: path)
         let snapshot: LaunchSnapshot
         do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
             logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
@@ -56,6 +57,13 @@ extension DaemonService {
     func rememberLaunchSnapshot(_ identity: DaemonIdentity) {
         guard let session = launchSnapshotSession, identity.session == session else { return }
         launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
+        if let path = identity.launchSnapshotPath { noteSessionFolder(ofLaunchSnapshot: path) }
+    }
+
+    /// The daemon keeps its launch snapshot in its session folder: the app's slow request log goes beside the
+    /// daemon's own (``SlowRequestLog``). Only a path is kept; the file is written off the main thread.
+    private func noteSessionFolder(ofLaunchSnapshot path: String) {
+        store.slowRequestLog?.setDirectory(URL(fileURLWithPath: path).deletingLastPathComponent())
     }
 
     /// Begins the local daemon's first connect attempt off the main thread,
@@ -75,7 +83,7 @@ extension DaemonService {
         return DaemonPrestart(launcher: launcher, configuration: launcher.handingOffIncompatibleOwners(localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            requestLatency: newRequestLatency(), health: health)))
+            requestLatency: newRequestLatency(), slowRequestLog: SlowRequestLog(), health: health)))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
@@ -119,6 +127,7 @@ extension DaemonService {
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
                                                requestLatency: DaemonRequestLatency? = nil,
+                                               slowRequestLog: SlowRequestLog? = nil,
                                                health: DaemonHealthSink? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
@@ -133,6 +142,7 @@ extension DaemonService {
         configuration.retry = .localReconnect
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.requestLatency = requestLatency
+        configuration.slowRequestLog = slowRequestLog
         configuration.health = health
         return configuration
     }
