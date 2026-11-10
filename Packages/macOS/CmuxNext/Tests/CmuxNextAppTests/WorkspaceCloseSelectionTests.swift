@@ -153,6 +153,36 @@ struct WorkspaceCloseSelectionTests {
         #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
     }
 
+    // MARK: An opener or a closed workspace that no sidebar row lists (second review of #40649, M2 and S3)
+
+    /// A pinned layout tile is a member no row lists. The person is on tile "p", makes "n" in the list and closes
+    /// it: the window returns to "p". Before, only the rows of the order that lists "n" could be picked: "c".
+    @Test func anOpenerNoRowListsIsStillSelected() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
+        make("n", from: "p", quick: false, in: rule)
+        let pick = WindowRegistry.repairedSelection(current: "n", previous: rows + ["p"], members: ["a", "b", "c", "p"], orders: [rows, rows], rule: rule)
+        #expect(pick == "p")
+    }
+
+    /// A tile that is not the opener is still never picked while a row is left, also with a relation held: a
+    /// script selects "c" (no gesture, the relation of "n" stays) and "c", the last row, closes.
+    @Test func aTileThatIsNotTheOpenerIsNotSelected() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
+        make("n", from: "b", quick: false, in: rule)
+        rule.shown("c", after: "n", in: window, gesture: false)
+        #expect(!rule.isEmpty)
+        #expect(WindowRegistry.repairedSelection(current: "c", previous: rows + ["p"], members: ["a", "b", "n", "p"], orders: [rows, rows], rule: rule) == "n")
+    }
+
+    /// The new workspace closes before any sidebar row lists it (the rows come an observation later): the pick
+    /// runs over the window's members, with the opener rank. Before, it was the neighbor by position: "c".
+    @Test func aNewWorkspaceNoRowListsYetReturnsToItsOpener() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "c"]
+        make("n", from: "b", quick: false, in: rule)
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows + ["n"], members: rows, orders: [rows, rows], rule: rule) == "b")
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows + ["n"], members: rows, rule: rule) == "b")
+    }
+
     // MARK: Cost (Lawrence's session: 826 workspaces)
 
     /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's
