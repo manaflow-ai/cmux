@@ -739,6 +739,7 @@ import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
+import { dismissFocusRing } from "../../ui/focusModality";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 
@@ -6853,6 +6854,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       },
       command(name, sessionId) {
+        // FOCUS-RING: the app's key router took this command's key, which the pane never saw; any
+        // focus it moves is code focus and earns no ring, even right after a Tab.
+        dismissFocusRing();
         if (name === "toggleSessionInfo") {
           toggleSessionInfo.current?.();
           return;
