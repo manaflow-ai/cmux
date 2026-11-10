@@ -1442,8 +1442,9 @@ of the space keeps 40 columns after an even share (the caller's width is its
 terminal's `cols` in the snapshot), and then gives the space's columns, the
 caller's too, the same width. Otherwise the agent opens below the space's last
 pane (below the caller when it has no agent yet), and the agents of that stack
-share its height. So the caller never goes under 40 columns while it had them,
-and no pane outside the space changes. From a 95-column pane: the first agent
+share its height. So the caller never goes under 40 columns while it had them:
+the first agent beside a caller space narrower than 80 columns stacks below
+the caller. No pane outside the space changes. From a 95-column pane: the first agent
 takes a column (48 | 47) and the next ones stack in it; beside a person's pane
 that leaves the caller 48 columns, every agent stacks below the caller. Without
 the caller's size, or in a screen of viewport columns, the caller's pane is
