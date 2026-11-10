@@ -10304,6 +10304,15 @@ export class AcpmuxDirectClient {
     await this.request("_acpmux/archive", { sessionId, archived });
     return sessionId;
   }
+  /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
+  /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
+  /// `hub/cold_archive.rs`; opening the chat does too). acpmux answers the chat's summary, which
+  /// the list takes at once (its `session_changed` says the same, later).
+  async coldArchive(sessionId: string, archived: boolean): Promise<void> {
+    const session = await this.request("_acpmux/cold_archive", { sessionId, archived }, 60_000);
+    if (session && typeof session === "object" && (session as SessionSummary).sessionId === sessionId)
+      this.sessionChanged({ sessionId, session, kind: "cold_archive", recordKind: "cold_archive" } as SessionChanged);
+  }
   /// Permanently removes the shown session from acpmux history. The caller closes the tab only
   /// after this authenticated, session-scoped purge succeeds.
   async purge(sessionId: string): Promise<void> {
@@ -10494,15 +10503,41 @@ export class AcpmuxDirectClient {
   }
   /// `promptUnseen` that rejects as the prompt does: `/side <prompt>`'s prompt to its side chat,
   /// whose caller says when the host refused it (a `transport.` code: it never reached acpmux).
-  /// The reply comes when the side chat's turn ends.
-  async promptSide(sessionId: string, text: string): Promise<void> {
+  /// The reply comes when the side chat's turn ends. `attachments`: `/side`'s staged files, in the
+  /// prompt as a send puts them (#40066); past one message's budget, the largest image previews go
+  /// as links to their saved originals (promptBudget.ts).
+  /// A recording goes only to an agent that takes voice, a video's frames only to one that takes
+  /// images, as a send's do. `gesture`: the Enter a `/side` held for its files bound
+  /// (`bindSideGesture`); the prompt goes under its prompt id and redeems its ticket.
+  async promptSide(
+    sessionId: string,
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    gesture?: { promptId: string; ticket: Promise<string | undefined> },
+  ): Promise<void> {
+    const capabilities = this.summary?.agentCapabilities?.promptCapabilities;
+    const audible = takesAudio(capabilities, this.summary?.configOptions)
+      ? attachments
+      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
+    const carried = sendable.length ? fitPromptBudget(text, sendable) : sendable;
+    const ticket = gesture ? await gesture.ticket : undefined;
     await this.offerChildren.prompting(sessionId, () =>
       this.request("session/prompt", {
         sessionId,
-        prompt: promptBlocks(text, []),
-        _meta: { acpmux: { promptId: crypto.randomUUID() } },
+        prompt: promptBlocks(text, carried),
+        _meta: {
+          acpmux: { promptId: gesture?.promptId ?? crypto.randomUUID() },
+          ...(ticket ? { cmuxGesture: ticket } : {}),
+        },
       }),
     );
+  }
+  /// Binds the person's current gesture to `/side`'s prompt, held for its files: bound to no chat
+  /// (the side chat it goes to does not exist yet), so the side chat's prompt redeems it by its
+  /// prompt id (AgentPaneUserGestures `redeem`). Not a send ticket: it holds no uploads.
+  bindSideGesture(promptId: string = crypto.randomUUID()): { promptId: string; ticket: Promise<string | undefined> } {
+    return { promptId, ticket: reservePromptGesture(promptId) };
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
   /// goes to the chat that sent it as this chat's cmux agent message in the same thread, as
@@ -11385,7 +11420,7 @@ export class AcpmuxDirectClient {
     this.readAheadTimer = setTimeout(() => {
       this.readAheadTimer = undefined;
       const recent = [...this.sessions]
-        .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId)
+        .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId && !session.coldArchive)
         .sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
         .slice(0, READ_AHEAD_RECENT)
         .map((session) => session.sessionId);
@@ -11393,10 +11428,18 @@ export class AcpmuxDirectClient {
     }, delayMs);
   }
 
+  /// A chat whose log is in acpmux's cold archive: any read of its log brings it back
+  /// (hub/cold_archive.rs), so only opening it reads it, never a read ahead or a hover (review of
+  /// #39141: the 12 recent chats' reads undid Compress Chat on a page with no kept tails).
+  private listedCold(sessionId: string): boolean {
+    return Boolean(this.sessions.find((session) => session.sessionId === sessionId)?.coldArchive);
+  }
+
   private queueReadAhead(sessionIds: string[], first: boolean): void {
     const now = Date.now();
     const wanted = sessionIds.filter((sessionId) => {
       if (!sessionId || sessionId === this.selectedSessionId || this.readingAhead.has(sessionId)) return false;
+      if (this.listedCold(sessionId)) return false;
       const readAt = this.readAheadAt.get(sessionId);
       // A chat this page opened keeps the tail it read itself; one read ahead is read again only
       // when it ran on since, and not more often than READ_AHEAD_REFRESH_MS.
@@ -11421,7 +11464,7 @@ export class AcpmuxDirectClient {
   private pumpReadAhead(): void {
     while (!this.closed && this.readingAhead.size < READ_AHEAD_LANES && this.readAheadQueue.length > 0) {
       const sessionId = this.readAheadQueue.shift()!;
-      if (sessionId === this.selectedSessionId) continue;
+      if (sessionId === this.selectedSessionId || this.listedCold(sessionId)) continue;
       const read = this.readAhead(sessionId)
         .catch(() => undefined)
         .finally(() => {

@@ -1252,6 +1252,128 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, r"no generated files verdict.*re-run its prerequisite and this dependent"):
             self.judge()
 
+    def test_a_summary_with_no_verdict_is_refused_with_rerun(self):
+        """A summary gate (scripts/ci/needs_verdict.py) whose dependency was abandoned judged nothing.
+
+        It ends red so no merger reads it as green; its `no verdict: ` annotation must make this refuse with
+        "re-run it", never excuse it as the base's red. The runner's echo of the step script does not count.
+        """
+        name, step = "rust workspaces", "Every planned workspace passed"
+        no_verdict = "no verdict: rust workspaces: plan abandoned, workspace skipped; nothing it summarizes was judged: re-run the run"
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        echoed = [
+            "##[group]Run needs_verdict() {",
+            'echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + no_verdict, "##[error]Process completed with exit code 3.")
+        self.gh.logs[2] = log(name, step, "##[error]" + no_verdict, "##[error]Process completed with exit code 3.")
+        with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
+            self.judge()
+
+    def test_a_summary_echoing_the_rule_is_judged_by_its_live_lines_only(self):
+        # The runner's echo of the step script spells both markers; only a live annotation is a summary's verdict.
+        name, step = "rust workspaces", "Every planned workspace passed"
+        echoed = [
+            "##[group]Run needs_verdict() {",
+            'if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi',
+            'echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.assertIsNone(excuse.summary_red(log(name, step, *echoed)))
+        self.assertIsNone(excuse.summary_no_verdict(log(name, step, *echoed)))
+        self.assertIsNotNone(excuse.summary_red(log(name, step, *echoed, "##[error]summary red: rust workspaces: workspace: failure")))
+
+    def rule_step(self, workflow, job, step_name, env):
+        """Run a workflow step that carries needs_verdict.py's rule, for real: its printed lines, each `::error::` the
+        way the runner logs it, and the runner's exit line."""
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8"))
+        body = next(s for s in doc["jobs"][job]["steps"] if s["name"] == step_name)["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run(["bash", "-e", "-c", body], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                  env={**os.environ, "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), **env})
+        return [line.replace("::error::", "##[error]", 1) if line.startswith("::error::") else line
+                for line in (done.stdout + done.stderr).splitlines()] + [
+            f"##[error]Process completed with exit code {done.returncode}."]
+
+    def test_rust_workspaces_failing_different_crates_on_head_and_base_is_refused(self):
+        # cmux#39857 review (gpt-6.1-sol, b7b3ad7f): the rule's red line is the same words whichever crate failed, so a
+        # head failing crate-a matched a base failing crate-b and was excused with no child compared.
+        name, step = "rust workspaces", "Every planned workspace passed"
+        printed = self.rule_step("rust-workspaces.yml", "summary", step, {"PLAN": "success", "WORKSPACES": "failure"})
+        self.assertIn("##[error]summary red: rust workspaces: workspace: failure", printed)
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step=step), 2: failed_job(2, 20, BASE_SHA, name=name, step=step),
+                        7: failed_job(7, 10, HEAD, name="workspace (crate-a)", step="cargo test"),
+                        8: failed_job(8, 20, BASE_SHA, name="workspace (crate-b)", step="cargo test")}
+        self.gh.logs = {1: log(name, step, *printed), 2: log(name, step, *printed),
+                        7: log("workspace (crate-a)", "cargo test", "test a::t ... FAILED"),
+                        8: log("workspace (crate-b)", "cargo test", "test b::t ... FAILED")}
+        self.with_checks([{"id": 1, "name": name, "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/1"}])
+        with self.assertRaisesRegex(excuse.Refused, "rust workspaces' is a summary red.*compare its failed children"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def test_every_rule_summary_red_is_refused_unless_its_children_are_compared(self):
+        """Every workflow job on needs_verdict.py's rule, head and base red with different children or the same child:
+        never excused on its own red line. Only a job registered for child-level comparison (a routed rollup, judged by
+        validate_guard_routes against its failed children; Guard status) gets past it, and the Guard status tests above
+        feed its real step output through that path."""
+        import yaml
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import needs_verdict as nv
+        whats = []
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for job_id, job in (doc.get("jobs") or {}).items():
+                for st in job.get("steps") or []:
+                    body = st.get("run") or ""
+                    if nv.SHELL_RULE.splitlines()[0] in body:
+                        found = re.findall(r'needs_verdict\s+(?:"([^"$]+)"|([\w-]+))', body.replace(nv.SHELL_RULE, ""))
+                        kind = "shell"
+                    elif nv.PYTHON_RULE.splitlines()[0] in body:
+                        import ast
+                        script = re.search(r"<<'PY'\n(.*?)\nPY\b", body, re.S).group(1)
+                        found = [(call.args[1].value, "") for call in ast.walk(ast.parse(script))
+                                 if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "exit_with_verdict"
+                                 and len(call.args) > 1 and isinstance(call.args[1], ast.Constant)]
+                        kind = "python"
+                    else:
+                        continue
+                    check = job.get("name", job_id)
+                    for what in {a or b for a, b in found}:
+                        whats.append((path.name, job_id, check, st["name"], what, kind))
+        self.assertGreaterEqual(len({w[:2] for w in whats}), 8, whats)
+        self.assertIn(("ci-web.yml", "web-status", "Web status"), {(w[0], w[1], w[4]) for w in whats})
+
+        def red_line(kind, what, child):
+            if kind == "shell":
+                code = ["bash", "-c", nv.SHELL_RULE + f'needs_verdict "{what}" "{child}=failure"']
+            else:
+                code = [sys.executable, "-c", "import sys\n" + nv.PYTHON_RULE + f"exit_with_verdict({{{child!r}: 'failure'}}, {what!r})"]
+            out = subprocess.run(code, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
+            return [line.replace("::error::", "##[error]", 1) for line in out.splitlines() if line.startswith("::error::")]
+
+        registered = set()
+        for workflow, job_id, check, step, what, kind in whats:
+            if excuse.routed_rollup(check) is not None:
+                registered.add(check)
+                continue
+            for head_child, base_child in (("child-a", "child-b"), ("child-a", "child-a")):
+                with self.subTest(workflow=workflow, job=job_id, what=what, head=head_child, base=base_child):
+                    self.gh.jobs = {1: failed_job(1, 10, HEAD, name=check, step=step),
+                                    2: failed_job(2, 20, BASE_SHA, name=check, step=step)}
+                    self.gh.logs = {
+                        1: log(check, step, *red_line(kind, what, head_child), "##[error]Process completed with exit code 1."),
+                        2: log(check, step, *red_line(kind, what, base_child), "##[error]Process completed with exit code 1.")}
+                    with self.assertRaisesRegex(excuse.Refused, "summary red.*compare its failed children"):
+                        self.judge()
+        self.assertEqual(registered, {"Guard status"})
+
     def test_generated_shared_build_real_stale_error_is_still_compared(self):
         name = excuse.GENERATED_VERDICT_JOB
         step = "Read the generated files verdict of the shared build"
@@ -1412,6 +1534,72 @@ class Excusing(unittest.TestCase):
 
     def judge_guard(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["nightly-guards / Guard status"])
+
+    def guard_step_output(self, tests_result):
+        """What ci-guards.yml's `Check routed guard jobs` step prints, run for real, as its log lines: stdout and
+        stderr, each `::error::` annotation the way the runner logs it (`##[error]`), then the runner's exit line."""
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8"))
+        body = next(s for s in doc["jobs"]["guard-status"]["steps"] if s["name"] == "Check routed guard jobs")["run"]
+        inputs = {"submodule_forward_only": "false", "linux_guard_tests": "true",
+                  "linux_guard_test_groups": '["release-notary"]', "linux_guard_history": "false",
+                  "linux_guard_cli": "false", "linux_guard_source": "false"}
+        needs = {job: {"result": "skipped"} for job in (
+            "workflow-guard-submodule-forward-only", "workflow-guard-history", "workflow-guard-cli-scripts",
+            "workflow-guard-source-lints")}
+        needs["workflow-guard-submodule-forward-only"] = {"result": "success"}
+        needs["workflow-guard-tests"] = {"result": tests_result}
+        done = subprocess.run(["bash", "-e", "-c", body], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                              env={**os.environ, "GUARD_INPUTS": json.dumps(inputs), "GUARD_NEEDS": json.dumps(needs)})
+        printed = [line.replace("::error::", "##[error]", 1) if line.startswith("::error::") else line
+                   for line in (done.stdout + done.stderr).splitlines()]
+        return printed + [f"##[error]Process completed with exit code {done.returncode}."], done.returncode
+
+    def guard_from_its_step(self, tests_result):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        printed, code = self.guard_step_output(tests_result)
+        for job_id in (3, 4):
+            self.gh.logs[job_id] = log(name, "Check routed guard jobs", *printed)
+        return printed, code
+
+    def test_guard_status_rule_output_with_an_inherited_failure_is_excused(self):
+        # ci-guards.yml judges its needs with scripts/ci/needs_verdict.py's rule, whose red adds the line
+        # `##[error]Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)` (cmux#39857 F1).
+        printed, code = self.guard_from_its_step("failure")
+        self.assertEqual(code, 1, printed)
+        self.assertIn("##[error]summary red: Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)", printed)
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_guard_status_rule_output_with_its_own_failure_is_refused(self):
+        self.guard_from_its_step("failure")
+        self.gh.logs[6] = log("nightly-guards / workflow-guard-tests / release-notary",
+                              "Test What's New highlights and release notes", "ok")
+        self.gh.jobs[6]["conclusion"] = "success"
+        self.gh.jobs[6]["steps"][-1]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "release-notary' is not red on feat-cmux-next"):
+            self.judge_guard()
+
+    def test_guard_status_rule_output_with_no_verdict_is_rerun(self):
+        printed, code = self.guard_from_its_step("abandoned")
+        self.assertEqual(code, 3, printed)
+        with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
+            self.judge_guard()
+
+    def test_guard_status_rule_line_is_never_evidence(self):
+        # Its red line names jobs in words any summary shares (SUMMARY_RED): the route reports, each checked against a
+        # failed child, are the evidence. A line naming another job neither excuses nor refuses by itself.
+        self.guard_from_its_step("failure")
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "##[error]summary red: Guard status: workflow-guard-source-lints: failure")
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_guard_status_other_annotation_is_still_a_routing_error(self):
+        self.guard_from_its_step("failure")
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "##[error]Guard status: could not read GUARD_INPUTS")
+        with self.assertRaisesRegex(excuse.Refused, "routing error"):
+            self.judge_guard()
 
     def test_guard_route_job_must_match_the_reported_route_input(self):
         # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and
@@ -3701,6 +3889,109 @@ class InheritedCompileRed(unittest.TestCase):
         with unittest.mock.patch.object(excuse, "compile_receipt", unread):
             with self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
                 self.judge_status()
+
+
+class ReceiptDownGitHubDecides(unittest.TestCase):
+    """2026-11-10: the fleet controller was off and its receipts host answered HTTP 530 for every commit, so every
+    compile red inherited_compile_red judged was refused on the unread receipt and the landing queue stopped on one
+    service. While the host is unreachable, GitHub decides (github_compile_red): the head's cmux-next/compile fail is
+    the base's only when the merge-base (or the newest base commit with one completed) fails the same way."""
+
+    PR_HEAD = InheritedCompileRed.PR_HEAD
+    MERGE_BASE = InheritedCompileRed.MERGE_BASE
+    TIP = InheritedCompileRed.TIP
+    OLDER = "c" * 40
+    FAIL = "The app did not compile in SwiftPM Release (-Onone); see the log"
+
+    def setUp(self):
+        self.statuses = {self.PR_HEAD: ("failure", self.FAIL), self.MERGE_BASE: ("failure", self.FAIL)}
+        self.gh = FakeGitHub()
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{self.PR_HEAD}" in route:
+                self.gh.routes.append(route)
+                return {"merge_base_commit": {"sha": self.MERGE_BASE}, "base_commit": {"sha": self.TIP}}
+            if f"commits?sha=feat-cmux-next&per_page={excuse.BASE_STATUS_COMMITS}" in route:
+                self.gh.routes.append(route)
+                return [{"sha": self.TIP}, {"sha": self.MERGE_BASE}, {"sha": self.OLDER}]
+            for sha in (self.PR_HEAD, self.MERGE_BASE, self.TIP, self.OLDER):
+                if route.endswith(f"commits/{sha}/status?per_page=100"):
+                    self.gh.routes.append(route)
+                    found = self.statuses.get(sha)
+                    return {"statuses": [] if found is None else [
+                        {"context": "cmux-next/compile", "state": found[0], "description": found[1],
+                         "target_url": InheritedCompileRed.SOURCE_RUN}]}
+            if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": []}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        patch = unittest.mock.patch.object(excuse, "compile_receipt", down)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            try:
+                return "\n".join(excuse.judge(REPO, "feat-cmux-next", self.PR_HEAD, [], self.gh,
+                                               checks=["cmux-next/compile"])), stderr.getvalue()
+            finally:
+                self.log = stderr.getvalue()
+
+    def test_receipt_down_and_the_red_also_on_base_is_excused(self):
+        audit, said = self.judge()
+        self.assertIn("excused 'cmux-next/compile'", audit)
+        self.assertIn("HTTP 530", audit)
+        self.assertIn(f"its merge-base {self.MERGE_BASE[:12]}", audit)
+        self.assertIn("decided over GitHub", audit)
+        self.assertIn("was decided by GitHub", said)
+
+    def test_receipt_down_and_no_merge_base_status_uses_the_newest_completed_base_commit(self):
+        del self.statuses[self.MERGE_BASE]
+        self.statuses[self.TIP] = ("pending", "The Release compile (-Onone) of this head is running")
+        self.statuses[self.OLDER] = ("failure", self.FAIL)
+        audit, _ = self.judge()
+        self.assertIn(f"feat-cmux-next {self.OLDER[:12]}", audit)
+
+    def test_receipt_down_and_the_red_green_on_base_is_refused(self):
+        self.statuses[self.MERGE_BASE] = ("success", "The app compiled and linked in SwiftPM Release (-Onone)")
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge()
+        self.assertIn(f"{self.MERGE_BASE[:12]} reads success", self.log)
+
+    def test_receipt_down_and_no_base_data_is_refused_saying_why(self):
+        del self.statuses[self.MERGE_BASE]
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 530.*no completed cmux-next/compile at its merge-base "
+                                                    f"{self.MERGE_BASE[:12]}.*neither path can decide"):
+            self.judge()
+        self.assertIn("neither the receipts nor GitHub can decide", self.log)
+
+    def test_receipt_down_and_a_no_verdict_head_is_never_a_base_red(self):
+        no_result = ("failure", "No compile result for this head in 40 minutes")
+        self.statuses[self.PR_HEAD] = self.statuses[self.MERGE_BASE] = no_result
+        with self.assertRaisesRegex(excuse.Refused, "only a real compile fail can be the base's"):
+            self.judge()
+
+    def test_a_5xx_or_unreachable_host_is_unreachable_and_a_4xx_is_not(self):
+        def urlopen_raising(error):
+            def urlopen(request, timeout):
+                raise error
+            return unittest.mock.patch("urllib.request.urlopen", urlopen)
+        for error in (urllib.error.HTTPError("u", 530, "x", {}, None), urllib.error.HTTPError("u", 502, "x", {}, None),
+                      urllib.error.URLError("connection refused"), TimeoutError("timed out")):
+            with self.subTest(error=error), urlopen_raising(error), \
+                    self.assertRaises(excuse.ReceiptUnreachable):
+                REAL_COMPILE_RECEIPT(REPO, HEAD)
+        with urlopen_raising(urllib.error.HTTPError("u", 403, "x", {}, None)), \
+                self.assertRaises(excuse.Refused) as caught:
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
+        self.assertNotIsInstance(caught.exception, excuse.ReceiptUnreachable)
 
 
 class CompileReceiptRead(unittest.TestCase):

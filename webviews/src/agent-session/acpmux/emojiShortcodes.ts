@@ -5,8 +5,8 @@
 //
 // The table is the icon picker's (icon-picker/generated/emoji-data.json: Unicode emoji-test.txt and
 // CLDR annotations, Unicode License v3; emojibase-data GitHub shortcodes, MIT). It loads in its own
-// chunk after the composer's first paint (`loadEmojiShortcodes`), never with the page.
-import { decodeEmojiTable, warmSearch, type EmojiRecord, type RawEmojiTable } from "../../icon-picker/emojiData";
+// chunk once the person first types (`loadEmojiShortcodes`, Composer.tsx), never with the page.
+import { decodeEmojiTable, type EmojiRecord, type RawEmojiTable } from "../../icon-picker/emojiData";
 import { decodePrefs, recordUse, searchBoost, type PickerPrefs } from "../../icon-picker/recents";
 
 /// How many rows the menu lists at most.
@@ -77,8 +77,9 @@ export function loadEmojiShortcodes(): Promise<EmojiShortcodes> {
   table ??= import("../../icon-picker/generated/emoji-data.json")
     .then((module) => {
       const decoded = decodeEmojiTable((module.default ?? module) as unknown as RawEmojiTable);
-      // Names and keywords are folded now, at idle, not on the first keystroke that needs them.
-      warmSearch(decoded);
+      // Names and keywords are folded in idle slices, not on the first keystroke that needs them:
+      // all at once is one ~30 ms task, which would land between the person's keys.
+      warmIdle(decoded.records);
       return indexEmoji(decoded.records);
     })
     .catch((error: unknown) => {
@@ -86,6 +87,20 @@ export function loadEmojiShortcodes(): Promise<EmojiShortcodes> {
       throw error;
     });
   return table;
+}
+
+/// Folds each record's search text (EmojiRecord.searchText) while the page is idle, a few ms at a time.
+function warmIdle(records: readonly EmojiRecord[], from = 0): void {
+  const idle = globalThis.requestIdleCallback;
+  const slice = (deadline?: IdleDeadline) => {
+    let at = from;
+    const end = deadline ? Infinity : from + 100;
+    while (at < records.length && at < end && (!deadline || deadline.timeRemaining() > 2))
+      void records[at++]!.searchText;
+    if (at < records.length) warmIdle(records, at);
+  };
+  if (idle) idle(slice);
+  else setTimeout(slice, 0);
 }
 
 export function indexEmoji(records: readonly EmojiRecord[]): EmojiShortcodes {
