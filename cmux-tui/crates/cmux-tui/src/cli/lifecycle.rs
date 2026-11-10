@@ -65,6 +65,15 @@ pub(super) enum ServerAction {
     CompactRegistry {
         state_dir: Option<std::path::PathBuf>,
     },
+    /// Private app contract: before an update hands the running owner off,
+    /// the new build folds what its first start would (the agent roster at a
+    /// new reducer version) into a side file beside the registry, read-only
+    /// and beside the owner, which keeps serving. The new owner adopts it.
+    /// Needs an explicit `--session`; `--state-dir` as for compact-registry.
+    PremigrateRegistry {
+        state_dir: Option<std::path::PathBuf>,
+        max_duration: Option<Duration>,
+    },
 }
 
 pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
@@ -94,6 +103,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     if let ServerAction::CompactRegistry { state_dir } = plan.action {
         return run_compact_registry(expected_session, state_dir, global.output);
+    }
+    if let ServerAction::PremigrateRegistry { state_dir, max_duration } = plan.action {
+        return run_premigrate_registry(expected_session, state_dir, max_duration, global.output);
     }
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
@@ -312,9 +324,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match action {
         ServerAction::Ensure { .. }
         | ServerAction::CompactRegistry { .. }
+        | ServerAction::PremigrateRegistry { .. }
         | ServerAction::Restart { .. } => {
             unreachable!(
-                "ensure, compact-registry and restart return before the lifecycle exchange"
+                "ensure, compact-registry, premigrate-registry and restart return before the \
+                 lifecycle exchange"
             )
         }
         // A wedged owner answers identify, but serves no workspace change: the
@@ -507,23 +521,37 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // No pid wait: a parent that has not reaped the owner keeps a
             // zombie, and kill(pid, 0) succeeds for a zombie.
             let removed = remove_start_lock(&socket);
-            print_success(
-                json!({
-                    "status":"stopped",
-                    "accepted":true,
-                    "session":actual_session,
-                    "pid":pid,
-                    "generation":generation,
-                    "ended_terminals":result["ended_terminals"].as_u64(),
-                    "removed":removed,
-                    "message":if end_terminals {
-                        crate::localization::catalog().local_server.stopped_terminals_ended
-                    } else {
-                        crate::localization::catalog().local_server.stopped
-                    },
-                }),
-                global.output,
-            )
+            let mut stopped = json!({
+                "status":"stopped",
+                "accepted":true,
+                "session":actual_session,
+                "pid":pid,
+                "generation":generation,
+                "ended_terminals":result["ended_terminals"].as_u64(),
+                "removed":removed,
+                "message":if end_terminals {
+                    crate::localization::catalog().local_server.stopped_terminals_ended
+                } else {
+                    crate::localization::catalog().local_server.stopped
+                },
+            });
+            // Every terminal ended, so nothing is left to resume: the
+            // terminal and resume state goes too, and every other store of
+            // the session stays. A plain stop keeps it (`agent resume`
+            // needs it). The owner names its directory only when it ended
+            // every terminal without keeping the layout.
+            if let (true, Some(session_dir), Some(fields)) = (
+                end_terminals,
+                result.get("session_dir").and_then(Value::as_str),
+                stopped.as_object_mut(),
+            ) {
+                fields.extend(super::command::end_stopped_terminal_state(
+                    actual_session,
+                    std::path::Path::new(session_dir),
+                    Instant::now() + Duration::from_secs(10),
+                ));
+            }
+            print_success(stopped, global.output)
         }
     }
 }
@@ -1198,9 +1226,11 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
 
 /// After a stop (not a restart), removes what only a running owner needs:
 /// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
-/// `remove_socket_start_lock`). The session's saved state stays
-/// (`cmux session <name> reset-state` removes it). Returns the removed path,
-/// or none when there is no lock file or a start holds it for 500 ms.
+/// `remove_socket_start_lock`). The session's saved state stays after a
+/// plain stop (`cmux session <name> reset-state` removes it); a stop with
+/// `--end-terminals` removes its terminal and resume state only
+/// (`end_stopped_terminal_state`). Returns the removed path, or none when
+/// there is no lock file or a start holds it for 500 ms.
 fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
     let lock = cmux_tui_core::server::socket_start_lock_path(socket);
     let deadline = Instant::now() + Duration::from_millis(500);
@@ -1267,6 +1297,73 @@ fn run_compact_registry(
         Err(cmux_tui_core::RegistryCompactError::Failed(error)) => local_error_with_details(
             "server.compact_failed",
             messages.registry_compact_failed,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            1,
+        ),
+    }
+}
+
+/// `server premigrate-registry --session <name> [--state-dir <path>]
+/// [--max-seconds <n>]`: read-only beside the running owner, so it needs no
+/// socket and takes no session lock. A run stopped by `--max-seconds` or a
+/// signal saves its progress, and the next run resumes it; both exit 0.
+fn run_premigrate_registry(
+    expected_session: Option<String>,
+    state_dir: Option<std::path::PathBuf>,
+    max_duration: Option<Duration>,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(session) = expected_session else {
+        return local_error("usage.invalid", messages.registry_premigrate_needs_session, output, 2);
+    };
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return print_success(json!({"status": "nothing_to_do", "session": session}), output);
+    };
+    let stopped = crate::shutdown_requested;
+    let control = cmux_tui_core::PremigrateControl::new(max_duration, &stopped);
+    match cmux_tui_core::premigrate_registry(&root, &session, &control) {
+        Ok(cmux_tui_core::PremigrateOutcome::NoRegistry(path)) => {
+            eprintln!("cmux-tui: premigrate: no saved registry, nothing to do");
+            print_success(
+                json!({"status": "nothing_to_do", "session": session,
+                       "path": path.to_string_lossy()}),
+                output,
+            )
+        }
+        Ok(cmux_tui_core::PremigrateOutcome::AlreadyRunning(path)) => {
+            eprintln!("cmux-tui: premigrate: already running for this registry");
+            print_success(
+                json!({"status": "already_running", "session": session,
+                       "path": path.to_string_lossy()}),
+                output,
+            )
+        }
+        Ok(cmux_tui_core::PremigrateOutcome::Done(roster)) => print_success(
+            json!({
+                "status": if roster.complete { "done" } else { "partial" },
+                "session": session,
+                "path": roster.registry.to_string_lossy(),
+                "agent_roster": {
+                    "version": roster.version,
+                    "up_to_date": roster.up_to_date,
+                    "from_cursor": roster.from_cursor,
+                    "cursor": roster.cursor,
+                    "head": roster.head,
+                    "complete": roster.complete,
+                    "records_folded": roster.records_folded,
+                    "elapsed_ms": roster.elapsed_ms,
+                    "stop_reason": roster.stop_reason,
+                    "side_file": roster.side_file.to_string_lossy(),
+                },
+                "output_cleanup": {"outcome": "deferred"},
+            }),
+            output,
+        ),
+        Err(error) => local_error_with_details(
+            "server.premigrate_failed",
+            messages.registry_premigrate_failed,
             json!({"session": session, "reason": format!("{error:#}")}),
             output,
             1,

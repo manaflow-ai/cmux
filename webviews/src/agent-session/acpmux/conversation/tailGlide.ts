@@ -108,6 +108,8 @@ export type TailGlide = {
   hold(): void;
   /// Followed again: what the reader's input held plays on.
   resume(): void;
+  /// Whether a row is drawn away from its place now (a glide playing or held).
+  moving(): boolean;
 };
 
 export function createTailGlide(): TailGlide {
@@ -120,6 +122,8 @@ export function createTailGlide(): TailGlide {
   };
   return {
     stop,
+    moving: () =>
+      [...playing].some((animation) => animation.playState !== "finished" && animation.playState !== "idle"),
     hold() {
       for (const animation of playing) animation.pause();
     },

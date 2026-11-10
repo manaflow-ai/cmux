@@ -772,12 +772,13 @@ tab <selector> terminal|browser ...
 
 terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
+terminal <selector> close [--if-unplaced]
 terminal <term_id> keep on|off
 terminal <term_id>|current pin-tail on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
-terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
 terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--pattern <regex>]
   [--timeout <d>] [--settle <d>] [--force] [--exit-with-status]
 terminal <selector> run [--pattern <regex>] [--timeout <d>] [--force] -- <command...>
@@ -996,6 +997,9 @@ Workspace creation starts with one terminal unless `--empty` is present.
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
 pane, screen, and workspace closes detach PTY views; only `terminal close`
 ends the session-owned process and removes all of its placements.
+`terminal <selector> close --if-unplaced` sends `if_unplaced: true`: it ends
+the terminal only when it has no tab, no `keep` mark and no attach stream, and
+otherwise fails and changes nothing.
 `tab`, `pane`, `screen` and `workspace <selector> close` with `--others`,
 `--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
 `layout.bulk` close: the selected object's siblings in its pane, screen,

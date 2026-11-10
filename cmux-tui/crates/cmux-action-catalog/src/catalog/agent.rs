@@ -635,7 +635,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "fork", "branch"],
         default_shortcut: Some(Shortcut { key: "y", modifiers: OPT | CMD }),
         category: "agents",
-        symbol: "arrow.triangle.branch",
+        symbol: "arrow.branch",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "create", 199), Placement::at("agentChat", "create", 199)], ..SurfacePlan::DEFAULT },
         cli_name: "agent fork-conversation",

@@ -93,8 +93,8 @@ order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. In the
 cmux app's session, list also gives each connected Cloud machine's
 workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
-id cloud new-workspace answers), machine_name and target machine:<id>;
---machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
+id cloud new-workspace answers), machine_name and target vm:<id>;
+--machine <vm-…|vm:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
@@ -248,7 +248,7 @@ USAGE
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
   cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
-  cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+  cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
   cmux terminal <selector> process show
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> wait --until idle|prompt|ready
@@ -260,20 +260,23 @@ USAGE
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux terminal <selector> attach|close [OPTIONS]
+  cmux terminal <selector> close --if-unplaced
   cmux terminal <selector> resume [--cmd <launcher>] [--pane <selector>]
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
   cmux terminal <term_id>|current pin-tail on|off
 
 list --cwd <path> keeps the terminals in <path> or a folder inside it.
-screen read prints the screen's text; --details (or --json) gives the whole
+screen read and copy print the text; --details (or --json) gives the whole
 record. screen read --unwrap joins rows the terminal soft-wrapped into the
 lines the program printed; --lines <n> reads the last n lines of scrollback and
 screen (logical lines with --unwrap). copy --unwrap does the same for screen and
-scrollback. screen wait prints its result either way and exits 1 when the
-timeout passes without a match; --new matches only output printed below the
+scrollback. screen wait prints its result either way; when the timeout passes
+without a match it says timed_out: true and exits 124. --new matches only output printed below the
 cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
+close --if-unplaced ends the terminal only when it has no tab, no keep mark
+and no attach stream; otherwise it fails and changes nothing.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
 STATE is the word list --agents shows (a finished turn somebody viewed is
@@ -285,6 +288,8 @@ integration to see commands, and print the terminal record; a passed
 --timeout exits 124. --until ready waits until the terminal's agent can take
 a message, as cmux agent start does: a startup dialog (Claude's folder-trust
 question, a login) ends it as blocked with the dialog and a reason (exit 4).
+process wait prints outcome once the process ends; when the timeout passes
+first it prints state pending, timed_out: true and exits 124.
 list --agents lists the terminals that run a coding agent (Claude Code,
 Codex, or a program reporting OSC 7501 status): name, harness, state
 (blocked, done, working, idle, unknown, ended), age, workspace and title.
@@ -305,7 +310,12 @@ command's exit_status (absent when the shell reports none, never guessed).
 (the echo never does) and when the command finishes without a match (exit 1).
 --exit-with-status exits with the command's status (125: unknown). A passed
 --timeout exits 124 with the output so far. An agent that waits on a dialog
-is refused unless --force.
+is refused unless --force. A send to an idle agent whose hooks report each
+prompt it takes fails with send.not_submitted (exit 1) when the agent starts
+no turn within 10 s of Enter, or the message is still in its input box; read
+the screen before you send again. A send to a working agent, /, ! and #
+input, --pattern and --wait none are not checked. --wait none returns once
+the message is typed and Enter is pressed.
 run types a command into the terminal's shell, waits for it to finish and
 exits with its status: send --wait prompt --exit-with-status. status also
 names the last command's exit status (terminal show --json:

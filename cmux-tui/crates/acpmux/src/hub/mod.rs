@@ -135,6 +135,8 @@ mod log_deferral;
 mod log_load;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+mod cold_archive;
+pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
 mod retention;
@@ -285,6 +287,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
@@ -695,6 +698,8 @@ pub struct Hub {
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
+    pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -778,6 +783,10 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
+    /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
+    pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) cold_wake: Arc<Notify>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -875,6 +884,9 @@ pub struct Hub {
     /// Tests only: a pause while a prompt's model-sized copies are made (`turns::agent_blocks`).
     #[cfg(test)]
     pub(super) copy_seam: full_access_bound::WriteSeam,
+    /// Tests only: a pause after a fork read its parent's meta, before its cut (`fork.rs`).
+    #[cfg(test)]
+    pub(super) fork_seam: full_access_bound::WriteSeam,
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
@@ -1120,6 +1132,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
+            mesh_read_parts: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
@@ -1159,6 +1172,8 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            cold_rehydrated: Default::default(),
+            cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
@@ -1208,6 +1223,8 @@ impl Hub {
             family_write_seam: Default::default(),
             #[cfg(test)]
             copy_seam: Default::default(),
+            #[cfg(test)]
+            fork_seam: Default::default(),
             #[cfg(test)]
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
@@ -1277,6 +1294,7 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
+        hub.watch_rehydrates();
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);
@@ -1293,6 +1311,7 @@ impl Hub {
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
                 hub.bg_notify_resume();
@@ -1578,6 +1597,7 @@ impl Hub {
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            log_skipped: AtomicBool::new(false),
             auto_resume_restored: AtomicBool::new(false),
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
@@ -1585,6 +1605,8 @@ impl Hub {
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
+            #[cfg(test)]
+            sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
@@ -2622,6 +2644,7 @@ impl Hub {
     }
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.warm_chat_id(id);
         self.store.events(id, after, limit)
     }
 
@@ -2640,6 +2663,8 @@ impl Hub {
         let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
+        // A cold-archived chat's log comes back first, and its preview goes (`cold_archive.rs`).
+        self.warm_chat(&session);
         // After a hard stop the log can be ahead of the saved `lastSeq`, until the chat's log is
         // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
         // counted first, so the cap below leaves out only a line whose record is not appended

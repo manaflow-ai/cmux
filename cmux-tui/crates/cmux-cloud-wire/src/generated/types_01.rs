@@ -417,6 +417,10 @@ pub struct CloudMachine {
     pub running_since: Option<Option<i64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_by: Option<LitSpendCap>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_cap_pause_at: Option<i64>,
     pub revision: Revision,
 }
 
@@ -476,6 +480,8 @@ pub struct CloudPlan {
     pub upgrade_plan: Option<String>,
     pub limits: CloudPlanLimits,
     pub usage: CloudPlanUsage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_cap: Option<CloudPlanSpendCap>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -495,6 +501,25 @@ pub struct CloudPlanUsage {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub vm_hours_used_by_you: Option<Option<WireNumber>>,
     pub period_end: i64,
+}
+
+wire_enum! {
+    CloudPlanSpendCapState {
+        Under = "under",
+        Near = "near",
+        AtCap = "at_cap",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudPlanSpendCap {
+    pub state: Option<CloudPlanSpendCapState>,
+    pub spent_usd: Option<WireNumber>,
+    pub cap_usd: Option<WireNumber>,
+    pub period_end: Option<i64>,
+    pub checked_at: Option<i64>,
+    pub pause_at: Option<i64>,
+    pub paused_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -876,30 +901,3 @@ wire_enum! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedOpenArgs {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPoster {
-    pub kind: FeedPosterKind,
-    pub scope: String,
-    pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-}
-
-wire_enum! {
-    FeedPosterKind {
-        Agent = "agent",
-        Harness = "harness",
-        App = "app",
-        Server = "server",
-        Vm = "vm",
-        Automation = "automation",
-        Integration = "integration",
-        System = "system",
-        User = "user",
-    }
-}

@@ -129,6 +129,13 @@ export class MockCloudProvider implements PageClient {
   liftingPlan: string | null = null;
   /** No machine image is configured yet: create and restore answer `no_snapshot_configured`. */
   noSnapshotConfigured = false;
+  /**
+   * The team's spending cap as `cloud.plan.get` answers it (cmux-platform SpendCap.ts); at the cap, a start or
+   * create answers `spend_cap_reached`. Unset: a server without the cap.
+   */
+  spendCap?: NonNullable<CloudPlan["spend_cap"]>;
+  /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
+  memberBudget?: { spent_usd: number; limit_usd: number };
   holdTransfers: boolean;
   pageSize: number;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
@@ -227,6 +234,7 @@ export class MockCloudProvider implements PageClient {
         vm_hours_used: p.vm_hours_used,
         period_end: p.period_end,
       },
+      ...(this.spendCap ? { spend_cap: this.spendCap } : {}),
     };
   }
 
@@ -338,6 +346,28 @@ export class MockCloudProvider implements PageClient {
         memory_mb: memoryMb,
         plan: this.liftingPlan,
       });
+    // The spending cap is checked before any provider call, like the plan (CloudCore.submit).
+    if (activeDelta > 0 && this.spendCap?.state === "at_cap") {
+      const cap = this.spendCap;
+      throw pageError(
+        CloudErrors.spendCapReached,
+        "this team has reached its spending cap; an admin can raise it",
+        false,
+        {
+          spent_usd: cap.spent_usd,
+          cap_usd: cap.cap_usd,
+          period_end: cap.period_end,
+          pause_at: cap.pause_at,
+        },
+      );
+    }
+    if (activeDelta > 0 && this.memberBudget)
+      throw pageError(
+        CloudErrors.memberBudgetReached,
+        "you have spent your monthly budget; a team admin can raise it",
+        false,
+        { ...this.memberBudget },
+      );
     const { limits, usage } = this.plan;
     if (activeDelta > 0 && usage.active + activeDelta > limits.max_active)
       throw pageError(CloudErrors.quotaExceeded, `this plan allows ${limits.max_active} active machines`, false, {
