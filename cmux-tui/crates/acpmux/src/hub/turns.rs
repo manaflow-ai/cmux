@@ -207,6 +207,9 @@ impl Hub {
             // entry (the ledger is only for client-supplied idempotency keys).
             let generated_id = uuid::Uuid::now_v7().to_string();
             opts.prompt_id = Some(generated_id.clone());
+            if let Some(text) = opts.coach.take() {
+                self.coach_prompt(session, &generated_id, &text);
+            }
             ensure_message_provenance(&mut opts, &session.id);
             let message = message_context(self, session, &blocks, &opts, &generated_id);
             embed_message_context(&mut opts, message.as_ref(), &session.id);
@@ -266,6 +269,10 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A client's resend of this id was answered above: the coach counts the prompt once.
+        if let Some(text) = opts.coach.take() {
+            self.coach_prompt(session, &prompt_id, &text);
+        }
         // A resent inbox message answers as its notice did, a failure as the same error.
         if opts.resend
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
@@ -1778,8 +1785,9 @@ impl Hub {
                     if status == "completed" && taught {
                         self.offer_learned(session, learned);
                     }
-                    // A chat that took several corrections, kept now (`prompt_coach.rs`).
-                    self.coach_turn_ended(session, status == "completed");
+                    // A chat that took several corrections, kept now (`prompt_coach.rs`): settled
+                    // by this turn's own prompt only.
+                    self.coach_turn_ended(session, prompt_id, status == "completed");
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
