@@ -45,12 +45,12 @@ Two gaps in ModuleFinder are filled here, both in _Finder below:
 Dynamic imports fail closed. A sys.path change, importlib.import_module, importlib.__import__,
 importlib.util.spec_from_file_location, runpy or __import__ anywhere in a listed script's closure
 (found in each module's AST) makes the step unverifiable, unless DYNAMIC_IMPORT_AUDIT names that file
-and call with a one-line reason; an audit entry whose file or call is gone fails too. A
-sys.path.insert or append of a fixed repo folder (built from __file__, or a literal relative to the
-repo root) is learned instead: it joins both runs' search path. So is a spec_from_file_location of a
-fixed repo file: that file joins the closure (inside a `try:` that catches ImportError it is optional,
-like a guarded import), and so is `__import__("name")` of a stdlib module. There is no other
-allowlist.
+and call with a one-line reason; an audit entry whose file or call is gone fails too. Only exact,
+provable forms are learned instead (the comment above DYNAMIC_CALLS lists them): sys.path.insert(0, P)
+and sys.path.append(P) of a fixed repo folder join both runs' search path in order, and
+spec_from_file_location(name, P) of a fixed repo file joins the closure and must be checked out, in
+a `try:` or not, unless an audit entry keyed (loading file, loaded file) marks it optional. There is
+no other allowlist.
 
 Run: python3 tests/test_ci_sparse_checkout_imports.py
 """
@@ -62,11 +62,13 @@ import importlib.machinery
 import modulefinder
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from collections import Counter
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -75,8 +77,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# (file, call) -> why the modules it loads need no listing. One line each; an entry naming a file
-# or a call that is gone fails (see stale_audit_entries).
+# (file, call) -> why the modules it loads need no listing, or (file, loaded file) -> why a load this
+# check learned is optional. One line each; an entry naming a file, a call or a load that is gone
+# fails (see stale_audit_entries).
 DYNAMIC_IMPORT_AUDIT: dict[tuple[str, str], str] = {
     ("scripts/ci/merge_main_resolver.py", "importlib.util.spec_from_file_location"): (
         "loads scripts/merge-xcstrings.py under its tools_root argument; the catch-up checkout lists it"
@@ -84,6 +87,19 @@ DYNAMIC_IMPORT_AUDIT: dict[tuple[str, str], str] = {
     ("scripts/ci/stable_next.py", "importlib.util.spec_from_file_location"): (
         "_ratchet_module() loads scripts/cmux-next/crash_ratchet.py from the --head-tree archive it compares, "
         "not from this checkout"
+    ),
+    ("scripts/ci/web_subareas.py", "scripts/cmux-next/web-bundle-key.py"): (
+        "optional: web_bundle_input_matcher() returns None when the key script is missing, and callers fall back"
+    ),
+    ("scripts/ci/next_macos_cascade.py", "__import__"): (
+        '__import__("os") of the stdlib, only to build the sys.path insert of its own folder'
+    ),
+    ("scripts/ci/next_macos_cascade.py", "sys.path.insert"): (
+        "inserts its own folder (dirname of abspath(__file__)), which is already sys.path[0]"
+    ),
+    ("scripts/ci/side_lane_placement.py", "importlib.util.spec_from_file_location"): (
+        "loads pr_runner_pool.py and next_macos_cascade.py beside it (a `path` name bound in two functions); "
+        "the decide checkout lists both"
     ),
     ("scripts/ci/portable_job_placement.py", "importlib.util.spec_from_file_location"): (
         "_load() takes the literal names pr_runner_pool and side_lane_placement, files beside it the decide "
@@ -350,10 +366,19 @@ def find_modules(
 # ModuleFinder follows import statements only. A module that changes sys.path, or loads modules by
 # a name or path it computes, can need files this check never sees. Each such call in a listed
 # script's import closure is reported as unverifiable unless DYNAMIC_IMPORT_AUDIT names its file and
-# call with a reason. One exception, where the oracle learns the path instead: sys.path.insert or
-# append of a fixed folder in the repo (built from __file__ with pathlib or os.path, or a literal
-# relative to the repo root, the run step's default directory) joins the search path of both runs,
-# inserts in front, appends at the end.
+# call with a reason. The check learns only forms it can prove, and only these:
+#   - sys.path.insert(0, P) and sys.path.append(P): P joins both runs' search path, each insert(0)
+#     in front of everything before it (so the last one wins), each append at the end;
+#   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
+#     checked out, inside a `try:` or not. It is optional only when DYNAMIC_IMPORT_AUDIT says so,
+#     keyed by (loading file, loaded file).
+# P must be a fixed path in the repo: a string literal (relative to the repo root, the run step's
+# directory), or __file__ through Path(), str(), os.fspath(), .resolve(), .absolute(), .parent,
+# .parents[N], / "literal", .with_name("literal"), .joinpath("literal"), os.path.abspath/realpath/
+# dirname or os.path.join(..., "literal"), directly or through a name the module binds exactly once
+# (`NAME = ...`) and never rebinds in any scope (no second assignment, `+=`, loop or with target,
+# parameter, import, global...). Any other form, a keyword argument, or an insert at another index is
+# unverifiable.
 
 DYNAMIC_CALLS = {
     "sys.path.insert",
@@ -386,73 +411,48 @@ def _aliases(tree: ast.AST) -> dict[str, str]:
     return names
 
 
-def _literal_import(node: ast.AST) -> str | None:
-    """The module name of `__import__("name")` with a literal name, else None."""
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "__import__"
-        and len(node.args) == 1
-        and not node.keywords
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-    ):
-        return node.args[0].value
-    return None
-
-
 def _dotted(node: ast.AST, aliases: dict[str, str]) -> str | None:
     attrs = []
     while isinstance(node, ast.Attribute):
         attrs.append(node.attr)
         node = node.value
-    if isinstance(node, ast.Name):
-        base = aliases.get(node.id, node.id)
-    else:
-        base = _literal_import(node)  # __import__("os").path is os.path
-        if base is None:
-            return None
-    return ".".join([base, *reversed(attrs)])
+    if not isinstance(node, ast.Name):
+        return None
+    return ".".join([aliases.get(node.id, node.id), *reversed(attrs)])
 
 
-_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
-
-
-def _scopes(tree: ast.AST) -> tuple[dict[int, ast.AST], dict[int, dict[str, ast.AST]]]:
-    """(node id -> its enclosing function or the module, scope id -> names assigned exactly once in
-    that scope -> the expression). A function's parameters are bound to None: not fixed."""
-    scope_of: dict[int, ast.AST] = {}
-    seen: dict[int, dict[str, list]] = {id(tree): {}}
-
-    def visit(scope: ast.AST, node: ast.AST) -> None:
-        for child in ast.iter_child_nodes(node):
-            scope_of[id(child)] = scope
-            if isinstance(child, _SCOPES):
-                names = seen.setdefault(id(child), {})
-                for arg in ast.walk(child.args):
-                    if isinstance(arg, ast.arg):
-                        names.setdefault(arg.arg, []).extend([None, None])
-                visit(child, child)
-                continue
-            target = value = None
-            if isinstance(child, ast.Assign) and len(child.targets) == 1 and isinstance(child.targets[0], ast.Name):
-                target, value = child.targets[0].id, child.value
-            elif isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name) and child.value is not None:
-                target, value = child.target.id, child.value
-            if target is not None:
-                seen.setdefault(id(scope), {}).setdefault(target, []).append(value)
-            visit(scope, child)
-
-    visit(tree, tree)
-    bindings = {
-        scope: {name: values[0] if len(values) == 1 else None for name, values in names.items()}
-        for scope, names in seen.items()
-    }
-    return scope_of, bindings
+def _bound_once(tree: ast.AST) -> dict[str, ast.AST]:
+    """Names the module binds exactly once, by a plain `NAME = expr`, and nowhere else in any scope
+    (no other assignment, augmented assignment, loop, with, except or walrus target, del, import,
+    def, class, parameter, global, nonlocal or match capture of that name) -> expr."""
+    binds: Counter[str] = Counter()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            binds[node.id] += 1
+        elif isinstance(node, ast.arg):
+            binds[node.arg] += 2
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            binds[node.name] += 2
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                binds[(alias.asname or alias.name).split(".")[0]] += 2
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                binds[name] += 2
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            binds[node.name] += 2
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            binds[node.rest] += 2
+    once: dict[str, ast.AST] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if binds[node.targets[0].id] == 1:
+                once[node.targets[0].id] = node.value
+    return once
 
 
 class _FixedPath:
-    """Evaluates a folder expression built from __file__ or a literal; None when it is not fixed."""
+    """Evaluates a path in the forms the comment above lists; None for anything else."""
 
     def __init__(self, here: Path, root: Path, aliases: dict[str, str], bindings: dict[str, ast.AST]) -> None:
         self.here, self.root, self.aliases, self.bindings = here, root, aliases, bindings
@@ -501,8 +501,7 @@ class _FixedPath:
                 base = ev(func.value)
                 return None if base is None else base.joinpath(*(a.value for a in args))
             name = _dotted(func, self.aliases)
-            one = {"pathlib.Path", "pathlib.PurePath", "str", "os.fspath", "os.path.abspath", "os.path.realpath",
-                   "os.path.normpath"}
+            one = {"pathlib.Path", "str", "os.fspath", "os.path.abspath", "os.path.realpath"}
             if name in one and len(args) == 1:
                 return ev(args[0])
             if name == "os.path.dirname" and len(args) == 1:
@@ -518,44 +517,24 @@ class _FixedPath:
         return None
 
 
-def _guarded_nodes(tree: ast.AST) -> set[int]:
-    """ids of the nodes inside a `try:` body whose handlers catch ImportError (see _catches_import_error)."""
-    guarded: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Try) and any(_catches_import_error(h) for h in node.handlers):
-            for stmt in node.body:
-                guarded.update(id(inner) for inner in ast.walk(stmt))
-    return guarded
-
-
 @lru_cache(maxsize=None)
 def dynamic_calls(
     root: Path, rel: str
-) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
-    """What a file's dynamic imports do: (folders sys.path.insert puts in front, folders
-    sys.path.append adds, files importlib.util.spec_from_file_location loads, unresolved (call, line)).
-
-    Learned rather than flagged: an insert or append of a fixed repo folder, a spec_from_file_location
-    of a fixed repo file (dropped altogether inside a `try:` that catches ImportError, like an optional
-    import), and `__import__("name")` of a stdlib module.
-    """
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
+    """What a file's dynamic imports do, in source order: (("insert" or "append", folder) for each
+    learned sys.path change, files learned spec_from_file_location calls load, unresolved (call, line))."""
     try:
         tree = ast.parse((root / rel).read_bytes())
     except (OSError, SyntaxError, ValueError):
-        return (), (), (), ()
+        return (), (), ()
     aliases = _aliases(tree)
-    scope_of, scoped = _scopes(tree)
-    guarded = _guarded_nodes(tree)
-    front: list[str] = []
-    back: list[str] = []
-    loaded: list[str] = []
+    fixed = _FixedPath(root / rel, root, aliases, _bound_once(tree))
+    path_ops: list[tuple[str, str]] = []
+    loads: list[str] = []
     unresolved: list[tuple[str, int]] = []
 
-    def in_repo(call: ast.Call, node: ast.AST | None, want_dir: bool) -> str | None:
-        # A name resolves in the call's own function first, then at module level.
-        scope = scope_of.get(id(call), tree)
-        bindings = {**scoped[id(tree)], **(scoped.get(id(scope), {}) if scope is not tree else {})}
-        found = None if node is None else _FixedPath(root / rel, root, aliases, bindings)(node)
+    def in_repo(node: ast.AST, want_dir: bool) -> str | None:
+        found = fixed(node)
         if found is None:
             return None
         found = Path(os.path.normpath(found))
@@ -564,8 +543,9 @@ def dynamic_calls(
         rel_found = found.relative_to(root).as_posix()
         return "" if rel_found == "." else rel_found
 
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+    kinds = (ast.Call, ast.Assign, ast.AugAssign, ast.AnnAssign)
+    for node in sorted((n for n in ast.walk(tree) if isinstance(n, kinds)), key=lambda n: (n.lineno, n.col_offset)):
+        if not isinstance(node, ast.Call):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
                 if isinstance(target, ast.Subscript):
@@ -573,41 +553,42 @@ def dynamic_calls(
                 if _dotted(target, aliases) == "sys.path":
                     unresolved.append((SYS_PATH_ASSIGNMENT, node.lineno))
             continue
-        if not isinstance(node, ast.Call):
-            continue
         name = _dotted(node.func, aliases)
         if name not in DYNAMIC_CALLS:
             continue
-        if name == "__import__" and (_literal_import(node) or "").split(".")[0] in sys.stdlib_module_names:
-            continue
-        if name in ("sys.path.insert", "sys.path.append") and node.args and not node.keywords:
-            folder = in_repo(node, node.args[-1], want_dir=True)
-            if folder is not None:
-                into = front if name == "sys.path.insert" else back
-                if folder not in into:
-                    into.append(folder)
-                continue
-        if name == "importlib.util.spec_from_file_location":
-            where = node.args[1] if len(node.args) > 1 else next(
-                (k.value for k in node.keywords if k.arg == "location"), None
-            )
-            file = in_repo(node, where, want_dir=False)
-            if file is not None:
-                if id(node) not in guarded and file not in loaded:
-                    loaded.append(file)
-                continue
+        args = node.args
+        if not node.keywords and not any(isinstance(a, ast.Starred) for a in args):
+            first = args[0] if args else None
+            if name == "sys.path.insert" and len(args) == 2:
+                if isinstance(first, ast.Constant) and type(first.value) is int and first.value == 0:
+                    folder = in_repo(args[1], want_dir=True)
+                    if folder is not None:
+                        path_ops.append(("insert", folder))
+                        continue
+            elif name == "sys.path.append" and len(args) == 1:
+                folder = in_repo(args[0], want_dir=True)
+                if folder is not None:
+                    path_ops.append(("append", folder))
+                    continue
+            elif name == "importlib.util.spec_from_file_location" and len(args) == 2:
+                file = in_repo(args[1], want_dir=False)
+                if file is not None:
+                    if file not in loads:
+                        loads.append(file)
+                    continue
         unresolved.append((name, node.lineno))
-    return tuple(front), tuple(back), tuple(loaded), tuple(unresolved)
+    return tuple(path_ops), tuple(loads), tuple(unresolved)
 
 
 @lru_cache(maxsize=None)
 def full_run(
-    root: Path, script: str, extra: tuple[str, ...], how: tuple[str, str] | None
+    root: Path, script: str, extra: tuple[str, ...], how: tuple[str, str] | None, audited: frozenset = frozenset()
 ) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int], ...]]:
     """ModuleFinder over the full tree: (places, importers, the search path used, the files loaded by
-    path as (file, loader), unresolved dynamic calls as (file, call, line)). Fixed sys.path inserts
-    in the closure join the search path and fixed spec_from_file_location files join the closure; the
-    run repeats until neither grows."""
+    path as (file, loader), unresolved dynamic calls as (file, call, line)). Learned sys.path changes
+    in the closure (the script first, then modules as ModuleFinder meets them, each in source order)
+    build the search path, and learned loads join the closure unless `audited` holds (loader, file);
+    the run repeats until neither changes."""
     base = how[1] if how else script.rsplit("/", 1)[0]
     module = how[0] if how else None
     front: list[str] = []
@@ -617,28 +598,39 @@ def full_run(
         search = tuple(dict.fromkeys([*front, base, *extra, *back]))
         places, importer = find_modules(root, script, search, module, tuple(loaded.items()))
         files = dict.fromkeys([script, *(p for p in places.values() if not p.endswith("/"))])
-        grown_front, grown_back, grown_loaded = list(front), list(back), dict(loaded)
+        new_front: list[str] = []
+        new_back: list[str] = []
+        new_loaded: dict[str, str] = {}
         unresolved = []
         for rel in files:
-            more_front, more_back, more_loaded, calls = dynamic_calls(root, rel)
-            grown_front += [d for d in more_front if d not in grown_front]
-            grown_back += [d for d in more_back if d not in grown_back]
-            for file in more_loaded:
-                grown_loaded.setdefault(file, rel)
+            path_ops, loads, calls = dynamic_calls(root, rel)
+            for op, folder in path_ops:
+                if op == "insert":  # insert(0, x) puts x in front of every earlier entry
+                    if folder in new_front:
+                        new_front.remove(folder)
+                    new_front.insert(0, folder)
+                elif folder not in new_front and folder not in new_back:
+                    new_back.append(folder)
+            for file in loads:
+                if (rel, file) not in audited:
+                    new_loaded.setdefault(file, rel)
             unresolved += [(rel, call, line) for call, line in calls]
-        if (grown_front, grown_back, grown_loaded) == (front, back, loaded):
+        if (new_front, new_back, new_loaded) == (front, back, loaded):
             return places, importer, search, tuple(loaded.items()), tuple(unresolved)
-        front, back, loaded = grown_front, grown_back, grown_loaded
+        front, back, loaded = new_front, new_back, new_loaded
     raise RuntimeError(f"{script}: the dynamic imports in its closure never settle")
 
 
 def stale_audit_entries(root: Path, audit: dict[tuple[str, str], str]) -> list[str]:
-    """Audit entries naming a file that is gone, a call the file no longer makes unresolved, or no reason."""
+    """Audit entries naming a file that is gone, a call it no longer makes unresolved or a file it no
+    longer loads, or with no reason."""
     out = []
     for (rel, call), reason in sorted(audit.items()):
         if not (root / rel).is_file():
             out.append(f"DYNAMIC_IMPORT_AUDIT: {rel} {call}: the file is gone, drop the entry")
-        elif call not in {c for c, _ in dynamic_calls(root, rel)[3]}:
+            continue
+        _, loads, calls = dynamic_calls(root, rel)
+        if call not in {c for c, _ in calls} and call not in loads:
             out.append(f"DYNAMIC_IMPORT_AUDIT: {rel} {call}: {rel} no longer makes that call, drop the entry")
         elif not str(reason).strip():
             out.append(f"DYNAMIC_IMPORT_AUDIT: {rel} {call}: give a one-line reason")
@@ -676,7 +668,8 @@ def sparse_runs(
 
 # --- workflows --------------------------------------------------------------------------------
 
-_INLINE_PYTHONPATH = re.compile(r"(?:^|[\s;&|(])PYTHONPATH=(\"[^\"]*\"|'[^']*'|\S+)")
+_SHELL_OPERATORS = {";", "&&", "||", "|", "&", "|&", "(", ")", ";;", "!"}
+_SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _RUN_MODULE = re.compile(r"\bpython[\d.]*\b[^\n;&|]*?\s-m\s*([A-Za-z_][\w.]*)")
 _WORKSPACE = re.compile(r"^(?:\$\{\{\s*github\.workspace\s*\}\}|\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE\b)")
 
@@ -746,30 +739,81 @@ def _mentions(line: str, script: str, how: tuple[str, str] | None) -> bool:
     return how is not None and how[0].removesuffix(".__main__") in _RUN_MODULE.findall(line)
 
 
+def _logical_lines(run: str) -> list[str]:
+    """A run script's lines as the shell reads them: a backslash at a line's end joins the next."""
+    return re.sub(r"\\\r?\n", "", run).splitlines()
+
+
+def _command_env(line: str, script: str, how: tuple[str, str] | None) -> dict[str, str] | None:
+    """The VAR=value words before the command on this logical line that runs `script` ({} if none,
+    or no command on it names the script); None when shlex cannot split the line."""
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer)
+    except ValueError:
+        return None
+    commands: list[list[str]] = [[]]
+    for word in words:
+        if word in _SHELL_OPERATORS:
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    for command in commands:
+        if not _mentions(" ".join(command), script, how):
+            continue
+        assigned: dict[str, str] = {}
+        for word in command[1:] if command[:1] == ["env"] else command:
+            if not _SHELL_ASSIGNMENT.match(word):
+                break
+            key, value = word.split("=", 1)
+            assigned[key] = value
+        return assigned
+    return {}
+
+
 def pythonpath_configs(
     doc: dict, job: dict, script: str, how: tuple[str, str] | None, root: Path
 ) -> tuple[list[tuple[str, ...]], list[str]]:
-    """Each distinct PYTHONPATH (as repo folders) `script` runs with, and the entries that cannot be
-    resolved. It is the effective env of each run step whose line names the script, or a
-    `PYTHONPATH=...` on that line; with no such step, the job's (workflow then job) env."""
+    """Each distinct PYTHONPATH (as repo folders) `script` runs with, and why any of it cannot be
+    verified. For each run step whose script names `script` on a logical line (continuations
+    joined), it is a `PYTHONPATH=...` before that command, else the step's effective env; with no
+    such step, the job's (workflow then job) env. A line naming the script that shlex cannot split,
+    or a step that sets PYTHONPATH any other way (export, another command), cannot be verified."""
     values: list[object] = []
+    bad: list[str] = []
     for step in job.get("steps") or []:
         if not (isinstance(step, dict) and isinstance(step.get("run"), str)):
             continue
-        for line in step["run"].splitlines():
-            if _mentions(line, script, how):
-                inline = _INLINE_PYTHONPATH.findall(line)
-                values.append(inline[-1] if inline else effective_env(doc, job, step).get("PYTHONPATH"))
+        consumed = 0
+        named = False
+        for line in _logical_lines(step["run"]):
+            if not _mentions(line, script, how):
+                continue
+            named = True
+            assigned = _command_env(line, script, how)
+            if assigned is None:
+                bad.append(f"runs from a line this check cannot parse: {line.strip()[:120]!r}")
+                continue
+            if "PYTHONPATH" in assigned:
+                consumed += 1
+                values.append(assigned["PYTHONPATH"])
+            else:
+                values.append(effective_env(doc, job, step).get("PYTHONPATH"))
+        if named and step["run"].count("PYTHONPATH") > consumed:
+            bad.append("runs in a step that sets or reads PYTHONPATH where this check cannot follow it")
     if not values:
         values.append(effective_env(doc, job).get("PYTHONPATH"))
     configs: list[tuple[str, ...]] = []
-    bad: list[str] = []
     for value in values:
         folders, unresolved = pythonpath_dirs(value, root)
-        bad += [entry for entry in unresolved if entry not in bad]
+        bad += [
+            f"runs with PYTHONPATH entry {entry!r}, which this check cannot resolve to a repo folder"
+            for entry in unresolved
+        ]
         if folders not in configs:
             configs.append(folders)
-    return configs, bad
+    return configs, list(dict.fromkeys(bad))
 
 
 def non_cone_sparse_steps(root: Path):
@@ -818,12 +862,8 @@ def find_misses(root: Path, audit: dict[tuple[str, str], str] | None = None) -> 
             how = how_it_runs(script, modules)
             configs, bad = pythonpath_configs(doc, job, script, how, root)
             runs += [(script, how, extra) for extra in configs]
-            bad_paths += [
-                f"{prefix}{script} runs with PYTHONPATH entry {entry!r}, which this check cannot resolve to a "
-                "repo folder"
-                for entry in bad
-            ]
-        full = {run: full_run(root, run[0], run[2], run[1]) for run in runs}
+            bad_paths += [f"{prefix}{script} {why}" for why in bad]
+        full = {run: full_run(root, run[0], run[2], run[1], frozenset(audit)) for run in runs}
         files = set(listed)
         for places, *_ in full.values():
             files |= _files_for(places, root)
@@ -934,6 +974,25 @@ class SparseCheckoutImportTests(unittest.TestCase):
             "scripts/actual/pphelper.py": "",
             "scripts/ci/ws_user.py": "import ws_mod\n",
             "ws_mod.py": "",
+            # Codex's four holes in what the check learns.
+            "scripts/ci/order.py": (
+                "import sys\nsys.path.insert(0, 'scripts/first')\nsys.path.insert(0, 'scripts/second')\nimport ordmod\n"
+            ),
+            "scripts/first/ordmod.py": "",
+            "scripts/second/ordmod.py": "",
+            "scripts/ci/tryload.py": (
+                "import importlib.util\nfrom pathlib import Path\n"
+                "try:\n"
+                "    spec = importlib.util.spec_from_file_location('t', Path(__file__).with_name('tried.py'))\n"
+                "except ImportError:\n"
+                "    spec = None\n"
+            ),
+            "scripts/ci/tried.py": "",
+            "scripts/ci/rebind.py": (
+                "import sys\nP = 'scripts/a'\nP += 'b'\nsys.path.insert(0, P)\nimport rbmod\n"
+            ),
+            "scripts/a/rbmod.py": "",
+            "scripts/ab/rbmod.py": "",
         }
         for rel, body in files.items():
             (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -1194,6 +1253,65 @@ class SparseCheckoutImportTests(unittest.TestCase):
             [
                 "w.yml run Check out: scripts/ci/ws_user.py runs with PYTHONPATH entry '${{ env.TOOLS }}/lib', "
                 "which this check cannot resolve to a repo folder"
+            ],
+        )
+
+    def test_fixture_codex_each_insert_0_goes_in_front(self) -> None:
+        # insert(0, first) then insert(0, second): second is searched first, so ordmod is second's.
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/order.py", "scripts/first/ordmod.py")),
+            ["w.yml run Check out: scripts/ci/order.py imports scripts/second/ordmod.py, not in its sparse checkout"],
+        )
+        self.assertEqual(self._misses(self.block("scripts/ci/order.py", "scripts/second/ordmod.py")), [])
+
+    def test_fixture_codex_a_load_in_try_except_import_error_is_required(self) -> None:
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/tryload.py")),
+            ["w.yml run Check out: scripts/ci/tryload.py imports scripts/ci/tried.py, not in its sparse checkout"],
+        )
+        audit = {("scripts/ci/tryload.py", "scripts/ci/tried.py"): "optional: the script runs on without it"}
+        self.assertEqual(self._misses(self.block("scripts/ci/tryload.py"), audit=audit), [])
+
+    def test_fixture_codex_continued_line_pythonpath(self) -> None:
+        # The step's PYTHONPATH= sits on a line the backslash joins to the command.
+        self.assertEqual(
+            self._misses(
+                self.block("scripts/ci/pp_user.py", "scripts/defaults/pphelper.py"),
+                wf_env="env: {PYTHONPATH: scripts/defaults}",
+                # YAML double quotes: the run script is `PYTHONPATH=scripts/actual \<newline>  python3 ...`.
+                run='"PYTHONPATH=scripts/actual \\\\\\n  python3 scripts/ci/pp_user.py"',
+            ),
+            ["w.yml run Check out: scripts/ci/pp_user.py imports scripts/actual/pphelper.py, not in its sparse checkout"],
+        )
+        # A line naming the script that shlex cannot split, or an export, cannot be verified.
+        self.assertEqual(
+            self._misses(
+                self.block("scripts/ci/pp_user.py", "scripts/defaults/pphelper.py"),
+                run="'python3 scripts/ci/pp_user.py \"unterminated'",
+            ),
+            [
+                "w.yml run Check out: scripts/ci/pp_user.py runs from a line this check cannot parse: "
+                "'python3 scripts/ci/pp_user.py \"unterminated'"
+            ],
+        )
+        self.assertEqual(
+            self._misses(
+                self.block("scripts/ci/pp_user.py", "scripts/defaults/pphelper.py"),
+                run="'export PYTHONPATH=scripts/actual; python3 scripts/ci/pp_user.py'",
+            ),
+            [
+                "w.yml run Check out: scripts/ci/pp_user.py runs in a step that sets or reads PYTHONPATH where "
+                "this check cannot follow it"
+            ],
+        )
+
+    def test_fixture_codex_a_rebound_name_is_not_fixed(self) -> None:
+        # P = "scripts/a"; P += "b": the insert is of scripts/ab, so P is not a fixed path.
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/rebind.py", "scripts/a/rbmod.py")),
+            [
+                "w.yml run Check out: scripts/ci/rebind.py calls sys.path.insert (line 4), which this check cannot "
+                "follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
             ],
         )
 
