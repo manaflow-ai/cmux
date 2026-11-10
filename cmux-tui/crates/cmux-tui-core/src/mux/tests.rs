@@ -62,6 +62,7 @@ mod surface_notifications;
 mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
+mod terminal_live_cost;
 mod terminal_moves;
 mod terminal_publisher;
 mod terminal_registry;
