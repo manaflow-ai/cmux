@@ -46,6 +46,9 @@ What of the panel can block the main thread, measured with
 | same | new `NSOpenPanel()` per click | 298 to 376 ms | 317 to 325 ms | 650 to 738 ms |
 | cmux17/cmux21 macOS 27.0, cmux-app-review-mac 26.5.1, a fresh process (JXA) | first panel | 316 to 386 ms | | |
 | mac26 (loaded), a fresh process | first panel | 1 510 ms | | |
+| aws-m4pro-7, macOS 26.7, 120 Hz virtual display, Debug, light, 2026-11-10, base 1e8eb03533a | kept panel (taken back that day) | 0.2 ms p50, 0.3 max | 269 to 286 ms | 275.0 ms p50, 286.0 max (n = 10); first open of a process 286.0 p50, 292.4 max (n = 6) |
+| same host and hold, head 96c1d4ef710 | new panel per request, after the launch warm-up | 104.5 ms p50, 114.4 max; first open of a process 120.2 p50, 139.2 max | 274 to 293 ms | 387.8 ms p50, 403.5 max (n = 10); first open of a process 416.3 p50, 434.7 max (n = 6) |
+| same host and hold, both builds | a process's first panel with no warm-up | 370 and 404 ms (n = 2) | 301 and 307 ms | 684 and 709 ms |
 | aws-m4pro-3, macOS 27.0.1, no console session | any | about 40 s (10 + 10 + 20 s of `HostCallsAuxiliary` waits), then prompt nil | | |
 
 What blocks: `NSOpenPanel()` itself. Its init waits synchronously on the panel's view service (about 300 ms for a
@@ -72,7 +75,10 @@ The options:
   no prompt is dropped, never shown. The warm-up is not bounded: it is the same `NSOpenPanel()` on the main thread, so
   for a console user whose panel service hangs or respawns slowly it freezes the main thread once, up to about 40 s,
   before the dead panel stops it. No deadline is possible around it (below). The click-to-sheet times of both paths,
-  base and head on one host, are in the pull request that took the kept panel away (`perf/dev-idle-panel`).
+  base and head on one host, are the last three rows of the table above: a new panel per request puts 112 ms (p50) on
+  each open and 130 ms on a process's first open, against the kept panel; the warm-up keeps the first open at 416 ms,
+  not 684 ms. In the same run the panel service used 867 ms of CPU time in 40 s of changes in the home folder with the
+  kept panel, and none with no panel alive.
 - A light in-app placeholder while the panel comes up: it cannot help the case left, a click that makes its panel. That wait is the `NSOpenPanel()` init on the main thread, and a placeholder
   needs the same main thread to draw. AppKit has no public way to make an `NSOpenPanel` off the main thread or to ask its
   view service ahead without making one.
