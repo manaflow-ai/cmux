@@ -15,7 +15,7 @@ import ObjectiveC
 /// launcher.takeKeys()
 /// ```
 @MainActor
-public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
+public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate, WindowMovesByBackground {
     /// The defaults key of the saved frames, one per screen.
     public static let framesKey = "chiefLauncher.frames"
     /// How far the hand moves before a press on empty space drags the window: less is a click.
