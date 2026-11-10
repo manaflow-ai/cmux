@@ -17,7 +17,7 @@ uid=$(id -u)
 label=dev.cmux.cubench.agent
 plist=$out/agent.plist
 codex=${CUBENCH_CODEX:-$HOME/.local/bin/codex}
-cmux=${CUBENCH_CMUX:-/Applications/cmux DEV cuparity.app/Contents/Resources/bin/cmux}
+cmux=${CUBENCH_CMUX:-/Applications/$(cat "$HOME/cub-assets/cmux-app-name" 2>/dev/null)/Contents/Resources/bin/cmux}
 
 common=(exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
   -m "$model" -c "model_reasoning_effort=\"$effort\""

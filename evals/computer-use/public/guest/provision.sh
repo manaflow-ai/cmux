@@ -28,6 +28,25 @@ if [[ -d $A/cmux.app ]]; then
   sudo_ xattr -dr com.apple.quarantine "/Applications/$app_name" 2>/dev/null || true
 fi
 
+# cmux settings for the benchmark: no person is at the VM, so no takeover
+# pause, and the deny list is emptied so cmux may use every app the tasks
+# name (Terminal and System Settings are on its default list; Codex Computer
+# Use has no such list). The cmux Remote helper's grants are below (TCC).
+mkdir -p ~/.config/cmux
+cat > ~/.config/cmux/cmux-next.json <<'JSON'
+{
+  "computerUse.mode": "fullAccess",
+  "computerUse.deniedApps": [],
+  "computerUse.pauseOnTakeover": false,
+  "computerUse.showCursor": true
+}
+JSON
+# Start the app once so its daemon stages cmux Remote, then quit it; the
+# staged helper's bundle id gets the grants below.
+if [[ -f $A/cmux-app-name ]]; then
+  open -g -a "/Applications/$(cat "$A/cmux-app-name")" || true
+fi
+
 # --- VS Code and Obsidian (MacAgentBench vscode/obsidian tasks) ---------------
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
 /opt/homebrew/bin/brew install --cask --quiet visual-studio-code obsidian || true
