@@ -416,38 +416,32 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
-/// Every action the app's catalog marks `waitsForPerson = true` gets the
-/// person deadline here too: the CLI must not give up before the app does.
+/// Every action the app's catalog marks `waitsForPerson` gets the person deadline here too: the
+/// CLI must not give up before the app does. Read from the catalog's dump, which the app's and
+/// cmux-action-catalog's tests both check against the catalog the app reads.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
-    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let dump = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../plans/cmux-next/action-catalog.json");
+    let Ok(text) = std::fs::read_to_string(&dump) else { return };
+    let catalog: Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
     let mut checked = 0;
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
-            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
-            let variable = line.trim().split('.').next().unwrap_or_default();
-            let declared = format!("var {variable} = ActionDescriptor(");
-            let Some(start) = text.find(&declared) else { continue };
-            let body = &text[start..];
-            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
-            for key in ["id: \"", "cliName: \""] {
-                if let Some(at) = body.find(key) {
-                    let name = &body[at + key.len()..];
-                    let name = &name[..name.find('"').unwrap_or(0)];
-                    assert_eq!(
-                        waiting_run_timeout(name),
-                        PERSON_RUN_TIMEOUT,
-                        "{name} waits for a person in the app"
-                    );
-                    checked += 1;
-                }
+    for action in catalog["actions"].as_array().into_iter().flatten() {
+        if action["waitsForPerson"] != Value::Bool(true) {
+            continue;
+        }
+        for key in ["id", "cliName"] {
+            if let Some(name) = action[key].as_str() {
+                assert_eq!(
+                    waiting_run_timeout(name),
+                    PERSON_RUN_TIMEOUT,
+                    "{name} waits for a person in the app"
+                );
+                checked += 1;
             }
         }
     }
-    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+    assert!(checked > 0, "no waitsForPerson action found in {}", dump.display());
 }
 
 /// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app

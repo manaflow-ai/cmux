@@ -1,28 +1,8 @@
 // The sidebar profile menu (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2,
 // Lawrence 2026-10-07): the footer's avatar control opens one native menu.
 // Every row runs a registry action, so the palette, the CLI and the menu
-// share one path. Titles live in ProfileActions.xcstrings.
-
-nonisolated enum ProfileMenuActionCatalog: ActionCatalogGroup {
-    static func descriptors() -> [ActionDescriptor] {
-        [
-            ActionDescriptor(
-                id: "sidebar.profileMenu",
-                title: ProfileMenuSpec.text("action.sidebar.profileMenu", "Show Profile Menu"),
-                keywords: ["profile", "account", "avatar", "menu", "bookmarks", "downloads", "extensions", "history", "developer"],
-                category: .sidebar, symbol: "person.crop.circle", surfaces: [.palette, .keyboard],
-                cliName: "sidebar profile-menu"
-            ),
-            ActionDescriptor(
-                id: "browser.downloads.showFolder",
-                title: ProfileMenuSpec.text("action.browser.downloads.showFolder", "Open Downloads Folder"),
-                keywords: ["downloads", "files", "finder", "browser"],
-                category: .browser, symbol: "arrow.down.to.line", surfaces: [.palette, .keyboard],
-                cliName: "browser downloads-folder"
-            ),
-        ]
-    }
-}
+// share one path. Titles live in ProfileActions.xcstrings; the rows' actions
+// are in the Rust catalog (cmux-action-catalog).
 
 /// What the profile menu holds, top to bottom: the current profile (with its
 /// options submenu), the submenus, Show Chief, Personalization…, Settings, Check for Updates, the account
