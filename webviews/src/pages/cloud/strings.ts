@@ -176,6 +176,8 @@ export const L = {
   fieldCreated: "field.created",
   fieldIdle: "field.idle",
   fieldCost: "field.cost",
+  costPausedMonthly: "cost.pausedMonthly",
+  costPausedUnderMonthly: "cost.pausedUnderMonthly",
   costRate: "cost.rate",
   costRateWhenRunning: "cost.rateWhenRunning",
   costRunning: "cost.running",

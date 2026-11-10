@@ -3,6 +3,7 @@
 //! terminal and, after a loss or resync, reconnects or rehosts.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::terminal_host_runtime::HostStream as UnixStream;
 
 mod output;
@@ -71,7 +72,8 @@ struct StreamEnd<'a> {
     resync_requested: bool,
     _journal_target: Option<(Arc<Mux>, Arc<TerminalPublicId>)>,
     _journal_update: Option<TerminalJournalUpdateGuard<'a>>,
-    _frames: host_frames::HostFrames,
+    /// `None` when the demultiplexer did not start.
+    _frames: Option<host_frames::HostFrames>,
 }
 
 impl HostedReader {
@@ -95,7 +97,7 @@ impl HostedReader {
         loop {
             let pty = surface.as_pty().expect("host reader owns a PTY surface");
             rehost::request_custody(&surface);
-            let Some(end) = self.stream(&surface, pty, reader) else { return };
+            let end = self.stream(&surface, pty, reader);
             let Some(next) = self.after_stream(&surface, end.received_exit, end.resync_requested)
             else {
                 return;
@@ -105,14 +107,13 @@ impl HostedReader {
     }
 
     /// One host connection: targeted responses, staging and the ordered
-    /// transitions. `None` when the frame demultiplexer cannot start.
+    /// transitions.
     fn stream<'a>(
         &mut self,
         surface: &Arc<Surface>,
         pty: &'a PtySurface,
         reader: UnixStream,
-    ) -> Option<StreamEnd<'a>> {
-        let id = self.id;
+    ) -> StreamEnd<'a> {
         let mux = self.mux.clone();
         let mut stager = HostedFrameStager::new_for_version(
             self.sequence_boundary,
@@ -124,15 +125,9 @@ impl HostedReader {
         let mut journal_target = None;
         let mut journal_update = None;
         // `reader` moves into the demultiplexer; a reconnect reassigns it.
-        let frames = match host_frames::HostFrames::spawn(
-            format!("surface-{id}-host-frames"),
-            reader,
-            self.control_responses.clone(),
-            self.protocol_version,
-            self.smart_renderer,
-        ) {
+        let frames = match self.spawn_frames(reader) {
             Ok(frames) => frames,
-            Err(_) => return None,
+            Err(_) => return self.frames_not_started(pty),
         };
         loop {
             if journal_update.is_none() {
@@ -240,13 +235,51 @@ impl HostedReader {
             self.pending_bells.publish(&mux, surface.id);
         }
         frames.abandon();
-        Some(StreamEnd {
+        StreamEnd {
             received_exit,
             resync_requested,
             _journal_target: journal_target,
             _journal_update: journal_update,
-            _frames: frames,
-        })
+            _frames: Some(frames),
+        }
+    }
+
+    /// The demultiplexer did not start (its socket clone or thread spawn
+    /// failed), so nobody reads this connection. It ends as a lost one does:
+    /// the attachment is shut down, so writes fail at once and the host sees
+    /// this daemon leave; its waiters fail; and `after_stream` reports the
+    /// loss and reconnects with the loss backoff. Before, the surface stayed
+    /// `Connected` with nobody reading the socket: receipted writes timed out
+    /// and output stopped for good.
+    fn frames_not_started<'a>(&self, pty: &PtySurface) -> StreamEnd<'a> {
+        if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison()
+            && Arc::ptr_eq(&host.control_responses(), &self.control_responses)
+        {
+            host.disconnect();
+        }
+        self.control_responses.fail_all();
+        StreamEnd {
+            received_exit: None,
+            resync_requested: false,
+            _journal_target: None,
+            _journal_update: None,
+            _frames: None,
+        }
+    }
+
+    /// Start the frame demultiplexer that reads this connection's `reader`.
+    fn spawn_frames(&self, reader: UnixStream) -> std::io::Result<host_frames::HostFrames> {
+        #[cfg(test)]
+        if self.mux.upgrade().is_some_and(|mux| mux.take_host_frames_spawn_failure_for_test()) {
+            return Err(std::io::Error::other("test: the frame demultiplexer did not start"));
+        }
+        host_frames::HostFrames::spawn(
+            format!("surface-{}-host-frames", self.id),
+            reader,
+            self.control_responses.clone(),
+            self.protocol_version,
+            self.smart_renderer,
+        )
     }
 
     /// After a stream ended: publish an exit, or report the loss and wait out
