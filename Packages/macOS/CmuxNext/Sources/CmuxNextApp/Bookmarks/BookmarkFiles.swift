@@ -39,7 +39,7 @@ struct BookmarkFiles {
     func importFile(_ url: URL, profile: String) {
         let service = services.bookmarks
         let registry = services.registry
-        registry.track(Task { @MainActor in
+        registry.trackOrRefuse(Task { @MainActor in
             do {
                 let html = try await Task.detached { try Self.read(url) }.value
                 return await Self.importHTML(html, into: service, profile: profile)
@@ -70,7 +70,7 @@ struct BookmarkFiles {
     func exportFile(_ url: URL, profile: String) {
         let service = services.bookmarks
         let work = services.work
-        services.registry.track(Task { @MainActor in
+        services.registry.trackOrRefuse(Task { @MainActor in
             do {
                 let html = try await service.routed.exportHTML(profile: profile)
                 // The person waits for the export they asked for: the files lane at userBlocking.

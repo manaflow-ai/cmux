@@ -168,6 +168,12 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
         stride(from: 0, to: ops.count, by: maxOps).map { Array(ops[$0..<min($0 + maxOps, ops.count)]) }
     }
 
+    /// `ops` through `send` as ``batches(_:)``, each after the one before answered; a refusal
+    /// stops there and throws (a Remove of a page's 300 links, a Chromium reorder).
+    public static func inBatches(_ ops: [Op], _ send: ([Op]) async throws -> Void) async throws {
+        for batch in batches(ops) { try await send(batch) }
+    }
+
     /// The daemon's ops in turn (`bookmarks.apply`, at most 256): a refusal stops there and throws.
     @discardableResult
     public func apply(_ ops: [Op]) async throws -> JSONValue {

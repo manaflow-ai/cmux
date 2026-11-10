@@ -117,16 +117,18 @@ extension BookmarkService {
     /// turns on before the daemon answers; a refusal reads the status again.
     private func create(title: String, url: URL, profile: String) async throws -> BookmarkNode {
         let id = BookmarkID.make()
-        let folder = lastFolder[profile] ?? BookmarkRoot.bar.rawValue
         noteBookmarks([id], url: url, profile: profile, barFilled: true)
-        do {
-            try await apply([.create(id: id, profile: profile, parent: folder, folder: false, title: title, url: url)])
-            return BookmarkNode(id: id, parent: folder, kind: .url, title: title, url: url)
-        } catch BookmarkError.invalidParent(_) where folder != BookmarkRoot.bar.rawValue {
-            lastFolder[profile] = nil
-            try await apply([.create(id: id, profile: profile, parent: BookmarkRoot.bar.rawValue, folder: false, title: title, url: url)])
-            return BookmarkNode(id: id, parent: BookmarkRoot.bar.rawValue, kind: .url, title: title, url: url)
-        }
+        let folder = try await starFolder(profile: profile) { try await self.routed.get([$0], profile: profile).first?.isFolder == true }
+        try await apply([.create(id: id, profile: profile, parent: folder, folder: false, title: title, url: url)])
+        return BookmarkNode(id: id, parent: folder, kind: .url, title: title, url: url)
+    }
+
+    /// The last folder used while `isFolder` finds it, else the bar, forgetting it (a gone parent is refused as `invalid`).
+    func starFolder(profile: String, isFolder: (String) async throws -> Bool) async throws -> String {
+        guard let last = lastFolder[profile], !BookmarkRoot.isRoot(last) else { return lastFolder[profile] ?? BookmarkRoot.bar.rawValue }
+        if try await isFolder(last) { return last }
+        if lastFolder[profile] == last { lastFolder[profile] = nil }
+        return BookmarkRoot.bar.rawValue
     }
 
     /// The edit bubble on `node`, with the daemon's folder choices.
@@ -166,12 +168,12 @@ extension BookmarkService {
     private func removeAll(like node: BookmarkNode, profile: String) {
         guard let url = node.url else { return }
         noteBookmarks([], url: url, profile: profile)
-        // task-owner: one status read and one delete batch; ends with their replies
+        // task-owner: one status read and the delete batches in turn; ends with their replies
         Task { [weak self] in
             guard let self else { return }
             do {
                 let ids = try await routed.status(profile: profile, urls: [url.absoluteString]).matches[url.absoluteString] ?? [node.id]
-                try await apply(ids.map { .delete(id: $0) })
+                try await BookmarkRoutedClient.inBatches(ids.map { .delete(id: $0) }) { try await self.apply($0) }
             } catch {
                 refreshStatus(profile)
                 services.registry.refuse(BookmarkAppStrings.failure(error))

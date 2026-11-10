@@ -72,18 +72,13 @@ final class BookmarkChromiumSync {
         }
         guard !ops.isEmpty else { return }
         let previous = writes
-        // `bookmarks.apply` takes at most 256 ops: a bigger event (a reorder of a big folder) goes
-        // as ordered batches, all awaited before the store's sync reads the tree.
-        let batches = BookmarkRoutedClient.batches(ops)
+        // At most 256 ops per `bookmarks.apply`: a bigger event goes in ordered batches, awaited before the sync reads.
         // task-owner: one Chromium event's ops, after the previous event's; ends with its last reply
         writes = Task { [weak self, weak service] in
             await previous?.value
-            for batch in batches {
-                do { try await service?.apply(batch) } catch {
-                    // The daemon stops at a refusal; the deferred sync puts its tree back in Chromium.
-                    self?.logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
-                    return
-                }
+            do { try await BookmarkRoutedClient.inBatches(ops) { try await service?.apply($0) } } catch {
+                // The daemon stops at a refusal; the deferred sync puts its tree back in Chromium.
+                self?.logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
             }
         }
     }

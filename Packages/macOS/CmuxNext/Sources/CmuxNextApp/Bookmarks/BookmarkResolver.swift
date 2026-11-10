@@ -77,11 +77,11 @@ struct BookmarkResolver {
     }
 
     /// Runs `body` on what the invocation names, as tracked work (the CLI waits for it); a
-    /// failure is the action's.
+    /// failure is the action's, shown as a refusal when nobody awaits the run.
     func withResolved(_ invocation: ActionInvocation, bookmark: Bool = false, foldersFirst: Bool = false, folder: Bool = false,
                       _ body: @escaping @MainActor (BookmarkRoutedClient.Resolved, String) async throws -> Void) {
         let profile = profile(invocation)
-        services.registry.track(Task {
+        services.registry.trackOrRefuse(Task {
             do {
                 try await body(try await resolve(invocation, profile: profile, bookmark: bookmark, foldersFirst: foldersFirst,
                                                  folder: folder), profile)

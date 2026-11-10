@@ -6,7 +6,7 @@ import Foundation
 /// Bookmark actions (plans/cmux-next/bookmarks.md section 3): one handler
 /// per verb for the palette, menus, the bar's context menu, shortcuts and
 /// `cmux bookmark …`. Each names its bookmark and folder on the home daemon's tree
-/// (``BookmarkResolver``) and edits it there, as tracked work the CLI and MCP wait for.
+/// (``BookmarkResolver``) and edits it there, as tracked work the CLI and MCP wait for (else refused).
 enum BookmarkHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -74,7 +74,7 @@ enum BookmarkHandlers {
             let shown = !services.bookmarks.isBarShown
             services.bookmarks.setBarShown(shown)
             guard let settings = services.settings else { return }
-            services.registry.track(Task { @MainActor in
+            services.registry.trackOrRefuse(Task { @MainActor in
                 do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(String(describing: error)) }
                 return nil
             })
@@ -97,7 +97,7 @@ enum BookmarkHandlers {
             }
             // CLI and agents (bookmarks are not secrets, I5): name the browser, optionally the profile.
             let source = invocation["source"]?.stringValue
-            registry.track(Task { @MainActor in
+            registry.trackOrRefuse(Task { @MainActor in
                 let found = await Task.detached { BookmarkBrowserImport.sources(environment: BookmarkBrowserImport.liveEnvironment()) }.value
                 let picked = BookmarkBrowserImport.match(found, browser: browser, source: source)
                 guard !picked.isEmpty else {
@@ -106,7 +106,10 @@ enum BookmarkHandlers {
                 let work = BookmarkBrowserImport(services: services)
                 let outcome = await work.run(picked, target: profile)
                 work.announce(outcome, in: window)
-                return outcome.failed.isEmpty ? nil : ActionWorkFailure(BookmarkAppStrings.importFailed(outcome.failed.joined(separator: ", ")))
+                guard !outcome.failed.isEmpty else { return nil }
+                var failure = ActionWorkFailure(BookmarkAppStrings.importFailed(outcome.failed.joined(separator: ", ")))
+                failure.shown = true // its toast named the failed sources: a run nobody awaits shows no second notice
+                return failure
             })
         })
         registry.bind("bookmark.export", run: { invocation in
@@ -180,7 +183,7 @@ enum BookmarkHandlers {
         let name = invocation["name"]?.stringValue ?? BookmarkAppStrings.allTabsFolder
         let bookmarks = services.bookmarks
         // One folder per profile, in its default folder (the last one used, while it still is one).
-        services.registry.track(Task {
+        services.registry.trackOrRefuse(Task {
             do {
                 for folder in folders {
                     let parent = try await bookmarks.routed.resolve(profile: folder.profile, folder: .some(nil),
