@@ -15,6 +15,10 @@ extension AppServices {
         }.map(pages.stripItem)
     }
 
+    /// Tab `id` on `pane`'s machine when `pane` may mirror it (`DaemonStore.mirrorSource`: one kind of window, incognito or normal; it fails closed).
+    func mirrorSource(_ id: String, for pane: PaneModel) -> (tab: TabModel, holder: PaneModel, incognito: Bool)? {
+        machines.daemon(forPane: pane).store.mirrorSource(id, for: pane) { windows.isIncognito(workspace: $0) }
+    }
     /// Page tabs as the control snapshot lists them (bd cx-5xsi).
     var controlPageFacts: ControlPageFacts {
         ControlPageFacts(appOnlyTabs: { [weak self] pane in self?.controlPageTabs(of: pane) ?? [] },

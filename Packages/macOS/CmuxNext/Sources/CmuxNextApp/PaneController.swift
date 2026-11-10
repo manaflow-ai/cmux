@@ -610,7 +610,7 @@ extension PaneController {
     /// Mirrored tab `id` as this pane may list or present it, with its incognito answer: nil for a tab that closed, that is this pane's own, whose page the app does
     /// not draw (a daemon-rendered or app browser tab), or that the pane may not mirror (`AppServices.mirrorSource`: nothing shows across incognito and normal windows).
     func liveMirror(_ id: String) -> (tab: TabModel, incognito: Bool)? {
-        services.mirrorSource(id, for: pane).flatMap { $0.holder !== pane && Self.mirrorable($0.tab) ? ($0.tab, $0.incognito) : nil }
+        services.mirrorSource(id, for: pane).flatMap { $0.holder !== pane && Self.mirrorable($0.tab) ? (tab: $0.tab, incognito: $0.incognito) : nil }
     }
 
     /// A browser tab whose one page this app draws, so a second pane can show it.
