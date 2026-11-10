@@ -55,15 +55,22 @@ pub(in crate::cli) const NOT_RUN_DEADLINE_FLOOR: Duration = Duration::from_secs(
 /// How long [`request_with_retry`] keeps asking again after not-run refusals: the request's own
 /// timeout, never less than [`NOT_RUN_DEADLINE_FLOOR`]. A request with no timeout gets the floor:
 /// the hang breaker for an app that refuses forever, logged when it fires.
+/// A test build reads `CMUX_TEST_NOT_RUN_DEADLINE_MS` instead (a release build ignores it), so a test of an app that
+/// refuses forever ends in milliseconds.
 pub(in crate::cli) fn not_run_deadline(timeout: Option<Duration>) -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("CMUX_TEST_NOT_RUN_DEADLINE_MS").ok().and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
     timeout.map_or(NOT_RUN_DEADLINE_FLOOR, |timeout| timeout.max(NOT_RUN_DEADLINE_FLOOR))
 }
 
 /// One request; an app that says the run never started and why it may pass
 /// (`retry_before_running`) is asked again after the delay it names, doubled
-/// each time up to [`MAX_RETRY_WAIT`], until [`not_run_deadline`] has passed.
-/// The caller sees only the last answer; a refusal still standing at the
-/// deadline is that answer, with a stderr line naming the wait.
+/// each time up to [`MAX_RETRY_WAIT`], until [`not_run_deadline`] from now.
+/// The caller sees only the last answer.
 pub(in crate::cli) fn request_with_retry(
     stream: &mut UnixStream,
     method: &str,
@@ -71,22 +78,34 @@ pub(in crate::cli) fn request_with_retry(
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
-    let deadline = not_run_deadline(timeout);
+    request_with_retry_until(stream, method, params, timeout, Instant::now() + not_run_deadline(timeout))
+}
+
+/// [`request_with_retry`] against one absolute `deadline` that a caller's reconnects share. The last wait is cut
+/// to what is left of the deadline, so the last try comes at it, never a backoff early. A refusal still standing at
+/// the deadline is the answer, with `data.not_run_waited_ms` naming how long it was asked again (the hang
+/// breaker's log, in the error a `--json` caller already reads).
+pub(in crate::cli) fn request_with_retry_until(
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Option<Duration>,
+    deadline: Instant,
+) -> Result<Result<Value, Value>, String> {
     let started = Instant::now();
     let mut retries = 0u32;
     loop {
         match request(stream, method, params.clone(), timeout)? {
-            Err(error) if retry_before_running(&error) => {
-                let wait = retry_wait(&error, retries);
-                if started.elapsed() + wait > deadline {
-                    eprintln!(
-                        "cmux: {method}: the app still said nothing ran after {} ms of tries ({retries} retries); \
-                         this is its answer",
-                        started.elapsed().as_millis()
-                    );
+            Err(mut error) if retry_before_running(&error) => {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    if let Some(data) = error.get_mut("data").and_then(Value::as_object_mut) {
+                        data.insert("not_run_waited_ms".into(), json!(started.elapsed().as_millis()));
+                        data.insert("not_run_retries".into(), json!(retries));
+                    }
                     return Ok(Err(error));
                 }
-                std::thread::sleep(wait);
+                std::thread::sleep(retry_wait(&error, retries).min(left));
                 retries += 1;
             }
             response => return Ok(response),

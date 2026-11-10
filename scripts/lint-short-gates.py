@@ -116,11 +116,22 @@ def code_part(line: str) -> str:
 def hits_in(path: str, text: str) -> list[Hit]:
     out: list[Hit] = []
     lines = text.splitlines()
-    in_test_module = False
+    # `#[cfg(test)]` covers the one item after it: a `use` or `mod x;` line, or a block to its closing brace.
+    test_item_pending, test_depth = False, 0
     for number, line in enumerate(lines, start=1):
+        if test_depth > 0:
+            test_depth += line.count("{") - line.count("}")
+            continue
         if re.match(r"\s*#\[cfg\(test\)\]", line):
-            in_test_module = True
-        if in_test_module:
+            test_item_pending = True
+            continue
+        if test_item_pending:
+            if not line.strip() or line.lstrip().startswith("#["):
+                continue
+            test_item_pending = False
+            depth = line.count("{") - line.count("}")
+            if depth > 0:
+                test_depth = depth
             continue
         code = code_part(line)
         if not code.strip():
@@ -197,6 +208,14 @@ def self_test() -> None:
     assert not hits_in(gate, "/// the 2 s timeout the app gives Duration::from_secs(2)\n")
     assert not hits_in(gate, "// short-gate: a local socket's connect, not the call\nlet t = timeout(Duration::from_secs(2), c);\n")
     assert not hits_in(gate, "#[cfg(test)]\nmod tests { const T: Duration = Duration::from_secs(1); fn timeout() {} }\n")
+    assert not hits_in(gate, "#[cfg(test)]\nmod tests {\n    const T_TIMEOUT: Duration = Duration::from_secs(1);\n}\n")
+    # A test-only import or module line covers only itself: the code after it is scanned.
+    after_test_use = "#[cfg(test)]\nuse foo::bar;\n\nconst REPLY_TIMEOUT: Duration = Duration::from_secs(2);\n"
+    assert hits_in(gate, after_test_use), "a #[cfg(test)] use hid the code after it"
+    after_test_mod = "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;\nconst READ_TRIES: u32 = 2;\n"
+    assert hits_in(gate, after_test_mod), "a #[cfg(test)] mod line hid the code after it"
+    after_test_block = "#[cfg(test)]\nmod tests {\n    fn a() {}\n}\nconst READ_TRIES: u32 = 2;\n"
+    assert hits_in(gate, after_test_block), "a #[cfg(test)] block hid the code after it"
     assert not hits_in(gate, "const UNBOUNDED_READ_TRIES: u32 = 30;\n")
     assert not hits_in(gate, "attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),\n")
     assert not hits_in(gate, "if pause < Duration::from_secs(1) || past_deadline() {\n")

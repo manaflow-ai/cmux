@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::{
-    GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, request_with_retry, safe_to_resend,
+    GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, safe_to_resend,
 };
 
 /// Only the long waits (a screenshot's 35 s, a waiting run's 45 s) show
@@ -27,7 +27,7 @@ const NOTE_EVERY: Duration = Duration::from_secs(5);
 const RECONNECT_FIRST_WAIT: Duration = Duration::from_millis(200);
 const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(2);
 
-/// [`request_with_retry`] with progress notes while it waits; a transport
+/// `run::request_with_retry` with progress notes while it waits; a transport
 /// failure is the `app.transport` error to print, typed by [`timed_out`]
 /// when the app took the request and never answered.
 pub(super) fn request(
@@ -42,9 +42,9 @@ pub(super) fn request(
     let what = waiting_for(method, params);
     let template = crate::localization::catalog().app_control.waiting_progress;
     let progress = Progress::start(&what, template, timeout.filter(|_| long), global.output);
-    let started = Instant::now();
-    let deadline = super::run::not_run_deadline(timeout);
-    let mut response = request_with_retry(stream, method, params, timeout);
+    // One deadline for the not-run retries and the reconnects together: a socket back late gets what is left.
+    let deadline = Instant::now() + super::run::not_run_deadline(timeout);
+    let mut response = super::run::request_with_retry_until(stream, method, params, timeout, deadline);
     // A dropped connection (the app restarted its control server, or closed
     // it under load) is healed: a new connection, the same request, with
     // backoff until the deadline. A keyed run carries its idempotency key, so
@@ -57,21 +57,18 @@ pub(super) fn request(
         {
             break;
         }
-        if started.elapsed() + wait > deadline {
-            eprintln!(
-                "cmux: {method}: the app's control socket still dropped the request after {} ms of reconnects",
-                started.elapsed().as_millis()
-            );
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
             break;
         }
-        std::thread::sleep(wait);
+        std::thread::sleep(wait.min(left));
         wait = (wait * 2).min(RECONNECT_MAX_WAIT);
         match super::connect_command(global) {
             Ok(fresh) => *stream = fresh,
             // The control server is not back yet: wait again (the last error stays the answer).
             Err(_) => continue,
         }
-        response = request_with_retry(stream, method, params, timeout);
+        response = super::run::request_with_retry_until(stream, method, params, timeout, deadline);
     }
     let waited = progress.finish();
     response.map_err(|error| match timeout {
