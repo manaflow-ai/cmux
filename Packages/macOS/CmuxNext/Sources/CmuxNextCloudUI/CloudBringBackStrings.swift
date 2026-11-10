@@ -1,7 +1,8 @@
 import Foundation
 
 /// Bring Back Local's text (the App's `CloudBringBack`). Keys live in Resources/Cloud.xcstrings.
-public enum CloudBringBackStrings {
+public struct CloudBringBackStrings {
+    public init() {}
     public static var bringing: String {
         String(localized: "cloud.bringBack.bringing", defaultValue: "Bringing this chat back to this Mac…", table: "Cloud", bundle: .module)
     }
