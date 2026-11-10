@@ -1090,7 +1090,7 @@ def run(args):
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
                "macos": subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip(),
                "display": disp, "hz": args.hz, "cmux": xbench.bundle_version(args.cmux),
-               "chrome": xbench.bundle_version(args.chrome), "cmux_sha": args.cmux_sha}
+               "chrome": xbench.bundle_version(args.chrome), "cmux_sha": args.cmux_sha, "note": args.note}
     with open(os.path.join(out, "machine.json"), "w") as f:
         json.dump(machine, f, indent=1)
     log(f"machine {machine}")
@@ -1111,13 +1111,14 @@ def run(args):
                         arm = arms[name]
                         rng = random.Random(f"{scenario}-{load}-{rnd}")  # the same typing gaps for both arms
                         wanted = [r for r in rows if scenario_of(r) == scenario]
-                        base = {"round": rnd, "load": load, "arm": name}
+                        base = {"round": rnd, "load": load, "arm": name, "scenario": scenario}
                         if not wait_quiet(args.max_load):
                             for r in wanted:
                                 record({**base, "row": r, "status": "not run",
                                         "reason": f"1-minute load stayed over {args.max_load}"})
                             continue
-                        log(f"round {rnd} {scenario} {load} {name}")
+                        base["load1_before"] = round(os.getloadavg()[0], 1)
+                        log(f"round {rnd} {scenario} {load} {name} (1-min load {base['load1_before']})")
                         try:
                             if scenario == "launch":
                                 got = row_launch(ctx, arm, load == "load", rng, templates)
@@ -1138,6 +1139,8 @@ def run(args):
                         finally:
                             arm.quit()
                             pause(2)
+                            base["load1_after"] = round(os.getloadavg()[0], 1)
+                            record({**base, "row": "_arm", "status": "load"})
     finally:
         caffeinate.terminate()
         results.close()
@@ -1154,11 +1157,15 @@ def report(args):
     except OSError:
         machine = {}
     table = []
+    hz = machine.get("hz") or 120
+    note = machine.get("note") or ""
     for row, (metric, kind, cmux_what, chrome_what) in ROWS.items():
         for load in ("light", "load"):
             mine = [e for e in entries if e.get("row") == row and e.get("load") == load]
             if not mine:
                 continue
+            arm_loads = [v for e in entries if e.get("load") == load and e.get("scenario") == scenario_of(row)
+                         for v in (e.get("load1_before"), e.get("load1_after")) if v is not None]
             cells = {}
             for arm in ("cmux", "chrome"):
                 runs = [e for e in mine if e.get("arm") == arm and e.get("status") == "measured"]
@@ -1175,10 +1182,15 @@ def report(args):
                 verdict = "PASS"
             else:
                 verdict = "FAIL"
+            slower = None if verdict == "not run" else c["p95"] > g["p95"]
             table.append({"row": row, "metric": metric, "kind": kind, "load": load, "cmux": c, "chrome": g,
-                          "verdict": verdict, "not_run": reasons, "cmux_surface": cmux_what, "chrome_surface": chrome_what})
+                          "verdict": verdict + (f", {note}" if note and verdict != "not run" else ""),
+                          "cmux_p95_over_chrome": slower,
+                          "load1": [min(arm_loads), max(arm_loads)] if arm_loads else None,
+                          "not_run": reasons, "cmux_surface": cmux_what, "chrome_surface": chrome_what})
     for r in table:
-        print("PARITY-ROW " + json.dumps({k: r[k] for k in ("row", "load", "cmux", "chrome", "verdict")}))
+        print("PARITY-ROW " + json.dumps({k: r[k] for k in ("row", "load", "cmux", "chrome", "verdict", "cmux_p95_over_chrome",
+                                                            "load1")}))
     if args.json:
         with open(args.json, "w") as f:
             json.dump({"machine": machine, "rows": table}, f, indent=1)
@@ -1188,14 +1200,18 @@ def report(args):
         lines = [f"# Chrome parity, {time.strftime('%Y-%m-%d %H:%MZ', time.gmtime())}", "",
                  f"Host {machine.get('host')} ({machine.get('model')}), macOS {machine.get('macos')}, "
                  f"{machine.get('hz')} Hz, cmux {machine.get('cmux')} at {machine.get('cmux_sha') or '?'}, "
-                 f"Chrome {machine.get('chrome')}. ms, p50 / p95 / p99 / max; missed = late or missed 120 Hz refreshes.", "",
-                 "| Metric | Load | cmux | Chrome | missed cmux / Chrome | verdict | cmux surface / Chrome surface |",
-                 "|---|---|---|---|---|---|---|"]
+                 f"Chrome {machine.get('chrome')}. ms, p50 / p95 / p99 / max; missed = late or missed {hz} Hz refreshes."
+                 + (f" {note}." if note else ""), "",
+                 "| Metric | Load | 1-min load | cmux | Chrome | missed cmux / Chrome | cmux p95 > Chrome p95 | verdict "
+                 "| cmux surface / Chrome surface |",
+                 "|---|---|---|---|---|---|---|---|---|"]
         for r in table:
-            note = "; ".join(r["not_run"])[:160]
-            lines.append(f"| {r['metric']} | {r['load']} | {cell(r['cmux'])} | {cell(r['chrome'])} | "
-                         f"{r['cmux'].get('missed')} / {r['chrome'].get('missed')} | {r['verdict']}"
-                         f"{' (' + note + ')' if note and r['verdict'] == 'not run' else ''} | "
+            why = "; ".join(r["not_run"])[:160]
+            lo = r["load1"]
+            slower = {None: "-", True: "yes", False: "no"}[r["cmux_p95_over_chrome"]]
+            lines.append(f"| {r['metric']} | {r['load']} | {f'{lo[0]}-{lo[1]}' if lo else '-'} | {cell(r['cmux'])} | "
+                         f"{cell(r['chrome'])} | {r['cmux'].get('missed')} / {r['chrome'].get('missed')} | {slower} | "
+                         f"{r['verdict']}{' (' + why + ')' if why and r['verdict'] == 'not run' else ''} | "
                          f"{r['cmux_surface']} / {r['chrome_surface']} |")
         with open(args.md, "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -1218,6 +1234,7 @@ def main():
     r.add_argument("--max-load", type=float, default=2.0)
     r.add_argument("--geometry", default="")
     r.add_argument("--cmux-sha", default="")
+    r.add_argument("--note", default="", help="a label for every row, e.g. 'relative only (not 120 Hz quiet)'")
     p = sub.add_parser("report")
     p.add_argument("--out", required=True)
     p.add_argument("--md", default="")
