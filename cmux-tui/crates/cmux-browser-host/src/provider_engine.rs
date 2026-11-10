@@ -328,20 +328,22 @@ impl ProviderEngine {
             _ => None,
         };
         // The automation lease: any call that is not a read acts (and takes
-        // the lease when the tab has none) before it runs. A host-world
-        // evaluate is the gate's own (it refuses one from a session): the
-        // secret mask of a screenshot and the focus checks, parts of a read,
-        // so a capture never takes a tab from the next agent (#39163 F1).
-        let host_world = method == "frame.evaluate"
-            && params.get("world").and_then(Value::as_str) == Some("host");
-        let reads = OBSERVE_METHODS.contains(&method) || host_world;
+        // the lease when the tab has none) before it runs.
+        let reads = OBSERVE_METHODS.contains(&method);
         // A handler registration, and the answer to a dialog or chooser the
         // source routed to this session, are neither inputs nor reads: they
         // never take, block or refresh a lease (the session that listens for
         // a tab's dialogs is often not the one that drives it; the source
-        // refuses an answer from a session the event did not go to).
-        let registration =
-            matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
+        // refuses an answer from a session the event did not go to). Nor is a
+        // host-world evaluate, the gate's own (it refuses one from a session):
+        // a screenshot's secret mask and the checks before a key. As an act a
+        // capture took a tab from the next agent (#39163 F1); as a read the
+        // check before a key was the fresh read a hand back asks for, so the
+        // key went through unobserved.
+        let host_world = method == "frame.evaluate"
+            && params.get("world").and_then(Value::as_str) == Some("host");
+        let registration = host_world
+            || matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
         if !reads && !registration {
             let act = LeaseOp::Act { target: target_id.to_owned() };
             self.provider.lease(&act, &self.lease).map_err(|error| lease_refusal(method, error))?;
