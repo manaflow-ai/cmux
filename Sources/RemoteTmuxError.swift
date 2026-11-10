@@ -24,6 +24,12 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
     /// The remote host has no tmux binary anywhere cmux's resolver probes.
     case tmuxNotFound(destination: String)
 
+    /// The host's tmux refused its own socket path as too long (`error connecting to … (File
+    /// name too long)`), which a long socket name under a long socket directory can reach. A
+    /// case of its own so the message is cmux's wording: tmux's line carries the remote socket
+    /// path, which does not belong in a socket reply or CLI output. Carries the destination.
+    case socketPathTooLong(destination: String)
+
     /// The connection is waiting for credentials cmux cannot supply. Distinct from
     /// ``unreachable`` on purpose: the host answered, and telling the user to check the network
     /// sends them to the wrong place. Carries the destination for the message.
@@ -94,6 +100,12 @@ extension RemoteTmuxError {
                 defaultValue: "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
             )
             return String(format: format, Self.sanitizedDetail(detail))
+        case let .socketPathTooLong(destination):
+            let format = String(
+                localized: "remoteTmux.error.socketPathTooLong",
+                defaultValue: "The tmux socket path on %@ is too long for the host to open. Use a shorter --socket-name, or a shorter tmux socket directory on the host, then try again."
+            )
+            return String(format: format, Self.sanitizedDetail(destination))
         case let .tmuxNotFound(destination):
             let format = String(
                 localized: "remoteTmux.error.tmuxNotFound",

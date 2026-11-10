@@ -674690,6 +674690,131 @@
           }
         }
       }
+    },
+    "remoteTmux.error.socketPathTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tmux socket path on %@ is too long for the host to open. Use a shorter --socket-name, or a shorter tmux socket directory on the host, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار مقبس tmux على %@ أطول من أن يتمكن المضيف من فتحه. استخدم --socket-name أقصر، أو مجلد مقابس tmux أقصر على المضيف، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Putanja tmux socketa na %@ je preduga da bi je host mogao otvoriti. Koristite kraći --socket-name ili kraći direktorij tmux socketa na hostu, a zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stien til tmux-socketen på %@ er for lang til, at værten kan åbne den. Brug et kortere --socket-name eller en kortere tmux-socketmappe på værten, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der tmux-Socket-Pfad auf %@ ist zu lang, als dass der Host ihn öffnen könnte. Verwende einen kürzeren --socket-name oder ein kürzeres tmux-Socket-Verzeichnis auf dem Host und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ruta del socket de tmux en %@ es demasiado larga para que el host pueda abrirla. Usa un --socket-name más corto, o un directorio de sockets de tmux más corto en el host, y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chemin du socket tmux sur %@ est trop long pour que l’hôte puisse l’ouvrir. Utilisez un --socket-name plus court, ou un répertoire de sockets tmux plus court sur l’hôte, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il percorso del socket tmux su %@ è troppo lungo perché l’host possa aprirlo. Usa un --socket-name più corto, o una directory dei socket tmux più corta sull’host, quindi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の tmux ソケットのパスが長すぎるため、ホストで開けません。より短い --socket-name を使うか、ホスト上の tmux ソケットディレクトリを短くしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវ socket របស់ tmux នៅលើ %@ វែងពេក ដែលម៉ាស៊ីនមិនអាចបើកបាន។ សូមប្រើ --socket-name ខ្លីជាងនេះ ឬថត socket របស់ tmux ខ្លីជាងនេះនៅលើម៉ាស៊ីន រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 tmux 소켓 경로가 너무 길어 호스트에서 열 수 없습니다. 더 짧은 --socket-name을 사용하거나 호스트에서 더 짧은 tmux 소켓 디렉터리를 사용한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banen til tmux-socketen på %@ er for lang til at verten kan åpne den. Bruk et kortere --socket-name eller en kortere tmux-socketmappe på verten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ścieżka gniazda tmux na %@ jest zbyt długa, aby host mógł je otworzyć. Użyj krótszej wartości --socket-name albo krótszego katalogu gniazd tmux na hoście, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O caminho do socket do tmux em %@ é longo demais para o host abrir. Use um --socket-name mais curto, ou um diretório de sockets do tmux mais curto no host, e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Путь к сокету tmux на %@ слишком длинный, и хост не может его открыть. Используйте более короткий --socket-name или более короткий каталог сокетов tmux на хосте, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พาธซ็อกเก็ตของ tmux บน %@ ยาวเกินกว่าที่โฮสต์จะเปิดได้ ให้ใช้ --socket-name ที่สั้นลง หรือไดเรกทอรีซ็อกเก็ตของ tmux ที่สั้นลงบนโฮสต์ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerindeki tmux soket yolu, ana makinenin açamayacağı kadar uzun. Daha kısa bir --socket-name veya ana makinede daha kısa bir tmux soket dizini kullanın, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шлях до сокета tmux на %@ задовгий, і хост не може його відкрити. Використайте коротший --socket-name або коротший каталог сокетів tmux на хості, а потім спробуйте ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 tmux 套接字路径过长，主机无法打开。请使用更短的 --socket-name，或在主机上使用更短的 tmux 套接字目录，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 tmux socket 路徑過長，主機無法開啟。請使用較短的 --socket-name，或在主機上使用較短的 tmux socket 目錄，然後再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
