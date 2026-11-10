@@ -169,7 +169,6 @@
     "agent-session/acpmux/EmojiMenu.tsx": "the emoji list: page glass",
     "agent-session/acpmux/PaletteMenu.tsx": "the in-pane palette menu: page glass",
     "agent-session/acpmux/NewTabPage.tsx": "New Tab's omni list: page glass",
-    "agent-session/acpmux/steerQueue/SteerQueue.tsx": "the steer queue: page glass",
-    "agent-session/acpmux/subagents/AgentsPill.tsx": "the agents list: page glass"
+    "agent-session/acpmux/steerQueue/SteerQueue.tsx": "the steer queue: page glass"
   }
 }
