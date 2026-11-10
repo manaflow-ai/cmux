@@ -6,7 +6,8 @@ public import Observation
 
 /// Client-local tab selection per pane (the daemon's `active_tab` is only a
 /// shared default). When the selected tab disappears, the selection goes to
-/// the tab before it, else the one after it (`FocusAfterClose.tab`). It also keeps the pane
+/// the one close-selection rule's pick (``closeRule``: a tab of the closed tab's opener family,
+/// else the next tab, the previous only when it was the last). It also keeps the pane
 /// this window last focused in each workspace (the daemon's `focused_at` is a
 /// default the app never writes, focus.md 2), which a sidebar row's face reads.
 ///
@@ -94,9 +95,9 @@ public final class TabSelectionMemory {
 
     /// The tab to show for `pane` given its current order. Remembers the
     /// order so a later removal can pick the neighbor
-    /// (`FocusAfterClose.tab`: the shown tab before it, else the one after
-    /// it; a member of a collapsed group in `hidden` is skipped while a shown
-    /// tab survives).
+    /// (``TabCloseSelection/successor(of:old:tabs:hidden:)``, the one
+    /// close-selection rule; a member of a collapsed group in `hidden` is
+    /// skipped while a shown tab survives).
     public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
                         replaced: [StripTabID: StripTabID] = [:]) -> String? {
         closeRule.adopt(replaced)

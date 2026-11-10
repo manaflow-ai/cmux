@@ -129,7 +129,7 @@ public final class TabStripModel {
     /// (``closeSuccessor``), else the rule with no opener known.
     func successor(of closed: TabID, old: [TabID], surviving: [TabID], shown: Set<TabID>) -> TabID? {
         if let closeSuccessor { return closeSuccessor(closed, old, surviving, shown) }
-        return FocusAfterClose.tab(selected: closed, old: old, surviving: surviving, shown: shown)
+        return CloseSelection<TabID>().successor(ofTab: closed, old: old, surviving: surviving, shown: shown)
     }
 
     /// The members of a collapsed group, which the strip does not show: a closed selected tab's successor
