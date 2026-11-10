@@ -75,7 +75,10 @@ fn the_time_of_one_workspace_close_is_printed() {
 }
 
 fn print_the_close_times() {
-    crate::server::skip_entity_check_on_this_thread_for_bench();
+    // `server` gives the switch of `tree_json` under a second name: under its own name the call
+    // `tree_json::skip_entity_check_on_this_thread_for_bench()` in the open bench of `server`
+    // would be an unnecessary qualification for clippy.
+    crate::server::skip_tree_entity_check();
     let build = if cfg!(debug_assertions) {
         "debug assertions on (the dev profile)"
     } else {
