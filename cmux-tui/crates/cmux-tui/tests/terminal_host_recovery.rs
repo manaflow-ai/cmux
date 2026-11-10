@@ -62,6 +62,8 @@ struct RecoveryHarness {
     shell_integration: bool,
     /// Extra daemon options, passed on every start.
     extra_args: Vec<String>,
+    /// Extra daemon environment variables, set on every start.
+    extra_env: Vec<(String, String)>,
 }
 
 impl RecoveryHarness {
@@ -84,6 +86,7 @@ impl RecoveryHarness {
             adopt_template_terminal: false,
             shell_integration: true,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             dir,
         };
         harness.restart();
@@ -190,6 +193,7 @@ impl RecoveryHarness {
             adopt_template_terminal: false,
             shell_integration: true,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             dir,
         }
     }
@@ -211,6 +215,9 @@ impl RecoveryHarness {
             .args(&self.extra_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (name, value) in &self.extra_env {
+            command.env(name, value);
+        }
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
         }
@@ -5478,3 +5485,6 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/restart_host_leak.rs"]
 mod restart_host_leak;
+
+#[path = "terminal_host_recovery/output_store.rs"]
+mod output_store;
