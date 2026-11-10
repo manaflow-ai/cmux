@@ -17,12 +17,12 @@ Launches the tagged app itself (bench_launch.BenchApp: no activation, scratch co
 
 Every timed open and close goes through the real key path (`debug.key`, in the app). The app reports `visible_ms`, the
 display frame at which the result shows, and `key_ms`, the key's synchronous main-thread time. Each step's rows have
-p50/p95/max of those; perf-budgets.py (bench `tabs`) maps them to rows `tabs.*` and their budgets, and the perf cron
-(part `tabs`) measures them on every feat-cmux-next tip it reaches and opens the "cmux-next perf regression" issue on a
-regression.
+p50/p95/max of those; perf-budgets.py (group `terminal_burst`) maps them to rows `terminal_burst.*` and their budgets.
+The perf cron's `tabs` part (tab switch, tab close bursts and new tab as tabs and workspaces grow) is where these rows
+are meant to run, so its regression issue warns when they slow down.
 
 Usage: tab-churn-bench.py --tag TAG --app PATH [--cycles 12] [--terminals 30] [--out DIR] [--json FILE]
-Fleet: through perf-budgets.py: scripts/measure/split-spring.sh --suite=budgets --only=tabs
+Fleet: through perf-budgets.py: scripts/measure/split-spring.sh --suite=budgets --only=terminal_burst
 """
 import argparse, json, os, sys, time
 

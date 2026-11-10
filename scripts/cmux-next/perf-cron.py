@@ -166,9 +166,6 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
-    # Opening and closing tabs, and 30 terminals in a row (tab-churn-bench.py; ask-8a0837950b).
-    {"name": "tabs", "args": [*MEASURE, "--suite=budgets", "--only=tabs"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "tabs"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -183,7 +180,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^tabs\.", "tabs"), (r"^launch\.", "launch"),
+    (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"), (r"^webui\.", "web-ui"),
 ]
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
@@ -631,8 +628,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    # tabs.close_terminal is read over the socket (no frame), so it has its own budget, not the 10 ms frame target.
-    if name.startswith(("diff.", "launch.", "webui.", "tabs.close_terminal.")):
+    if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1523,9 +1519,6 @@ def supported_parts_at(sha):
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need == "web-ui":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
-        elif need == "tabs":
-            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/tab-churn-bench.py"],
-                                capture_output=True).returncode == 0
         elif need == "web-ui-scale":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
         elif need in ("perf-gate", "launch"):

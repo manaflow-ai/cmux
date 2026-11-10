@@ -16,8 +16,8 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   home-perf.py                   Home: typing key dispatch, chat scroll frames
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
   bench_idle.py                  idle CPU of the app with terminals open
-  tab-churn-bench.py             Cmd-T and Cmd-W at 1 tab and at 31, 30 Ctrl-` terminals in a row (first and last third,
-                                 growth) and closing them (ask-8a0837950b)
+  tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
+                                 and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
 
   A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
   suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
@@ -42,7 +42,7 @@ BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
 BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
 
-BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim", "tabs"]
+BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim", "terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 
 
@@ -260,7 +260,7 @@ def rows_acp(rep):
     return out
 
 
-def rows_tabs(rep):
+def rows_terminal_burst(rep):
     """tab-churn-bench.py summary: open and close key to visible at each tab count, the terminal burst's first and last
     third, closing the burst (key to the pane's new selection), and the burst's growth (last third p50 / first third)."""
     out = {}
@@ -269,14 +269,14 @@ def rows_tabs(rep):
             continue
         if step == "new_terminal":
             for part in ("first", "last"):
-                out[f"tabs.new_terminal.{part}.key_to_visible"] = p50_p95(s.get(part))
+                out[f"terminal_burst.new_terminal.{part}.key_to_visible"] = p50_p95(s.get(part))
             if isinstance(s.get("growth"), (int, float)):
-                out["tabs.new_terminal.growth"] = (s["growth"], s["growth"])
+                out["terminal_burst.new_terminal.growth"] = (s["growth"], s["growth"])
         elif step == "close_terminal":
-            out["tabs.close_terminal.key_to_state"] = p50_p95(s.get("visible_ms"))
+            out["terminal_burst.close_terminal.key_to_state"] = p50_p95(s.get("visible_ms"))
         else:
             action, _, count = step.partition("@")
-            out[f"tabs.{action}.{count}.key_to_visible"] = p50_p95(s.get("visible_ms"))
+            out[f"terminal_burst.{action}.{count}.key_to_visible"] = p50_p95(s.get("visible_ms"))
     return out
 
 
@@ -480,8 +480,9 @@ def main():
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
         "anim": ([py, S("anim-perf-terminal.py"), *common, "--rounds", "2", "--out", o("anim"), "--json", o("anim.json")],
                  "anim.json", rows_anim),
-        "tabs": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
-                  "--out", o("tabs"), "--json", o("tabs.json")], "tabs.json", rows_tabs),
+        "terminal_burst": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
+                  "--out", o("terminal_burst"), "--json", o("terminal_burst.json")], "terminal_burst.json",
+                           rows_terminal_burst),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }
