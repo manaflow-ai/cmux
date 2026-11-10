@@ -59,6 +59,7 @@ export default componentEntry<Props>({
     "slots/thinkingIndicator/PulseMark.tsx",
     "slots/thinkingIndicator/CaretMark.tsx",
     "slots/thinkingIndicator/BlockSteps.tsx",
+    "slots/thinkingIndicator/slot.tsx#ReservedLabel",
   ],
   keywords: ["theme", "slot", "thinking", "indicator", "dots", "caret", "pulse", "blocks", "retro"],
   variants: {
