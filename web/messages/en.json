@@ -7528,7 +7528,7 @@
           "Everything in Free",
           "Frontier models (Claude, GPT) from credits",
           "Pay as you go above the included credits",
-          "5 sandboxes at a time, up to 8 vCPU / 16 GB"
+          "Any number of sandboxes, each up to 8 vCPU / 16 GB, metered beyond the included credits"
         ]
       },
       "max": {
@@ -7537,7 +7537,7 @@
         "features": [
           "Everything in Pro",
           "4x the included credits",
-          "20 sandboxes at a time, up to 32 vCPU / 64 GB"
+          "Any number of sandboxes, each up to 32 vCPU / 64 GB"
         ]
       },
       "team": {
@@ -7546,6 +7546,7 @@
         "features": [
           "Pro for every seat",
           "Credits pooled across the team",
+          "No sandbox count per seat: the team's spending cap is the only stop",
           "Spend limits per member and per team",
           "Central billing and seat management"
         ]

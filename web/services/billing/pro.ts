@@ -884,10 +884,10 @@ export function metadataPlanId(raw: unknown): string | null {
 /**
  * Writes `cmuxPlan: "team"` and `cmuxSeats` (the subscription quantity) into
  * a Stack team's clientReadOnlyMetadata while a Stripe Team subscription is
- * active; both are removed when it lapses. Seats size the team's Cloud VM
- * allowance (5 machines per seat), so a quantity change must land here even
- * when the plan id is unchanged. `cmuxVmPlan` is operator-owned and left
- * untouched.
+ * active; both are removed when it lapses. Seats are billing data: they no
+ * longer size any Cloud VM count (paid machines are metered). A quantity
+ * change must still land here even when the plan id is unchanged.
+ * `cmuxVmPlan` is operator-owned and left untouched.
  */
 export async function syncTeamPlanMetadata(
   team: ProMetadataCustomer,
