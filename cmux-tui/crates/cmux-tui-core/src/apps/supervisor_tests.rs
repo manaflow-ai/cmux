@@ -532,6 +532,60 @@ fn new_tab_widgets_list_with_the_layout_and_start_no_host() {
 }
 
 #[test]
+fn every_panels_write_that_changes_a_listing_is_an_apps_changed() {
+    // A New Tab page keeps its listing while hidden or just opened (#40610), so it learns of another
+    // page's edit only from `apps-changed`: a layout save is one, as a hide is.
+    const WIDGET: &str = "cmux.newtab.widget/1";
+    let f = fixture();
+    f.install("cmux/demo");
+    let changes = || -> Vec<Value> {
+        f.events.try_iter().filter(|event| event["event"] == "apps-changed").collect()
+    };
+    changes();
+    let layout = |key: &str, layout: Value| {
+        f.supervisor
+            .store_call(
+                CLIENT,
+                "apps.panels.layout.set",
+                json!({ "interface": WIDGET, "layout": layout, "idempotency_key": key }),
+                Origin::User,
+            )
+            .unwrap();
+    };
+    let clock = json!(["clock", "app:cmux/demo#cmux.newtab.widget/1"]);
+    layout("layout-1", clock.clone());
+    let heard = changes();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    assert_eq!(heard[0]["transaction"], "newtab-layout");
+    assert_eq!(heard[0]["revision"], f.supervisor.list()["revision"]);
+    // The widget removed: another change.
+    layout("layout-2", json!(["clock"]));
+    assert_eq!(changes().len(), 1);
+    // The same layout saved again changes no listing and is heard by no one.
+    layout("layout-3", json!(["clock"]));
+    assert_eq!(changes(), Vec::<Value>::new());
+    // The other panels writes go through the mirror commit, which says so too.
+    f.supervisor
+        .store_call(
+            CLIENT,
+            "apps.hidden.set",
+            json!({ "app": "cmux/demo", "hidden": true, "idempotency_key": "hide-1" }),
+            Origin::User,
+        )
+        .unwrap();
+    assert_eq!(changes().len(), 1);
+    f.supervisor
+        .store_call(
+            CLIENT,
+            "apps.grant.revoke",
+            json!({ "app": "cmux/demo", "scope": "workspace:read", "idempotency_key": "revoke-1" }),
+            Origin::User,
+        )
+        .unwrap();
+    assert_eq!(changes().len(), 1);
+}
+
+#[test]
 fn unverified_apps_start_sandboxed_with_read_scopes() {
     let f = fixture();
     f.install("local/spy");
