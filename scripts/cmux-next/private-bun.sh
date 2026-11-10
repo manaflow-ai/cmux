@@ -44,8 +44,9 @@ if [[ ! -x "$dir/bun" || "$("$dir/bun" --version 2>/dev/null || true)" != "$want
   base="${CMUX_BUN_RELEASE_BASE:-https://github.com/oven-sh/bun/releases/download}/bun-v$want"
   work="$dir/download"
   mkdir -p "$work"
-  curl -fsSL --retry 3 -o "$work/bun-$platform.zip" "$base/bun-$platform.zip"
-  curl -fsSL --retry 3 -o "$work/SHASUMS256.txt" "$base/SHASUMS256.txt"
+  # --retry-max-time with --max-time bounds each download (Retry-After overrides any retry delay).
+  curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 --retry-max-time 120 -o "$work/bun-$platform.zip" "$base/bun-$platform.zip"
+  curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 --retry-max-time 120 -o "$work/SHASUMS256.txt" "$base/SHASUMS256.txt"
   expected="$(awk -v f="bun-$platform.zip" '$2 == f { print $1 }' "$work/SHASUMS256.txt")"
   actual="$(shasum -a 256 "$work/bun-$platform.zip" | awk '{ print $1 }')"
   if [[ -z "$expected" || "$expected" != "$actual" ]]; then

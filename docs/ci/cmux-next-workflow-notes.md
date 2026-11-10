@@ -1090,8 +1090,13 @@ autoland re-runs once as infrastructure. The fleet's app compile (app-compile-fl
 the same outage.
 
 `tests/test_ci_cmux_next_compile_status.py` serves 530 from a local HTTP server to the real step and real curl.
-Its `UnboundedRetryDetector` fails on any `curl --retry-all-errors` in this workflow without a fixed bound, and on
-one that reads our own service (a cmux.com host) with a bound over 5 minutes.
+Its `UnboundedRetryDetector` fails on any retrying curl (any `--retry` but a literal 0) in this workflow, or in a
+scripts/cmux-next script it names, without a total bound, and on one that reads our own service (a cmux.com host)
+with a bound over 5 minutes. A total bound is `--retry-max-time N` with `--max-time M` (curl sleeps for no retry that
+would pass N, Retry-After included, and each attempt stops at M: at most N + M), or an outer `timeout N` or perl's
+alarm. A retry count with `--retry-delay` is none: a Retry-After header overrides the delay (a 503 with
+`Retry-After: 8` kept `--retry 2 --retry-delay 1 --max-time 1` busy 16 s). `RetryAfterBound` checks each shape
+against real curl and a local 503.
 
 ## note-83
 

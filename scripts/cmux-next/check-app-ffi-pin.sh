@@ -162,8 +162,10 @@ if [[ "$verify" -eq 1 ]]; then
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
   # Every error retries (a runner's TLS read timeout is curl 35, which plain
-  # --retry treats as fatal: cmux-next.yml run 37317248488).
-  get() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 "$@"; }
+  # --retry treats as fatal: cmux-next.yml run 37317248488). --retry-max-time
+  # with --max-time bounds the whole call (at most 360 s): a Retry-After header
+  # overrides --retry-delay, so the retry count alone bounds nothing.
+  get() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 300 "$@"; }
   # A release download that still fails goes through the release-assets API, which serves the same file another
   # way (2026-11-08: every release download answered 504 for hours while the API served the same bytes). What it
   # gets is checked below like the download.

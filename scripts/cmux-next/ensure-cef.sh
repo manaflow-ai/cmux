@@ -197,8 +197,9 @@ store_download() {
     /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"
   [[ "$signed" == https://* || "$signed" == http://* ]] || return 1
   echo "==> downloading $asset ($version) from the controller artifact store" >&2
+  # --retry-max-time with --max-time bounds the whole download (Retry-After overrides --retry-delay).
   if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-      --max-time 1800 -A cmux-ensure-cef -o "$archive" "$signed" 2>&1 | sed -E 's/\?X-Amz-[^ ]*//g' >&2; then
+      --max-time 1800 --retry-max-time 600 -A cmux-ensure-cef -o "$archive" "$signed" 2>&1 | sed -E 's/\?X-Amz-[^ ]*//g' >&2; then
     verified "$archive" "the controller artifact store" && return 0
   else
     echo "warning: artifact store download failed; trying R2" >&2
@@ -223,7 +224,7 @@ fetch_r2() {
   # The credential goes through a config on stdin, never on the command line.
   if printf 'user = "%s:%s"\n' "$id" "$secret" |
     curl --config - --fail --silent --show-error --location --retry 5 --retry-delay 2 \
-      --connect-timeout 15 --max-time 1800 --aws-sigv4 "aws:amz:auto:s3" \
+      --connect-timeout 15 --max-time 1800 --retry-max-time 600 --aws-sigv4 "aws:amz:auto:s3" \
       -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
       -o "$archive" "${endpoint%/}/$r2_bucket/$r2_key" >&2; then
     verified "$archive" R2 && return 0
@@ -246,11 +247,13 @@ fetch_github() {
     asset_api="$(curl -fsSL -H "Authorization: Bearer $token" "https://api.github.com/repos/$repo/releases/tags/$tag" |
       /usr/bin/python3 -c 'import json,sys; a=sys.argv[1]; print(next(x["url"] for x in json.load(sys.stdin)["assets"] if x["name"]==a))' "$asset" || true)"
     if [[ -n "$asset_api" ]]; then
-      curl -fL --retry 5 -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" \
+      curl -fL --retry 5 --connect-timeout 15 --max-time 1800 --retry-max-time 600 \
+        -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" \
         -o "$archive" "$asset_api" >&2 && verified "$archive" "GitHub API" && return 0
     fi
   fi
-  curl -fL --retry 5 -o "$archive" "$url" >&2 2>/dev/null && verified "$archive" "$url" && return 0
+  curl -fL --retry 5 --connect-timeout 15 --max-time 1800 --retry-max-time 600 -o "$archive" "$url" >&2 2>/dev/null &&
+    verified "$archive" "$url" && return 0
   return 1
 }
 
