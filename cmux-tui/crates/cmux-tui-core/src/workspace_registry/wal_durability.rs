@@ -84,7 +84,14 @@
 //! - A reader of the old WAL is still open at the next commit: SQLite then
 //!   appends to the WAL instead of a restart.
 //!
-//! A slow disk makes a try long. Only the next try waits for it.
+//! A slow disk makes a try long: the next try waits for the bulk, and a
+//! writer waits for the copy of the tail, which runs under its lock.
+//!
+//! A checkpoint that copied a WAL at its restart point to the end it had,
+//! while commits appended beside it, leaves the WAL unable to restart (a
+//! long read that ended, a WAL a kill left). The syncer does not wait for
+//! 4 MiB of new commits then: the rest is due at once, as a try of the
+//! restart rule, or as one more plain pass for a store that gave no lock.
 //!
 //! Before, the commit that took the WAL past the limit waited for the
 //! syncer's checkpoint (at most 250 ms) with its connection lock held, and a
@@ -226,7 +233,9 @@ struct SyncState {
     restart_running: bool,
     /// The WAL frame count from which a commit marks the next try; 0 after a restart.
     restart_try_frames: u64,
-    /// The WAL a previous run left is large: the syncer checkpoints it first.
+    /// The WAL a previous run left is large, or a pass that copied a large
+    /// WAL left the commits that came beside it: the syncer checkpoints next,
+    /// whatever the commits wrote.
     leftover_owed: bool,
     /// Tries of the restart rule the syncer ended.
     #[cfg(test)]
@@ -468,8 +477,10 @@ impl WalDurability {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let state = self.shared.state.lock().recover_poison();
-            let idle =
-                state.settled >= state.requested && !state.restart_owed && !state.restart_running;
+            let idle = state.settled >= state.requested
+                && !state.restart_owed
+                && !state.restart_running
+                && !state.leftover_owed;
             if idle || Instant::now() > deadline {
                 return state.checkpoints;
             }
@@ -654,6 +665,23 @@ fn run(shared: &Shared) {
             let step = (CHECKPOINT_BYTES / shared.frame_bytes).max(1);
             state.restart_try_frames = state.wal_frames.saturating_add(step);
             state.restart_running = false;
+        } else if pass.whole
+            && state.wal_frames > pass.frames
+            && state.wal_frames.saturating_mul(shared.frame_bytes) >= RESTART_BYTES
+            && !state.stopping
+        {
+            // The pass copied a WAL at its restart point to the end it had
+            // at the start, so no reader stops a copy now, and commits
+            // appended beside it: the WAL still cannot restart, and nothing
+            // would be due until they write 4 MiB more (a long read that
+            // ended, a WAL a kill left). The rest is small. The restart
+            // rule takes it now, with no step to wait for; a store with no
+            // writer lock yet gets one more pass at once.
+            if shared.writer_lock.get().is_some() {
+                state.restart_owed = true;
+            } else {
+                state.leftover_owed = true;
+            }
         }
         state.stop_done = state.stop_done.max(asked);
         if synced {
