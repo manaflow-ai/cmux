@@ -467,7 +467,7 @@ fn permissions(source: &mut Remote, root: &str, relative: &str) -> anyhow::Resul
         return Ok(0o644);
     }
     let Some(stat) = source.stat(&join(root, relative))? else { return Ok(0o644) };
-    let display = stat["mode_display"].as_str().unwrap_or("");
+    let display = stat.get("mode_display").and_then(serde_json::Value::as_str).unwrap_or("");
     Ok(mode_of(display).unwrap_or(0o644))
 }
 
@@ -628,8 +628,9 @@ impl Read for PartReader {
                 Err(_) => return Ok(0),
             }
         }
-        let count = out.len().min(self.held.len() - self.at);
-        out[..count].copy_from_slice(&self.held[self.at..self.at + count]);
+        let held = self.held.get(self.at..).unwrap_or_default();
+        let count = out.len().min(held.len());
+        out.iter_mut().zip(held).for_each(|(to, from)| *to = *from);
         self.at += count;
         Ok(count)
     }
