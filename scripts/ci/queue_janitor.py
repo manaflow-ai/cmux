@@ -3664,15 +3664,26 @@ def dispatch_kind(run: Mapping[str, Any]) -> str:
     return match.group(1) if match else title
 
 
+# A hosted verification dispatch (scripts/verify-cmux-tui-hosted.sh) has a caller waiting on its run id, on any
+# branch: the script dispatches it on the lane branch it verifies. Run 42730697263 (2026-11-10, a red proof on
+# tui-feat-demux-followup-3-red) was cancelled here after its macOS job queued 2h03m and carried no re-run, so the
+# caller got a cancelled run with no macOS result.
+VERIFICATION_DISPATCH_PATHS = frozenset({".github/workflows/cmux-tui.yml"})
+
+
 def orphan_rerun_scope(orphan: Orphan) -> str | None:
     """Why the orphan pass's cancel of this run carries a re-run, or None when it does not."""
     run = orphan.run
     branch = str(run.get("head_branch") or "")
     attempt = int(run.get("run_attempt") or 1)
-    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or branch not in ORPHAN_RERUN_BRANCHES:
+    verification = run.get("path") in VERIFICATION_DISPATCH_PATHS
+    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or \
+            (branch not in ORPHAN_RERUN_BRANCHES and not verification):
         return None
     if attempt >= LOST_FAILOVER_MAX_ATTEMPT or orphan_protected_reason(run) is not None:
         return None
+    if verification and branch not in ORPHAN_RERUN_BRANCHES:
+        return f"a hosted verification dispatch on {branch} at attempt {attempt}"
     return f"a {branch} dispatch at attempt {attempt}"
 
 
