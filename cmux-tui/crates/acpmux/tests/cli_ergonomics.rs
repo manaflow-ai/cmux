@@ -96,3 +96,50 @@ fn wait_print_after_a_failed_turn_prints_its_error_and_retry_not_the_reply_befor
     assert!(row["retry"]["nextAt"].as_u64().is_some(), "{v}");
     assert_ne!(row["reply"], "echo: the answer before", "{v}");
 }
+
+/// Bench round 5 (row 11): `session kill --purge A B` was refused (`unexpected argument`, with
+/// the usage of `session stop`), so a cleanup took one call per session. `session stop` and
+/// `session kill --purge` take several names and act on each; the other sessions stay.
+#[test]
+fn w5s_session_stop_and_kill_purge_take_several_names() {
+    let dir = scratch("k");
+    let _shutdown = Shutdown(&dir);
+    for name in ["alpha", "beta", "gamma", "delta", "keep"] {
+        let made = cli(&dir, &["run", "-n", name, "warm up"]);
+        assert!(made.status.success(), "the session {name}: {}", text(&made));
+    }
+    let statuses = || -> std::collections::BTreeMap<String, String> {
+        let out = cli(&dir, &["--json", "ls", "--all"]);
+        assert!(out.status.success(), "ls: {}", text(&out));
+        let v: Value = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("ls printed no JSON ({e}): {}", text(&out)));
+        v["sessions"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|s| {
+                (
+                    s["name"].as_str().unwrap_or("").to_owned(),
+                    s["status"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect()
+    };
+
+    let stopped = cli(&dir, &["session", "stop", "alpha", "beta"]);
+    assert!(stopped.status.success(), "stop of two names: {}", text(&stopped));
+    let now = statuses();
+    assert_eq!(now.get("alpha").map(String::as_str), Some("closed"), "{now:?}");
+    assert_eq!(now.get("beta").map(String::as_str), Some("closed"), "{now:?}");
+    assert_ne!(now.get("keep").map(String::as_str), Some("closed"), "{now:?}");
+
+    let purged = cli(&dir, &["session", "kill", "--purge", "alpha", "gamma", "delta"]);
+    assert!(purged.status.success(), "kill --purge of three names: {}", text(&purged));
+    let now = statuses();
+    for gone in ["alpha", "gamma", "delta"] {
+        assert!(!now.contains_key(gone), "{gone} was not purged: {now:?}");
+    }
+    assert_eq!(now.get("beta").map(String::as_str), Some("closed"), "{now:?}");
+    assert!(now.contains_key("keep"), "{now:?}");
+}
