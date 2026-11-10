@@ -164,6 +164,8 @@ if [[ "$remote_commit" != "$commit" ]]; then
 fi
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
+# The watcher writes why the last cancelled attempt ended (describe_cancelled_attempt); the final message reads it.
+cancel_cause_file="$temp_dir/cancel-cause"
 watch_owner_pid=""
 cancel_owner_pid=""
 stop_owned_process() {
@@ -472,6 +474,52 @@ exec 3<> "$watch_result_fifo"
     fi
   }
 
+  # Why each cancelled job of the attempt ended, from its check-run annotations,
+  # into $cancel_cause_file. GitHub shows the dispatcher as the run's actor, so
+  # the actor does not say who cancelled it (2026-11-09: the shared login was
+  # blamed for cmux-bot rescue cancels and 40-minute job timeouts). Each read
+  # is one run_child 60; at most 4 annotation reads; a failed read says
+  # "cause unknown" and never ends the script.
+  describe_cancelled_attempt() {
+    local jobs_file="$temp_dir/cancelled-jobs" notes_file="$temp_dir/job-annotations"
+    local job_id job_name cause who limit reads=0 named=0
+    : > "$cancel_cause_file"
+    run_child 60 gh api "repos/$REPO/actions/runs/$run_id/attempts/$run_attempt/jobs?per_page=100" \
+      --jq '.jobs[] | select(.conclusion == "cancelled") | "\(.id)\t\(.name)"' > "$jobs_file" 2>/dev/null
+    if [[ "$child_status" -ne 0 ]]; then
+      echo "  cause unknown: the jobs of attempt $run_attempt could not be read" >> "$cancel_cause_file"
+      return 0
+    fi
+    while IFS=$'\t' read -r job_id job_name; do
+      [[ "$job_id" =~ ^[0-9]+$ ]] || continue
+      named=$((named + 1))
+      if (( reads >= 4 )); then
+        echo "  $job_name: cause not read (only the first 4 cancelled jobs are read)" >> "$cancel_cause_file"
+        continue
+      fi
+      reads=$((reads + 1))
+      run_child 60 gh api "repos/$REPO/check-runs/$job_id/annotations" --jq '.[].message' \
+        > "$notes_file" 2>/dev/null
+      cause="cause unknown"
+      if [[ "$child_status" -eq 0 ]]; then
+        limit="$(sed -n 's/.*exceeded the maximum execution time of \([0-9][0-9]*\)m.*/\1/p' "$notes_file" | head -n 1)"
+        who="$(sed -n 's/.*The run was canceled by @\([A-Za-z0-9_.-]*\(\[bot\]\)\{0,1\}\)\..*/\1/p' "$notes_file" | head -n 1)"
+        if [[ -n "$limit" ]]; then
+          cause="job timeout ${limit}m"
+        elif [[ "$who" == "cmux-bot[bot]" ]]; then
+          cause="cancelled by cmux-bot owned-pool rescue or queue janitor, re-run follows"
+        elif [[ -n "$who" ]]; then
+          cause="cancelled by @$who"
+        fi
+      fi
+      echo "  $job_name: $cause" >> "$cancel_cause_file"
+    done < "$jobs_file"
+    if (( named == 0 )); then
+      echo "  cause unknown: attempt $run_attempt lists no cancelled job" >> "$cancel_cause_file"
+    fi
+    return 0
+  }
+
   # One waiter per round, no tight loop: glaeda-gh shares one cheap poller per
   # machine; without it, gh run watch checks once per five minutes. A waiter
   # can return before the run is done: glaeda-gh rules on each attempt, and
@@ -522,6 +570,11 @@ exec 3<> "$watch_result_fifo"
         ended_since=$SECONDS
         if [[ "$run_conclusion" == "cancelled" || "$waiter" == "gh run watch" ]]; then
           echo "note: attempt $run_attempt of the run ended ($run_conclusion) without this script; waiting up to ${rescue_window_seconds}s for a re-run (CI rescue)" >&2
+        fi
+        if [[ "$run_conclusion" == "cancelled" ]]; then
+          describe_cancelled_attempt
+          echo "note: cause per cancelled job of attempt $run_attempt (from its annotations):" >&2
+          cat "$cancel_cause_file" >&2
         fi
       fi
       if [[ "$run_conclusion" != "cancelled" && "$waiter" != "gh run watch" ]] || \
@@ -610,6 +663,12 @@ if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
   if [[ "$run_conclusion" == "cancelled" ]]; then
     echo "The run was cancelled outside this script and was not re-run within ${rescue_window_seconds}s." >&2
+    echo "The run's actor is its dispatcher, not its canceller. Cause per cancelled job:" >&2
+    if [[ -s "$cancel_cause_file" ]]; then
+      cat "$cancel_cause_file" >&2
+    else
+      echo "  cause unknown" >&2
+    fi
   fi
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1
