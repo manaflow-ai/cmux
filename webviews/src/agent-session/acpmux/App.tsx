@@ -8347,6 +8347,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const files = Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [];
             // The Enter a held `/side` bound (Composer `onBindSideGesture`): its prompt spends it.
             const held = sendGestureParam(gesture);
+            // Files that would need uploading cannot go to a side chat: refused before the fork, so
+            // no side chat opens and they stay in the composer.
+            const tooLarge = files.length
+              ? client.sideRefusal(typeof prompt === "string" ? prompt.trim() : "", files)
+              : undefined;
+            if (tooLarge) throw new CmuxCommandRefused(tooLarge);
             // The side chat's prompt resolves when its turn ends, so nothing waits on it here.
             // acpmux's own refusal shows in the side chat; one the host made never reached it.
             const sidePromptRefused = (error: unknown) => {

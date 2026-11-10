@@ -10478,11 +10478,7 @@ export class AcpmuxDirectClient {
     attachments: ComposerAttachment[] = [],
     gesture?: { promptId: string; ticket: Promise<string | undefined> },
   ): Promise<void> {
-    const capabilities = this.summary?.agentCapabilities?.promptCapabilities;
-    const audible = takesAudio(capabilities, this.summary?.configOptions)
-      ? attachments
-      : attachments.filter((attachment) => attachment.kind !== "audio");
-    const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
+    const sendable = this.sideSendable(attachments);
     const carried = sendable.length ? fitPromptBudget(text, sendable) : sendable;
     const ticket = gesture ? await gesture.ticket : undefined;
     await this.offerChildren.prompting(sessionId, () =>
@@ -10495,6 +10491,25 @@ export class AcpmuxDirectClient {
         },
       }),
     );
+  }
+  /// `/side`'s staged files as its prompt carries them: no recording for an agent that cannot hear
+  /// it, no video frames for one that takes no images, as a send's.
+  private sideSendable(attachments: ComposerAttachment[]): ComposerAttachment[] {
+    const capabilities = this.summary?.agentCapabilities?.promptCapabilities;
+    const audible = takesAudio(capabilities, this.summary?.configOptions)
+      ? attachments
+      : attachments.filter((attachment) => attachment.kind !== "audio");
+    return capabilities?.image === false ? withoutFrames(audible) : audible;
+  }
+  /// Why `/side`'s staged files cannot go to its side chat, or undefined when they can: with every
+  /// saved original linked, the prompt is still over one message's budget (promptBudget.ts
+  /// `uploadsToFit`). A send uploads such files under its ticket, bound to the chat shown
+  /// (`bindSendGesture`); a side chat that does not exist yet holds no such ticket (the host's
+  /// `holdForUpload` takes only one bound to its chat), so `/side` refuses before the fork and its
+  /// files stay in the composer (#40066), rather than opening a side chat whose prompt acpmux refuses.
+  sideRefusal(text: string, attachments: ComposerAttachment[]): string | undefined {
+    const sendable = this.sideSendable(attachments);
+    return sendable.length && uploadsToFit(text, sendable).length ? translate("side.filesTooLarge") : undefined;
   }
   /// Binds the person's current gesture to `/side`'s prompt, held for its files: bound to no chat
   /// (the side chat it goes to does not exist yet), so the side chat's prompt redeems it by its
