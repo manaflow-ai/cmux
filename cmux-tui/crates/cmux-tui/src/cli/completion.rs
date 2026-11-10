@@ -108,27 +108,26 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         [] => {
             let message =
                 "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
-            return usage_invalid(message, output);
+            return usage_error(message, output);
         }
         [other, ..] => {
             let message = format!(
                 "cmux: completion takes zsh, bash or fish, not {other:?}; run `cmux completion --help`"
             );
-            return usage_invalid(&message, output);
+            return usage_error(&message, output);
         }
     };
     print!("{text}");
     0
 }
 
-/// A usage refusal, exit 2: the error line `app::failure` writes, through `wire`, which every
-/// platform builds (`app` is Unix-only, so completion stays on Windows too).
-fn usage_invalid(message: &str, output: OutputMode) -> i32 {
-    super::wire::print_local_error(
-        &serde_json::json!({ "code": "usage.invalid", "message": message, "details": {}, "retryable": false }),
-        output,
-        2,
-    )
+/// A usage error in the CLI's error shape. `cli/app.rs` has this too, but it is unix-only and
+/// this module builds on every target.
+fn usage_error(message: &str, output: OutputMode) -> i32 {
+    let error = serde_json::json!({
+        "code": "usage.invalid", "message": message, "details": {}, "retryable": false,
+    });
+    super::wire::print_local_error(&error, output, 2)
 }
 
 /// The completions of the last word of `words` (the word being typed, maybe empty), with `help`
