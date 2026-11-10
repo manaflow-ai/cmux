@@ -129,8 +129,7 @@ impl PtySurface {
         if taps.is_empty() {
             return false;
         }
-        let frame = AttachFrame::Output(bytes.to_vec());
-        taps.retain(|tap| tap.try_send(frame.clone()));
+        send_to_each(&mut taps, AttachFrame::Output(bytes.to_vec()));
         let sent = !taps.is_empty();
         drop(taps);
         if sent {
@@ -189,9 +188,10 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.snapshot_position.observe_frame(&frame);
+        let is_output = matches!(frame, AttachFrame::OutputWithColors { .. });
         let mut taps = self.taps.lock().unwrap();
-        taps.retain(|tap| tap.try_send(frame.clone()));
-        let sent_output = matches!(frame, AttachFrame::OutputWithColors { .. }) && !taps.is_empty();
+        send_to_each(&mut taps, frame);
+        let sent_output = is_output && !taps.is_empty();
         drop(taps);
         if sent_output {
             self.mark_attach_output_sent();
@@ -762,4 +762,17 @@ pub(super) struct GeometryCommit {
     /// The viewport position the resize moved to, if it moved and the bus
     /// event was not queued on a direct PTY's reader.
     pub(super) scroll: Option<(u64, bool)>,
+}
+
+/// Send `frame` to every tap, dropping the taps that refuse it. The last tap
+/// takes `frame` itself: N viewers cost N copies, and one viewer none more.
+fn send_to_each(taps: &mut Vec<AttachTap>, frame: AttachFrame) {
+    let last = taps.len().saturating_sub(1);
+    let mut frame = Some(frame);
+    let mut index = 0usize;
+    taps.retain(|tap| {
+        let send = if index == last { frame.take() } else { frame.clone() };
+        index = index.saturating_add(1);
+        send.is_some_and(|send| tap.try_send(send))
+    });
 }
