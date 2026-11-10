@@ -123,8 +123,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-protected-folders.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FolderPicker/ProtectedFolderEntry.generated.swift",
      "scripts/cmux-next/gen-protected-folders.py"),
-    ("Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift",
-     "scripts/cmux-next/gen-chrome-styles.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
      "scripts/cmux-next/gen-chrome-styles.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift",

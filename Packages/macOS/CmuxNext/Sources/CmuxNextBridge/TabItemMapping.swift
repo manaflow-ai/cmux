@@ -130,7 +130,7 @@ public struct TabItemMapping {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty
-            || (!isBrowser && !isConversation && (tab.name?.isEmpty ?? true) && TerminalTitle.isBareShell(tab.title))
+            || (!isBrowser && !isConversation && (tab.name?.isEmpty ?? true) && TerminalTitle.isBareShell(tab.titleText))
             || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
         // A terminal its shell has not titled yet shows its folder, which the
         // shell's first title usually is, so the label does not change a

@@ -424,6 +424,16 @@ struct Flags: TunableFactory {
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
 
+    def test_a_default_that_steps_aside_in_the_rust_catalog_fails(self):
+        rust = "pub static YIELDS_TO_TERMINAL: &[&str] = &[\n    \"focusHistoryBack\",\n];\n"
+        self.repo.write("cmux-tui/crates/cmux-action-catalog/src/bindings.rs", rust)
+        self.base = self.repo.commit("steps aside in Rust")
+        head = self.head(extra={"cmux-tui/crates/cmux-action-catalog/src/bindings.rs":
+                                rust.replace("];", '    "splitRight",\n];')})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
+
     def test_a_newline_in_a_default_cannot_start_a_workflow_command(self):
         settings = [*BASE_SETTINGS, {"key": "x\n::error::forged @someone", "default": True}]
         result = self.check(self.head(settings=settings))

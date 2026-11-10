@@ -214,7 +214,7 @@ await requireBrowserLane("agent-pane-jump-latest-steady.test.ts", async () => {
       document.body.append(probe);
       let wide = false;
       const read = (frame: number) => {
-        const control = document.querySelector<HTMLElement>(".acpmux-jump-latest");
+        const control = document.querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const fromEnd = Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight);
         if (!control) {
@@ -302,7 +302,7 @@ await requireBrowserLane("agent-pane-jump-latest-steady.test.ts", async () => {
     send(record("in", "agent_message_chunk", chunk("Streaming the reply: ")));
     // Hidden, the control is inert (out of the accessibility tree): find it by its label.
     await page
-      .locator('.acpmux-jump-latest[aria-label="Jump to latest, still replying"]')
+      .locator('.acpmux-jump-latest:not(.acpmux-jump-up)[aria-label="Jump to latest, still replying"]')
       .waitFor({ state: "attached" });
     await untilStill(page);
     await startFrames(page);

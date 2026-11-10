@@ -68,8 +68,12 @@ public actor MobileHostSupervisor {
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
-    /// The last `needs_you` line (the Feed's open requests): sent to each new hostd and on every change.
-    private var needsYouLine: Data?
+    /// The last `needs_you` line (the Feed's open requests) and the account (Stack user) whose feed
+    /// it came from: sent on every change, and to each new hostd of that same account only. A hostd
+    /// of another account (a sign-in as B after A) gets none of A's requests.
+    private var needsYou: (user: String, line: Data)?
+    /// The account the running hostd serves (its launch's user), nil with none running.
+    private var processUser: String?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
@@ -275,13 +279,27 @@ public actor MobileHostSupervisor {
         process?.send(line)
     }
 
-    /// The app Feed's open requests (#33818): kept for each new hostd and sent to the running one
-    /// now. hostd serves them to phones and pushes each one once.
-    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) {
+    /// The app Feed's open requests (#33818) of `user`'s feed: kept for each new hostd of that
+    /// account and sent to the running one now when it serves that account. hostd serves them to
+    /// phones and pushes each one once. Another account's set replaces the kept one outright.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) {
         let line = MobileHostLaunch.needsYouLine(requests)
-        guard line != needsYouLine else { return }
-        needsYouLine = line
-        process?.send(line)
+        guard needsYou?.user != user || needsYou?.line != line else { return }
+        needsYou = (user, line)
+        if processUser == user { process?.send(line) }
+    }
+
+    /// Forgets the kept set (the feed's account changed or signed out): no hostd started from now
+    /// gets it. Nothing goes to the running hostd: an empty set would close each request on that
+    /// account's phones, while the account change itself ends that hostd.
+    public func clearNeedsYou() {
+        needsYou = nil
+    }
+
+    /// The `needs_you` line a hostd started now for `user` gets: only that account's own.
+    func needsYouForHostd(user: String) -> Data? {
+        guard let needsYou, needsYou.user == user else { return nil }
+        return needsYou.line
     }
 
     /// Shows a phase without running hostd (for example, not signed in).
@@ -327,7 +345,8 @@ public actor MobileHostSupervisor {
             return "cmux-mobile-host did not start: \(error.localizedDescription)"
         }
         process = child
-        defer { process = nil }
+        processUser = inputs.launch.userID
+        defer { (process, processUser) = (nil, nil) }
         // A new hostd knows none of the old one's browser hosts.
         defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
         defer { if let sources = inputs.surfaceHosts { Task { await sources.stopAll() } } }
@@ -430,7 +449,7 @@ public actor MobileHostSupervisor {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
-        if let needsYouLine { child.send(needsYouLine) }
+        if let line = needsYouForHostd(user: inputs.launch.userID) { child.send(line) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

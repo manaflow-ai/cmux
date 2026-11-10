@@ -65,19 +65,14 @@ export function sendChoiceForKey(event: {
  * do now, has no row (never a disabled one):
  * - `queue` only while a turn runs and Send takes the prompt into it (`sendSteers`): otherwise Send
  *   already queues behind the turn, or there is no turn to wait for.
- * - `side` only where `/side <prompt>` forks this chat (`side`) and the draft is text alone: a side
- *   chat's prompt carries no files.
+ * - `side` only where `/side <prompt>` forks this chat (`side`): the side chat's prompt takes the
+ *   draft's files too (#40066).
  * A menu with Send alone is no menu: the slot keeps its ordinary right-click.
  */
-export function sendMenuChoices(state: {
-  draft: boolean;
-  sendSteers: boolean;
-  side: boolean;
-  files: boolean;
-}): SendChoice[] {
+export function sendMenuChoices(state: { draft: boolean; sendSteers: boolean; side: boolean }): SendChoice[] {
   if (!state.draft) return [];
   const choices: SendChoice[] = ["send"];
   if (state.sendSteers) choices.push("queue");
-  if (state.side && !state.files) choices.push("side");
+  if (state.side) choices.push("side");
   return choices.length > 1 ? choices : [];
 }

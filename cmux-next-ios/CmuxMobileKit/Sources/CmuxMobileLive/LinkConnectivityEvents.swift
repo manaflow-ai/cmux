@@ -16,6 +16,9 @@ struct LinkConnectivityEvents: Sendable {
         switch phase {
         case .idle, .macOffline:
             break
+        case .signedOut:
+            // The service refused even a fresh token: the session was revoked.
+            outcome = .failure
         case .connecting(let transport, let attempt):
             fields["transport"] = .code(transport.rawValue)
             fields["attempt"] = .number(Double(attempt))
@@ -111,6 +114,7 @@ struct LinkConnectivityEvents: Sendable {
         case .connecting: "connecting"
         case .connected: "connected"
         case .waiting: "waiting"
+        case .signedOut: "signed_out"
         }
     }
 

@@ -93,7 +93,7 @@ impl WorkspaceRegistry {
             result_json: canonical_json(result)?,
             project_resource,
             previous_topology: project_resource
-                .then(|| self.resource_topology_snapshot())
+                .then(|| self.resource_topology_for_workspace_commit(workspaces))
                 .transpose()?,
             stated_workspaces,
             session_id: self.session_id.clone(),
@@ -242,7 +242,7 @@ impl WorkspaceCommitIntent {
                 "active workspace is absent from the desired registry: {active_workspace}"
             );
         }
-        let (revision, _) = commit_workspace_registry_in_transaction(
+        let (revision, _, written) = commit_workspace_rows_in_transaction(
             tx,
             mutation,
             fingerprint,
@@ -285,9 +285,19 @@ impl WorkspaceCommitIntent {
                 .iter()
                 .map(|workspace| workspace.public_id.clone())
                 .collect::<HashSet<_>>();
+            // Only the workspaces whose row this commit wrote, or that have no
+            // live resource row yet: every other one is stored as desired
+            // already (its row unchanged, its active screen read from the
+            // store), so the patch's prune would drop it after one query
+            // each. Restating them all made every create O(workspaces) in
+            // queries (#40449: 113 ms per create at 1,000).
             let mut resource_changes = workspaces
                 .iter()
                 .enumerate()
+                .filter(|(_, workspace)| {
+                    written.contains(&workspace.key)
+                        || !active_screens.contains_key(&workspace.public_id)
+                })
                 .map(|(position, workspace)| ResourceChange::UpsertWorkspace {
                     workspace: workspace.clone(),
                     position,
@@ -402,15 +412,22 @@ fn prune_stated_workspace_upserts(
     stated: &HashMap<String, Value>,
     keep: Option<&str>,
 ) -> anyhow::Result<Value> {
-    let mut decorated = deltas.clone();
+    let raw = deltas.as_array().context("resource deltas are not an array")?;
+    // An upsert whose own fields the journal states already is dropped before it is decorated:
+    // its decorations (presentation, kind, folder, creator) are journaled by the commits that
+    // write them (state/values.rs `fresh_upserts`), and this commit writes none of another
+    // workspace's. Decorating every workspace made each create read the whole session (#40449).
+    let candidates = raw
+        .iter()
+        .filter(|change| !(is_workspace_upsert(change) && raw_upsert_stated(change, stated, keep)))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut decorated = Value::Array(candidates.clone());
     crate::state::values::decorate_changes(tx, &mut decorated)?;
     let changes = decorated.as_array().context("resource deltas are not an array")?;
-    let raw = deltas.as_array().context("resource deltas are not an array")?;
-    let mut kept = Vec::with_capacity(raw.len());
-    for (change, decorated_change) in raw.iter().zip(changes) {
-        if text_field(change, "kind") == Some("upsert")
-            && text_field(change, "resource") == Some("workspace")
-        {
+    let mut kept = Vec::with_capacity(candidates.len());
+    for (change, decorated_change) in candidates.iter().zip(changes) {
+        if is_workspace_upsert(change) {
             let id = text_field(change, "id").unwrap_or_default();
             let value = decorated_change.get("value").unwrap_or(&Value::Null);
             let own = keep.is_some_and(|key| {
@@ -429,6 +446,30 @@ fn prune_stated_workspace_upserts(
         kept.push(change);
     }
     Ok(Value::Array(kept))
+}
+
+fn is_workspace_upsert(change: &Value) -> bool {
+    text_field(change, "kind") == Some("upsert")
+        && text_field(change, "resource") == Some("workspace")
+}
+
+/// Whether `stated` holds every field of this raw (undecorated) workspace upsert, its
+/// `extra` fields included, so the upsert decorated would equal what the journal states.
+/// The upsert of the workspace keyed `keep` is never dropped here.
+fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Option<&str>) -> bool {
+    let Some(value) = change.get("value").and_then(Value::as_object) else { return false };
+    let Some(stated) = text_field(change, "id").and_then(|id| stated.get(id)) else {
+        return false;
+    };
+    if keep.is_some_and(|key| stated.pointer("/extra/key").and_then(Value::as_str) == Some(key)) {
+        return false;
+    }
+    value.iter().all(|(field, raw)| match (field.as_str(), raw) {
+        ("extra", Value::Object(extra)) => extra.iter().all(|(name, raw)| {
+            stated.get("extra").and_then(|stated| stated.get(name)) == Some(raw)
+        }),
+        _ => stated.get(field) == Some(raw),
+    })
 }
 
 /// A string field of a change, or `None` when it is absent or not a string.
