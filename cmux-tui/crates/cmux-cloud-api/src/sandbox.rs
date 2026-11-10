@@ -18,7 +18,8 @@
 //! Persistence: the Runs live in one JSON file (0600) in the daemon's state directory, written on
 //! every change. A daemon that starts again reads it: a Run that was still going ends `failed`
 //! ("the cmux daemon restarted during the Run") and its cleanup goes on. The task text is never
-//! written there; the reply is (a wait after a restart answers it).
+//! written there. A Run's reply and error are (a wait after a restart still answers them), except
+//! an incognito send's (`incognito`), which stay in memory only and leave no file behind.
 //!
 //! Stop conditions: a Run's thread ends when its cleanup is done or given up; a wait ends at its
 //! own bound (10 s at most); ended Runs are dropped [`Timing::keep_ended`] after they ended.
@@ -159,12 +160,15 @@ struct Run {
     /// `queued`, `running`, `cancelling`, `succeeded`, `failed` or `cancelled`.
     status: String,
     timed_out: bool,
-    /// The reply and the error stay in memory only: the store never holds what a Run answered
-    /// (an incognito send's reply leaves no file behind). A Run read back after a restart has none.
-    #[serde(skip_serializing, default)]
+    /// The reply and the error: written to the store (a wait after a restart answers them), except
+    /// an incognito send's ([`Engine::save`] leaves them out).
+    #[serde(default)]
     reply: Option<String>,
-    #[serde(skip_serializing, default)]
+    #[serde(default)]
     error: Option<String>,
+    /// An incognito send's Run: what it answered is never written to the store.
+    #[serde(default)]
+    incognito: bool,
     exit_code: Option<i64>,
     created_ms: i64,
     updated_ms: i64,
@@ -429,16 +433,21 @@ impl Engine {
             return Err(not_signed_in());
         };
         // The account the send was made under, as the app read it then (`expectedAccount`:
-        // `user_id`, `team_id`): a send whose app switched since starts nothing.
-        if let Some(expected) = args.get("expectedAccount") {
-            let mut account_row = expected.clone();
-            if let Some(row) = account_row.as_object_mut() {
-                row.insert("signed_in".into(), Value::Bool(true));
-            }
-            let expected = account_scope(&json!({ "account": account_row }));
-            if expected.as_deref() != Some(account.as_str()) {
-                return Err(account_changed());
-            }
+        // `user_id`, `team_id`), which every create names: a send whose app switched since
+        // starts nothing, and a create that names none is refused.
+        let Some(expected) = args.get("expectedAccount").filter(|row| row.is_object()) else {
+            return Err(refused(
+                400,
+                "run_account_required",
+                "expectedAccount: the user_id and team_id the send was made under",
+            ));
+        };
+        let mut account_row = expected.clone();
+        if let Some(row) = account_row.as_object_mut() {
+            row.insert("signed_in".into(), Value::Bool(true));
+        }
+        if account_scope(&json!({ "account": account_row })).as_deref() != Some(account.as_str()) {
+            return Err(account_changed());
         }
         let scoped = format!("{account}\u{0}{key}");
         let suffix = format!("\u{0}{key}");
@@ -485,6 +494,7 @@ impl Engine {
             cleanup: "pending".into(),
             settle_ms: now,
             scope: Some(account),
+            incognito: args.get("incognito").and_then(Value::as_bool).unwrap_or(false),
         };
         let answer = created(&run);
         let cancel = Arc::new(AtomicBool::new(false));
@@ -715,6 +725,8 @@ impl Engine {
             }
             let snapshot = self.wait(&id, left.min(Duration::from_millis(10_000)))?;
             if snapshot.get("receipt").is_some_and(Value::is_object) {
+                // What it answered goes only to the account the app is on now, as a wait's does.
+                self.owned(&id)?;
                 return Ok(snapshot);
             }
         }
@@ -732,7 +744,18 @@ impl Engine {
 
     fn save(&self, state: &State) {
         let Some(path) = &self.store else { return };
-        let mut runs: Vec<Run> = state.runs.values().cloned().collect();
+        let mut runs: Vec<Run> = state
+            .runs
+            .values()
+            .cloned()
+            .map(|mut run| {
+                if run.incognito {
+                    run.reply = None;
+                    run.error = None;
+                }
+                run
+            })
+            .collect();
         runs.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then_with(|| a.id.cmp(&b.id)));
         let Ok(bytes) = serde_json::to_vec(&Stored { version: STORE_VERSION, runs }) else {
             return;

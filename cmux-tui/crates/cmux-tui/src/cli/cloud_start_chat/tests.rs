@@ -2008,3 +2008,50 @@ fn an_account_run_starts_and_sends_only_on_that_account() {
     assert!(matches!(run(&mut fake, &request(&["--prompt", "x"])), Outcome::Done(_)));
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
 }
+
+/// A Run's start names its machine (`--name sandbox-run_…`): when the app switched account between
+/// the first list and the start, the machine that start made is this run's and is deleted here,
+/// never left for a cleanup that trusts only the Run's own account's list (Codex's review of
+/// #39022 at 551a7dca, F3).
+#[test]
+fn a_named_machine_made_on_another_account_is_deleted_and_nothing_is_sent() {
+    let asked = request(&[
+        "--prompt",
+        "secret",
+        "--wait",
+        "--name",
+        "sandbox-run_1",
+        "--account",
+        "user:u1|team:t1",
+    ]);
+    let made = || {
+        ok(json!({"machine_id": "vm-1", "machine_name": "sandbox-run_1", "session_id": "sess-1",
+                  "target": "machine:vm-1"}))
+    };
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        made(),
+        listed_as("u2", None, &["vm-1"]),
+        ok(json!({"machine_id": "vm-1", "status": "deleting"})),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(error["details"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["new_machine"], true);
+    assert_eq!(error["details"]["delete_asked"], true);
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+    assert_eq!(
+        fake.ran.last().unwrap(),
+        &strings(&["cloud", "kill-machine", "--target", "machine:vm-1", "--confirm", "--json"])
+    );
+
+    // A name the list already shows may be a machine that was there: never this run's to delete.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &["sandbox-run_1"]),
+        made(),
+        listed_as("u2", None, &["vm-1"]),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "kill-machine"), "{:?}", fake.ran);
+}

@@ -50,8 +50,10 @@ struct CloudAPIClientRunTests {
         var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: access, teamID: { "team_cmux" })
         if let daemon { api.daemonCall = { input, _ in try daemon.run(input) } }
-        return api
+        return api.runningAs(Self.account)
     }
+
+    nonisolated static let account = CloudAPIClient.RunAccount(user: "u1", team: "t1")
 
     /// A daemon whose create answers (after `dropCreates` lost answers) and whose wait has the receipt after `finishAfter` waits.
     private func sandbox(finishAfter: Int = 0, dropCreates: Int = 0) -> FakeDaemon {
@@ -188,15 +190,21 @@ struct CloudAPIClientRunTests {
     }
 
     /// The account the person sent under goes with the create and its retry, so the daemon starts nothing
-    /// under another one (Codex's review of #39022 at 1bf18b3d, F1).
-    @Test func theCreateAndItsRetryNameTheAccountTheSendWasMadeUnder() async throws {
+    /// under another one; a client with no such account sends no create at all (Codex's reviews of #39022 at
+    /// 1bf18b3d and 551a7dca, F1: every caller of create, the composer's and the control API's alike).
+    @Test func everyCreateNamesTheAccountItWasSentUnderAndNoneGoesWithout() async throws {
         let daemon = sandbox(dropCreates: 1)
-        let account = CloudAPIClient.RunAccount(user: "u1", team: "t1")
-        _ = try await api(daemon).runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-4", expectedAccount: account)
+        _ = try await api(daemon).runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-4")
         let expected = daemon.args("runs.create").map { $0["expectedAccount"] as? [String: String] }
         #expect(expected == [["user_id": "u1", "team_id": "t1"], ["user_id": "u1", "team_id": "t1"]])
-        _ = try await api(daemon).createSandboxRun(task: "hi", idempotencyKey: "send-5", expectedAccount: .init(user: "u2", team: nil))
+        _ = try await api(daemon).runningAs(.init(user: "u2", team: nil)).createSandboxRun(task: "hi", idempotencyKey: "send-5", incognito: true)
         #expect(daemon.args("runs.create").last?["expectedAccount"] as? [String: String] == ["user_id": "u2", "team_id": ""])
+        #expect(daemon.args("runs.create").last?["incognito"] as? Bool == true)
+        let creates = daemon.args("runs.create").count
+        await #expect(throws: CloudAPIError.notSignedIn) {
+            _ = try await api(daemon).runningAs(nil).createSandboxRun(task: "hi", idempotencyKey: "send-6")
+        }
+        #expect(daemon.args("runs.create").count == creates, "no create goes without its account")
     }
 
     @Test func aWaitAnswerThatIsNoSnapshotEndsAtOnce() async throws {

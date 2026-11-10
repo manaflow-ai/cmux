@@ -32,7 +32,7 @@ impl Fake {
             ran: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
             scopes: Mutex::new(Vec::new()),
-            account: Mutex::new(Some("team:team_1".into())),
+            account: Mutex::new(Some("user:u1|team:team_1".into())),
             accounts: Mutex::new(Vec::new()),
             removes: AtomicUsize::new(0),
         })
@@ -81,13 +81,19 @@ fn args(value: Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap()
 }
 
+/// A create of the task `say hi` sent under user u1 in `team_1`.
 fn create(engine: &Arc<Engine>, key: &str) -> Value {
-    engine
-        .perform(
-            "runs.create",
-            &args(json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": key })),
-        )
-        .unwrap()
+    create_in(engine, key, "team_1")
+}
+
+/// A create sent under user u1 in `team`.
+fn create_in(engine: &Arc<Engine>, key: &str, team: &str) -> Value {
+    engine.perform("runs.create", &args(body(key, team))).unwrap()
+}
+
+fn body(key: &str, team: &str) -> Value {
+    json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": key,
+            "expectedAccount": { "user_id": "u1", "team_id": team } })
 }
 
 /// Waits (at most 5 s) until `id`'s receipt says the cleanup is `cleanup`.
@@ -128,7 +134,7 @@ fn a_run_answers_the_reply_and_deletes_its_machine() {
     let ran = fake.ran.lock().unwrap().clone();
     assert_eq!(ran.len(), 1);
     // The task carries the Run's account, which its start and send are bound to.
-    assert_eq!(ran[0].account, "team:team_1");
+    assert_eq!(ran[0].account, "user:u1|team:team_1");
     assert_eq!(ran[0].prompt, "say hi");
     assert_eq!(ran[0].agent, "claude");
     assert_eq!(ran[0].machine_name, format!("{MACHINE_PREFIX}{id}"));
@@ -236,7 +242,7 @@ fn a_restart_ends_a_run_that_was_going_and_resumes_its_cleanup() {
     assert_eq!(fake.removed.lock().unwrap()[0].0, format!("{MACHINE_PREFIX}{id}"));
     assert_eq!(
         fake.scopes.lock().unwrap()[0].as_deref(),
-        Some("team:team_1"),
+        Some("user:u1|team:team_1"),
         "the scope read at the start is the cleanup's after a restart"
     );
     assert!(fake.ran.lock().unwrap().is_empty(), "nothing runs again");
@@ -251,7 +257,8 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
     let again = create(&engine, "same");
     assert_eq!(first["id"], again["id"]);
     let conflict = engine
-        .perform("runs.create", &args(json!({ "task": "other", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" })))
+        .perform("runs.create", &args(json!({ "task": "other", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same",
+                                               "expectedAccount": { "user_id": "u1", "team_id": "team_1" } })))
         .unwrap_err();
     assert_eq!(
         conflict,
@@ -274,16 +281,16 @@ fn a_retry_after_an_account_switch_is_refused_never_rebound() {
     let engine = Engine::open(None, fake.clone(), quick());
     let first = create(&engine, "same");
     settled(&engine, first["id"].as_str().unwrap(), "destroyed");
-    *fake.account.lock().unwrap() = Some("team:team_2".into());
-    let body = json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" });
-    let retry = engine.perform("runs.create", &args(body)).unwrap_err();
+    *fake.account.lock().unwrap() = Some("user:u1|team:team_2".into());
+    // The retry names team_2 (its first answer lost, read again after the switch): the key alone refuses it.
+    let retry = engine.perform("runs.create", &args(body("same", "team_2"))).unwrap_err();
     assert!(
         matches!(&retry, Failure::Http { status: 409, code: Some(code), .. } if code == "run_account_changed"),
         "{retry:?}"
     );
     assert_eq!(fake.ran.lock().unwrap().len(), 1, "B's machine never got A's task");
     // Another key under B is B's own Run.
-    let other = create(&engine, "other");
+    let other = create_in(&engine, "other", "team_2");
     assert_ne!(other["id"], first["id"]);
 }
 
@@ -324,6 +331,16 @@ fn a_create_that_is_not_one_is_refused_and_runs_nothing() {
         (json!({ "task": "hi", "timeoutMs": 1000, "idempotencyKey": "k" }), "run_timeout_invalid"),
         (json!({ "task": "hi", "image": "img_1", "idempotencyKey": "k" }), "run_image_invalid"),
         (json!({ "task": "hi" }), "run_idempotency_required"),
+        // Every create names the account it was sent under (Codex's review of #39022 at
+        // 551a7dca, F1): none is taken as whatever account the app is on by then.
+        (
+            json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k" }),
+            "run_account_required",
+        ),
+        (
+            json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k", "expectedAccount": "u1" }),
+            "run_account_required",
+        ),
     ];
     for (body, code) in cases {
         let failure = engine.perform("runs.create", &args(body)).unwrap_err();
@@ -358,7 +375,8 @@ fn run_sandbox_answers_the_final_snapshot() {
     let snapshot = engine
         .perform(
             "runs.sandbox",
-            &args(json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k" })),
+            &args(json!({ "task": "hi", "timeoutMs": 30_000, "idempotencyKey": "k",
+                          "expectedAccount": { "user_id": "u1", "team_id": "team_1" } })),
         )
         .unwrap();
     assert_eq!(snapshot["receipt"]["reply"], "done");
@@ -390,7 +408,7 @@ fn another_accounts_wait_or_cancel_reads_nothing_and_never_says_gone() {
     // 1bf18b3d, F2): a follower takes 403 and 404 as the Run gone and forgets it, so a switch back
     // could never find it again.
     for (account, status, code) in
-        [(Some("team:team_2"), 409, "run_other_account"), (None, 401, "run_not_signed_in")]
+        [(Some("user:u1|team:team_2"), 409, "run_other_account"), (None, 401, "run_not_signed_in")]
     {
         *fake.account.lock().unwrap() = account.map(str::to_owned);
         for call in [
@@ -411,7 +429,7 @@ fn another_accounts_wait_or_cancel_reads_nothing_and_never_says_gone() {
         "no such Run is 404"
     );
     // Back on the Run's own account: it is there, and the other account's cancel did nothing.
-    *fake.account.lock().unwrap() = Some("team:team_1".into());
+    *fake.account.lock().unwrap() = Some("user:u1|team:team_1".into());
     let snapshot =
         engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 }))).unwrap();
     assert!(snapshot["run"]["cancelRequestedAt"].is_null());
@@ -436,7 +454,8 @@ fn a_create_with_no_signed_in_app_is_refused() {
 fn a_run_whose_account_changed_before_its_launch_never_runs() {
     let fake = Fake::new(Some(Outcome::Replied { reply: "x".into(), machine: None }), vec![]);
     // The create reads team_1; by the launch the app is on team_2.
-    *fake.accounts.lock().unwrap() = vec![Some("team:team_1".into()), Some("team:team_2".into())];
+    *fake.accounts.lock().unwrap() =
+        vec![Some("user:u1|team:team_1".into()), Some("user:u1|team:team_2".into())];
     let engine = Engine::open(None, fake.clone(), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     // The launch takes the queued team_2 read; only then does a wait read the app (team_1).
@@ -453,26 +472,40 @@ fn a_run_whose_account_changed_before_its_launch_never_runs() {
 }
 
 #[test]
-fn the_store_never_holds_a_runs_reply_or_error() {
+fn a_runs_reply_outlives_a_restart_but_an_incognito_ones_never_reaches_the_file() {
+    // Codex's review of #39022 at 551a7dca (F2): a Run that ended answers its reply and error after
+    // the daemon starts again (its machine is deleted, so nothing else has them); an incognito
+    // send's never touch the file.
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("cloud-runs.json");
-    let fake = Fake::new(
+    let failed = || {
         Some(Outcome::Failed {
             code: "chat.turn_failed".into(),
-            message: "private-error-text".into(),
-            reply: Some("private-reply-text".into()),
+            message: "the-error-text".into(),
+            reply: Some("the-reply-text".into()),
             machine: Some("m-1".into()),
-        }),
-        vec![],
-    );
-    let engine = Engine::open(Some(store.clone()), fake, quick());
+        })
+    };
+    let engine = Engine::open(Some(store.clone()), Fake::new(failed(), vec![]), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
-    let snapshot = settled(&engine, &id, "destroyed");
-    assert_eq!(snapshot["receipt"]["reply"], "private-reply-text", "the live Run still answers it");
+    settled(&engine, &id, "destroyed");
+    let mut incognito = body("private", "team_1");
+    incognito["incognito"] = json!(true);
+    let hidden = engine.perform("runs.create", &args(incognito)).unwrap();
+    let hidden = hidden["id"].as_str().unwrap().to_owned();
+    let live = settled(&engine, &hidden, "destroyed");
+    assert_eq!(live["receipt"]["reply"], "the-reply-text", "the live Run still answers it");
+    // The store holds the ordinary Run's answer once, never the incognito one's twice.
     let saved = std::fs::read_to_string(&store).unwrap();
-    assert!(saved.contains(&id), "{saved}");
-    assert!(
-        !saved.contains("private-reply-text") && !saved.contains("private-error-text"),
-        "{saved}"
-    );
+    assert_eq!(saved.matches("the-reply-text").count(), 1, "{saved}");
+    assert_eq!(saved.matches("the-error-text").count(), 1, "{saved}");
+    // A new daemon over the same store.
+    let reopened = Engine::open(Some(store), Fake::new(None, vec![]), quick());
+    let snapshot = settled(&reopened, &id, "destroyed");
+    assert_eq!(snapshot["run"]["status"], "failed");
+    assert_eq!(snapshot["receipt"]["reply"], "the-reply-text");
+    assert!(snapshot["receipt"]["error"].as_str().unwrap().contains("the-error-text"));
+    let snapshot = settled(&reopened, &hidden, "destroyed");
+    assert_eq!(snapshot["receipt"]["reply"], Value::Null);
+    assert_eq!(snapshot["receipt"]["error"], Value::Null);
 }

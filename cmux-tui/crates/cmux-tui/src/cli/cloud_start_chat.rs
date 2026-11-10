@@ -972,7 +972,12 @@ fn steps(
         return outcome;
     }
     // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
-    let mut fresh = None;
+    // A `--name` that a loaded list shows no machine or create of is fresh too: start-session makes it (a Run's
+    // `sandbox-run_…`), so a failure after names it as this run's for its caller to delete.
+    let mut fresh = match (&request.environment, &wanted) {
+        (None, Machine::Named(name)) if name_is_free(&listed, name) => Some(name.clone()),
+        _ => None,
+    };
     let machine = match &wanted {
         Machine::New => {
             let name = match unused_name(runner, &listed) {
@@ -1610,6 +1615,20 @@ fn new_machine(
 /// a fresh name that is taken anyway, or a list the app has not loaded (`loaded: false` lists no machines, which
 /// says nothing), is a typed error before any `start-session --name` (which would attach to that machine) or
 /// `new-machine --name`.
+/// Whether a loaded `cloud list-machines` answer shows no machine titled `name` and no create of it.
+fn name_is_free(listed: &Value, name: &str) -> bool {
+    let has = |key: &str, field: &str| {
+        at(listed, key)
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| at(row, field).as_str() == Some(name))
+    };
+    at(listed, "loaded").as_bool() == Some(true)
+        && !has("machines", "title")
+        && !has("creating", "name")
+}
+
 fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcome> {
     if at(listed, "loaded").as_bool() == Some(false) {
         return Err(failed(
