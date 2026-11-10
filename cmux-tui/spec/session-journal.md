@@ -717,7 +717,9 @@ Sealed segments are retained while a reader needs them. The maintenance worker
 computes a retention floor: the end of the last sealed segment at or below the
 oldest kept checkpoint (the newest 16), the saved cursor of the agent roster
 reducer, the saved cursor of the agent history fold, every enabled hook's
-cursor and every hook delivery that is not final. A reducer state of another
+cursor and every delivery of an enabled hook that is not final. Installing a
+newer version of a hook abandons the waiting deliveries of the replaced
+version: only the enabled version is dispatched. A reducer state of another
 version, or one with a rebuild pending, holds the floor at zero. The newest
 segment always stays. Each tick deletes at most eight segments at or below the
 floor, one transaction per segment, together with their kept reducer records

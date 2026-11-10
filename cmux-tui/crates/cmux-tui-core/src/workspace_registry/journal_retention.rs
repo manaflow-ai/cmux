@@ -122,8 +122,11 @@ fn retention_limit(connection: &Connection) -> anyhow::Result<u64> {
         limit = limit.min(cursor);
     }
     if let Some(event) = minimum(
-        "SELECT MIN(event_sequence) FROM journal_hook_deliveries
-         WHERE state IN ('scheduled', 'executing')",
+        "SELECT MIN(d.event_sequence)
+         FROM journal_hook_deliveries d
+         JOIN journal_hooks h
+           ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+         WHERE h.enabled = 1 AND d.state IN ('scheduled', 'executing')",
     )? {
         limit = limit.min(event.saturating_sub(1));
     }
