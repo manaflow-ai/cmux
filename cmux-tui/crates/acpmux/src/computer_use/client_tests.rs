@@ -25,6 +25,8 @@ enum Behavior {
     CrashOnce,
     /// Answer an `app_denied` refusal.
     Refuse,
+    /// Answer as the engine does once the person stopped the session.
+    Stopped,
 }
 
 /// A worker: one socket, one secret, answering per [`Behavior`], and
@@ -100,6 +102,8 @@ impl FakeWorker {
                 }
                 let result = if let Some(result) = done.lock().unwrap().get(&call_id).cloned() {
                     result // a retry of a call that already ran: its result, not a second run
+                } else if behavior == Behavior::Stopped {
+                    cmux_computer_use::stop::stopped().to_json()
                 } else if behavior == Behavior::Refuse {
                     json!({"is_error": true, "code": "app_denied", "body": {"error": "Keychain Access is denied", "code": "app_denied"}, "png": null})
                 } else {
@@ -290,6 +294,20 @@ fn a_refusal_reaches_the_agent_unchanged() {
     let text = mcp["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("app_denied") && text.contains("Keychain Access is denied"), "{text}");
     // Exactly one attempt: a refusal is never retried.
+    assert_eq!(worker.seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn the_persons_stop_reaches_the_agent_word_for_word_and_is_never_retried() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Stopped, Arc::default());
+    let caller = caller(FakeDaemon::new(vec![Ok(worker.ready())]));
+    let mcp = caller.call("click", &json!({"window_id": "k"}), "call-s").to_mcp();
+    assert_eq!(mcp["isError"], true, "{mcp}");
+    let text: Value = serde_json::from_str(mcp["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(text["code"], cmux_computer_use::stop::STOPPED_CODE);
+    assert_eq!(text["error"], cmux_computer_use::stop::STOPPED_MESSAGE);
+    assert!(text["error"].as_str().unwrap().contains("Do not retry or work around it"));
     assert_eq!(worker.seen.lock().unwrap().len(), 1);
 }
 

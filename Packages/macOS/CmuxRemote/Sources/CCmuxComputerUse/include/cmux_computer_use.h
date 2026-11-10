@@ -103,6 +103,14 @@ CmuxCuBuffer cmux_cu_engine_call(CmuxCuEngine *engine, const uint8_t *request_js
 
 void cmux_cu_engine_end_session(CmuxCuEngine *engine, const uint8_t *session, size_t session_len);
 
+// The person's Stop or Resume of one agent session (action "stop" | "resume").
+// A stopped session's in-flight call ends at its next checkpoint and every
+// later call returns the tool error `stopped_by_person`; the cursor shows a
+// red "Stopped" chip under label. 0: changed, 2: already so, 1: bad call.
+int32_t cmux_cu_engine_session(CmuxCuEngine *engine, const uint8_t *action, size_t action_len,
+                               const uint8_t *session, size_t session_len, const uint8_t *label,
+                               size_t label_len);
+
 // Saved approvals: {"always":[...],"never":[...]}.
 CmuxCuBuffer cmux_cu_engine_saved_approvals(CmuxCuEngine *engine);
 // action: "forget" | "always" | "never" for app_id; "revoke_sessions" ignores app_id.

@@ -447,6 +447,36 @@ pub unsafe extern "C" fn cmux_cu_engine_end_session(
     }
 }
 
+/// The person's Stop and Resume for one agent session (the cmux menu bar):
+/// `action` is "stop" or "resume"; `label` names the agent on the cursor's
+/// red Stopped chip. Returns 0 when the session's state changed, 2 when it
+/// already was so, 1 for a bad call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_cu_engine_session(
+    engine: *mut CmuxCuEngine,
+    action: *const u8,
+    action_len: usize,
+    session: *const u8,
+    session_len: usize,
+    label: *const u8,
+    label_len: usize,
+) -> i32 {
+    // SAFETY: from create / header contract.
+    let Some(engine) = (unsafe { engine.as_ref() }) else { return 1 };
+    let action = unsafe { text(action, action_len) };
+    let session = unsafe { text(session, session_len) };
+    let label = unsafe { text(label, label_len) };
+    if session.is_empty() {
+        return 1;
+    }
+    let changed = match action {
+        "stop" => engine.engine.stop_session(session, label),
+        "resume" => engine.engine.resume_session(session),
+        _ => return 1,
+    };
+    if changed { 0 } else { 2 }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_cu_engine_saved_approvals(engine: *mut CmuxCuEngine) -> CmuxCuBuffer {
     // SAFETY: from create.
@@ -631,6 +661,39 @@ mod tests {
             cmux_cu_engine_destroy(engine);
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn stop_and_resume_through_the_c_abi() {
+        let desktop: Arc<dyn cmux_computer_use::Desktop> =
+            Arc::new(cmux_computer_use::desktop::fake::FakeDesktop::standard());
+        let inner = Arc::new(Engine::new(EngineParts::new(desktop)));
+        let engine = Box::into_raw(Box::new(CmuxCuEngine { engine: Arc::clone(&inner) }));
+        let call = |action: &str, session: &str| {
+            let label = "Claude";
+            // SAFETY: valid pointers for the call; engine from Box::into_raw.
+            unsafe {
+                cmux_cu_engine_session(
+                    engine,
+                    action.as_ptr(),
+                    action.len(),
+                    session.as_ptr(),
+                    session.len(),
+                    label.as_ptr(),
+                    label.len(),
+                )
+            }
+        };
+        assert_eq!(call("stop", "s1"), 0);
+        assert_eq!(call("stop", "s1"), 2);
+        assert!(inner.is_stopped("s1"));
+        assert_eq!(call("resume", "s1"), 0);
+        assert_eq!(call("resume", "s1"), 2);
+        assert!(!inner.is_stopped("s1"));
+        assert_eq!(call("pause", "s1"), 1);
+        assert_eq!(call("stop", ""), 1);
+        // SAFETY: from Box::into_raw.
+        unsafe { cmux_cu_engine_destroy(engine) };
     }
 
     #[test]

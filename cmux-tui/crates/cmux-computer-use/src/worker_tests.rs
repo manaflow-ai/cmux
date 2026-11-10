@@ -155,3 +155,35 @@ fn no_desktop_and_a_bad_configure_are_reported() {
     assert_eq!(h.recv()["type"], "error");
     assert_eq!(h.finish(), EXIT_BAD_CONFIGURE);
 }
+
+#[test]
+fn the_persons_stop_reaches_the_agent_through_the_socket_and_resume_undoes_it() {
+    let mut h = Harness::start("stop", fake, ASK_TIMEOUT);
+    assert_eq!(h.configure(json!({"mode": "fullAccess"}))["type"], "ready");
+    let (mut w, mut r) = agent(&h.socket());
+    h.send(json!({"type": "session", "action": "stop", "session": "s", "label": "Claude"}));
+    // Control lines run in order: the list's answer means the stop is in.
+    h.send(json!({"type": "approvals", "action": "list", "id": 1}));
+    assert_eq!(h.recv()["id"], 1);
+    let click = |w: &mut UnixStream, id: u64| {
+        writeln!(
+            w,
+            "{}",
+            json!({"id": id, "method": "tools/call", "name": "click", "session": "s",
+            "arguments": {"window_id": "1", "element_id": "e1", "observe": false},
+            "call_id": format!("c{id}")})
+        )
+        .unwrap();
+    };
+    click(&mut w, 2);
+    let done = recv(&mut r);
+    assert_eq!(done["result"]["is_error"], true, "{done}");
+    assert_eq!(done["result"]["code"], crate::stop::STOPPED_CODE);
+    assert_eq!(done["result"]["body"]["error"], crate::stop::STOPPED_MESSAGE);
+    h.send(json!({"type": "session", "action": "resume", "session": "s"}));
+    h.send(json!({"type": "approvals", "action": "list", "id": 3}));
+    assert_eq!(h.recv()["id"], 3);
+    click(&mut w, 4);
+    assert_eq!(recv(&mut r)["result"]["is_error"], false);
+    assert_eq!(h.finish(), EXIT_OK);
+}

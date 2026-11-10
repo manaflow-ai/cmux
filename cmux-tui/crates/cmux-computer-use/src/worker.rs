@@ -13,6 +13,7 @@
 //! <- {"type":"approvals","id":N,"saved":{"always":[...],"never":[...]}}
 //! <- {"type":"ask","id":N,"question":{"session","agent","app":{"id","name"},"remember","from_machine"}}
 //! -> {"type":"answer","id":N,"answer":"allow_once|allow_session|always|deny|never|unavailable"}
+//! -> {"type":"session","action":"stop|resume","session":S,"label":L}
 //! ```
 //!
 //! The worker serves the agent socket ([`crate::server`]) until stdin
@@ -308,6 +309,22 @@ fn control(engine: &Engine, approver: &StdioApprover, out: &Out, message: &Value
                     &json!({"type": "approvals", "id": message.get("id"), "saved": sessions.saved()}),
                 ),
                 _ => {}
+            }
+        }
+        // The person's Stop or Resume of one agent session (the cmux menu bar).
+        "session" => {
+            let session = message.get("session").and_then(Value::as_str).unwrap_or_default();
+            let label = message.get("label").and_then(Value::as_str).unwrap_or_default();
+            if !session.is_empty() {
+                match message.get("action").and_then(Value::as_str).unwrap_or_default() {
+                    "stop" => {
+                        engine.stop_session(session, label);
+                    }
+                    "resume" => {
+                        engine.resume_session(session);
+                    }
+                    _ => {}
+                }
             }
         }
         "answer" => {

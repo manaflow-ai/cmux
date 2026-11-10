@@ -26,6 +26,7 @@ pub mod frame;
 pub mod keys;
 pub mod policy;
 pub mod session;
+pub mod stop;
 pub mod tools;
 pub mod wire;
 
