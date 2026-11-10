@@ -161,8 +161,13 @@ fn sizes_and_counts_read_plainly() {
     assert_eq!(size(128 * 1024 * 1024), "128 MB");
     assert_eq!(count(500_001), "500,001");
     assert_eq!(count(999), "999");
+    let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+    let take = |list: &[&str]| super::take_allow_large(&words(list), &["--socket"]);
+    assert_eq!(take(&["a", "--allow-large"]), (words(&["a"]), true));
+    // A flag's value and anything after `--` are never the flag.
     assert_eq!(
-        super::take_allow_large(&["a".into(), "--allow-large".into()]),
-        (vec!["a".into()], true)
+        take(&["--socket", "--allow-large", "a"]),
+        (words(&["--socket", "--allow-large", "a"]), false)
     );
+    assert_eq!(take(&["--", "--allow-large"]), (words(&["--", "--allow-large"]), false));
 }
