@@ -188,7 +188,7 @@ impl Mux {
             }
             for (surface, _, key) in retarget {
                 if let Some(runtime) = self.surface(surface) {
-                    let _ = runtime.persist_host_workspace(&key);
+                    runtime.mirror_host_workspace(&key, "tab strip move");
                 }
             }
             self.publish_journal_event();

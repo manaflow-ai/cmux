@@ -19,9 +19,11 @@
 //! gives the full `term_` id that `notification create` and `agent report`
 //! need, and it is the object `terminal alpha …` selects.
 //!
-//! [`resolve`] is the same tab-name rule over a `session.snapshot`, for the
-//! commands that already read one (`agent start --pane`, `agent resume`,
-//! `terminal … send`).
+//! The commands that read a `session.snapshot` and then need one object of
+//! it (`terminal … send`, `terminal … wait --until ready`, `agent start
+//! --pane`, `agent resume` and `terminal … resume`, also from the MCP
+//! server's terminal tools) ask the same resolver with [`daemon_select`]:
+//! no client keeps a copy of the rules.
 
 use std::collections::HashMap;
 
@@ -98,18 +100,8 @@ fn looks_like_id(word: &str) -> bool {
 pub(in crate::cli) struct Place {
     pub terminal: String,
     pub tab: String,
-    pub pane: String,
     /// The terminal has not exited.
     pub live: bool,
-}
-
-/// What a name selects.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::cli) enum Found {
-    One(Place),
-    /// Two or more tabs at the first step that has any: their tab ids.
-    Ambiguous(Vec<String>),
-    Missing,
 }
 
 fn list<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
@@ -130,33 +122,10 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
             Some(Place {
                 terminal: terminal["id"].as_str()?.to_owned(),
                 tab: tab["id"].as_str()?.to_owned(),
-                pane: tab["pane_id"].as_str()?.to_owned(),
                 live: super::terminal_lifecycle::is_live(terminal),
             })
         })
         .collect()
-}
-
-/// The tab `name` selects (a leading `name:` is dropped).
-pub(in crate::cli) fn resolve(snapshot: &Value, name: &str) -> Found {
-    let name = name.strip_prefix("name:").unwrap_or(name);
-    if name.is_empty() {
-        return Found::Missing;
-    }
-    let places = places_named(snapshot, name);
-    // Live tabs first, then exited ones (resume). Two live tabs with the name
-    // are ambiguous even when one runs an agent: the daemon's tab-name scope
-    // does not prefer it either, so every selector picks the same object.
-    let steps: [fn(&Place) -> bool; 2] = [|place: &Place| place.live, |place: &Place| !place.live];
-    for step in steps {
-        let picked: Vec<&Place> = places.iter().filter(|place| step(place)).collect();
-        match picked.as_slice() {
-            [] => {}
-            [one] => return Found::One((*one).clone()),
-            many => return Found::Ambiguous(many.iter().map(|place| place.tab.clone()).collect()),
-        }
-    }
-    Found::Missing
 }
 
 /// Which id a selector word becomes.
@@ -177,8 +146,8 @@ impl Scope {
         })
     }
 
-    /// The scope word of the CLI grammar.
-    fn word(self) -> &'static str {
+    /// The scope word of the CLI grammar, which is also its selector key.
+    pub(in crate::cli) fn word(self) -> &'static str {
         match self {
             Self::Terminal => "terminal",
             Self::Tab => "tab",
@@ -187,7 +156,7 @@ impl Scope {
     }
 
     /// The get operation of the scope.
-    fn get(self) -> ResourceOperation {
+    pub(in crate::cli) fn get(self) -> ResourceOperation {
         match self {
             Self::Terminal => ResourceOperation::TerminalGet,
             Self::Tab => ResourceOperation::TabGet,
@@ -389,6 +358,54 @@ fn daemon_resolves(global: &super::GlobalArgs, target: &Target) -> Result<Option
         }
         Err(_) => Ok(None),
     }
+}
+
+/// The id of the object that the daemon's one selector resolver (W5-P)
+/// selects with `word` in `scope`, asked as `<scope>.get` (what `<scope>
+/// WORD show` sends) through `daemon` for `session`. A word the daemon
+/// refuses fails with the daemon's own error: `selector.not_found`,
+/// `selector.ambiguous` with the candidates, or `validation.invalid` with
+/// the id hint (an id prefix needs at least 4 hex digits).
+pub(in crate::cli) fn daemon_select<D: super::terminal_talk::send::Daemon + ?Sized>(
+    daemon: &D,
+    session: Option<&str>,
+    scope: Scope,
+    word: &str,
+) -> Result<String, super::mcp::CallFailure> {
+    use cmux_tui_core::resource::Selector;
+    let mut params = serde_json::Map::new();
+    params.insert("machine".into(), Value::String("current".into()));
+    params.insert("session".into(), Value::String("current".into()));
+    // The CLI's shape: `current` parents above a word that is not an id, so
+    // a name is looked up in the current place first, then the session.
+    if !matches!(Selector::parse(word), Ok(Selector::Id(_))) {
+        let parents: &[&str] = match scope {
+            Scope::Pane => &["workspace", "screen"],
+            Scope::Tab => &["workspace", "screen", "pane"],
+            Scope::Terminal => &["workspace", "screen", "pane", "tab"],
+        };
+        for parent in parents {
+            params.insert((*parent).into(), Value::String("current".into()));
+        }
+    }
+    params.insert(scope.word().into(), Value::String(word.to_owned()));
+    let plan = super::command::RequestPlan {
+        operation: WireOperation::Typed(scope.get()),
+        params: Value::Object(params),
+        idempotency_key: None,
+        stream: false,
+        resolve: Vec::new(),
+        view: super::command::ResponseView::Full,
+        filter: Default::default(),
+    };
+    let object = daemon.request(session, plan)?;
+    object.get("id").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
+        super::mcp::CallFailure::local(
+            super::mcp::FailureKind::Rejected,
+            "selector.not_found",
+            format!("the daemon selected no {} for {word:?}", scope.word()),
+        )
+    })
 }
 
 /// How long the selector probe waits for the daemon.

@@ -54,6 +54,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::Surface;
+use super::super::agent_names::{Scope, daemon_select};
 use super::super::agent_start::Clock;
 use super::super::command::{self, CommandPlan, RequestPlan};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
@@ -257,74 +258,52 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
     backend.request(session, super::super::agents::snapshot_plan())
 }
 
-/// The terminal record `target` names: a `term_` id or unique prefix, a
-/// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
-/// or (when no title matches) an agent name or unique tab name
-/// (agent_names.rs).
-pub(in crate::cli) fn find_terminal<'a>(
+/// The terminal record `target` names. `current` (or `caller`) is the
+/// caller's terminal (`CMUX_TUI_TERMINAL_ID`), refused outside one; a full
+/// `term_` id, or a `tab_` id that a terminal of the snapshot shows in, is
+/// taken as it is. Any other word goes
+/// to the daemon's one selector resolver (W5-P, [`daemon_select`]), as
+/// `terminal WORD show` sends it: a terminal title, an agent or other tab
+/// name, a unique id prefix of at least 4 hex digits, a bare or host id, or
+/// `focused`, with the daemon's error for a word it refuses.
+pub(in crate::cli) fn find_terminal<'a, B: Daemon + ?Sized>(
+    backend: &B,
+    session: Option<&str>,
     snapshot: &'a Value,
     target: &str,
 ) -> Result<&'a Value, SendFailure> {
     let terminals = snapshot["terminals"].as_array().map(Vec::as_slice).unwrap_or_default();
     let caller = std::env::var("CMUX_TUI_TERMINAL_ID").ok();
     let target = match (target, caller.as_deref()) {
-        ("current", Some(caller)) => caller,
-        _ => target.strip_prefix("name:").unwrap_or(target),
+        ("current" | "caller", Some(caller)) => caller,
+        // The daemon's `current` is its focused terminal, not the caller's.
+        ("current" | "caller", None) => {
+            return Err(SendFailure::local(
+                "selector.not_found",
+                format!("{target} is the caller's terminal, and this command runs outside one"),
+                json!({"target": target}),
+                1,
+            ));
+        }
+        _ => target,
     };
-    let exact = terminals.iter().find(|terminal| {
+    let shown = terminals.iter().find(|terminal| {
         terminal["id"] == target
             || terminal["tab_id"] == target
             || terminal["tab_ids"].as_array().is_some_and(|tabs| tabs.iter().any(|t| t == target))
     });
-    if let Some(found) = exact {
+    if let Some(found) = shown {
         return Ok(found);
     }
-    let matches: Vec<&Value> = if target.starts_with("term_") {
-        terminals
-            .iter()
-            .filter(|terminal| terminal["id"].as_str().is_some_and(|id| id.starts_with(target)))
-            .collect()
-    } else {
-        terminals.iter().filter(|terminal| terminal["title"] == target).collect()
-    };
-    // An agent name (or a unique tab name) only where no title matches, so a
-    // title that selected a terminal before still selects it.
-    if matches.is_empty() && !target.starts_with("term_") {
-        use super::super::agent_names::{Found, resolve};
-        match resolve(snapshot, target) {
-            Found::One(place) => {
-                if let Some(found) =
-                    terminals.iter().find(|terminal| terminal["id"] == place.terminal)
-                {
-                    return Ok(found);
-                }
-            }
-            Found::Ambiguous(tabs) => {
-                return Err(SendFailure::local(
-                    "selector.ambiguous",
-                    format!("{} tabs are named {target:?}; name one by its id", tabs.len()),
-                    json!({"target": target, "candidates": tabs}),
-                    1,
-                ));
-            }
-            Found::Missing => {}
-        }
-    }
-    match matches.as_slice() {
-        [one] => Ok(one),
-        [] => Err(SendFailure::local(
+    let id = daemon_select(backend, session, Scope::Terminal, target)?;
+    terminals.iter().find(|terminal| terminal["id"] == id.as_str()).ok_or_else(|| {
+        SendFailure::local(
             "selector.not_found",
-            format!("no terminal is {target:?}"),
-            json!({"target": target}),
+            format!("{target:?} selects {id}, which the session snapshot does not show"),
+            json!({"target": target, "terminal": id}),
             1,
-        )),
-        many => Err(SendFailure::local(
-            "selector.ambiguous",
-            format!("{} terminals match {target:?}; name one by its term_ id", many.len()),
-            json!({"target": target, "terminals": many.iter().map(|t| &t["id"]).collect::<Vec<_>>()}),
-            1,
-        )),
-    }
+        )
+    })
 }
 
 /// One look at the terminal while the wait runs.
@@ -592,7 +571,7 @@ pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
         None => None,
     };
     let snapshot = snapshot(backend, session)?;
-    let terminal = find_terminal(&snapshot, &request.target)?;
+    let terminal = find_terminal(backend, session, &snapshot, &request.target)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
     let before = last_command(terminal).cloned();
     // A send's durable child keys include this resolved terminal identity.

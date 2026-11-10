@@ -581,17 +581,34 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
     assert_eq!(daemon.writes().len(), 2);
 }
 
+/// A tab id and a full terminal id of the snapshot select without a lookup;
+/// a title, a prefix or a name is the daemon's to resolve (W5-P), and its
+/// refusal is the send's error.
 #[test]
-fn send_finds_terminals_by_tab_prefix_and_title() {
+fn send_finds_terminals_by_tab_and_id_and_asks_the_daemon_for_the_rest() {
+    let daemon = ResolvingDaemon {
+        inner: FakeDaemon::new(snapshot(), &[(1, "")]),
+        selects: vec![
+            ("term_c1a0", Ok("term_c1a0de00000000000000000000000001")),
+            ("Fix lag", Ok("term_c1a0de00000000000000000000000001")),
+            ("nothing", Err(json!({"code": "selector.not_found", "message": "no terminal"}))),
+        ],
+    };
     let snapshot = snapshot();
     let id = |target: &str| {
-        send::find_terminal(&snapshot, target).map(|terminal| terminal["id"].clone()).ok()
+        send::find_terminal(&daemon, None, &snapshot, target)
+            .map(|terminal| terminal["id"].clone())
+            .map_err(|failure| failure.failure.error["code"].clone())
     };
-    assert_eq!(id("tab_muse"), Some(json!("term_0005e000000000000000000000000002")));
-    assert_eq!(id("term_c1a"), Some(json!("term_c1a0de00000000000000000000000001")));
-    assert_eq!(id("Fix lag"), Some(json!("term_c1a0de00000000000000000000000001")));
-    assert_eq!(id("term_"), None, "ambiguous");
-    assert_eq!(id("nothing"), None);
+    assert_eq!(id("tab_muse"), Ok(json!("term_0005e000000000000000000000000002")));
+    assert_eq!(
+        id("term_5be11000000000000000000000000003"),
+        Ok(json!("term_5be11000000000000000000000000003"))
+    );
+    assert!(daemon.inner.sent.borrow().is_empty(), "no lookup for an id of the snapshot");
+    assert_eq!(id("term_c1a0"), Ok(json!("term_c1a0de00000000000000000000000001")));
+    assert_eq!(id("Fix lag"), Ok(json!("term_c1a0de00000000000000000000000001")));
+    assert_eq!(id("nothing"), Err(json!("selector.not_found")));
 }
 
 #[test]

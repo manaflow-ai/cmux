@@ -269,7 +269,7 @@ impl Mux {
                 return Err(error);
             }
             // Deprecated recovery mirror only; SQLite is placement authority.
-            let _ = surface.persist_host_workspace(workspace_key);
+            surface.mirror_host_workspace(workspace_key, "terminal spawn");
             crate::debug_spans::mark("spawn.host_workspace_persisted");
             return Ok(surface);
         }

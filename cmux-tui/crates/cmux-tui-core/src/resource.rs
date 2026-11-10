@@ -1053,6 +1053,43 @@ pub fn unmatched_id_prefix_message(kind: &str, value: &str) -> String {
     )
 }
 
+/// The one id of `ids` that starts with `raw` (a `kind` id prefix, such as
+/// `pane_3f0a`): the daemon's selector resolver and every client that looks
+/// a prefix up itself (the MCP server's id fields) answer with it, so the
+/// answer and its words are the same everywhere. `selector.not_found` with
+/// the id-shape hint when no id does, and `selector.ambiguous` with every
+/// candidate, sorted, when two or more do. The caller checks the prefix
+/// shape first ([`id_prefix_parts`]).
+pub fn match_id_prefix(
+    kind: &str,
+    raw: &str,
+    ids: impl IntoIterator<Item = String>,
+) -> Result<String, ResourceError> {
+    let mut matches = ids.into_iter().filter(|id| id.starts_with(raw)).collect::<Vec<_>>();
+    matches.sort();
+    if matches.len() > 1 {
+        return Err(ResourceError::new(
+            "selector.ambiguous",
+            format!(
+                "{} {kind}s have ids that start with {raw}: {}; pass more of the id",
+                matches.len(),
+                matches.join(", "),
+            ),
+            json!({
+                "scope": kind,
+                "selector": raw,
+                "candidates": matches,
+            }),
+            false,
+        ));
+    }
+    matches.pop().ok_or_else(|| {
+        let mut error = ResourceError::not_found(kind, raw);
+        error.message = unmatched_id_prefix_message(kind, raw);
+        error
+    })
+}
+
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
@@ -1069,32 +1106,51 @@ fn is_registered_public_id(value: &str) -> bool {
 fn mistyped_id_reason(value: &str) -> Option<String> {
     let (prefix, payload) = value.rsplit_once('_')?;
     let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
-    let hex = payload.bytes().all(|byte| byte.is_ascii_hexdigit());
-    let short_prefix = EXPANDED_ID_PREFIXES.contains(&prefix)
-        && is_lower_hex(payload)
-        && (1..MIN_ID_PREFIX_DIGITS).contains(&payload.len());
-    let uppercase = hex && payload.bytes().any(|byte| byte.is_ascii_uppercase());
+    let uppercase = payload.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && payload.bytes().any(|byte| byte.is_ascii_uppercase());
     let shape = if uppercase {
-        format!(
-            "ids are lowercase: {prefix}_ and hex digits in lowercase, as in {}",
-            value.to_ascii_lowercase()
-        )
-    } else if short_prefix {
-        format!(
-            "an id prefix needs at least {MIN_ID_PREFIX_DIGITS} hex digits of the id, and this \
-             one has {}",
-            payload.len()
-        )
-    } else if !hex || payload.is_empty() {
-        format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
+        // The lowercase form may still be too short or too long: say that too,
+        // so the id is fixed in one step (review of #39999).
+        let lower = value.to_ascii_lowercase();
+        match id_shape_fault(prefix, &payload.to_ascii_lowercase()) {
+            None => {
+                format!("ids are lowercase: {prefix}_ and hex digits in lowercase, as in {lower}")
+            }
+            Some(fault) => format!("ids are lowercase ({lower}), and {fault}"),
+        }
     } else {
-        format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())
+        id_shape_fault(prefix, payload)?
     };
     let source = match scope {
         Some(scope) => format!("copy one from `cmux {scope} list --json`, or "),
         None => String::new(),
     };
     Some(format!("{value} is not an id: {shape}; {source}pass name:{value} for a name"))
+}
+
+/// What is wrong with the payload of an id with a public `prefix` (too few
+/// digits for a prefix, the wrong length, other characters); `None` when the
+/// payload is a whole id or, for an expanded kind, a valid id prefix.
+fn id_shape_fault(prefix: &str, payload: &str) -> Option<String> {
+    let lower_hex = !payload.is_empty() && is_lower_hex(payload);
+    let expanded = EXPANDED_ID_PREFIXES.contains(&prefix);
+    if lower_hex
+        && (payload.len() == ID_PAYLOAD_LEN
+            || (expanded && (MIN_ID_PREFIX_DIGITS..ID_PAYLOAD_LEN).contains(&payload.len())))
+    {
+        return None;
+    }
+    Some(if expanded && lower_hex && payload.len() < MIN_ID_PREFIX_DIGITS {
+        format!(
+            "an id prefix needs at least {MIN_ID_PREFIX_DIGITS} hex digits of the id, and this \
+             one has {}",
+            payload.len()
+        )
+    } else if !lower_hex {
+        format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
+    } else {
+        format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())
+    })
 }
 
 #[cfg(test)]

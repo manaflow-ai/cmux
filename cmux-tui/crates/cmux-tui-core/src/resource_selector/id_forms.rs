@@ -241,34 +241,10 @@ fn expand_prefix(
     match_prefix(kind.kind(), raw, ids(state, kind))
 }
 
-/// The one id of `ids` that starts with `raw` (a `kind` id prefix):
-/// `selector.not_found` with the id-shape hint when none does, and
-/// `selector.ambiguous` with every candidate, sorted, when two or more do.
+/// The one id of `ids` that starts with `raw` (a `kind` id prefix), with
+/// the words every client gives ([`crate::resource::match_id_prefix`]).
 fn match_prefix(kind: &str, raw: &str, ids: Vec<String>) -> Result<Option<String>, ResourceError> {
-    let mut matches = ids.into_iter().filter(|id| id.starts_with(raw)).collect::<Vec<_>>();
-    matches.sort();
-    match matches.len() {
-        0 => {
-            let mut error = ResourceError::not_found(kind, raw);
-            error.message = crate::resource::unmatched_id_prefix_message(kind, raw);
-            Err(error)
-        }
-        1 => Ok(matches.pop()),
-        _ => Err(ResourceError::new(
-            "selector.ambiguous",
-            format!(
-                "{} {kind}s have ids that start with {raw}: {}; pass more of the id",
-                matches.len(),
-                matches.join(", "),
-            ),
-            serde_json::json!({
-                "scope": kind,
-                "selector": raw,
-                "candidates": matches,
-            }),
-            false,
-        )),
-    }
+    crate::resource::match_id_prefix(kind, raw, ids).map(Some)
 }
 
 /// The full id `raw` names when it is a bare id of `kind` (or, for a

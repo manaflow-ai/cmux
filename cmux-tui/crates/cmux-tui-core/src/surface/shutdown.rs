@@ -255,6 +255,19 @@ impl Surface {
         Ok(())
     }
 
+    /// [`Self::persist_host_workspace`] for a caller that goes on when the host
+    /// keeps its old record (the host's recovery mirror; the durable record
+    /// already has the placement): the failure goes to the daemon log with
+    /// `operation`, where it was dropped before (review of #39999).
+    pub(crate) fn mirror_host_workspace(&self, workspace_key: &str, operation: &str) {
+        if let Err(error) = self.persist_host_workspace(workspace_key) {
+            eprintln!(
+                "cmux-tui: {operation}: the terminal host kept its old workspace record \
+                 (not {workspace_key}): {error:#}"
+            );
+        }
+    }
+
     /// Release a newly launched host after the caller commits the terminal's
     /// public topology. Adoption and local PTYs are already active, making
     /// this idempotent for shared creation paths.

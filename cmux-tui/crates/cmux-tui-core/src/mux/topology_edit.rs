@@ -195,7 +195,7 @@ impl Mux {
         if let Some(surface) = self.surface(surface)
             && let Some(workspace_key) = self.workspace_key_for_pane(pane)
         {
-            let _ = surface.persist_host_workspace(&workspace_key);
+            surface.mirror_host_workspace(&workspace_key, "topology edit");
         }
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
         if let Some(screen) = changed_screen.filter(|source| {

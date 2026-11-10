@@ -125,11 +125,9 @@ fn ids_take_a_unique_prefix_and_a_session_qualifier() {
     let tool = v2_tools::find("workspace_get").expect("workspace_get");
     let call = tool.plan(&object(json!({"workspace": "build-box:ws_1a2b"}))).expect("plan");
     assert_eq!(call.session.as_deref(), Some("build-box"));
+    // The daemon's one selector resolver expands a selector's prefix (W5-P).
     assert_eq!(call.plan.params["workspace"], "ws_1a2b");
-    assert_eq!(
-        call.prefixes,
-        [Prefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
-    );
+    assert!(call.prefixes.is_empty());
     assert_eq!(call.plan.params["machine"], "current");
     assert_eq!(call.plan.params["session"], "current");
 

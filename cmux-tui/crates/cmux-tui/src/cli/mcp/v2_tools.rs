@@ -682,7 +682,8 @@ impl V2Tool {
                 "offset" if self.paginated => offset = Some(count(name, value, usize::MAX)?),
                 "limit" if self.paginated => limit = Some(count(name, value, MAX_PAGE)?.max(1)),
                 _ if selector => {
-                    let id = self.id_argument(name, name, text(name, value)?, &mut session)?;
+                    let id =
+                        self.id_argument(name, name, text(name, value)?, true, &mut session)?;
                     if let Some(step) = id.1 {
                         prefixes.push(step);
                     }
@@ -699,7 +700,7 @@ impl V2Tool {
                     });
                     let value = match (resource, value.as_str()) {
                         (Some(resource), Some(raw)) => {
-                            let id = self.id_argument(name, resource, raw, &mut session)?;
+                            let id = self.id_argument(name, resource, raw, false, &mut session)?;
                             if let Some(step) = id.1 {
                                 prefixes.push(step);
                             }
@@ -836,13 +837,20 @@ impl V2Tool {
         )
     }
 
-    /// An id argument without its `<session>:` qualifier, and the lookup
-    /// that resolves it when it is a unique prefix.
+    /// The id argument `raw` of `field` (a `resource` id), with the session
+    /// of a `<session>:<id>` qualifier, and the list lookup it needs. A
+    /// selector's id prefix (`ws_1a2b`) goes to the daemon as given: its one
+    /// selector resolver (W5-P) expands it with the rules of every client.
+    /// A resource-id field (`terminal_id`) is read by the daemon as a whole
+    /// id, so its prefix is looked up here first; one the daemon would refuse
+    /// (fewer than 4 hex digits) gets the daemon's own error. A machine id is
+    /// never expanded by the daemon, so its prefix is looked up in both.
     fn id_argument(
         &self,
         field: &str,
         resource: &str,
         raw: &str,
+        selector: bool,
         session: &mut Option<String>,
     ) -> Result<(String, Option<Prefix>), Value> {
         let (qualifier, id) = match federation::qualified(raw) {
@@ -852,10 +860,23 @@ impl V2Tool {
         if let Some(qualifier) = qualifier {
             set_session(session, qualifier)?;
         }
-        let lookup = schema::id_prefix(resource)
-            .filter(|prefix| transport::is_partial_id(id, prefix))
-            .and_then(|_| schema::prefix_list(resource))
-            .map(|list| Prefix { field: field.to_owned(), list });
+        let Some(kind) =
+            schema::id_prefix(resource).filter(|kind| transport::is_partial_id(id, kind))
+        else {
+            return Ok((id.to_owned(), None));
+        };
+        let expanded = cmux_tui_core::resource::EXPANDED_ID_PREFIXES.contains(&kind);
+        if expanded && selector {
+            return Ok((id.to_owned(), None));
+        }
+        if expanded && cmux_tui_core::resource::id_prefix_parts(id).is_none() {
+            let refused = cmux_tui_core::resource::Selector::parse(id).err();
+            if let Some(error) = refused.and_then(|error| serde_json::to_value(error).ok()) {
+                return Err(error);
+            }
+        }
+        let lookup =
+            schema::prefix_list(resource).map(|list| Prefix { field: field.to_owned(), list });
         Ok((id.to_owned(), lookup))
     }
 }

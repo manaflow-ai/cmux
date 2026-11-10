@@ -286,7 +286,7 @@ impl Mux {
                 }
             };
             crate::debug_spans::mark("create.bound");
-            let _ = surface.persist_host_workspace(&canonical_workspace);
+            surface.mirror_host_workspace(&canonical_workspace, "terminal create");
             crate::debug_spans::mark("create.host_workspace_persisted");
             if changed {
                 // The tab, or the first screen that holds it, as an exact delta (#32408). Only a

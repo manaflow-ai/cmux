@@ -25,7 +25,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::agent_names::{self, Found};
+use super::super::agent_names::{Scope, daemon_select};
 use super::super::terminal_talk::send::{self, Daemon};
 use super::{Failure, plan};
 
@@ -251,10 +251,16 @@ fn not_found(selector: &str, message: String) -> Failure {
     Failure::local("selector.not_found", message, json!({"pane": selector}), 1)
 }
 
-/// The pane `selector` names (`None`: the caller's pane, else the focused
-/// one): an id or unique id prefix, `current`, `caller`, `focused`, an agent
-/// name or unique tab name (its pane), or a pane name.
-pub(in crate::cli) fn target_pane(
+/// The pane `selector` names. `None` and `current` are the caller's pane
+/// (else the focused one), `caller` the caller's and `focused` the one the
+/// person looks at (the daemon has no caller); a full pane id of the
+/// snapshot is taken as it is. Any other word goes to the daemon's one
+/// selector resolver (W5-P, [`daemon_select`]), as `pane WORD show` sends
+/// it: a pane name, an agent or other tab name (its pane), a unique id
+/// prefix of at least 4 hex digits or a bare id, with the daemon's error for
+/// a word it refuses.
+pub(in crate::cli) fn target_pane<D: Daemon + ?Sized>(
+    daemon: &D,
     snapshot: &Value,
     selector: Option<&str>,
     caller_terminal: Option<&str>,
@@ -273,45 +279,10 @@ pub(in crate::cli) fn target_pane(
         }
         Some(selector) => selector,
     };
-    let panes = list(snapshot, "panes");
-    let ids: Vec<&str> = panes.iter().filter_map(|pane| pane["id"].as_str()).collect();
-    if ids.contains(&selector) {
+    if list(snapshot, "panes").iter().any(|pane| pane["id"] == selector) {
         return Ok(selector.to_owned());
     }
-    if selector.starts_with("pane_") {
-        let matches: Vec<&&str> = ids.iter().filter(|id| id.starts_with(selector)).collect();
-        return match matches.as_slice() {
-            [one] => Ok((**one).to_owned()),
-            [] => Err(not_found(selector, format!("no pane is {selector:?}"))),
-            many => Err(Failure::local(
-                "selector.ambiguous",
-                format!("{} panes start with {selector:?}; name one by its full id", many.len()),
-                json!({"pane": selector, "candidates": many}),
-                1,
-            )),
-        };
-    }
-    let named: Vec<&str> = panes
-        .iter()
-        .filter(|pane| pane["name"] == selector)
-        .filter_map(|pane| pane["id"].as_str())
-        .collect();
-    if let [one] = named.as_slice() {
-        return Ok((*one).to_owned());
-    }
-    match agent_names::resolve(snapshot, selector) {
-        Found::One(place) => Ok(place.pane),
-        Found::Ambiguous(tabs) => Err(Failure::local(
-            "selector.ambiguous",
-            format!("{} tabs are named {selector:?}; name the pane by its id", tabs.len()),
-            json!({"pane": selector, "candidates": tabs}),
-            1,
-        )),
-        Found::Missing => Err(not_found(
-            selector,
-            format!("no pane, agent or tab is named {selector:?}; cmux pane list lists the panes"),
-        )),
-    }
+    daemon_select(daemon, None, Scope::Pane, selector).map_err(Failure::from)
 }
 
 /// Opens the agent's tab: splits `pane` first for [`Placement::Split`],

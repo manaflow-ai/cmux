@@ -596,7 +596,7 @@ impl Mux {
                     .map(|(wi, _)| state.workspaces[wi].key.clone())
             });
             if let Some(key) = key {
-                let _ = surface_handle.persist_host_workspace(&key);
+                surface_handle.mirror_host_workspace(&key, "tab.move");
             }
         }
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);

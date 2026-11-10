@@ -697,7 +697,7 @@ impl Mux {
         }
         if let Some(workspace_key) = workspace_key.as_deref() {
             // Deprecated recovery mirror only; SQLite is placement authority.
-            let _ = surface.persist_host_workspace(workspace_key);
+            surface.mirror_host_workspace(workspace_key, "terminal respawn");
         }
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);

@@ -565,12 +565,7 @@ impl Mux {
                 if let Some(runtime) = self.surface(surface) {
                     // The durable record already names the new workspace;
                     // the host copy follows it, as a tab drag's does.
-                    if let Err(error) = runtime.persist_host_workspace(&key) {
-                        eprintln!(
-                            "cmux-tui: pane.move: the terminal host kept the old workspace \
-                             of surface {surface}: {error:#}"
-                        );
-                    }
+                    runtime.mirror_host_workspace(&key, "pane.move");
                 }
             }
         }

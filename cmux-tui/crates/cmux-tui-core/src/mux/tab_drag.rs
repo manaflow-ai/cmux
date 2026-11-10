@@ -632,7 +632,7 @@ impl Mux {
             return Ok(outcome);
         }
         if let Some(runtime) = self.surface(surface) {
-            let _ = runtime.persist_host_workspace(&target_key);
+            runtime.mirror_host_workspace(&target_key, "tab drag");
         }
         self.emit(MuxEvent::TreeChanged);
         self.emit_layout_changed(outcome.screen, None);

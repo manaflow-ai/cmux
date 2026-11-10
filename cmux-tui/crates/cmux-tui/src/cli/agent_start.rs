@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::agent_names::{self, Found, valid_agent_name};
+use super::agent_names::{self, valid_agent_name};
 use super::agent_vocabulary::harness_name;
 use super::command::{self, CommandPlan, RequestPlan};
 use super::mcp::CallFailure;
@@ -531,6 +531,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
         Some((pane, _)) => (pane.clone(), Placement::Tab),
         None => (
             placement::target_pane(
+                daemon,
                 &snapshot,
                 options.pane.as_deref(),
                 env.caller_terminal.as_deref(),
@@ -583,37 +584,34 @@ struct Exited {
     harness: Option<String>,
 }
 
-fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Failure> {
-    let terminals = snapshot["terminals"].as_array().map(Vec::as_slice).unwrap_or_default();
+/// The exited terminal `target` names, selected by the daemon's one
+/// selector resolver (W5-P), as `terminal NAME show` does: an agent name is
+/// its tab's name (a tab whose terminal runs first, then an exited one, so
+/// a kept tab of an agent that quit is found), and the daemon's error for a
+/// word it refuses (`selector.ambiguous` with the candidates).
+fn exited_target<D: Daemon + ?Sized>(
+    daemon: &D,
+    snapshot: &Value,
+    target: &ResumeTarget,
+) -> Result<Exited, Failure> {
     let tabs = snapshot["tabs"].as_array().map(Vec::as_slice).unwrap_or_default();
     let terminal = match target {
-        ResumeTarget::Agent(name) => match agent_names::resolve(snapshot, name) {
-            Found::One(place) => {
-                terminals.iter().find(|terminal| terminal["id"] == place.terminal.as_str())
-            }
-            Found::Ambiguous(tabs) => {
-                return Err(Failure::local(
-                    "selector.ambiguous",
-                    format!(
-                        "{} tabs are named {name}; resume one by its terminal (cmux terminal \
-                         <term> resume)",
-                        tabs.len()
-                    ),
-                    json!({"name": name, "candidates": tabs}),
-                    1,
-                ));
-            }
-            Found::Missing => None,
+        ResumeTarget::Agent(name) => {
+            let word = format!("name:{name}");
+            send::find_terminal(daemon, None, snapshot, &word).map_err(|failure| {
+                let mut failure = Failure::from(failure);
+                if failure.error.get("code").is_some_and(|code| code == "selector.not_found") {
+                    failure.error.set(
+                        "message",
+                        json!(format!(
+                            "no agent is named {name}; cmux terminal list --agents lists them"
+                        )),
+                    );
+                }
+                failure
+            })?
         }
-        .ok_or_else(|| {
-            Failure::local(
-                "selector.not_found",
-                format!("no agent is named {name}; cmux terminal list --agents lists them"),
-                json!({"name": name}),
-                1,
-            )
-        })?,
-        ResumeTarget::Terminal(selector) => send::find_terminal(snapshot, selector)?,
+        ResumeTarget::Terminal(selector) => send::find_terminal(daemon, None, snapshot, selector)?,
     };
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
     // Only an exited terminal resumes; not `!is_live`: a lifecycle word this
@@ -698,7 +696,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     options: &Options,
 ) -> Result<(Value, i32), Failure> {
     let snapshot = send::snapshot(daemon, None)?;
-    let exited = exited_target(&snapshot, target)?;
+    let exited = exited_target(daemon, &snapshot, target)?;
     let records =
         daemon.request(None, plan(&["agent", "list", "--terminal", &exited.terminal])?)?;
     // An agent that quit has no record left; the terminal keeps its last session id.
@@ -759,6 +757,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         (Some(pane), None, None) => (pane.clone(), Placement::Tab),
         _ => (
             placement::target_pane(
+                daemon,
                 &snapshot,
                 options.pane.as_deref(),
                 env.caller_terminal.as_deref(),
@@ -827,7 +826,7 @@ fn wait_ready<D: Daemon + ?Sized>(
     sleep: &mut dyn FnMut(Duration),
 ) -> Result<(Value, i32), Failure> {
     let snapshot = send::snapshot(daemon, None)?;
-    let terminal = send::find_terminal(&snapshot, selector)?;
+    let terminal = send::find_terminal(daemon, None, &snapshot, selector)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
     let reads = terminal_reads(&id)?;
     let options = WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0);

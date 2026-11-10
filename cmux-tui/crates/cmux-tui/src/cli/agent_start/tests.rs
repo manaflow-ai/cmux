@@ -347,6 +347,8 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
             "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         _ => json!({}),
@@ -389,7 +391,7 @@ fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended(
     if let Some(old) = snapshot.pointer_mut("/terminals/1") {
         old["extra"] = json!({"agent": "claude-code", "agent_session_id": SESSION});
     }
-    let daemon = Fake::new(|operation, _params, _count| match operation {
+    let daemon = Fake::new(|operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "agent.list" => json!([]),
         "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
@@ -398,6 +400,8 @@ fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended(
             "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         _ => json!({}),
@@ -420,7 +424,7 @@ fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended(
 #[test]
 fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dialog() {
     let snapshot = snapshot();
-    let daemon = Fake::new(|operation, _params, count| match operation {
+    let daemon = Fake::new(|operation, params, count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             "pane_33333333333333333333333333333333",
@@ -432,6 +436,8 @@ fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dial
             "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" if count == 0 => json!({"text": "Loading"}),
         "terminal.screen.read" => json!({"text": TRUST}),
@@ -491,7 +497,7 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
                        "tab_id": "tab_5e115e115e115e115e115e115e115e11"}],
         "agents": [],
     });
-    let daemon = Fake::new(|operation, _params, count| match operation {
+    let daemon = Fake::new(|operation, params, count| match operation {
         "session.snapshot" if count == 0 => empty.clone(),
         "session.snapshot" => opened.clone(),
         "workspace.create" => {
@@ -502,6 +508,8 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
             "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -560,11 +568,13 @@ fn w3h_start_in_an_empty_session_uses_the_workspace_it_created_not_the_focused_o
                "value": {"kind": "workspace", "workspace_id": WS_B}}),
     ];
     for receipt in receipts {
-        let daemon = Fake::new(|operation, _params, count| match operation {
+        let daemon = Fake::new(|operation, params, count| match operation {
             "session.snapshot" if count == 0 => empty.clone(),
             "session.snapshot" => both.clone(),
             "workspace.create" => receipt.clone(),
             "pane.run" => created(PANE_B, "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0", NEW),
+            // The daemon's resolver selects the exited agent `alpha` (W5-P).
+            "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
             "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
             "terminal.screen.read" => json!({"text": COMPOSER}),
             "agent.list" => json!([]),
@@ -609,6 +619,7 @@ fn w3h_a_name_that_a_running_tab_has_is_refused() {
     snapshot["terminals"][1]["lifecycle"] = json!("running");
     let daemon = Fake::new(|operation, _params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
+        "terminal.get" => json!({"id": OLD}),
         _ => json!({}),
     });
     let failure =
@@ -626,7 +637,9 @@ fn w3h_a_name_that_a_running_tab_has_is_refused() {
 
 #[test]
 fn w3h_the_wait_times_out_while_the_agent_still_starts() {
-    let daemon = Fake::new(|operation, _params, _count| match operation {
+    let daemon = Fake::new(|operation, params, _count| match operation {
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": "Loading"}),
         _ => json!([]),
@@ -665,7 +678,7 @@ const TRUST_NO_SELECTED: &str = "\
 /// `agent start` that ends at `screen`, a folder-trust dialog.
 fn start_at_trust(screen: &'static str) -> Value {
     let snapshot = snapshot();
-    let daemon = Fake::new(move |operation, _params, count| match operation {
+    let daemon = Fake::new(move |operation, params, count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             "pane_33333333333333333333333333333333",
@@ -677,6 +690,8 @@ fn start_at_trust(screen: &'static str) -> Value {
             "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" if count == 0 => json!({"text": "Loading"}),
         "terminal.screen.read" => json!({"text": screen}),
@@ -734,7 +749,7 @@ fn w5q_folder_trust_without_options_names_the_terminal() {
 #[test]
 fn w5q_a_ready_start_has_no_dialog_options() {
     let snapshot = snapshot();
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             "pane_33333333333333333333333333333333",
@@ -746,6 +761,8 @@ fn w5q_a_ready_start_has_no_dialog_options() {
             "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -812,7 +829,7 @@ fn sent_ratios<F: Fn(&str, &Value, usize) -> Value>(
 fn w5q_start_split_keeps_the_persons_column_width() {
     // The editor tab has no agent name: the person made it.
     let snapshot = snapshot_with_tab_name(ALPHA_PANE, None);
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             BETA_PANE,
@@ -828,6 +845,8 @@ fn w5q_start_split_keeps_the_persons_column_width() {
                 "ratio": 0.5,
                 "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
                 "second": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []}}}}),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -871,7 +890,7 @@ fn mark_agent_start(snapshot: &mut Value, ids: &[&str]) {
 #[test]
 fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
     let snapshot = snapshot();
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             BETA_PANE,
@@ -890,6 +909,8 @@ fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
         // A process read would show a shell; the snapshot has no agent start
         // mark on the person's terminal, which is what counts.
         "terminal.process.get" => json!({"pid": 77, "argv": ["/bin/zsh", "-l"]}),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -948,7 +969,7 @@ fn three_agent_row_widths(alpha: &str, agent_state: Option<&str>) -> [f64; 4] {
         snapshot["agents"] = json!([{"terminal_id": OLD, "state": state, "status": state,
             "updated_at_ms": "900", "extra": {"agent": "claude"}}]);
     }
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             GAMMA_PANE,
@@ -967,6 +988,8 @@ fn three_agent_row_widths(alpha: &str, agent_state: Option<&str>) -> [f64; 4] {
                     "ratio": 0.5,
                     "first": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []},
                     "second": {"kind": "leaf", "pane_id": GAMMA_PANE, "tab_ids": []}}}}}),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -1072,7 +1095,7 @@ fn w5q_start_split_keeps_an_exited_agent_pane_width() {
 #[test]
 fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
     let snapshot = snapshot();
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             BETA_PANE,
@@ -1081,6 +1104,8 @@ fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
         ),
         "pane.run" => created(BETA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
         "screen.layout.export" => halved_layout(),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -1107,7 +1132,7 @@ fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
 #[test]
 fn w5q_start_split_in_a_column_screen_changes_no_ratio() {
     let snapshot = snapshot();
-    let daemon = Fake::new(move |operation, _params, _count| match operation {
+    let daemon = Fake::new(move |operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             BETA_PANE,
@@ -1119,6 +1144,8 @@ fn w5q_start_split_in_a_column_screen_changes_no_ratio() {
             "base_width": 200.0, "columns": [
                 {"column_id": "column_1", "width": 100.0, "root": {"kind": "leaf", "pane_id": CALLER_PANE}},
                 {"column_id": "column_2", "width": 100.0, "root": {"kind": "leaf", "pane_id": BETA_PANE}}]}}),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),
@@ -1271,6 +1298,8 @@ fn resume_of(harness: &'static str, screen: &'static str, records: Value) -> (Va
             "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": screen}),
         _ => json!({}),
@@ -1384,6 +1413,8 @@ fn w5p_agent_start_pane_takes_the_pane_the_daemons_resolver_selects() {
             "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
             NEW,
         ),
+        // The daemon's resolver selects the exited agent `alpha` (W5-P).
+        "terminal.get" if params["terminal"] == "name:alpha" => json!({"id": OLD}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
         "agent.list" => json!([]),

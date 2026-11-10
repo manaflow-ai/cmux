@@ -517,31 +517,22 @@ pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
     })
 }
 
-/// The one id in `records` that starts with `prefix`. No match is
-/// `selector.not_found`; more than one is `selector.ambiguous` with the
-/// candidates, as the daemon reports for a name.
+/// The one id in `records` that starts with `prefix`, with the answer and
+/// the words of the daemon's one selector resolver (W5-P,
+/// `cmux_tui_core::resource::match_id_prefix`): `selector.not_found` with the
+/// id-shape hint, or `selector.ambiguous` with every candidate, sorted.
 fn unique_prefix(field: &str, prefix: &str, records: &Value) -> Result<String, Value> {
     let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
-    let matches = records
+    let ids = records
         .iter()
         .filter_map(|record| record.get("id").and_then(Value::as_str))
-        .filter(|id| id.starts_with(prefix))
-        .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [id] => Ok((*id).to_string()),
-        [] => Err(json!({
-            "code": "selector.not_found",
-            "message": format!("no {field} id starts with {prefix:?}"),
-            "details": {"field": field, "prefix": prefix},
-            "retryable": false,
-        })),
-        candidates => Err(json!({
-            "code": "selector.ambiguous",
-            "message": format!("more than one {field} id starts with {prefix:?}; use more of it"),
-            "details": {"field": field, "prefix": prefix, "candidates": candidates},
-            "retryable": false,
-        })),
-    }
+        .map(str::to_owned);
+    let kind = field.strip_suffix("_id").unwrap_or(field);
+    cmux_tui_core::resource::match_id_prefix(kind, prefix, ids).map_err(|error| {
+        serde_json::to_value(error).unwrap_or_else(
+            |_| json!({"code": "selector.not_found", "message": prefix, "retryable": false}),
+        )
+    })
 }
 
 #[cfg(test)]

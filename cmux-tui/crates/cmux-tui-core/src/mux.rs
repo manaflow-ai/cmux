@@ -1106,7 +1106,7 @@ impl Mux {
             })
         };
         if let Some(workspace_key) = workspace_key {
-            let _ = surface.persist_host_workspace(&workspace_key);
+            surface.mirror_host_workspace(&workspace_key, "terminal restore");
         }
     }
 

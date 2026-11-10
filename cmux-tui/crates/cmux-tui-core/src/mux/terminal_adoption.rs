@@ -490,7 +490,7 @@ impl Mux {
                 .cloned()
         };
         if let Some(surface) = surface {
-            let _ = surface.persist_host_workspace(&terminal.workspace_key);
+            surface.mirror_host_workspace(&terminal.workspace_key, "terminal adoption");
         }
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
         if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
