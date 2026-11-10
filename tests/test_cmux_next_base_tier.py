@@ -10,6 +10,7 @@ The Release compiles, the DEV landing compile and the fast tier stay on every pu
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -322,6 +323,68 @@ class PushEventTip(unittest.TestCase):
         self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
                                     log=lambda _: None, pushed=TIP))
         self.assertEqual(api.dispatched, [])
+
+
+class CancelAfterAWait(unittest.TestCase):
+    """Review of #40369: a cancel is posted only right after a fresh read of the run's Mac jobs, never
+    after a quota wait. The real client against a fake GitHub: the job read waits out the quota and
+    reads again; a cancel refused on the quota is not retried and the kick goes on."""
+
+    NOW = T0 + 20 * 60
+
+    def client(self, responses: dict[str, list]):
+        clock = {"at": self.NOW}
+        slept, sent = [], []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock["at"] += seconds
+
+        api = tier.GitHub("t", deadline=self.NOW + 900, now=lambda: clock["at"], sleep=sleep)
+
+        def send(method, url, body=None):
+            sent.append((method, url))
+            for key, queue in responses.items():
+                if key in url:
+                    status, payload = queue.pop(0) if len(queue) > 1 else queue[0]
+                    headers = {}
+                    if status == 403:
+                        headers = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(clock["at"] + 300))}
+                    return status, json.dumps(payload).encode(), headers
+            raise AssertionError(url)
+
+        api._send = send
+        return api, slept, sent
+
+    RUNS = {"workflow_runs": [
+        {"id": 11, "status": "queued", "display_title": f"{tier.TITLE}{OLD}", "created_at": stamp(T0)},
+        {"id": 12, "status": "queued", "display_title": f"{tier.TITLE}{TIP}", "created_at": stamp(T0 + 60)},
+    ]}
+
+    def test_a_cancel_after_a_wait_rechecks_the_job_status_first(self):
+        # The job read hits the spent quota and waits; the Mac job started during the wait, so the
+        # read after it finds it running and nothing is cancelled.
+        api, slept, sent = self.client({
+            "/runs?": [(200, self.RUNS)],
+            "/runs/11/jobs": [(403, {"message": "API rate limit exceeded"}),
+                              (200, {"jobs": [job("cmux-next daemon tests", "in_progress")]})],
+            "/cancel": [(202, {})],
+        })
+        self.assertEqual(tier.cancel_superseded(api, REPO, TIP, log=lambda _: None), [])
+        self.assertEqual(slept, [301])
+        self.assertFalse([url for _, url in sent if url.endswith("/cancel")])
+
+    def test_a_cancel_refused_on_the_quota_is_not_retried(self):
+        lines = []
+        api, slept, sent = self.client({
+            "/runs?": [(200, self.RUNS)],
+            "/runs/11/jobs": [(200, {"jobs": QUEUED_MAC})],
+            "/cancel": [(403, {"message": "API rate limit exceeded"})],
+        })
+        self.assertEqual(tier.cancel_superseded(api, REPO, TIP, log=lines.append), [])
+        self.assertEqual(slept, [])
+        self.assertEqual(len([url for _, url in sent if url.endswith("/cancel")]), 1)
+        self.assertTrue(any("could not cancel base tier run 11" in line for line in lines), lines)
 
 
 class QuotaLine(unittest.TestCase):

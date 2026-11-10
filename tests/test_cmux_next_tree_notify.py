@@ -794,12 +794,28 @@ class QuotaRetry(unittest.TestCase):
 
     def test_a_secondary_limit_backs_off_then_gives_up_at_the_deadline(self):
         limited = (403, b'{"message": "You have exceeded a secondary rate limit."}', {})
-        api, slept, _ = self.client([limited, limited, (204, b"", {})], self.NOW + 600)
-        self.assertEqual(api.post("repos/o/r/actions/runs/1/cancel", {}), 204)
+        api, slept, _ = self.client([limited, limited, (200, b"{}", {})], self.NOW + 600)
+        self.assertEqual(api.get("repos/o/r/actions/runs/1"), {})
         self.assertEqual(slept, [30, 60])
         api, slept, _ = self.client([(429, b"", {"retry-after": "90"})], self.NOW + 60)
         with self.assertRaisesRegex(notify.QuotaExhausted, "secondary rate limit; retry after 90 s"):
-            api.delete("repos/o/r/actions/artifacts/1")
+            api.get("repos/o/r/actions/runs/1")
+        self.assertEqual(slept, [])
+
+    def test_a_write_is_never_retried_after_a_wait(self):
+        """A cancel decided on a job read must not fire minutes later, after the job may have started
+        (review of #40369: a retried cancel stopped a running Mac job after a 601 s wait). A write
+        refused on the quota raises at once, even when the reset fits the deadline."""
+        for method, call in (("POST", lambda api: api.post("repos/o/r/actions/runs/1/cancel", {})),
+                             ("DELETE", lambda api: api.delete("repos/o/r/actions/artifacts/1"))):
+            api, slept, sent = self.client([self.spent(60), (202, b"", {})], self.NOW + 600)
+            with self.assertRaises(notify.QuotaExhausted) as raised:
+                call(api)
+            self.assertIn(f"{method} repos/o/r/", str(raised.exception))
+            self.assertIn("not retried", str(raised.exception))
+            self.assertEqual(len(str(raised.exception).splitlines()), 1)
+            self.assertEqual(slept, [])
+            self.assertEqual(len(sent), 1)
 
     def test_a_refusal_that_is_not_a_rate_limit_is_returned_as_before(self):
         # The takeover reads `This workflow is already running` as a 403 status.

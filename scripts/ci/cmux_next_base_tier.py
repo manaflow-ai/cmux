@@ -210,7 +210,13 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
         if mac_job_started(api, repo, run_id):
             log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
             continue
-        status = api.post(f"repos/{repo}/actions/runs/{run_id}/cancel", {})
+        # Posted right after that fresh job read. The client never retries a write after a wait (a
+        # Mac job may have started by then); a cancel refused on the spent quota is left to the next kick.
+        try:
+            status = api.post(f"repos/{repo}/actions/runs/{run_id}/cancel", {})
+        except QuotaExhausted as error:
+            log(f"could not cancel base tier run {run_id} ({sha[:12]}): {error}")
+            continue
         if status in (202, 204):
             cancelled.append(run_id)
             log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, no Mac job started")

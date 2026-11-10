@@ -145,10 +145,14 @@ def quota_wait(status: int, headers: dict[str, str], payload: bytes, attempt: in
 class GitHub:
     """GitHub's REST API with the token. Every workflow's GITHUB_TOKEN in a repository shares one REST
     quota, so another workflow can spend it under a job that makes a handful of calls. With DEADLINE
-    (an epoch time), a call refused on a spent rate limit (a 403 or 429 with x-ratelimit-remaining 0, a
-    retry-after, or a body that says "rate limit") is retried after one sleep until the limit lifts,
-    while that fits DEADLINE; past it, QuotaExhausted. With no DEADLINE nothing is retried and a refusal
-    reads as before: get() raises RuntimeError, post() and delete() return the status."""
+    (an epoch time), a read (GET) refused on a spent rate limit (a 403 or 429 with
+    x-ratelimit-remaining 0, a retry-after, or a body that says "rate limit") is retried after one
+    sleep until the limit lifts, while that fits DEADLINE; past it, QuotaExhausted. A write (POST,
+    PATCH, DELETE: a cancel, a dispatch) refused on a rate limit raises QuotaExhausted at once and is
+    never retried after a sleep: what made it right (a run whose Mac job had not started) may not hold
+    minutes later, so a caller that wants a retry reads its precondition again and calls again. With no
+    DEADLINE nothing is retried and a refusal reads as before: get() raises RuntimeError, post() and
+    delete() return the status."""
 
     def __init__(self, token: str, api_url: str = "https://api.github.com", *, deadline: float | None = None,
                  now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep):
@@ -181,9 +185,11 @@ class GitHub:
             if limited is None:
                 return status, payload
             wait, why = limited
+            where = f"{method} {url.removeprefix(self.api_url + '/')}: HTTP {status}: {why}"
+            if method != "GET":
+                raise QuotaExhausted(f"{where}; a write is not retried after a wait")
             if self.now() + wait > self.deadline:
-                raise QuotaExhausted(f"{method} {url.removeprefix(self.api_url + '/')}: HTTP {status}: {why}, "
-                                     f"past this job's budget ({utc(self.deadline)})")
+                raise QuotaExhausted(f"{where}, past this job's budget ({utc(self.deadline)})")
             # One sleep until the limit lifts, never a polling loop.
             self.sleep(wait)
             attempt += 1
