@@ -4,7 +4,7 @@ import Testing
 
 /// A closure kept in a ``Mutex`` and read with `load()` stays one call deep however often it is
 /// read (#40144: `withLock { $0 }` wrapped it in two more thunks per read).
-@Suite struct MutexClosureLoadTests {
+@Suite nonisolated struct MutexClosureLoadTests {
     @Test func loadingAClosureManyTimesDoesNotDeepenItsCall() throws {
         let depths = Depths()
         let handler = Mutex<(@Sendable () -> Void)?>(nil)
@@ -27,10 +27,10 @@ import Testing
 }
 
 /// The call-stack depth at each call (a class: a ``Mutex`` cannot be captured).
-private final class Depths: Sendable {
+private nonisolated final class Depths: Sendable {
     let values = Mutex<[Int]>([])
     @inline(never)
-    func note() {
+    nonisolated func note() {
         let depth = Thread.callStackReturnAddresses.count
         values.withLock { $0.append(depth) }
     }
