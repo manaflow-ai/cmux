@@ -359,6 +359,10 @@ const LIMIT_READS = 3;
 /// The waits before each new read of the events a lag dropped, after a failed one
 /// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
 const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
+/// The records each page of a journal that went back is read in, and the most pages read before
+/// the pane holds the rest as the machine has it (`readRewoundTail`).
+const REWIND_PAGE = 400;
+const REWIND_PAGES = 25;
 /// The longest wait between reconnects (`scheduleReconnect`): a pane that kept failing while the
 /// laptop slept or the network was down tries again within this once it is back, never minutes or
 /// hours later. A wake (`online`, the page shown again) reconnects at once (`reconnectNow`).
@@ -1219,6 +1223,22 @@ export function settleOptimisticPrompt(
   if (removeRow && rowId) rows.delete(rowId);
   promptRows.delete(promptId);
   return rowId;
+}
+
+/// Where the chat's journal ends now, from a read refused because its cursor is past it
+/// (`cursor_future: afterSeq N is beyond the last event M`, acpmux `server/requests/events.rs`):
+/// its machine is back on a shorter log, so the records this pane holds past `M` are not its
+/// chat's any more. Undefined for any other failure.
+export function journalEndOf(error: unknown): number | undefined {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const end = /cursor_future: afterSeq \d+ is beyond the last event (\d+)/.exec(message)?.[1];
+  return end === undefined ? undefined : Number(end);
+}
+
+/// The records a pane held, by seq, as they were before a journal that went back was read again:
+/// what `readRewoundTail` compares the machine's records to, never the ones it merged in since.
+export function heldBySeq(events: readonly EventRecord[]): ReadonlyMap<number, EventRecord> {
+  return new Map(events.map((event) => [event.seq, event]));
 }
 
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
@@ -2431,6 +2451,16 @@ export class AcpmuxDirectClient {
   private readonly gapReads = new Map<number, { sessionId: string; seq: number }>();
   /// A lag marker that came while the chat's attach was out (`resyncAfterLag`), read once it lands.
   private lagOwed?: { sessionId: string; generation: number };
+  /// Counts the times the shown chat's journal was found to have gone back (`noteRewind`). A read
+  /// of its records takes the count when it asks and drops its answer when the count moved: an
+  /// answer read from the journal before it went back holds the lost records, and would put them
+  /// back over the rows the repair drew (`readRewoundTail`).
+  private rewindEpoch = 0;
+  /// The last time the journal went back (`noteRewind`): an attach out meanwhile repairs from it.
+  private lastRewind?: { sessionId: string; generation: number; end: number; epoch: number };
+  /// A `_acpmux/rewound` that came while the chat's attach was out (`journalRewound`): applied once
+  /// it answers, since its page may have been read from the journal before it went back.
+  private rewindOwed?: { sessionId: string; generation: number; end: number };
   /// A read of what a lag dropped that gave up while the socket stayed open (`readMissedAfterLag`).
   private lagReadOwed?: { sessionId: string; generation: number; afterSeq: number };
   private gapReadKeys = 0;
@@ -4267,6 +4297,7 @@ export class AcpmuxDirectClient {
       this.asks.pending(notification.params);
       this.applyPermission(notification.params);
     } else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/rewound") this.journalRewound(notification.params);
     // acpmux took a prompt this connection sent; it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
@@ -4344,6 +4375,178 @@ export class AcpmuxDirectClient {
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
     this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+  }
+
+  /// The chat's journal on its machine went back to `lastSeq` (`_acpmux/rewound`: a Cloud machine
+  /// back from a hard stop lost the records it had not synced yet), and its new records take the
+  /// seqs of the ones this pane drew past it. The pane drops those, reads back the newest ones it
+  /// kept as the machine has them, and reads the chat on from `lastSeq`. Always, even when the pane
+  /// holds nothing past `lastSeq`: the journal may have gone back further and been written up to it
+  /// again, so the records the pane holds at or below it may be the lost ones. While the chat's
+  /// attach is out the notice is held (`rewindOwed`): the attach's page may have been read from the
+  /// journal before it went back, and it is applied once that page is in (`attachWatched`).
+  private journalRewound(params: any): void {
+    const sessionId = this.selectedSessionId;
+    const end = Number(params?.lastSeq);
+    if (!sessionId || params?.sessionId !== sessionId || !Number.isSafeInteger(end) || end < 0) return;
+    const generation = this.selectionGeneration;
+    if (this.attachedGeneration !== generation || this.attachWatch?.sessionId === sessionId) {
+      const owed = this.rewindOwed;
+      const same = owed?.sessionId === sessionId && owed.generation === generation;
+      this.rewindOwed = { sessionId, generation, end: same ? Math.min(owed.end, end) : end };
+      return;
+    }
+    this.emit("resyncing");
+    this.applyRewind(sessionId, generation, end);
+  }
+
+  /// The journal of `sessionId` went back to `end`: every read of it out now is from before
+  /// (`rewindEpoch`), the records held past `end` go (`dropPastJournal`), and the chat is read
+  /// again from the machine (`repairRewound`). `held`: what the pane held before anything of the
+  /// machine's was merged in, when an attach's page already was.
+  private applyRewind(
+    sessionId: string,
+    generation: number,
+    end: number,
+    held?: ReadonlyMap<number, EventRecord>,
+  ): void {
+    const epoch = this.noteRewind(sessionId, generation, end);
+    this.dropPastJournal(sessionId, end);
+    this.repairRewound(sessionId, generation, end, epoch, held ?? heldBySeq(this.events));
+  }
+
+  /// Counts one more time the journal of `sessionId` went back, to `end`, and answers the new
+  /// count: a read asked before it drops its answer (`rewindEpoch`).
+  private noteRewind(sessionId: string, generation: number, end: number): number {
+    this.rewindEpoch += 1;
+    this.lastRewind = { sessionId, generation, end, epoch: this.rewindEpoch };
+    return this.rewindEpoch;
+  }
+
+  /// Whether a read of `sessionId` asked under `generation` and rewind count `epoch` still is the
+  /// chat's: the same chat shown, and its journal has not gone back since (`rewindEpoch`).
+  private readCurrent(sessionId: string, generation: number, epoch: number): boolean {
+    return (
+      !this.closed &&
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      epoch === this.rewindEpoch
+    );
+  }
+
+  /// The end a rewind owed to this attach repairs from (`attachWatched`): a notice held while it
+  /// was out (`rewindOwed`), or a rewind the pane found itself meanwhile (a read refused as past
+  /// the journal's end) after which this attach's page may hold the lost records again.
+  private takeRewindOwed(sessionId: string, generation: number, askedEpoch: number): number | undefined {
+    let end: number | undefined;
+    const owed = this.rewindOwed;
+    if (owed?.sessionId === sessionId && owed.generation === generation) {
+      this.rewindOwed = undefined;
+      end = owed.end;
+    }
+    const last = this.lastRewind;
+    if (last && last.epoch > askedEpoch && last.sessionId === sessionId && last.generation === generation)
+      end = Math.min(end ?? last.end, last.end);
+    return end;
+  }
+
+  /// After the records past `end` went (`dropPastJournal`): the newest ones kept are read again as
+  /// the machine has them (`readRewoundTailRetrying`), then everything after `end`. `held` is what
+  /// the pane held before anything of the machine's was merged in (an attach's page already was).
+  /// Nothing more once the journal went back again (`epoch`): that rewind's repair reads instead.
+  private repairRewound(
+    sessionId: string,
+    generation: number,
+    end: number,
+    epoch: number,
+    held: ReadonlyMap<number, EventRecord>,
+  ): void {
+    const forward = () => {
+      if (this.readCurrent(sessionId, generation, epoch)) this.readMissedAfterLag(sessionId, generation, end, 0);
+    };
+    void this.readRewoundTailRetrying(sessionId, generation, end, epoch, held).then(forward, forward);
+  }
+
+  /// `readRewoundTail`, again after a failed read: a notice from the Mac's acpmux comes while its
+  /// link to the machine is still connecting and refuses requests (`Peer::request_on`), and the
+  /// read on from `end` never repairs the rewritten records at or below it. Each try compares to
+  /// the same `held`, so a page merged by a failed try proves nothing. It stops when a try lands,
+  /// the chat, connection or journal changes, or after `LAG_RETRY_MS`'s tries, when the rows read
+  /// so far stay and the pane reads on.
+  private async readRewoundTailRetrying(
+    sessionId: string,
+    generation: number,
+    end: number,
+    epoch: number,
+    held: ReadonlyMap<number, EventRecord>,
+  ): Promise<void> {
+    const current = () => this.readCurrent(sessionId, generation, epoch);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.readRewoundTail(sessionId, generation, end, epoch, held);
+        return;
+      } catch (error) {
+        const delay = LAG_RETRY_MS[attempt];
+        if (!current() || delay === undefined || this.socket?.readyState !== WebSocket.OPEN) {
+          console.warn(`acpmux: could not read back the journal of ${sessionId} to ${end}`, error);
+          return;
+        }
+        await new Promise((done) => setTimeout(done, delay));
+        if (!current()) return;
+      }
+    }
+  }
+
+  /// The machine's records up to `end`, read back page by page from it, replace the ones this pane
+  /// holds of those seqs: where its journal went back to may be below `end` (it wrote on before the
+  /// pane learned, and `end` is where it is now), and the rows past that point were the lost ones.
+  /// It stops at the first page whose oldest record is the one this pane holds (same seq, time and
+  /// kind: synced before the stop), at the oldest record held, or after `REWIND_PAGES` pages, so it
+  /// reads about what was rewritten, never the whole chat. A page read before the journal went
+  /// back again (`epoch`) is dropped: it may hold the records that rewind lost.
+  private async readRewoundTail(
+    sessionId: string,
+    generation: number,
+    end: number,
+    epoch: number,
+    original: ReadonlyMap<number, EventRecord>,
+  ): Promise<void> {
+    let changed = false;
+    for (let before = end + 1, pages = 0; pages < REWIND_PAGES && before > (this.firstSeq ?? 1); pages++) {
+      const result = await this.typed("_acpmux/events", { sessionId, beforeSeq: before, limit: REWIND_PAGE });
+      if (!this.readCurrent(sessionId, generation, epoch)) return;
+      const page = records(result?.events);
+      const oldest = page[0];
+      if (!oldest) break;
+      const held = original.get(oldest.seq);
+      const synced = held !== undefined && held.at === oldest.at && held.kind === oldest.kind;
+      // The machine's own records win over the ones this pane held of the same seqs.
+      this.events = mergeEventRecords(this.events, page);
+      changed = true;
+      if (synced || result?.hasMore !== true) break;
+      before = oldest.seq;
+    }
+    if (changed) this.rebuildKeepingLiveState();
+  }
+
+  /// Drops every record this pane holds of `sessionId` past `end`, where its journal ends now, and
+  /// draws the chat again without them: their seqs are the next records' (`journalRewound`). The
+  /// seqs read state was taken at go back with them. False: nothing was past it. The caller counts
+  /// the rewind (`noteRewind`), so reads out from before it drop their answers.
+  private dropPastJournal(sessionId: string, end: number): boolean {
+    if (this.selectedSessionId !== sessionId) return false;
+    if (this.lastSeq <= end && !this.events.some((event) => event.seq > end)) return false;
+    console.warn(`acpmux: the journal of ${sessionId} went back to ${end}; the pane held through ${this.lastSeq}`);
+    this.events = this.events.filter((event) => event.seq <= end);
+    if (this.copyLive) for (const seq of this.copyLive.keys()) if (seq > end) this.copyLive.delete(seq);
+    if (this.turnOpener && this.turnOpener.seq > end) this.turnOpener = undefined;
+    for (const [key, gap] of this.gapReads) if (gap.sessionId === sessionId && gap.seq > end) this.gapReads.delete(key);
+    this.configSeq = Math.min(this.configSeq, end);
+    this.limitsSeq = Math.min(this.limitsSeq, end);
+    this.goalSeq = Math.min(this.goalSeq, end);
+    // `rebuild` takes lastSeq from the records kept.
+    this.rebuild();
+    return true;
   }
 
   /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
@@ -4480,14 +4683,45 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
+    let rewound = false;
+    // The journal as it was when this read asked (`rewindEpoch`): an answer read before it went
+    // back holds the records it lost, so it is dropped and its page asked again.
+    let epoch = this.rewindEpoch;
     for (let cursor = afterSeq; ;) {
       this.gapReads.set(key, { sessionId, seq: cursor });
-      const result = await this.typed("_acpmux/events", {
-        sessionId,
-        afterSeq: cursor,
-        limit: 5_000,
-      });
+      let result: any;
+      try {
+        result = await this.typed("_acpmux/events", {
+          sessionId,
+          afterSeq: cursor,
+          limit: 5_000,
+        });
+      } catch (error) {
+        // Refused because the cursor is past the chat's journal: its machine went back to a
+        // shorter log (a hard stop before it synced), so what this pane holds past that end goes
+        // and the read starts there. Once: a journal that keeps going back fails the read.
+        const end = journalEndOf(error);
+        if (end === undefined || end >= cursor || rewound) throw error;
+        if (!this.readCurrent(sessionId, generation, epoch)) return;
+        rewound = true;
+        epoch = this.noteRewind(sessionId, generation, end);
+        this.dropPastJournal(sessionId, end);
+        await this.readRewoundTailRetrying(sessionId, generation, end, epoch, heldBySeq(this.events));
+        // Gone back again meanwhile: that rewind's repair reads the chat on from its end.
+        if (!this.readCurrent(sessionId, generation, epoch)) return;
+        afterSeq = Math.min(afterSeq, end);
+        cursor = end;
+        continue;
+      }
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (epoch !== this.rewindEpoch) {
+        // The journal went back while this page was out: the page may hold the records it lost.
+        // A hole at or below the new end is read again; one past it went with the rows past it,
+        // and the rewind's repair reads on from there (`dropPastJournal`).
+        if (!this.gapReads.has(key)) return;
+        epoch = this.rewindEpoch;
+        continue;
+      }
       const missed = records(result?.events);
       this.events = mergeEventRecords(this.events, missed);
       this.sawPrompts(missed);
@@ -5866,6 +6100,12 @@ export class AcpmuxDirectClient {
     // (`drawKeptTail`) until this attach answers is held until it says whether they are this
     // session's.
     if (keptThrough > 0 || this.peerCopy?.sessionId === sessionId) this.copyLive ??= new Map();
+    // How far the rows this pane holds of the chat went when the attach was asked (a reconnect's,
+    // a kept tail's): the machine's log was at least there then, unless it went back since.
+    const heldAtAsk = Math.max(this.lastSeq, keptThrough);
+    // The journal as it was when the attach was asked (`rewindEpoch`): a rewind found while it was
+    // out is repaired once its page is in (`takeRewindOwed`).
+    const askedEpoch = this.rewindEpoch;
     // The machine the row names when the attach is asked: a reply that comes after the session
     // moved to another is that machine's journal, not the one the row names now.
     // The session it names too: a row that changed while the attach was out may name another.
@@ -5996,6 +6236,25 @@ export class AcpmuxDirectClient {
       this.lastSeq = this.events.at(-1)?.seq ?? 0;
       this.firstSeq = this.events[0]?.seq;
     }
+    // The same session, whose log now ends before rows this pane held when it asked: its machine
+    // came back from a hard stop on what it had synced (a Cloud machine's power loss or a disk
+    // restored on resume), and its new records reuse the seqs of the ones lost. Those rows go, or
+    // the page's records would not replace them and every live one up to the old cursor would be
+    // refused as seen; the older rows stay. What came live while this attach was out is read again
+    // from the log's end once it is attached (below). On any machine, a chat on this Mac too.
+    const logEnd = typeof result?.lastSeq === "number" ? result.lastSeq : hostLast;
+    const rewoundTo = !replaced && logEnd !== undefined && heldAtAsk > logEnd ? logEnd : undefined;
+    // What the pane held of the journal before the page is merged over it (below): the read back
+    // compares to these, since the page's own records would prove its first page synced.
+    let rewoundHeld: ReadonlyMap<number, EventRecord> | undefined;
+    if (rewoundTo !== undefined) {
+      console.warn(`acpmux: the journal of ${sessionId} went back to ${rewoundTo}; the pane held through ${heldAtAsk}`);
+      this.events = this.events.filter((event) => event.seq <= rewoundTo);
+      this.lastSeq = Math.min(this.lastSeq, rewoundTo);
+      for (const [key, gap] of this.gapReads)
+        if (gap.sessionId === sessionId && gap.seq > rewoundTo) this.gapReads.delete(key);
+      rewoundHeld = heldBySeq(this.events);
+    }
     if (replaced || (keptThrough > 0 && oldest > keptThrough + 1)) {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
@@ -6065,8 +6324,19 @@ export class AcpmuxDirectClient {
     } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    // Merged after the opener's read: live events that landed meanwhile are kept.
-    this.events = mergeEventRecords(page, this.events);
+    // A rewind that came while the attach was out (a `_acpmux/rewound` held for it, or one a read
+    // found): the page may have been read from the journal before it went back, so it proves
+    // nothing of the records at or below that end, and holds the lost ones past it. The pane
+    // repairs from there once attached (below), comparing to what it held before the page.
+    const owedTo = this.takeRewindOwed(sessionId, generation, askedEpoch);
+    const repairTo = owedTo === undefined ? rewoundTo : Math.min(owedTo, rewoundTo ?? owedTo);
+    const repairHeld =
+      repairTo === undefined
+        ? undefined
+        : (rewoundHeld ?? heldBySeq(this.events.filter((event) => event.seq <= repairTo)));
+    // Merged after the opener's read: live events that landed meanwhile are kept. Over a journal
+    // that went back, the page's records are the machine's and win over those held of their seqs.
+    this.events = repairTo === undefined ? mergeEventRecords(page, this.events) : mergeEventRecords(this.events, page);
     this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
@@ -6089,6 +6359,7 @@ export class AcpmuxDirectClient {
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
+    if (repairTo !== undefined) this.applyRewind(sessionId, generation, repairTo, repairHeld);
     // A lag marker that came before this reply (`resyncAfterLag`): read what it dropped from where
     // the machine read the page, so events dropped after that read come back.
     const lagOwed = this.lagOwed;
@@ -6181,13 +6452,15 @@ export class AcpmuxDirectClient {
 
   /// The newest command list at or before `lastSeq`, unless a live update already arrived.
   private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
+    const epoch = this.rewindEpoch;
     const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: lastSeq + 1,
       limit: 1,
       kinds: [COMMANDS_KIND],
     });
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commandsApplied) return;
+    // A list read before the journal went back may be one it lost (`rewindEpoch`).
+    if (!this.readCurrent(sessionId, generation, epoch) || this.commandsApplied) return;
     const event: EventRecord | undefined = records(result?.events).at(-1);
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     if (!commands) return;
@@ -6405,6 +6678,8 @@ export class AcpmuxDirectClient {
   /// tried again on `LAG_RETRY_MS`; the chat changing or the pane closing stops it.
   private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
     const generation = this.selectionGeneration;
+    // A turn read before the journal went back may hold the records it lost (`rewindEpoch`).
+    const epoch = this.rewindEpoch;
     // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
     // `turn_error` come just before its result, so only a result ends the turn before. A turn
     // older than the records held is read from the oldest one held: the part shown is repaired.
@@ -6424,7 +6699,7 @@ export class AcpmuxDirectClient {
     const afterSeq = start - 1;
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {
-        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+        if (!this.readCurrent(sessionId, generation, epoch)) return;
         const held = new Set(this.events.map((event) => event.seq));
         const missing = stored.filter((event) => !held.has(event.seq));
         if (missing.length === 0) return;
@@ -12570,6 +12845,9 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
     const epoch = this.historyEpoch;
+    // A page read before the journal went back may hold records it lost (`rewindEpoch`): one that
+    // went back below the held rows takes the records past its end from under them too.
+    const rewinds = this.rewindEpoch;
     // The prompt drawn first: the open turn's opener when the held events start mid-turn.
     const drawnFrom = this.turnOpener?.seq ?? this.firstSeq;
     const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
@@ -12609,7 +12887,7 @@ export class AcpmuxDirectClient {
       // The held transcript's older end moved while this read was out (a kept tail the attach
       // page did not continue): these records sit above a transcript the chat no longer holds. The
       // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
-      if (epoch !== this.historyEpoch) return;
+      if (epoch !== this.historyEpoch || rewinds !== this.rewindEpoch) return;
       const page = records(result?.events);
       read.push(page);
       found ||= page.some(opensOlderTurn);

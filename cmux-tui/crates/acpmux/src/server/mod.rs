@@ -1946,6 +1946,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
+    if ev.record.kind == crate::hub::PEER_REWOUND {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            let mut params = ev.record.msg.clone();
+            if let Some(remote) = &ev.remote {
+                params["peer"] = json!(remote.peer);
+            }
+            conn.send(&Message::notification(method::MUX_REWOUND, params));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
