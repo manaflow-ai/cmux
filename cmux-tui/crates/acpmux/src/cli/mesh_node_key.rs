@@ -136,7 +136,7 @@ pub(crate) fn link_adopted(link_dir: Option<&Path>, home: &Path) -> bool {
 /// and [`adoption_depends_held`] (`machine.tunnel.rekey`, [`promote_pending_held`]) ask it under
 /// the WireGuard key lock, which the link adopts under.
 pub(crate) fn adoption_depends(home: &Path) -> bool {
-    link_adopted(link_dir_for(home).as_deref(), home)
+    link_dirs_for(home).iter().any(|link_dir| link_adopted(Some(link_dir), home))
 }
 
 /// [`adoption_depends`], asked with the key lock (`_held`) held, so no adoption begins before
@@ -157,14 +157,16 @@ pub(crate) fn refuse_adopted_held(home: &Path, held: &KeyHolder) -> Result<()> {
     Ok(())
 }
 
-/// This machine's link state directory; a test's is beside its home. The one the app recorded
-/// in `home` ([`record_link_home`]) first: a process launchd or another app started may have
-/// none of the app's environment.
-pub(crate) fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
-    if cfg!(test) {
-        return Some(home.join("link"));
-    }
-    recorded_link_dir(home).or_else(crate::wireguard::link_state_dir)
+/// Every cmux link state directory that may depend on the node key in `home`: each one the
+/// app ever recorded there ([`record_link_home`], never forgotten: a link that adopted keeps
+/// depending on the key after another link directory is set up on the same home), and the one
+/// by this process's environment (a test's is beside its home).
+pub(crate) fn link_dirs_for(home: &Path) -> Vec<std::path::PathBuf> {
+    let mut dirs = recorded_link_dirs(home);
+    let by_env =
+        if cfg!(test) { Some(home.join("link")) } else { crate::wireguard::env_link_state_dir() };
+    dirs.extend(by_env.filter(|dir| !dirs.contains(dir)));
+    dirs
 }
 
 /// In a cmux link's state directory: the acpmux home whose node key the link adopts, resolved
@@ -173,8 +175,8 @@ pub(crate) fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
 /// re-derives the home from its own environment.
 pub const LINK_ACPMUX_HOME: &str = "acpmux-home.json";
 
-/// In an acpmux home: the cmux link state directory that adopts its node key (the other half of
-/// [`LINK_ACPMUX_HOME`]).
+/// In an acpmux home: every cmux link state directory recorded for it, oldest first (the other
+/// half of [`LINK_ACPMUX_HOME`]). A set, only ever added to: each may have adopted the node key.
 pub const HOME_LINK_DIR: &str = "cmux-link.json";
 
 /// In a cmux link's state directory, once the link found the acpmux home it adopts from copied
@@ -188,9 +190,13 @@ struct HomeRecord {
     acpmux_home: std::path::PathBuf,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct LinkDirRecord {
-    link_dir: std::path::PathBuf,
+    #[serde(default)]
+    link_dirs: Vec<std::path::PathBuf>,
+    /// The single entry an earlier build of this change wrote.
+    #[serde(default, skip_serializing)]
+    link_dir: Option<std::path::PathBuf>,
 }
 
 /// Record that the cmux link in `link_dir` adopts the node key of acpmux home `home`, resolved
@@ -211,10 +217,23 @@ pub fn record_link_home(link_dir: &Path, home: Option<&Path>) -> Result<()> {
         let bytes = serde_json::to_vec(&HomeRecord { acpmux_home: home.to_owned() })?;
         write_record(&record, &bytes)?;
     }
-    if recorded_link_dir(home).as_deref() != Some(link_dir) {
+    let mut dirs = recorded_link_dirs(home);
+    if !dirs.iter().any(|dir| dir == link_dir) {
         crate::config::private_state_dir(home)?;
-        let bytes = serde_json::to_vec(&LinkDirRecord { link_dir: link_dir.to_owned() })?;
-        write_record(&home.join(HOME_LINK_DIR), &bytes)?;
+        // Read and written under a lock of its own: two links set up at once both stay.
+        let lock = crate::config::private_state_rw(&home.join("cmux-link.lock"))?;
+        lock.lock().context("lock the home's link record")?;
+        dirs = recorded_link_dirs(home);
+        let written = if dirs.iter().any(|dir| dir == link_dir) {
+            Ok(())
+        } else {
+            dirs.push(link_dir.to_owned());
+            serde_json::to_vec(&LinkDirRecord { link_dirs: dirs, link_dir: None })
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| write_record(&home.join(HOME_LINK_DIR), &bytes))
+        };
+        let _ = lock.unlock();
+        written?;
     }
     Ok(())
 }
@@ -225,10 +244,37 @@ pub fn recorded_home(link_dir: &Path) -> Option<std::path::PathBuf> {
     serde_json::from_slice::<HomeRecord>(&text).ok().map(|record| record.acpmux_home)
 }
 
-/// The link state directory the app recorded in acpmux home `home` ([`record_link_home`]).
+/// Every link state directory the app recorded in acpmux home `home` ([`record_link_home`]),
+/// oldest first.
+pub(crate) fn recorded_link_dirs(home: &Path) -> Vec<std::path::PathBuf> {
+    let Some(record) = std::fs::read(home.join(HOME_LINK_DIR))
+        .ok()
+        .and_then(|text| serde_json::from_slice::<LinkDirRecord>(&text).ok())
+    else {
+        return Vec::new();
+    };
+    let mut dirs = record.link_dirs;
+    dirs.extend(record.link_dir.filter(|dir| !dirs.contains(dir)));
+    dirs
+}
+
+/// The link state directory recorded in `home` that serves (or will serve) its node key: one
+/// that adopted it first, else the one recorded last.
 pub(crate) fn recorded_link_dir(home: &Path) -> Option<std::path::PathBuf> {
-    let text = std::fs::read(home.join(HOME_LINK_DIR)).ok()?;
-    serde_json::from_slice::<LinkDirRecord>(&text).ok().map(|record| record.link_dir)
+    let dirs = recorded_link_dirs(home);
+    let adopted = dirs.iter().find(|dir| {
+        std::fs::read(dir.join("key-adopted.json"))
+            .ok()
+            .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
+            .and_then(|record| record.get("key_dir")?.as_str().map(std::path::PathBuf::from))
+            .is_some_and(|key_dir| same_path(&key_dir, home))
+    });
+    adopted.or(dirs.last()).cloned()
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    canonical(a) == canonical(b)
 }
 
 /// Whether the node key in acpmux home `home` is another machine's: by acpmux's own clone
@@ -652,6 +698,37 @@ mod tests {
         )
         .unwrap();
         assert!(!link_serves_node_key(Some(&link), &home));
+    }
+
+    /// Review F3 at 7837efd1: link L1 adopted this home's key, then link L2 was set up on the
+    /// same home without adopting. Both stay recorded, the guard reads both, and a leave (or a
+    /// copy's replacement) keeps L1's adopted key; the transport finds L1.
+    #[test]
+    fn a_second_link_dir_never_hides_the_first_ones_adoption() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("acpmux");
+        let kept = load_or_create_at(&home).unwrap();
+        let (l1, l2) = (dir.path().join("l1"), dir.path().join("l2"));
+        for link in [&l1, &l2] {
+            std::fs::create_dir_all(link).unwrap();
+            std::fs::write(link.join("config.json"), r#"{"install":"inst_a","port":0}"#).unwrap();
+        }
+        record_link_home(&l1, Some(&home)).unwrap();
+        let adopted = serde_json::json!({ "key_dir": home });
+        std::fs::write(l1.join("key-adopted.json"), adopted.to_string()).unwrap();
+        record_link_home(&l2, Some(&home)).unwrap();
+        assert_eq!(recorded_link_dirs(&home), vec![l1.clone(), l2.clone()]);
+        assert!(adoption_depends(&home), "L2 hid L1's adoption");
+        assert!(matches!(lock_to_remove(&home).unwrap(), RemoveLock::Adopted));
+        let refused = replace_at(&home).unwrap_err();
+        assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
+        assert_eq!(public_key_at(&home), Some(kept.public_key));
+        assert_eq!(recorded_link_dir(&home), Some(l1.clone()), "the adopted link serves");
+        // Recording L1 again changes nothing; neither does L2 dropping its home.
+        record_link_home(&l1, Some(&home)).unwrap();
+        record_link_home(&l2, None).unwrap();
+        assert_eq!(recorded_link_dirs(&home), vec![l1, l2]);
+        assert!(adoption_depends(&home));
     }
 
     /// Review F1 and F2 at c1898fca: a sign-out archives the adoption record with its install

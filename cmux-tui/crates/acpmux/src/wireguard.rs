@@ -83,8 +83,12 @@ pub(crate) type KeyUser =
 /// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
 /// environment.
 pub(crate) fn link_state_dir() -> Option<PathBuf> {
-    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home())
-        .or_else(|| cmux_tui_platform::platform::workspace_state_dir().map(|dir| dir.join("link")))
+    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
+}
+
+/// `<daemon state dir>/link` by this process's environment.
+pub(crate) fn env_link_state_dir() -> Option<PathBuf> {
+    cmux_tui_platform::platform::workspace_state_dir().map(|dir| dir.join("link"))
 }
 
 /// The install the link in `link_dir` paired with `wireguard_key`, if it did.
@@ -341,6 +345,41 @@ impl Transport {
             _ = stopping(&mut stopped) => Err(anyhow!("WireGuard transport stopped")),
             stream = mesh.connect(remote) => Ok(stream?),
         }
+    }
+
+    /// The handoff to the cmux link of a transport that started before the link was set up on
+    /// this home (the daemon first): it waits, asking every `every`, until a link serves this
+    /// home's node key (`mesh_node_key::link_serves_node_key`, the app's record and the link's
+    /// config: what `cmux link ensure` writes before it starts the link), then stops within
+    /// `budget`, which frees the key lock for the link (the hub carrier keeps no share of it).
+    /// Returns once it stopped, or when the transport stopped otherwise.
+    pub async fn yield_to_link(&self, state_dir: &Path, every: Duration, budget: Duration) {
+        let mut stopped = self.stop.subscribe();
+        loop {
+            let home = state_dir.to_path_buf();
+            let wanted = tokio::task::spawn_blocking(move || {
+                let link_dir =
+                    crate::cli::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
+                // Cheap first (two reads); the full check (with the clone check) only then.
+                link_dir.as_deref().is_some_and(|dir| {
+                    dir.join("config.json").is_file()
+                        && crate::cli::mesh_node_key::link_serves_node_key(Some(dir), &home)
+                })
+            })
+            .await
+            .unwrap_or(false);
+            if wanted {
+                break;
+            }
+            tokio::select! {
+                () = tokio::time::sleep(every) => {}
+                _ = stopping(&mut stopped) => return,
+            }
+        }
+        tracing::info!(
+            "WireGuard transport off: the cmux link now serves this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
+        );
+        self.shutdown(tokio::time::Instant::now() + budget).await;
     }
 
     /// Stop by `deadline`, delivering first what this daemon's listener sent each peer before

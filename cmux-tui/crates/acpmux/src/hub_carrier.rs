@@ -742,10 +742,13 @@ pub async fn start_configured(
         return None;
     }
     let home = state_dir.to_path_buf();
-    // The check lives as long as the carrier, and so does its share of the transport's lock.
+    // The carrier runs only while the transport holds the lock: it keeps no share of it, so a
+    // transport that yields to the cmux link (`Transport::yield_to_link`) frees the key at once,
+    // and from then the check fails: the carrier unregisters and refuses its dials.
+    let holder = Arc::downgrade(&holder);
     let check: KeyCheck = Arc::new(move |public: &[u8; 32]| {
-        let _held = &holder;
-        crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
+        holder.upgrade().is_some()
+            && crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
     });
     let carrier = HubCarrier::with_key_check(
         Arc::new(PlatformTickets { hub: client }),

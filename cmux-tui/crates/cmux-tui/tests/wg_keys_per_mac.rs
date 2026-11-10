@@ -362,3 +362,55 @@ async fn a_leave_on_a_copy_before_the_link_starts_leaves_the_link_refusing() {
     assert!(!link.join("copied-from-another-machine.json").exists());
     assert_refuses_cloned(root.path(), &link, &home);
 }
+
+/// Review F2 at 7837efd1: acpmux starts first, with Labs WireGuard on and no link set up, so its
+/// transport takes this machine's key lock. Then the app sets up and starts the link (`init`,
+/// then the real `serve`): the transport hands the lock over (`yield_to_link`) and the link
+/// adopts and serves the node key; the transport is off and holds nothing.
+#[tokio::test]
+async fn a_transport_started_before_the_link_hands_it_the_key() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    let node = acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap().public_key;
+    let mut config = acpmux::config::Config::default();
+    config.transport.wireguard = true;
+    config.transport.wireguard_static = Some(acpmux::wireguard::StaticConfig {
+        listen: "127.0.0.1:0".parse().unwrap(),
+        address: "10.77.0.1:4100".parse().unwrap(),
+    });
+    let transport = acpmux::wireguard::Transport::start_with_link(
+        &config,
+        &home,
+        Some(&link),
+        "127.0.0.1:1".parse().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("no link yet: the transport runs");
+    assert!(cmux_link::key_holder::KeyHolder::acquire(&home).is_err(), "the transport holds it");
+    let handoff = tokio::spawn({
+        let (transport, home) = (transport.clone(), home.clone());
+        async move {
+            transport
+                .yield_to_link(
+                    &home,
+                    std::time::Duration::from_millis(100),
+                    std::time::Duration::from_secs(2),
+                )
+                .await;
+        }
+    });
+    init(root.path(), &link);
+    let (_serving, _) = serve_until_ready(root.path(), &link, &home).await;
+    tokio::time::timeout(std::time::Duration::from_secs(10), handoff)
+        .await
+        .expect("the transport never yielded")
+        .unwrap();
+    assert!(link.join("key-adopted.json").is_file(), "the link did not adopt");
+    let show = cmux(root.path(), &["link", "show", "--state-dir", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let shown: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
+    assert_eq!(shown["public_key"], STANDARD.encode(node), "{shown}");
+}

@@ -1176,3 +1176,32 @@ async fn a_pending_rekey_puts_off_the_first_adoption_until_it_is_settled() {
         assert!(adopted(&state).unwrap().is_some());
     }
 }
+
+/// Review F1 at 7837efd1: a home with a node key and a join begun on another box (no machine
+/// record yet): a fresh link never adopts or serves the key.
+#[tokio::test]
+async fn a_home_with_a_pending_join_from_another_box_is_never_adopted() {
+    if !box_named() {
+        return;
+    }
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let machine = machine();
+    let home = &machine.home;
+    acpmux::cli::mesh_node_key::load_or_create_at(home).unwrap();
+    let pending = serde_json::json!({"version": 1, "credential": "cmm_x",
+        "hub": "https://example.com", "name": "original", "hostname": "original",
+        "platform": "linux", "wg_public_key": "k", "prior": null, "host_fingerprint": "another-box"});
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(home.join("machine-join.pending.json"))
+        .unwrap();
+    std::io::Write::write_all(&mut file, pending.to_string().as_bytes()).unwrap();
+    drop(file);
+    let refused = refused(&machine, Some(home)).await;
+    assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    assert!(adopted(&state).unwrap().is_none());
+    assert!(acpmux::cli::mesh_node_key::serves_copied_key(home));
+}

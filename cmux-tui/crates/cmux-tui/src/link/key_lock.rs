@@ -29,6 +29,10 @@ use serde_json::json;
 use super::ensure::ReadyPipe;
 use super::state::{self, LinkState};
 
+/// How long `serve` waits for acpmux's WireGuard transport to hand over the key lock (it asks
+/// every 2 s); well inside `ensure`'s start budget.
+const HANDOFF_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// The flag that names the lock directory to `serve`.
 pub(super) const FLAG: &str = "--key-lock-dir";
 
@@ -42,7 +46,21 @@ pub(super) fn take(
     ready: &mut Option<ReadyPipe>,
 ) -> anyhow::Result<KeyHolder> {
     let dir = explicit.map_or_else(|| lock_dir(state), Path::to_path_buf);
-    match KeyHolder::acquire(&dir) {
+    // A lock in the acpmux home this link adopts from may be held by acpmux's WireGuard
+    // transport, started before this link was set up: it hands the lock over once it sees the
+    // link (`Transport::yield_to_link`, every 2 s). Wait that long, never more.
+    let hands_over = acpmux::cli::mesh_node_key::recorded_home(state.dir())
+        .is_some_and(|home| same_dir(&home, &dir));
+    let deadline = std::time::Instant::now() + HANDOFF_WAIT;
+    let mut acquired = KeyHolder::acquire(&dir);
+    while hands_over
+        && matches!(acquired, Err(KeyHolderError::KeyHeld { .. }))
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        acquired = KeyHolder::acquire(&dir);
+    }
+    match acquired {
         Ok(holder) => Ok(holder),
         Err(KeyHolderError::KeyHeld { pid }) => {
             let message = held_message(pid, &dir);

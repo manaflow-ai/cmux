@@ -33,7 +33,8 @@ const COPIED: &str = "machine-join.pending.copied.json";
 /// holds the join lock.
 fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let Some(p) = read()? else { return Ok(false) };
-    let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
+    // The shared comparison (`other_box`, what `home_copy_state` asks of a pending join).
+    let copied = other_box(&state_dir(), p.host_fingerprint.as_deref(), current);
     if copied {
         // The node key beside it is the original box's too: recorded before anything here
         // could join with it or replace the record that would show the copy.
@@ -43,6 +44,16 @@ fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
         sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     }
     Ok(copied)
+}
+
+/// The box a join pending in `home` was proposed on: `None` when there is none (or it cannot be
+/// read: [`read`] refuses it before it is used), `Some(None)` for one an older build wrote with
+/// no fingerprint. Read for its fingerprint only, by any process that decides whether `home`
+/// was copied (`home_copy_state`).
+pub(super) fn pending_made_on(home: &Path) -> Option<Option<String>> {
+    let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
+    let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
+    Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
