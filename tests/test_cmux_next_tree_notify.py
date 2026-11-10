@@ -394,6 +394,7 @@ class Notify(unittest.TestCase):
 
         class Response(io.BytesIO):
             status = 200
+            headers: dict[str, str] = {}  # urlopen_within reads them as urlopen's answer has them
 
             def __enter__(self):
                 return self
