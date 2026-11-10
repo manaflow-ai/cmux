@@ -414,6 +414,14 @@ export function cloudStartEnded(
   // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
+  // The team's spending cap or the member's own budget refused the machine's start (cmux-platform SpendCap.ts):
+  // the host passes the backend's words, which name it; the card says it in the person's language, with
+  // Run on This Mac (CloudStartView), since another try fails the same way until an admin raises it.
+  const spend = refusedHere ? undefined : spendRefusal(answer.code, answer.message);
+  if (spend) {
+    const { signingIn: _s, ask: _a, ...rest } = current;
+    return { ...rest, state: "failed", code: spend, message: translate(SPEND_WORDS[spend]) };
+  }
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
   const { signingIn: _signingIn, ask: _ask, ...ended } = current;
@@ -443,6 +451,24 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "cloud_attachments")
     return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
   return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+}
+
+/// A Cloud start the team's spending cap (`cloud.spend_cap.reached`) or the member's monthly budget
+/// (`cloud.member_budget.reached`) refused, read from the host's code or the backend's words it passes on
+/// ("this team has spent … of its … spending cap; an admin can raise it").
+const SPEND_CAP = /\bcloud\.spend_cap\.reached\b|\bspend_cap_reached\b|\bspending cap\b/i;
+const MEMBER_BUDGET = /\bcloud\.member_budget\.reached\b|\bmember_budget_reached\b|\bmonthly budget\b/i;
+export type SpendRefusalCode = "cloud_spend_cap" | "cloud_member_budget";
+const SPEND_WORDS = {
+  cloud_spend_cap: "cloudStart.spendCap",
+  cloud_member_budget: "cloudStart.memberBudget",
+} as const;
+
+export function spendRefusal(code: string, message?: string): SpendRefusalCode | undefined {
+  const words = `${code} ${message ?? ""}`;
+  if (SPEND_CAP.test(words)) return "cloud_spend_cap";
+  if (MEMBER_BUDGET.test(words)) return "cloud_member_budget";
+  return undefined;
 }
 
 /// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`

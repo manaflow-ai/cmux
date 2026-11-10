@@ -324,6 +324,29 @@ export function CloudStartView({
           )}
         </span>
       )}
+      {/* The team's spending cap or the member's budget refused the machine (cloudStartProgress `spendRefusal`):
+          the card says an admin can raise it; This Mac runs the same prompt now, Not now leaves the draft. */}
+      {failed &&
+        (start.code === "cloud_spend_cap" || start.code === "cloud_member_budget") &&
+        (onRunHere || onDismiss) && (
+          <span className="acpmux-cloud-ask__actions">
+            {onRunHere && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-role="default"
+                onClick={() => onRunHere()}
+              >
+                {planLabels.runHere}
+              </button>
+            )}
+            {onDismiss && (
+              <button type="button" className="acpmux-cloud-ask__button" onClick={() => onDismiss()}>
+                {t("harness.notNow")}
+              </button>
+            )}
+          </span>
+        )}
       {failed && start.retryable && onRetry && (
         <span className="acpmux-cloud-ask__actions">
           <button

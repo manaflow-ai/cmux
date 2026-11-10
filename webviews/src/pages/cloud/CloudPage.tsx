@@ -8,7 +8,7 @@ import { AccountPanel } from "./AccountPanel";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
-import { MigrationBanner, PlanNotice } from "./Notices";
+import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
@@ -70,6 +70,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     if (!snap.auth.signedIn || storefront)
       return (
         <>
+          {snap.auth.signedIn && <SpendCapBanner state={snap} strings={strings} />}
           {snap.refusal && (
             <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
           )}
@@ -87,6 +88,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     const selected = snap.rows.find((row) => row.id === snap.selection);
     return (
       <>
+        <SpendCapBanner state={snap} strings={strings} />
         <MigrationBanner store={store} state={snap} strings={strings} />
         {snap.refusal && <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />}
         {snap.blocked === "no_snapshot_configured" && (

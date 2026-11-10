@@ -1,10 +1,12 @@
 // Account, plan and usage. `cloud.plan.get` answers the limits and the usage in one record; the page
-// shows them as the backend reports them (machines, snapshots, compute hours) and computes no limit.
+// shows them as the backend reports them (machines, snapshots, compute hours, the team's spend against its
+// spending cap) and computes no limit.
 // "See plans" (Notices.tsx) links the public plans page until billing lands, then runs the checkout.
 // Ops the owner does not serve yet (team list, sign-out) show "Not available yet".
 import type { Strings } from "../shared/i18n";
 import { percent } from "./model";
 import { AccountOps } from "./ops";
+import { usd } from "./spendCap";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 
@@ -47,6 +49,9 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
   const signOutUnavailable = unavailable.includes(AccountOps.signOut);
   const hoursUsed = finite(plan?.usage.vm_hours_used);
   const hoursIncluded = finite(plan?.limits.vm_hours_included);
+  // The team's spend against its spending cap this period (cloud.plan.get `spend_cap`, absent without the cap).
+  const capSpent = finite(plan?.spend_cap?.spent_usd);
+  const capLimit = finite(plan?.spend_cap?.cap_usd);
   return (
     <aside className="cloud-account" aria-label={t(L.plan)}>
       <div className="cloud-account-row">
@@ -99,6 +104,14 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
               limit={plan.limits.max_saved}
               text={format(t(L.planUsed), { used: plan.usage.saved, limit: plan.limits.max_saved })}
             />
+            {capSpent !== undefined && capLimit !== undefined && (
+              <UsageRow
+                label={t(L.capTeamSpend)}
+                used={capSpent}
+                limit={capLimit}
+                text={`${usd(capSpent, language)} / ${usd(capLimit, language)}`}
+              />
+            )}
             {hoursUsed !== undefined && (
               <UsageRow
                 label={t(L.usageCompute)}

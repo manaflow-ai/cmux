@@ -724,7 +724,11 @@ export class CloudStore {
       (intent) => !(intent.replied && intent.revision === undefined && intent.machine === target),
     );
     if (pending.length !== this.state.pending.length) this.state = { ...this.state, pending };
+    // The team's spending cap marks its machines (a pending pause, a pause) through these events alone
+    // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
+    const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
     this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
+    if (capChanged) void this.account.readPlan(this.session);
   }
 
   /**
@@ -919,4 +923,13 @@ export function failure(error: unknown, withMessage = true): Partial<CloudState>
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
+}
+
+/** Whether `next` carries other spending cap marks (`spend_cap_pause_at`, `paused_by`) than the mirror's copy. */
+function capMarksChanged(machines: readonly CloudMachine[], next: CloudMachine): boolean {
+  const before = machines.find((machine) => machine.id === next.id);
+  return (
+    (before?.spend_cap_pause_at ?? null) !== (next.spend_cap_pause_at ?? null) ||
+    (before?.paused_by ?? null) !== (next.paused_by ?? null)
+  );
 }
