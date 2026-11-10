@@ -520,7 +520,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT]
-                             [--cwd DIR | --from-folder PATH]
+                             [--cwd DIR | --from-folder PATH [--allow-large]]
                              [--login pass|machine|none] [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room] [--json]
@@ -543,6 +543,8 @@ older name; both run the same start.
                      the disk's root or a credential folder; not with
                      --cwd. The same command again on the same machine
                      reuses the finished copy.
+  --allow-large      Copy --from-folder even past 20 GB or 500,000 files
+                     (the files the copy sends), which are refused without it
   --login pass|machine|none
                      The agent's login there: yours from this Mac, the
                      machine's own, or none (default: the machine's login or
