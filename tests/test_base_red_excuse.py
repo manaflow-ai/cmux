@@ -6594,7 +6594,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    VENDORED_FINGERPRINT = "899f401b85e748092518e0131de327cedb76e7b972643faa3ecb0df15cd18fba"
+    VENDORED_FINGERPRINT = "9a16adb77a9ab7be3484523a917058dc8de984980a40b0be5d0c1fccb002dd57"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -6716,6 +6716,7 @@ NEW_RED = "concurrency: error: Sources/New.swift:9 blocks the main thread"
 NEGATIVE_CASE = "licenses: error: pinned license manifest digest changed"
 EXIT = "##[error]Process completed with exit code 1."
 OLD_RED = NEW_RED.replace("New.swift:9", "Old.swift:3")
+POST_ERROR = "post: error: Sources/New.swift:9 left a lock behind"
 # What judge() refuses a head red in New.swift with: its error is not on the base, or its log does not map one to one.
 NOT_EXCUSED = "New.swift|does not map one to one onto its steps"
 
@@ -6851,6 +6852,33 @@ STEP_OWNERSHIP = {
         [("Tests", 12.2, "##[group]Run scripts/tests.sh"), ("Tests", 12.6, "##[group]Run diagnostic details"),
          ("Tests", 12.7, NEW_RED), ("Tests", 13, EXIT)],
         [], [], [NEW_RED, EXIT]),
+    # #40542's fifth Codex BLOCK: a passing post step's `Post job cleanup.` opens no script echo, so its own group and
+    # the `##[error]` in it are live: the section is ERRORED and kept. So is a passing step whose `##[error]` is in a
+    # group of its own, after its echo or nested, or in a group opened before its echo's `##[endgroup]`.
+    "post_step_with_its_own_group_and_error": (
+        [("Check", "failure", 10, 12), ("Post Run actions/checkout", "success", 13, 13)],
+        [("Check", 10, "##[group]Run scripts/check.sh"), ("Check", 10, "##[endgroup]"), ("Check", 11, OLD_RED),
+         ("Check", 11.5, EXIT), ("Post Run actions/checkout", 13.1, "Post job cleanup."),
+         ("Post Run actions/checkout", 13.2, "##[group]Removing credentials"),
+         ("Post Run actions/checkout", 13.3, "##[error]" + POST_ERROR),
+         ("Post Run actions/checkout", 13.4, "##[endgroup]")],
+        [OLD_RED, EXIT], [], [], ["Post job cleanup.", "##[error]" + POST_ERROR]),
+    "groups_that_are_not_the_script_echo": (
+        [("Lint", "success", 3, 5), ("Nested", "success", 6, 8), ("Early", "success", 9, 11),
+         ("Check", "failure", 12, 14)],
+        [("Lint", 3, "##[group]Run scripts/lint.sh"), ("Lint", 3.1, "##[endgroup]"),
+         ("Lint", 4, "##[group]Lint details"), ("Lint", 4.1, "##[error]lint: Sources/NewA.swift is not formatted"),
+         ("Lint", 4.2, "##[endgroup]"),
+         ("Nested", 6, "##[group]Run scripts/nested.sh"), ("Nested", 6.1, "##[endgroup]"),
+         ("Nested", 7, "##[group]Outer"), ("Nested", 7.1, "##[group]Inner"),
+         ("Nested", 7.2, "##[error]nested: Sources/NewB.swift failed"), ("Nested", 7.3, "##[endgroup]"),
+         ("Nested", 7.4, "##[endgroup]"),
+         ("Early", 9, "##[group]Run scripts/early.sh"), ("Early", 9.1, "##[group]Before the echo ends"),
+         ("Early", 9.2, "##[error]early: Sources/NewC.swift failed"), ("Early", 9.3, "##[endgroup]"),
+         ("Check", 12, "##[group]Run scripts/check.sh"), ("Check", 13, OLD_RED), ("Check", 13.5, EXIT)],
+        [OLD_RED, EXIT], [], [],
+        ["##[error]lint: Sources/NewA.swift is not formatted", "##[error]nested: Sources/NewB.swift failed",
+         "##[error]early: Sources/NewC.swift failed"]),
     # "Complete job" failed after a passing step, with no `##[error]` line: the last section is both steps', and which
     # one printed a line is not proven, so it is AMBIGUOUS: kept, never dropped as the passing step's (LW#4181's
     # Codex P2), and never base evidence (#40542's fourth Codex BLOCK, F2).
@@ -6950,6 +6978,12 @@ class StepOwnership(unittest.TestCase):
 
     def test_passing_step_echoes_failure_text(self):
         self.check("passing_step_echoes_failure_text")
+
+    def test_post_step_with_its_own_group_and_error(self):
+        self.check("post_step_with_its_own_group_and_error")
+
+    def test_groups_that_are_not_the_script_echo(self):
+        self.check("groups_that_are_not_the_script_echo")
 
     def test_failing_complete_job(self):
         self.check("failing_complete_job")
@@ -7087,6 +7121,23 @@ class StepOwnership(unittest.TestCase):
             with self.subTest(columns=columns), self.assertRaisesRegex(excuse.Refused, NOT_EXCUSED):
                 self.judge_pair(steps, lines("New.swift:9", False), steps, lines("Old.swift:3", True), columns)
 
+    def test_codex_repro_a_post_steps_own_group_never_hides_its_error(self):
+        # #40542's fifth Codex BLOCK: `Post job cleanup.` opens no script echo, but the skip ran to the post step's own
+        # `##[endgroup]`, so its `##[error]` line was dropped as a passing step's: the head's New.swift error vanished
+        # and the identical check failure was excused. It is the post step's live error, never matched on the base.
+        steps = [("Check", "failure", 10, 12), ("Post Run actions/checkout", "success", 13, 13)]
+
+        def lines(post_error):
+            return [("Check", 10, "##[group]Run scripts/check.sh"), ("Check", 10.1, "##[endgroup]"),
+                    ("Check", 11, OLD_RED), ("Check", 11.5, EXIT),
+                    ("Post Run actions/checkout", 13.1, "Post job cleanup."),
+                    *([("Post Run actions/checkout", 13.2, "##[group]Removing credentials"),
+                       ("Post Run actions/checkout", 13.3, "##[error]" + POST_ERROR),
+                       ("Post Run actions/checkout", 13.4, "##[endgroup]")] if post_error else [])]
+        for columns in (False, True):
+            with self.subTest(columns=columns), self.assertRaisesRegex(excuse.Refused, NOT_EXCUSED):
+                self.judge_pair(steps, lines(True), steps, lines(False), columns)
+
     def test_codex_repro_a_failing_complete_job_never_makes_the_last_steps_lines_base_evidence(self):
         # #40542's fourth Codex BLOCK, F2: on the base "Complete job" failed after a passing last step that printed the
         # head's New.swift diagnostic; the shared last section was promoted to failed, its line base evidence, and the
@@ -7109,7 +7160,9 @@ class StepOwnership(unittest.TestCase):
 # A seeded property test over random step layouts (cmux#40542's one-to-one rule): composites, self-printed groups,
 # silent steps, same-second boundaries, continue-on-error, duplicate names, a post step, both log formats; inner `Run`
 # lines that copy another step's header or an unnamed (`Run ...`) step's name, a later silent step's included
-# (#40542's third Codex BLOCK, hq#8962 F1); and passing steps that echo failure text (an exit-code line, an
+# (#40542's third Codex BLOCK, hq#8962 F1); `##[error]` lines in groups that are not a script's echo (a post step's
+# own group, a group before or after the echo ends, nested groups: #40542's fifth); and passing steps that echo
+# failure text (an exit-code line, an
 # `##[error]` line in their script's echo, error-shaped lines, another step's diagnostic), failing steps that echo
 # another failing step's diagnostic on the base, and a failing "Complete job" (#40542's fourth Codex BLOCK). The same
 # seed gives the same layouts on every run; a failure names its case number, so `random_layout(Random(SEED + n))`
@@ -7144,7 +7197,7 @@ def random_layout(rng):
     diagnostics = [step[6] for step in plan if step[2] != "success" and step[1] != "silent"]
     steps, head, base, red, prev, may = [], [], [], set(), 2.5, True
     for j, (name, kind, verdict, at, end, header, mine, theirs) in enumerate(plan):
-        texts = []  # (head text, base text)
+        texts, live_error = [], False  # (head text, base text)
         if kind != "silent":
             texts = [(f"##[group]{header}",) * 2]
             if rng.random() < 0.3:
@@ -7156,6 +7209,14 @@ def random_layout(rng):
                 for echo in ("expected: Process completed with exit code 1.", mine, *diagnostics):
                     if rng.random() < 0.3:
                         texts.append((echo,) * 2)
+                if rng.random() < 0.15:
+                    # A live `##[error]` in a group that is not the script's echo: its own group (before or after
+                    # the echo's `##[endgroup]`) or nested ones. The section is ERRORED: kept, never evidence.
+                    error = (f"##[error]{mine}",) * 2
+                    texts += ([("##[group]Details",) * 2, error, ("##[endgroup]",) * 2] if rng.random() < 0.5 else
+                              [("##[group]Outer",) * 2, ("##[group]Inner",) * 2, error, ("##[endgroup]",) * 2,
+                               ("##[endgroup]",) * 2])
+                    live_error = True
             else:
                 texts.append((mine, theirs))
                 if verdict == "failure" and diagnostics and rng.random() < 0.3:
@@ -7166,11 +7227,11 @@ def random_layout(rng):
             if said:
                 head.append((name, second, said))
             base.append((name, second, also))
-            if verdict != "success" and said:
+            if (verdict != "success" or live_error) and said:
                 red.add(said)
         prev = stamps[-1] if stamps else prev
         steps.append((name, "failure" if verdict == "failure" else "success", at, end))
-        may = may and verdict != "continue_on_error"
+        may = may and verdict != "continue_on_error" and not live_error
     at = plan[-1][4] + rng.choice((0, 1))
     if rng.random() < 0.5 or not any(c == "failure" for _, c, _, _ in steps):
         end = at + rng.choice((0, 1))
@@ -7182,9 +7243,19 @@ def random_layout(rng):
         steps.append(("Rollup", "failure", at, end))
         prev, at = stamps[-1], end + rng.choice((0, 1))
     if rng.random() < 0.3:
-        second = round(rng.uniform(max(prev, at), at + 0.999), 7)
-        head.append(("Post Run actions/checkout", second, "Post job cleanup."))
-        base.append(("Post Run actions/checkout", second, "Post job cleanup."))
+        # A post step: `Post job cleanup.` opens no script echo, so a group of its own and an `##[error]` in it, on
+        # the head alone, are live (#40542's fifth Codex BLOCK).
+        texts = ["Post job cleanup."]
+        own = rng.random() < 0.5
+        if own:
+            texts += ["##[group]Removing credentials", "##[error]post: error: Sources/NewPost.swift left a lock behind",
+                      "##[endgroup]"]
+        stamps = sorted(round(rng.uniform(max(prev, at), at + 0.999), 7) for _ in texts)
+        head += [("Post Run actions/checkout", second, text) for second, text in zip(stamps, texts)]
+        base.append(("Post Run actions/checkout", stamps[0], "Post job cleanup."))
+        if own:
+            red.update(texts)
+            may = False
         steps.append(("Post Run actions/checkout", "success", at, at))
     if rng.random() < 0.15:
         # A failing "Complete job" leaves the last section unproven unless the step it shares it with failed.
