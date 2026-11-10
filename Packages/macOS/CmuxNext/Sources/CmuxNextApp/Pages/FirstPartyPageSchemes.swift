@@ -69,6 +69,7 @@ enum FirstPartyPageSchemes {
         .debugSettings,
         .diff,
         .editor,
+        .feed,
         .files,
         .github,
         .groupEditor,
@@ -86,7 +87,6 @@ enum FirstPartyPageSchemes {
         .passwords,
         .serverCards,
         .settings,
-        .setupCard,
         .stats,
         .tasks,
     ]

@@ -54,6 +54,11 @@ host proves a click on a web link in the Chief chat with a confirmation for that
 page relay, and the link opens on the right side of the home workspace. The page's own WebSocket
 has no confirmation, so the call is refused there (`gesture_required`).
 
+Page `home-messages` (the docked Home's Messages view) has exactly the entry, the raw conversation
+commands, the conversation events and the owner-page admission of `home-channels`: it is the same
+client of the same conversations, drawn as Messages. Everything this spec says of `home-channels`
+holds for it.
+
 With `chief-profile-ws-v1`, page `home-channels` also manages the person's Chiefs: it may call
 `chief.profile.list`, `chief.profile.get`, `chief.profile.history`, `chief.profile.avatar.get`,
 `chief.profile.avatar.set` and `chief.profile.update`, and `chief.profile.create`,
@@ -99,6 +104,7 @@ map each one to its owner, so the same v2 envelope works on every host:
 | `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
 | `bookmarks` | `bookmarks.tree` (the bookmark tree of each browser profile in the home session, `bookmarks-v1`; `server/bookmarks_routed.rs`) | `bookmarks.list`, `bookmarks.search`, `bookmarks.rank`, `bookmarks.export` | `bookmarks.apply` (page `bookmarks`: `gesture`); `bookmarks.import_html`, `bookmarks.import_source` (the app only) |
 | `tasks` | `tasks.local` (the local Tasks owner, `cmux-tasks serve`, over its Unix socket; the daemon relays and keeps no copy) | `tasks.snapshot` | `tasks.create`, `tasks.update`, `tasks.move`, `tasks.archive`, `tasks.delegate` (page `tasks`: `gesture`) |
+| `feed` | `feed` (the daemon's feed client, `feed-client-v1`; plans/cmux-next/feed-page.md section 2) | `feed.view.read`, `feed.item.get`, `feed.items.list`, `feed.github.find_work`, `feed.reports.read` | `feed.intent`, `feed.github.refresh`, `feed.reports.reply` (page `feed`: `gesture`); `feed.post`, `feed.withdraw`, `feed.github.configure`, `feed.presence.set` (the verified app connection only, no page) |
 
 The Tasks page (plans/cmux-next/tasks.md): `tasks.snapshot {}` answers the owner's subscribe
 snapshot as the local person sees it (`{seq, me, settings, statuses, labels, projects, tasks,

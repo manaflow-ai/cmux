@@ -40,8 +40,7 @@ public final class AppSectionProvider {
         guard let (app, section) = resolve(contribution) ?? provisional(contribution) else { return nil }
         let mount = client.mount(app, implementation: section, surface: "sidebarSection")
         let look = lookOverride ?? AppsTunables.sectionLook.value
-        // AppKit: the scene draws natively when it is built from the kit's list pieces, so a custom
-        // section reads as the built-in rows (the SwiftUI renderer stays below it for other scenes).
+        // AppKit: the scene draws natively, so a custom section reads as the built-in rows.
         let scene = AppSceneHostingView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         let view = AppSectionView(scene: scene, look: look)
         scene.onContentSizeChange = { [weak self] in self?.onContentChange?() }
