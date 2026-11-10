@@ -251166,6 +251166,33 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入 Codex" } }
       }
     },
+    "turn.signIn.cursor": {
+      "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that runs Cursor's own login on the user's Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in to Cursor" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تسجيل الدخول إلى Cursor" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prijavi se na Cursor" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Log ind på Cursor" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Bei Cursor anmelden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Iniciar sesión en Cursor" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Se connecter à Cursor" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Accedi a Cursor" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cursor にサインイン" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចូលទៅ Cursor" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cursor에 로그인" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Logg på Cursor" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zaloguj się do Cursor" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Entrar no Cursor" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Войти в Cursor" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ลงชื่อเข้าใช้ Cursor" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cursor'te oturum aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увійти в Cursor" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Đăng nhập Cursor" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录 Cursor" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入 Cursor" } }
+      }
+    },
     "turn.signIn.apiKey": {
       "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that saves an API key for the agent instead of signing in.",
       "extractionState": "manual",
