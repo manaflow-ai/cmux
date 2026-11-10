@@ -155,9 +155,19 @@ impl Peer {
     /// ran on the monotonic clock, which stood still, so the attempt would otherwise come up to
     /// a minute after the wake, while the network that failed before the sleep is likely back.
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        let mut watch = SleepWatch::now();
+        self.wait_backoff_with(delay, move || watch.check()).await
+    }
+
+    /// `wait_backoff` with `slept`, the clock check: how long this computer slept since the
+    /// last one, when it did.
+    pub(super) async fn wait_backoff_with(
+        &self,
+        delay: Duration,
+        mut slept: impl FnMut() -> Option<Duration>,
+    ) -> BackoffWait {
         let started = Instant::now();
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
-        let mut watch = SleepWatch::now();
         // After an attempt the network failed, the host's ssh port is tried every
         // `net_back::EVERY` (`peer_net_back.rs`); a parked peer's hourly wait does not.
         let probing = delay <= Backoff::CAP
@@ -176,7 +186,7 @@ impl Peer {
             let check = (Instant::now() + SleepWatch::EVERY).min(deadline);
             tokio::select! {
                 _ = tokio::time::sleep_until(check) => {
-                    if let Some(slept) = watch.check() {
+                    if let Some(slept) = slept() {
                         tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
                         return BackoffWait::Woke;
                     }
@@ -395,6 +405,32 @@ mod tests {
         assert_eq!(wait.await.unwrap(), BackoffWait::Done);
         let took = started.elapsed();
         assert!(took < Duration::from_millis(2_500) + net_back::EVERY * 2, "{took:?}");
+    }
+
+    /// A wake during a wait that probes the host (here: nothing answers, and a host behind a
+    /// proxy has no target at all) ends the wait at the next clock check: the probes every
+    /// `net_back::EVERY` never push that check back (review of #40427, F1).
+    #[tokio::test]
+    async fn a_wake_ends_a_probing_wait_at_the_next_clock_check() {
+        for target in [Some(("127.0.0.1".to_owned(), free_port())), None] {
+            let peer = ssh_peer();
+            peer.net_target.set(target.clone()).unwrap();
+            peer.note_ssh_failure(Some("SSH connection timed out"));
+            let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counted = checks.clone();
+            // The first clock check finds that this computer slept a minute.
+            let clock = move || {
+                (counted.fetch_add(1, Ordering::SeqCst) == 0).then_some(Duration::from_secs(60))
+            };
+            let started = Instant::now();
+            let woke = tokio::time::timeout(
+                SleepWatch::EVERY + Duration::from_secs(3),
+                peer.wait_backoff_with(Backoff::CAP, clock),
+            )
+            .await;
+            assert_eq!(woke, Ok(BackoffWait::Woke), "target {target:?}: {:?}", started.elapsed());
+            assert_eq!(checks.load(Ordering::SeqCst), 1, "target {target:?}");
+        }
     }
 
     /// Any other failure (here: the login was refused, so the port answers while the link
