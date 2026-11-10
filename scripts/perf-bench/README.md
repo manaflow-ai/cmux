@@ -260,7 +260,7 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 One bench session of the size of the person who uses the app (read from his session daemon on
 2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents, 13 clients. Every
 bench that has a session-size arm uses this script; the count tests use the same mix rule
-(`SessionFixtureSize.real`). Fleet minis only.
+(`SessionFixtureSize.real`, the test fixture size of #40488). Fleet minis only.
 
 ```sh
 S=scripts/perf-bench/session_real.py
@@ -286,7 +286,15 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
 - An agent is not a model session: `session_real_agent.zsh` draws like an agent TUI and reports
   through the hook helper (`$CMUX_TUI_HOOK claude <event>`), so the daemon lists 170 agents.
 - `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
-- The daemon serves 64 connections. A start of 170 agents (510 hook calls) fills them for about
+- Only a tagged DEV build: each command refuses a daemon whose session is not `cmux-app-<tag>`
+  (the release session, a channel build's, an untagged build's, a person's own session).
+- `launch` ends with exit 1 when the model did not load, a step failed or the `clients` step
+  ended early; it quits the app and takes the installed session away first.
+- `clients --total 13` reads the daemon's client list and holds what is missing. The list moves
+  (a hook call is a client for a moment, the app's own connections come and go), so it prints
+  the count it reached and `SESSION-REAL-CLIENTS-DIFFER` when that is not the count asked for.
+  A held client reads its events at once: the daemon closes a subscriber that does not read.
+- The daemon serves 64 connections. A start of 170 agents (about 500 hook calls) fills them for about
   2.5 s; in that time a new connection gets one `server.busy` line. The script's own connections
   try again for 20 s; a bench driver of your own must do the same.
 - `map` gives, per action (20 runs): `commit_ms` (the action's start to its committed frame, from

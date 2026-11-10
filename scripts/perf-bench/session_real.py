@@ -6,7 +6,7 @@ His session, read from his one session daemon on 2026-11-10: 826 workspaces, 858
 for the `real` session arm; nobody writes a second "800" maker.
 
 The mix rule is the one of the test fixture `SessionFixtureSize.real`
-(Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SessionFixtureSize.swift), so a count test and a
+(Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SessionFixtureSize.swift, #40488), so a count test and a
 bench row talk about the same session. With pick(i, k, n) = "k of n, spread evenly":
   1. `--terminals` of the `--workspaces` start with a terminal; the others hold one agent chat.
   2. `--agents` of the terminals are agent terminals (see "What an agent is").
@@ -31,7 +31,9 @@ restore rule ("a kept tab whose terminal ran an agent starts again at launch") a
 `--agents-working` of them work (the default 8 is a guess of his usual state, written in each
 result); the others wait at their prompt and print nothing.
 
-Commands (every one takes `--socket <daemon socket>` or `--app-socket <app debug socket>`):
+Commands (make, counts, agents, clients, measure and map take `--socket <daemon socket>` or
+`--app-socket <app debug socket>`, and refuse a daemon whose session is not `cmux-app-<tag>` of a
+tagged DEV build; build and launch take `--app <bundle>`; save, install and uninstall take `--tag`):
   make     make the session in a running daemon, in batches; print the counts read back and the time
   counts   print the counts read back from the daemon (and from the app with --app-socket)
   agents   start the agent program in every agent terminal (after `make --no-agents`, or after a
@@ -42,6 +44,7 @@ Commands (every one takes `--socket <daemon socket>` or `--app-socket <app debug
            close on the app's own clocks (p50 / p95 / max)
   build    make the saved session of a bench app with no app and no GUI lock (its daemon, headless)
   launch   start the bench app on its saved session: restore time, then other commands, then quit
+           (exit 1 when the model did not load, a step failed or the clients step ended early)
   save     copy the tag's state folder of a QUIT app to a folder (a saved session made live)
   install  put a saved session in place as the state of its tag (the app must not run)
   uninstall  remove that copy and put the tag's old state back
@@ -60,6 +63,7 @@ import json
 import os
 import pwd
 import re
+import select
 import shutil
 import socket
 import subprocess
@@ -234,17 +238,50 @@ def daemon_of_app(app_socket):
     return int(pid), found.group(1)
 
 
+CHANNELS = ("nightly", "rc", "staging")
+
+
+def bench_tag(session):
+    """The tag of a tagged DEV build's session (`cmux-app-<tag>`), else None. Not a bench's: the release
+    session `cmux-app`, a channel build's (`cmux-app-nightly`, `-rc`, `-staging`), an untagged build's
+    (`cmux-app--<hash>`) and every other session (a person's `cmux-next` or `main`)."""
+    found = re.fullmatch(r"cmux-app-([A-Za-z0-9][A-Za-z0-9_.-]*)", session or "")
+    return found.group(1) if found and found.group(1) not in CHANNELS else None
+
+
+def check_tag(tag):
+    """Refuses a tag that is no single folder name of a tagged DEV build."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", tag or "") or tag in CHANNELS:
+        raise SystemExit(f"session_real: {tag!r} is not the tag of a tagged DEV build")
+    return tag
+
+
+def refuse_other_session(daemon_socket):
+    """This tool makes hundreds of workspaces and holds connections: only in a tagged DEV build's session."""
+    conn = Conn(daemon_socket)
+    try:
+        session = conn.must("identify").get("session")
+    finally:
+        conn.close()
+    if bench_tag(session) is None:
+        raise SystemExit(f"session_real: refusing the daemon on {daemon_socket}: its session is {session!r}, "
+                         "not `cmux-app-<tag>` of a tagged DEV build")
+
+
 def sockets(args):
-    """(daemon socket, app socket or None). Refuses an app that is not a tagged DEV build."""
+    """(daemon socket, app socket or None). Refuses an app or a daemon that is not a tagged DEV build's."""
     if args.app_socket:
         info = app_rpc(args.app_socket, "system.identify", timeout=10) or {}
         bundle = info.get("app_bundle_path") or ""
         if ".debug" not in (info.get("bundle_id") or "") or bundle.startswith("/Applications/"):
             raise SystemExit(f"session_real: refusing {bundle!r} ({info.get('bundle_id')}): not a tagged DEV build")
-        return daemon_of_app(args.app_socket)[1], args.app_socket
-    if not args.socket:
+        daemon_socket = daemon_of_app(args.app_socket)[1]
+    elif args.socket:
+        daemon_socket = args.socket
+    else:
         raise SystemExit("session_real: give --socket <daemon socket> or --app-socket <app debug socket>")
-    return args.socket, None
+    refuse_other_session(daemon_socket)
+    return daemon_socket, args.app_socket or None
 
 
 # ---------------------------------------------------------------- reading back
@@ -565,6 +602,7 @@ def clients(args):
     an app window or a phone is), and reads what the daemon sends them, until killed or `--seconds`."""
     daemon_socket, _ = sockets(args)
     held = []
+
     if args.total:
         probe = Conn(daemon_socket)
         reads = []
@@ -579,20 +617,31 @@ def clients(args):
         conn.must("subscribe", tree_events="deltas")
         conn.sock.setblocking(False)
         held.append(conn)
+    # One read, then the event reads start at once: the daemon closes a subscriber that does not read its events
+    # for some seconds while 170 agents start (measured 2026-11-10: 18 held connections that waited 15 s were closed).
     listed = Conn(daemon_socket)
-    print(f"SESSION-REAL-CLIENTS held {len(held)}, the daemon lists {len(listed.must('list-clients'))} (with this one)", flush=True)
+    others = len(listed.must("list-clients")) - 1
     listed.close()
+    print(f"SESSION-REAL-CLIENTS held {len(held)}, the daemon lists {others + 1} (with this one)", flush=True)
+    if args.total and others != args.total:
+        # Not an error: the list moves (a hook call is a client for a moment, the app's own connections come and go).
+        print(f"SESSION-REAL-CLIENTS-DIFFER the daemon lists {others} clients, {args.total} were asked for", flush=True)
     deadline = time.time() + args.seconds if args.seconds else None
     received = 0
+    began = time.time()
+    by_socket = {conn.sock: index + 1 for index, conn in enumerate(held)}
     try:
         while deadline is None or time.time() < deadline:
-            time.sleep(0.25)
-            for conn in held:
+            # Read as soon as the daemon sends, as an app window does: a client that reads late is not his client.
+            ready = select.select(list(by_socket), [], [], 0.25)[0] if by_socket else time.sleep(0.25) or []
+            for sock in ready:
                 try:
                     while True:
-                        chunk = conn.sock.recv(1 << 20)
+                        chunk = sock.recv(1 << 20)
                         if not chunk:
-                            raise SystemExit("session_real: the daemon closed a client connection")
+                            raise SystemExit(f"session_real: the daemon closed client connection {by_socket[sock]} of {len(held)} "
+                                             f"after {time.time() - began:.1f} s and {received} bytes of events; "
+                                             "the session has fewer clients than asked from here")
                         received += len(chunk)
                 except BlockingIOError:
                     pass
@@ -757,6 +806,7 @@ class AppDriver:
         self.sock, self.daemon = app_socket, Conn(daemon_socket)
         self.pid = int(app_rpc(app_socket, "system.identify", timeout=10)["pid"])
         self.unusable = []
+        self.untimed_errors = []  # failed set-up and clean-up actions (not in a row's times, but the next run starts wrong)
 
     def rpc(self, method, params=None, timeout=60):
         return app_rpc(self.sock, method, params, timeout) or {}
@@ -770,6 +820,13 @@ class AppDriver:
     def act(self, action, **args):
         return self.soft("action.run", {"action": action, "args": args, "wait": True, "origin": "script", "focus": True,
                                         "idempotency_key": f"mutation_{uuid.uuid4().hex}"}, timeout=120)
+
+    def step(self, action, **args):
+        """An untimed action of a row's set-up or clean-up; its failure is kept and printed with the map."""
+        reply = self.act(action, **args)
+        if reply.get("error"):
+            self.untimed_errors.append({"action": action, "error": reply["error"]})
+        return reply
 
     def topology(self):
         return (self.rpc("snapshot.get", timeout=120) or {}).get("topology") or {}
@@ -799,7 +856,7 @@ class AppDriver:
         timed = self.soft(timer, {"action": "stop"}) if timer else {}
         hangs = self.soft("debug.hangs")
         recent = [r for r in self.soft("debug.action_budget", {"limit": 16}).get("recent") or [] if r.get("sequence", 0) > before]
-        own = next((r for r in recent if r.get("id") == action), recent[0] if recent else {})
+        own = next((r for r in recent if r.get("id") == action), {})  # never another action's sample
         samples = next((v for k, v in timed.items() if isinstance(v, list) and k != "confirms_ms" and v and isinstance(v[0], dict)), [])
         intervals, busy = frames.get("intervals_ms") or [], frames.get("main_ms") or []
         row = {
@@ -829,8 +886,9 @@ class AppDriver:
 
 def summarize(name, rows, note=""):
     out = {"row": name, "runs": len(rows), "errors": sum(1 for r in rows if r.get("error")), "note": note}
+    measured = [r for r in rows if not r.get("error")]  # a failed run is counted in `errors`, not in the times
     for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms"):
-        out[key] = spread([r.get(key) for r in rows])
+        out[key] = spread([r.get(key) for r in measured])
     out["late_frames_total"] = sum(r.get("late_frames") or 0 for r in rows)
     out["refresh_ms"] = next((r.get("refresh_ms") for r in rows if r.get("refresh_ms")), None)
     out["first_error"] = next((r.get("error") for r in rows if r.get("error")), None)
@@ -889,25 +947,25 @@ def map_rows(args):
     bench = next((i for i in made.get("created", []) if str(i).startswith("ws_")), None)
     if not bench:
         raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
-    app.act("goToWorkspace", workspace=bench)
+    app.step("goToWorkspace", workspace=bench)
     time.sleep(1.5)
 
     def switch_warm():
         other = ids[real[0]]
-        app.act("goToWorkspace", workspace=other)
+        app.step("goToWorkspace", workspace=other)
         time.sleep(1.0)
-        app.act("goToWorkspace", workspace=bench)
+        app.step("goToWorkspace", workspace=bench)
         time.sleep(1.0)
         return [app.timed("goToWorkspace", timer="debug.workspace_switch", workspace=(other, bench)[i % 2]) for i in range(runs)]
 
     def switch_cold():
         step = max(1, (len(real) - 2) // runs)
-        targets = [ids[real[1 + i * step]] for i in range(runs)]
+        targets = [ids[real[1 + (i * step) % (len(real) - 1)]] for i in range(runs)]
         return [app.timed("goToWorkspace", timer="debug.workspace_switch", workspace=target) for target in targets]
 
     def tab_switch():
-        app.act("goToWorkspace", workspace=bench)
-        app.act("newSurface")
+        app.step("goToWorkspace", workspace=bench)
+        app.step("newSurface")
         time.sleep(1.5)
         return [app.timed("nextSurface", timer="debug.tab_switch") for _ in range(runs)]
 
@@ -915,7 +973,7 @@ def map_rows(args):
         out = []
         for _ in range(runs):
             out.append(app.timed("newSurface", settle=0.8))
-            app.act("closeTab")
+            app.step("closeTab")
             time.sleep(0.4)
         return out
 
@@ -923,7 +981,7 @@ def map_rows(args):
         out = []
         for _ in range(runs):
             out.append(app.timed("splitDown", settle=0.8))
-            app.act("closePane")
+            app.step("closePane")
             time.sleep(0.4)
         return out
 
@@ -934,7 +992,7 @@ def map_rows(args):
         for _ in range(runs):
             new_rows.append(app.timed("workspace.newAtBottom", timer="debug.new_workspace", settle=0.8))
             out.append(app.timed("closeWorkspace", settle=0.8, confirm=True))
-            app.act("goToWorkspace", workspace=bench)
+            app.step("goToWorkspace", workspace=bench)
             time.sleep(0.3)
         return out
 
@@ -947,19 +1005,23 @@ def map_rows(args):
         rows.append(summarize("new_workspace", new_rows, "workspace.newAtBottom (the make step of workspace_close)"))
         raw["new_workspace"] = new_rows
     row("workspace_switch_cold", "first show of 20 other workspaces spread over the session (a parked terminal starts its shell)", switch_cold)
-    app.act("goToWorkspace", workspace=bench)
-    app.act("closeWorkspace", confirm=True)
+    app.step("goToWorkspace", workspace=bench)
+    app.step("closeWorkspace", confirm=True)
     sample = None
     if app.unusable and args.sample:
         sample = args.sample
         subprocess.run(["sample", str(app.pid), "3", "-file", sample], capture_output=True)
-    result = {"rows": rows, "unusable": app.unusable, "sample": sample, "runs_per_row": runs, "host": host_facts(),
+    result = {"rows": rows, "unusable": app.unusable, "untimed_errors": app.untimed_errors, "sample": sample,
+              "runs_per_row": runs, "host": host_facts(),
               "method": "app-clock: action.run (origin script) on the debug socket; commit_ms from debug.action_budget, "
                         "frames from debug.frames (display link), gaps from debug.hangs",
               "counts": counts(Conn(daemon_socket)), "raw": raw}
     print("SESSION-REAL-MAP " + json.dumps({k: v for k, v in result.items() if k != "raw"}), flush=True)
     if app.unusable:
         print(f"SESSION-REAL-UNUSABLE {len(app.unusable)} actions took over 1 s or failed: {json.dumps(app.unusable[:6])}", flush=True)
+    if app.untimed_errors:
+        print(f"SESSION-REAL-UNTIMED-ERRORS {len(app.untimed_errors)} set-up or clean-up actions failed: "
+              f"{json.dumps(app.untimed_errors[:6])}", flush=True)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=1)
@@ -984,11 +1046,13 @@ def copy_tree(source, target):
         raise SystemExit(f"session_real: {target} exists; give a new folder (nothing is deleted for you)")
     os.makedirs(os.path.dirname(target), exist_ok=True)
     if subprocess.run(["cp", "-Rc", source, target], capture_output=True).returncode != 0:
+        if os.path.exists(target):
+            shutil.rmtree(target)  # what the failed `cp` left; `target` was not there before this call
         shutil.copytree(source, target, symlinks=True)
 
 
 def save(args):
-    source = os.path.join(state_root(args.home), args.tag)
+    source = os.path.join(state_root(args.home), check_tag(args.tag))
     if not os.path.isdir(source):
         raise SystemExit(f"session_real: no state folder {source}")
     alive = running_with_tag(args.tag)
@@ -1007,19 +1071,32 @@ def save(args):
 def install(args):
     with open(os.path.join(args.saved, "session-real.json"), encoding="utf-8") as handle:
         meta = json.load(handle)
-    target = os.path.join(state_root(args.home), args.tag)
-    if meta["tag"] != args.tag:
+    target = os.path.join(state_root(args.home), check_tag(args.tag))
+    source = os.path.join(args.saved, "state")
+    if meta.get("tag") != args.tag:
         # The registry names its session (`workspace registry belongs to session "cmux-app-A", not "cmux-app-B"`,
         # measured 2026-11-10), and so do its agent and notification rows: a rename is not a restore.
-        raise SystemExit(f"session_real: {args.saved} is the session of tag {meta['tag']}; a saved session is tied to its tag. "
+        raise SystemExit(f"session_real: {args.saved} is the session of tag {meta.get('tag')}; a saved session is tied to its tag. "
                          f"Make the one of {args.tag}: session_real.py build --app '<.../cmux DEV {args.tag}.app>' --to <new folder>")
     alive = running_with_tag(args.tag)
     if alive:
         raise SystemExit(f"session_real: the tag {args.tag} runs ({len(alive)} processes); stop it first")
+    if not os.path.isdir(source):
+        raise SystemExit(f"session_real: {args.saved} has no `state` folder; nothing changed")
     put_aside(target)
-    copy_tree(os.path.join(args.saved, "state"), target)
-    with open(os.path.join(target, INSTALL_MARK), "w", encoding="utf-8") as handle:
-        json.dump({"from": os.path.abspath(args.saved), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, handle)
+    try:
+        copy_tree(source, target)
+        with open(os.path.join(target, INSTALL_MARK), "w", encoding="utf-8") as handle:
+            json.dump({"from": os.path.abspath(args.saved), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, handle)
+    except BaseException:
+        # No half install: take away what this call copied and put the state from before back, as `uninstall` does.
+        if os.path.exists(target):
+            shutil.rmtree(target)
+        kept = target + ".before-session-real"
+        if os.path.exists(kept):
+            os.rename(kept, target)
+        print(f"session_real: the install failed; {target} is as it was before", flush=True)
+        raise
     print(f"SESSION-REAL-INSTALLED {target} from {args.saved}. Launch the app with BENCH_LAUNCH_KEEP_STATE=1 "
           "(bench_launch moves a tag's state away at each launch without it); `uninstall` puts the old state back.", flush=True)
 
@@ -1048,7 +1125,7 @@ def put_aside(target):
 def uninstall(args):
     """Removes the installed copy and puts the state from before `install` back (the next owner of the tag
     then finds what was there)."""
-    target = os.path.join(state_root(args.home), args.tag)
+    target = os.path.join(state_root(args.home), check_tag(args.tag))
     alive = running_with_tag(args.tag)
     if alive:
         raise SystemExit(f"session_real: the tag {args.tag} runs ({len(alive)} processes); stop it first")
@@ -1071,16 +1148,10 @@ def launch(args):
 
     tag = tag_of_app(args.app)
     os.makedirs(args.out, exist_ok=True)
-    if args.saved:
-        install(argparse.Namespace(saved=args.saved, tag=tag, home=None))
-    want = None
-    meta_path = os.path.join(state_root(), tag, INSTALL_MARK)
-    if os.path.exists(meta_path):
-        with open(os.path.join(json.load(open(meta_path, encoding="utf-8"))["from"], "session-real.json"), encoding="utf-8") as handle:
-            want = json.load(handle)["asked"]["workspaces"]
     app = BenchApp(args.app, out=args.out, fresh_state=False, socket_only=args.socket_only)
-    result = {"tag": tag, "want_workspaces": want, "host": host_facts(), "steps": {}, "socket_only": args.socket_only}
-    held = None
+    result = {"tag": tag, "want_workspaces": None, "host": host_facts(), "steps": {}, "socket_only": args.socket_only}
+    held, installed = None, False
+    failures = []  # each one makes this command end with exit 1, after the quit and the uninstall
 
     def sample(name):
         if app.process and app.process.poll() is None:
@@ -1091,6 +1162,18 @@ def launch(args):
 
     ptys_before = ptys_in_use()
     try:
+        if args.saved:
+            install(argparse.Namespace(saved=args.saved, tag=tag, home=None))
+            installed = True
+        want = None
+        mark_path = os.path.join(state_root(), tag, INSTALL_MARK)
+        if os.path.exists(mark_path):
+            with open(mark_path, encoding="utf-8") as handle:
+                saved_from = json.load(handle).get("from") or ""
+            with open(os.path.join(saved_from, "session-real.json"), encoding="utf-8") as handle:
+                # A folder that `save` made has no `asked` (only `build` knows the counts): then "loaded" is enough.
+                want = (json.load(handle).get("asked") or {}).get("workspaces")
+        result["want_workspaces"] = want
         started = time.monotonic()
         try:
             app.launch(timeout=args.timeout)
@@ -1138,6 +1221,7 @@ def launch(args):
             result["launch_marks_ms"] = {"error": str(error)}
         if loaded_at is None:
             result["not_loaded_sample"] = sample("not-loaded.sample.txt")
+            failures.append(f"the app's model did not load in {args.timeout} s: {json.dumps(seen)[:200]}")
         print("SESSION-REAL-LAUNCH " + json.dumps(result), flush=True)
         me = [sys.executable, os.path.abspath(__file__)]
         for step in [part for part in (args.steps or "").split(",") if part]:
@@ -1153,6 +1237,7 @@ def launch(args):
                     app_rpc(app.socket, "debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
                 except (RuntimeError, OSError, ValueError) as error:
                     print(f"still failed: {error}", flush=True)
+                    failures.append(f"step {step}: {error}")
                 continue
             if name == "wait":
                 time.sleep(float(extra or 5))
@@ -1166,17 +1251,24 @@ def launch(args):
             code = subprocess.run(base).returncode
             result["steps"][step] = {"exit": code, "seconds": round(time.monotonic() - began, 1)}
             print(f"SESSION-REAL-STEP {step}: exit {code} in {result['steps'][step]['seconds']} s", flush=True)
+            if code:
+                failures.append(f"step {step}: exit {code}")
     finally:
         if held:
+            if held.poll() is not None:  # it holds its connections until this script ends it
+                failures.append(f"the clients step ended before the launch did (exit {held.poll()})")
             held.terminate()  # the PID this script started
         began = time.monotonic()
         app.stop(quit_timeout=args.quit_timeout)
         result["quit_s"] = round(time.monotonic() - began, 1)
+        result["failures"] = failures
         with open(os.path.join(args.out, "launch.json"), "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=1)
-        print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps")}), flush=True)
-        if args.saved and not args.keep_installed:
+        print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps", "failures")}), flush=True)
+        if installed and not args.keep_installed:
             uninstall(argparse.Namespace(tag=tag, home=None))
+    if failures:
+        raise SystemExit("session_real: the launch had failures: " + "; ".join(failures))
 
 
 def tag_of_app(app):
@@ -1184,7 +1276,7 @@ def tag_of_app(app):
     found = re.fullmatch(r"cmux DEV (.+)\.app", os.path.basename(os.path.realpath(app).rstrip("/")))
     if not found:
         raise SystemExit(f"session_real: expected a `cmux DEV <tag>.app` bundle, got {app}")
-    return re.sub(r"[^a-z0-9]+", "-", found.group(1).lower()).strip("-")
+    return check_tag(re.sub(r"[^a-z0-9]+", "-", found.group(1).lower()).strip("-"))
 
 
 def build(args):
@@ -1283,7 +1375,12 @@ def main():
 
     p = sub.add_parser("counts")
     target(p)
-    p.set_defaults(run=lambda a: print("SESSION-REAL-COUNTS " + json.dumps(counts(Conn(sockets(a)[0]), sockets(a)[1])), flush=True))
+
+    def print_counts(a):
+        daemon_socket, app_socket = sockets(a)
+        print("SESSION-REAL-COUNTS " + json.dumps(counts(Conn(daemon_socket), app_socket)), flush=True)
+
+    p.set_defaults(run=print_counts)
 
     p = sub.add_parser("agents")
     target(p)
