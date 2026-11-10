@@ -6999,7 +6999,7 @@ impl PtySurface {
             return;
         }
         if !mux.try_journal_terminal_resize(
-            terminal_id,
+            terminal_id.clone(),
             self.journal_generation.clone(),
             geometry.cols,
             geometry.rows,
