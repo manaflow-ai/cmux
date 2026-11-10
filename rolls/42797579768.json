@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42797579768",
+  "recorded_at": "2026-11-10T10:23:26Z",
+  "reason": "cmux-tui 0970103d1870 changes the image's cmux-tui (pinned 42bbbd576348)",
+  "dry_run": false,
+  "cmux_tui": "0970103d18702bc726328a78bda6cb642e5390ef",
+  "fixes": [
+    {
+      "sha": "0970103d18702bc726328a78bda6cb642e5390ef",
+      "mergedAt": "2026-11-10T01:57:19-08:00",
+      "subject": "Extensions get cmux.watch: live, cached, typed signals, with a live PR list sidebar example (#40244)"
+    },
+    {
+      "sha": "89b2c2c9dd2fc738ebd52eebbb48ddaaec5b01c3",
+      "mergedAt": "2026-11-10T01:56:57-08:00",
+      "subject": "cmux chat send|wait|read default to the last chat; -w; --timeout takes durations (#40273)"
+    },
+    {
+      "sha": "774e89120a014267ed2bd5f93e3a30001466c469",
+      "mergedAt": "2026-11-10T09:52:13Z",
+      "subject": "ghostty-next: pin a0975fd8c, upstream endUpdate scroll cost + three resize fixes (GI PIN SYNC, ghostty-integration step 2) (#40153)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T10:23:26Z",
+    "snapshot_id": "sh-7b1739539cf042bfa518b5d8a066fb72",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42797579768): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3bf6ed4392ce5c9b31919ec5e5d58cb178d9291d",
+    "image": "cloud-native-auto-0970103d-42797579768-1",
+    "revision": "ci-42797579768-1",
+    "at": "2026-11-10T10:23:26Z"
+  },
+  "rolled_back": false
+}
