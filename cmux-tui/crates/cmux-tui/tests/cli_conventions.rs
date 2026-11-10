@@ -516,3 +516,41 @@ fn completion_lists_every_scope() {
     let bare = cli.run(&["completion"]);
     assert_eq!(bare.status.code(), Some(2), "bare `cmux completion` is a usage error");
 }
+
+/// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're
+/// nice to type and intuitive and ergonomic and go with best practices". The
+/// next command to a chat names no session id: `cmux chat send TEXT` and
+/// `cmux chat wait|read last` are the last chat this terminal started or sent
+/// to. With none recorded, the refusal names how to find one; with one
+/// recorded, the command goes to it (here: no session, so it cannot reach
+/// it, but it never asks for the SESSION id).
+#[test]
+fn chat_follow_ups_need_no_session_id() {
+    let cli = Cli::new();
+    let none = cli.run(&["chat", "send", "next step", "--json"]);
+    let line = last_line(&none.stderr);
+    let error: Value = serde_json::from_str(&line).unwrap_or_else(|_| panic!("not JSON: {line}"));
+    assert_eq!(error["code"], "chat.no_last_chat", "{line}");
+    assert_eq!(none.status.code(), Some(1), "{line}");
+    assert!(names_fix(&last_line(&cli.run(&["chat", "send", "next step"]).stderr)));
+
+    let state = cli.dir.join(".local/state/cmux");
+    fs::create_dir_all(&state).unwrap();
+    let session = "0d4f9a52-8c1e-4b7a-9f3e-2a6b5c7d8e9f";
+    let book = format!(r#"{{"-": {{"session": "{session}", "vm": null, "at": 1}}}}"#);
+    fs::write(state.join("last-chat.json"), book).unwrap();
+    for args in [
+        &["chat", "send", "next step", "--json"][..],
+        &["chat", "wait", "last", "--timeout", "1", "--json"],
+        &["chat", "read", "last", "--json"],
+    ] {
+        let output = cli.run(args);
+        let stderr = text(&output.stderr);
+        assert_ne!(output.status.code(), Some(2), "cmux {}: {stderr}", args.join(" "));
+        assert!(!stderr.contains("SESSION id"), "cmux {}: {stderr}", args.join(" "));
+        assert!(!stderr.contains("chat.no_last_chat"), "cmux {}: {stderr}", args.join(" "));
+    }
+    // `-w` is `--wait` in the chat help, so the short-option check holds it to that.
+    let help = text(&cli.run(&["chat", "--help"]).stdout);
+    assert!(short_options(&help).contains(&("-w".to_owned(), "--wait".to_owned())), "{help}");
+}

@@ -75,6 +75,8 @@ mod cloud_machines;
 #[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
+mod cloud_retention;
+#[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
@@ -103,6 +105,8 @@ mod inference_gateway;
 mod inference_setup;
 mod internal;
 mod keys_help;
+#[cfg(unix)]
+mod last_chat;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
@@ -788,6 +792,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))

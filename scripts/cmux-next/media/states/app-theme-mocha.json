@@ -156,12 +156,13 @@
   },
   {
    "title": "Catppuccin Mocha: Home chat",
-   "rpc": {
-    "method": "debug.home_native_fixture.open",
-    "params": {}
-   },
+   "cmux": [
+    "action",
+    "run",
+    "home.show"
+   ],
    "wait": 2.5,
-   "optional": "the Home fixture is DEBUG only"
+   "optional": "the Chief's daemon may not start on this runner"
   },
   {
    "title": "Catppuccin Mocha dark: Home chat",

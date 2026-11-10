@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots } from "./mockData";
-import type { CloudMachine, PortForward } from "./ops";
+import type { CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
@@ -24,6 +24,89 @@ const manyMachines: CloudMachine[] = Array.from({ length: 24 }, (_, index) => ({
   revision: String(index + 1),
 })) as CloudMachine[];
 
+// Automatic cleanup (retention.ts): dates relative to now, so "Deletes in 9 days" reads the same every run.
+const DAY = 86_400_000;
+const now = Date.now();
+const freeRetention: CloudRetention = {
+  mode: "on",
+  settings: {
+    tier: "retained",
+    failed_create_hours: 1,
+    never_used_hours: 24,
+    idle_pause_minutes: 30,
+    worked_in_days: 60,
+    heads_up_days: 14,
+    last_note_days: 1,
+    archive_days: 90,
+  },
+  team: {},
+  email_heads_up: true,
+};
+const paidRetention: CloudRetention = {
+  ...freeRetention,
+  settings: { ...freeRetention.settings!, tier: "kept", worked_in_days: null },
+};
+const [apiDev, buildCache] = machines;
+const unused = (days: number, notice?: "heads_up" | "last_note"): CloudMachine => ({
+  ...structuredClone(buildCache!),
+  evict_at: now + days * DAY - 60_000,
+  delete_reason: "unused",
+  notice: notice ? { kind: notice, at: now - 3_600_000, delete_at: now + days * DAY - 60_000 } : null,
+});
+const failedCreate: CloudMachine = {
+  ...structuredClone(buildCache!),
+  id: "vm_f5",
+  name: "try-node-22",
+  status: "failed",
+  host: null,
+  last_active_at: null,
+  created_at: now - 30 * 60_000,
+  error: { code: "cloud.provider.unavailable", message: "The machine did not start.", at: now - 20 * 60_000 },
+  evict_at: now + 30 * 60_000,
+  delete_reason: "failed_create",
+  revision: "1",
+};
+const neverUsed: CloudMachine = {
+  ...structuredClone(buildCache!),
+  id: "vm_g6",
+  name: "scratch",
+  last_active_at: null,
+  created_at: now - 2 * 3_600_000,
+  evict_at: now + 22 * 3_600_000,
+  delete_reason: "never_used",
+  revision: "1",
+};
+const oldPaused: CloudMachine = {
+  ...structuredClone(buildCache!),
+  id: "vm_h7",
+  name: "spring-prototype",
+  size: { cpu: 2, memory_mb: 4096, disk_mb: 32_768 },
+  created_at: now - 120 * DAY,
+  last_active_at: now - 75 * DAY,
+  revision: "3",
+};
+const archiveSnapshots: CloudSnapshot[] = [
+  {
+    id: "snap_arch1",
+    machine: "vm_x8",
+    name: null,
+    size_mb: 12_288,
+    status: "ready",
+    created_at: now - 4 * DAY,
+    archive_of: { machine: "vm_x8", name: "docs-preview", until: now + 86 * DAY },
+    revision: "1",
+  },
+  {
+    id: "snap_arch2",
+    machine: "vm_y9",
+    name: null,
+    size_mb: 20_480,
+    status: "creating",
+    created_at: now - 600_000,
+    archive_of: { machine: "vm_y9", name: "load-test", until: now + 90 * DAY },
+    revision: "1",
+  },
+];
 // The team's spending cap (cmuxterm-hq#8205; cmux-platform SpendCap.ts): fixed sample times, so the stage never moves.
 const PERIOD_END = Date.UTC(2026, 11, 1);
 const PAUSE_AT = Date.UTC(2026, 10, 18, 17, 45);
@@ -58,6 +141,7 @@ export default cloudPageEntry({
     "pages/cloud/Notices.tsx",
     "pages/cloud/sectionParts.tsx",
     "pages/cloud/Storefront.tsx",
+    "pages/cloud/ArchiveList.tsx",
     "pages/cloud/spendCap.ts",
   ],
   variants: {
@@ -180,6 +264,60 @@ export default cloudPageEntry({
       note: "The Cloud owner returns a network error during startup.",
       mode: "error",
       error: { code: "cmux.cloud.upstream_error", message: "The Cloud service did not answer." },
+      machines,
+      snapshots,
+    },
+    "cleanup-dates": {
+      note: "Free plan cleanup: a calm delete date in the rows of a paused, a never-used and a failed machine; the running one has none.",
+      retention: freeRetention,
+      machines: [apiDev!, unused(9), neverUsed, failedCreate],
+      snapshots,
+    },
+    "cleanup-heads-up": {
+      note: "The one heads-up, inline under its row, 14 days before: Keep or Dismiss. No banner, no modal.",
+      retention: freeRetention,
+      machines: [apiDev!, unused(14, "heads_up")],
+      snapshots,
+    },
+    "cleanup-last-note": {
+      note: "The last note the day before the delete, with Keep.",
+      retention: freeRetention,
+      machines: [apiDev!, unused(1, "last_note")],
+      snapshots,
+    },
+    "cleanup-kept": {
+      note: "A kept machine: the Kept toggle is on and the row has no date.",
+      retention: freeRetention,
+      machines: [apiDev!, { ...unused(9), keep: true, evict_at: null, delete_reason: null }],
+      snapshots,
+    },
+    "cleanup-paid-archive": {
+      note: "A paid plan keeps worked-in machines: paused ones offer Archive and delete; the archives list with Restore.",
+      retention: paidRetention,
+      machines: [apiDev!, structuredClone(buildCache!), oldPaused],
+      snapshots: [...snapshots, ...archiveSnapshots],
+    },
+    "cleanup-cap-delete": {
+      note: "Create refused at the machines cap: the sheet offers to delete the failed create the platform named, then create.",
+      action: "create-at-cap",
+      retention: freeRetention,
+      machinesCap: 3,
+      freeUp: { machine: failedCreate.id, name: failedCreate.name, reason: "failed_create" },
+      machines: [apiDev!, structuredClone(buildCache!), failedCreate],
+      snapshots,
+    },
+    "cleanup-cap-archive": {
+      note: "Create refused at the machines cap with nothing disposable: archive and delete the oldest paused machine, then create.",
+      action: "create-at-cap",
+      retention: paidRetention,
+      machinesCap: 3,
+      machines: [apiDev!, structuredClone(buildCache!), oldPaused],
+      snapshots,
+    },
+    "cleanup-settings": {
+      note: "Cloud settings: the plan's cleanup in words, the email heads-up toggle and the team's numbers.",
+      action: "cleanup-team",
+      retention: { ...freeRetention, team: { heads_up_days: 7 } },
       machines,
       snapshots,
     },
