@@ -150,6 +150,12 @@ public final class SandboxRunFollower {
                     answer.body = String(decoding: data, as: UTF8.self)
                 } catch is CancellationError {
                     return
+                } catch let busy as CloudAPIError where busy == CloudDaemon.busy {
+                    // The daemon's long-poll slots are full (other waits hold them): no answer of the
+                    // task, so nothing reaches Rust (no timedOut to a send); ask again after a delay.
+                    // concurrency-allow: Backoff.wait is an async sleep while the daemon is busy, not a blocking wait.
+                    do { try await backoff.wait(owner: "sandboxRuns.follow", clock: clock) } catch { return }
+                    continue
                 } catch CloudAPIError.http(let status, _, _, _, _) {
                     answer.status = status
                     answer.failed = true
