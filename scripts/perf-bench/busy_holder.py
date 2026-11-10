@@ -428,7 +428,31 @@ def supervise(args) -> int:
              "load1_start": load1(), "started_utc": time.strftime("%H:%M:%SZ", time.gmtime()),
              "workers": [], "ready": False, "ended": None}
     workers = []
-    reason, cpu_s, live, refused = None, 0.0, set(), 0
+    reason, live = None, set()
+    tally = {"cpu_s": 0.0, "refused": 0, "failed": 0}
+
+    def count_end(status, ru) -> None:
+        if ru is not None:
+            tally["cpu_s"] += ru.ru_utime + ru.ru_stime
+        if os.WIFEXITED(status) and os.WEXITSTATUS(status) == AGENT_QOS_REFUSED:
+            tally["refused"] += 1
+        elif os.WIFEXITED(status) and os.WEXITSTATUS(status) != 0:
+            tally["failed"] += 1  # an `agents` process that refused to run (not our bench host or lock)
+
+    def reap_ended() -> int:
+        """Takes the status of each child that has ended (no wait). Returns how many ended."""
+        ended = 0
+        for pid in list(live):
+            try:
+                done, status, ru = os.wait4(pid, os.WNOHANG)
+            except ChildProcessError:
+                done, status, ru = pid, 0, None
+            if done:
+                live.discard(pid)
+                count_end(status, ru)
+                ended += 1
+        return ended
+
     try:
         for index, n in enumerate(per):
             if agents:  # a NEW process each (not a fork): only there does macOS permit the QoS class call
@@ -451,9 +475,14 @@ def supervise(args) -> int:
         # process sets its own class (utility or background).
         set_qos("user-initiated")
         if agents:
+            # The state file is there before the wait: `stop PID` can remove the files also after a hard kill.
+            write_state(me, state)
             # `start` returns when the load is this shape: each process makes its file after it has its QoS class.
+            # The wait ends at once at a stop, at the deadline, when the watched parent is gone or when a process
+            # ended (that one makes no file).
             t_ready = time.monotonic()
-            while time.monotonic() - t_ready < AGENT_READY_S and not stop["reason"]:
+            while (time.monotonic() - t_ready < AGENT_READY_S and not stop["reason"]
+                   and time.monotonic() < deadline and alive(args.watch_pid) and not reap_ended()):
                 try:
                     made = len(os.listdir(agent_folder(me)))
                 except OSError:
@@ -469,21 +498,11 @@ def supervise(args) -> int:
         while reason is None:
             time.sleep(0.1)
             now = time.monotonic()
-            for pid in list(live):
-                try:
-                    done, status, ru = os.wait4(pid, os.WNOHANG)
-                except ChildProcessError:
-                    done, status, ru = pid, 0, None
-                if done:
-                    live.discard(pid)
-                    if ru is not None:
-                        cpu_s += ru.ru_utime + ru.ru_stime
-                    if os.WIFEXITED(status) and os.WEXITSTATUS(status) == AGENT_QOS_REFUSED:
-                        refused += 1
+            reap_ended()
             if stop["reason"]:
                 reason = stop["reason"]
-            elif refused:
-                reason = "agents: the QoS class was refused in %d processes" % refused
+            elif tally["refused"]:
+                reason = "agents: the QoS class was refused in %d processes" % tally["refused"]
             elif now >= deadline:
                 reason = "max-seconds"
             elif not alive(args.watch_pid):
@@ -506,17 +525,18 @@ def supervise(args) -> int:
         for pid in live:
             try:
                 _, status, ru = os.wait4(pid, 0)
-                cpu_s += ru.ru_utime + ru.ru_stime
-                if os.WIFEXITED(status) and os.WEXITSTATUS(status) == AGENT_QOS_REFUSED:
-                    refused += 1
+                if ru is not None:
+                    tally["cpu_s"] += ru.ru_utime + ru.ru_stime
             except ChildProcessError:
                 pass
         if agents:
             remove_agent_files(me, workers)
+    cpu_s, refused = tally["cpu_s"], tally["refused"]
     wall = time.monotonic() - t_start
     cores_used = min(args.threads, os.cpu_count() or 1)
     if agents:
         state["qos_refused"] = refused
+        state["agents_failed"] = tally["failed"]  # processes that ended with an error: the load was smaller
     state.update({"ended": reason, "seconds": round(wall, 2), "worker_cpu_seconds": round(cpu_s, 1),
                   "cores_filled": round(cpu_s / wall, 2) if wall > 0 else 0.0,
                   "fill_ratio": round(cpu_s / (wall * cores_used), 3) if wall > 0 else 0.0,
