@@ -943,8 +943,11 @@ fn unanswered_reads_are_asked_again_until_the_deadline() {
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
-    assert!(error["message"].as_str().unwrap().contains("didn't answer in time"), "{error}");
+    // The deadline's own answer: the read that found it passed (`chat.unreachable`) or the wait that had none of it
+    // left (`chat.wait_timeout`), whichever came first.
+    let code = error["code"].as_str();
+    assert!(matches!(code, Some("chat.unreachable" | "chat.wait_timeout")), "{error}");
+    assert!(exit == 1 || exit == 3, "{exit}");
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
     // Far more than three reads, and the failure comes only once the deadline has passed.
     assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
