@@ -59,17 +59,19 @@ export function cliOnlyCommand(
 export function commandWaitsForTurn(
   prompt: string,
   harness: string | undefined,
-  commands: readonly { name: string; source?: string }[] | undefined,
+  commands: readonly { name: string; source?: string; action?: string }[] | undefined,
 ): boolean {
   if (agentKey(harness) !== "claude" || !commands?.length) return false;
   // The composer's text is Markdown with typed characters escaped (`/mcp\_\_github\_\_list`).
-  const name = /^\/(\S+)(?:\s|$)/
-    .exec(prompt.trim())?.[1]
-    ?.replace(/\\([!-/:-@[-`{-~])/g, "$1")
-    .toLowerCase();
+  const match = /^\/(\S+)(?:\s+(\S[\s\S]*))?$/.exec(prompt.trim());
+  const name = match?.[1]?.replace(/\\([!-/:-@[-`{-~])/g, "$1").toLowerCase();
   // cmux's own commands (cmuxCommands.ts) share the menu's list; their passthrough forms
-  // (`/model opus`, `/plan explain`) keep the send they had.
+  // (`/model opus`, `/plan explain`) keep the send they had. `/mcp <args>` is Claude Code's own
+  // /mcp, which cmux's bare /mcp took the menu's place of: it still waits for the turn.
+  const agentsOwn = (command: { name: string; source?: string; action?: string }) =>
+    command.source !== "cmux" || (command.action === "mcp" && match?.[2] !== undefined);
   return (
-    name !== undefined && commands.some((command) => command.source !== "cmux" && command.name.toLowerCase() === name)
+    name !== undefined &&
+    commands.some((command) => agentsOwn(command) && command.name.toLowerCase() === name)
   );
 }
