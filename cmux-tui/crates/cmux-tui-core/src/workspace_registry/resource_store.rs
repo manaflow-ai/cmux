@@ -1382,7 +1382,7 @@ impl WorkspaceRegistry {
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
-        super::terminal_snapshot_read::live_terminal_resource_ids_in(&self.connection.get())
+        terminal_snapshot_read::live_terminal_resource_ids_in(&self.connection.get())
     }
 
     /// Resolve the immutable resource-to-host relationship, including after

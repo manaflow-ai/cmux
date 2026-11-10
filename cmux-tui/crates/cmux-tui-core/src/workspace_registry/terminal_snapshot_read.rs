@@ -94,16 +94,16 @@ pub(crate) fn read_session_rows(
     session_id: &SessionPublicId,
 ) -> anyhow::Result<SessionRows> {
     Ok(SessionRows {
-        journal_head: super::session_journal::query_journal_head(db)?,
+        journal_head: session_journal::query_journal_head(db)?,
         registry: registry_snapshot_in(db, registry_id, generation, session_id)?,
-        topology: super::resource_store::load_resource_topology(
+        topology: resource_store::load_resource_topology(
             db,
             session_id.clone(),
             generation.to_string(),
         )?,
         terminals: terminal_snapshot_in(db, registry_id, generation)?,
         terminal_resource_ids: live_terminal_resource_ids_in(db)?,
-        projections: super::public_projection_store::ProjectionReader { db, session_id }
+        projections: public_projection_store::ProjectionReader { db, session_id }
             .public_projections()?,
     })
 }

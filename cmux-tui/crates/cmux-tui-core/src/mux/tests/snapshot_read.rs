@@ -101,11 +101,11 @@ fn cost(mux: &Arc<Mux>, reads: impl FnOnce()) -> (u64, u64, u64) {
             }
         })),
     );
-    let registry_before = crate::mux::registry_locks_taken_on_this_thread();
-    let state_before = crate::mux::state_locks_taken_on_this_thread();
+    let registry_before = registry_locks_taken_on_this_thread();
+    let state_before = state_locks_taken_on_this_thread();
     reads();
-    let state = crate::mux::state_locks_taken_on_this_thread() - state_before;
-    let registry = crate::mux::registry_locks_taken_on_this_thread() - registry_before;
+    let state = state_locks_taken_on_this_thread() - state_before;
+    let registry = registry_locks_taken_on_this_thread() - registry_before;
     watch_statements(mux, None);
     (registry, state, selects.load(Ordering::Relaxed))
 }
@@ -250,7 +250,7 @@ fn a_snapshot_read_beside_a_writer_is_one_committed_revision() {
             .unwrap();
         (revision.parse::<u64>().unwrap(), registry.session_journal_head().unwrap())
     };
-    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = Arc::new(AtomicBool::new(false));
     let readers = (0..2)
         .map(|_| {
             let mux = mux.clone();

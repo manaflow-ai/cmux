@@ -329,7 +329,7 @@ impl ProjectionReader<'_> {
             })
             .collect::<HashSet<String>>();
         reads.retain(|id, _| retained_ids.contains(id));
-        let acked = super::presentation_store::acked_notification_ids_in(db)?;
+        let acked = presentation_store::acked_notification_ids_in(db)?;
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
             let outcome: ResourceEffectOutcome = serde_json::from_str(&outcome_json)
