@@ -88,7 +88,8 @@ LOGIN_FILES = {
 }
 
 # Installed software, by place: what the image build put in /opt, and the harnesses' plugin caches.
-SHIPPED = re.compile(r"^/opt/|/\.codex/\.tmp/plugins/|/\.claude/plugins/")
+# Only the harnesses' own caches in a home count: a project's `.claude/plugins` (in a workspace) is the person's.
+SHIPPED = re.compile(r"^/opt/|^/(?:root|home/[^/]+)/(?:\.codex/\.tmp/plugins|\.claude/plugins)/")
 # Programs the machine's installers put in its home, matched only when the file is a program (ELF): acpmux and
 # cmux carry a secret scanner's list of known public Google keys, and Codex copies its own program to arg0/apply_patch.
 SHIPPED_PROGRAM = re.compile(r"^/home/[^/]+/(\.local/bin/(acpmux|cmux|cmux-tui)|\.local/share/cmux-tui/builds/[^/]+/bin/[^/]+|"
@@ -593,6 +594,34 @@ def pseudo_devices():
     return devices
 
 
+def login_file(path, walked, st, report):
+    """A login file is one by the name it is reached under (a link named .codex/auth.json counts); each name once."""
+    for suffix, what in LOGIN_FILES.items():
+        if walked.endswith("/" + suffix) and st.st_size > 0 and (walked, what) not in report["_login"]:
+            report["_login"].add((walked, what))
+            login_values(path)
+            report["findings"].append({"place": "file", "where": walked, "what": what})
+
+
+def scan_login_files(root, report):
+    """Every home's login files by their own names, whatever the walk skipped: a home's `.codex` linked to a folder
+    the walk already read under another name is never walked again, but its auth.json is still a login file."""
+    homes = [os.path.join(root, "root")]
+    try:
+        homes += [os.path.join(root, "home", h) for h in sorted(os.listdir(os.path.join(root, "home")))]
+    except OSError:
+        pass
+    for home in homes:
+        for suffix in LOGIN_FILES:
+            path = os.path.join(home, suffix)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if stat.S_ISREG(st.st_mode):
+                login_file(path, shown(root, path), st, report)
+
+
 def scan_files(root, deadline, report):
     pseudo = pseudo_devices()
     real_root = os.path.realpath(root)
@@ -635,10 +664,7 @@ def scan_files(root, deadline, report):
                     if not stat.S_ISREG(st.st_mode) or st.st_dev in pseudo:
                         continue  # a socket, fifo or device, or a kernel file, holds no stored key
                     # A login file is one by the name it is reached under (a link named .codex/auth.json counts).
-                    for suffix, what in LOGIN_FILES.items():
-                        if walked.endswith("/" + suffix) and st.st_size > 0:
-                            login_values(path)
-                            report["findings"].append({"place": "file", "where": walked, "what": what})
+                    login_file(path, walked, st, report)
                     # Named and classed by where it is once symbolic links are resolved; each such name once.
                     where = shown(real_root, os.path.realpath(path))
                     if where in reported:
@@ -712,7 +738,10 @@ def main(argv):
     }
     me = own_chain()
     scan_processes(root, me, report)
+    report["_login"] = set()
+    scan_login_files(root, report)
     scan_files(root, t0 + budget, report)
+    del report["_login"]
     unreadable = sorted(set(report["unreadable"]))
     gaps = []
     if not as_root:

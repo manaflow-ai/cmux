@@ -1402,6 +1402,32 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a home's login file behind a link to a folder already read still counts, and a project's plugins folder is no cache", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/cache/auth.json": `{"access_token":"opaqueAccess7Kq2Zr9Lw4"}\n`,
+      "workspace/project/.claude/plugins/custom/.env": `OPENAI_API_KEY=${PROJ}\n`,
+      "root/.profile": "\n",
+    });
+    // /root is walked after /home: its .codex is the cache folder the walk has already read.
+    symlinkSync(join(root, "home/cmux/cache"), join(root, "root/.codex"));
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain("opaqueAccess7Kq2Zr9Lw4");
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /root/.codex/auth.json: a Codex login file",
+        "file /workspace/project/.claude/plugins/[a name]/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/.claude/plugins/[a name]/.env:1: an OpenAI project key",
+      ]);
+      expect(probe.shipped ?? []).toEqual([]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key glued into a file's name never leaves in the answer", () => {
     const root = plant({
       "proc/5/comm": "bash\n",
