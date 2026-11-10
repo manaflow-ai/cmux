@@ -7,9 +7,22 @@ import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLo
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
+import { modelVerdict, sessionModels } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("session model passes only when the agent runs the model asked for, not when only the record names it", () => {
+    const info = (record: string | null, running: string | null) =>
+      JSON.stringify({ model: record, configOptions: running ? [{ id: "model", category: "model", currentValue: running, options: [{ value: "claude-opus-5-5" }, { value: "claude-haiku-5-5" }] }] : [] });
+    expect(sessionModels(info("claude-haiku-5-5", "claude-haiku-5-5"))).toEqual({ record: "claude-haiku-5-5", running: "claude-haiku-5-5" });
+    expect(modelVerdict("claude-haiku-5-5", sessionModels(info("claude-haiku-5-5", "claude-haiku-5-5")))).toContain("runs claude-haiku-5-5");
+    // Production 2026-11-10: the record named Haiku and the agent ran the Sonnet of the chat before (cmux#40383).
+    expect(() => modelVerdict("claude-haiku-5-5", sessionModels(info("claude-haiku-5-5", "claude-sonnet-5-5")))).toThrow("the agent runs claude-sonnet-5-5");
+    expect(() => modelVerdict("claude-haiku-5-5", sessionModels(info("claude-sonnet-5-5", "claude-haiku-5-5")))).toThrow();
+    expect(() => modelVerdict("claude-haiku-5-5", sessionModels(info("claude-haiku-5-5", null)))).toThrow("reports no model");
+    expect(() => sessionModels("not json")).toThrow("not JSON");
+  });
+
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
     const calls: Array<{ method: string; url: string; auth: string }> = [];
     const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {

@@ -867,6 +867,28 @@ export function swiftRawString(source: string, name: string): string {
   return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
 }
 
+/**
+ * What `acp --json session info` says a chat runs: `record`, the model the chat asked for (`model`), and `running`, the
+ * model its agent reports now (its `model` config option's current value). Either is null when the record has none.
+ */
+export function sessionModels(stdout: string): { record: string | null; running: string | null } {
+  let info: any = null;
+  // From the first `{`: a notice the CLI printed before its JSON is not the record.
+  try { info = JSON.parse(stdout.slice(Math.max(0, stdout.indexOf("{")))); } catch { throw new Error(`session info is not JSON: ${stdout.slice(0, 300)}`); }
+  const option = (Array.isArray(info?.configOptions) ? info.configOptions : []).find((o: any) => o?.id === "model" || o?.category === "model");
+  const text = (v: unknown) => (typeof v === "string" && v ? v : null);
+  return { record: text(info?.model), running: text(option?.currentValue) };
+}
+
+/** Passes only when the model asked for is the one the chat runs: its agent's own report, and the record when it names one. */
+export function modelVerdict(asked: string, ran: { record: string | null; running: string | null }): string {
+  if (!ran.running) throw new Error(`asked ${asked}; the agent reports no model (record: ${ran.record ?? "none"})`);
+  if (ran.running !== asked || (ran.record && ran.record !== asked)) {
+    throw new Error(`asked ${asked}; the agent runs ${ran.running} (record: ${ran.record ?? "none"})`);
+  }
+  return `asked ${asked}; the agent runs ${ran.running}`;
+}
+
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
@@ -2277,11 +2299,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // words, which a model gets wrong about itself).
       if (askedModel && !modelStub) {
         await J.step("session model", async () => {
-          const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
-          const named = [...new Set(r.stdout.match(/claude-(?:opus|sonnet|haiku)[a-z0-9.-]*/g) ?? [])];
-          if (!named.length) return { value: null, detail: `asked ${askedModel}; the session record names no Claude model` };
-          if (!named.includes(askedModel)) throw new Error(`asked ${askedModel}; the session runs ${named.join(", ")}`);
-          return { value: null, detail: `asked ${askedModel}; the session runs ${named.join(", ")}` };
+          const ran = sessionModels((await exec(`${GUEST}"$c" acp --json session info ${shq(session)}`, 45_000)).stdout);
+          return { value: null, detail: modelVerdict(askedModel, ran) };
+        });
+        // Production 2026-11-10: a second chat on the same machine ran the model of the chat before it (acpmux served it
+        // the pooled agent spawned on that model, cmux#40383). A chat on another model must run that model.
+        await J.step("second chat's model (same machine)", async () => {
+          const other = askedModel.includes("haiku") ? "claude-sonnet-5-5" : "claude-haiku-5-5";
+          const second = `${session}-m2`;
+          const r = await exec(`${GUEST}"$c" acp ensure ${shq(second)} -m ${shq(`${harness}/${other}`)} --json 2>&1; echo "@@exit $?"`, 120_000);
+          if (!/@@exit 0\s*$/.test(r.stdout)) throw new Error(`acp ensure -m ${harness}/${other}: ${r.stdout.slice(-400)}`);
+          const ran = sessionModels((await exec(`${GUEST}"$c" acp --json session info ${shq(second)}`, 45_000)).stdout);
+          return { value: null, detail: modelVerdict(other, ran) };
         });
       }
       if (modelStub && provider) {
