@@ -119,22 +119,26 @@ final class SidebarListDrag {
     /// `displayed`), or nil to keep the last target; records the probe.
     /// Spec 1780d02: the card's centre decides over a loose row, the leading
     /// edge elsewhere (DropResolver.DragRules).
-    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, rules: DropResolver.DragRules?) -> DropTarget?? {
-        let leading = movingUp ? card.minY : card.maxY
-        guard let resolved = rules?.resolve(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
-            noteProbe(nil, card: card, displayed: displayed, base: base)
+    /// `dropY` maps a card point (display y) to the y it drops at: the list's `dropY(_:)`, so a point on the stuck
+    /// header drops on the header, not on the row its veil covers.
+    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, rules: DropResolver.DragRules?,
+                 dropY: (CGFloat) -> CGFloat = { $0 }) -> DropTarget?? {
+        let leading = dropY(movingUp ? card.minY : card.maxY)
+        let centre = dropY(card.midY)
+        guard let resolved = rules?.resolve(centreY: centre, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
+            noteProbe(nil, centre: centre, leading: leading, displayed: displayed, base: base)
             return nil
         }
-        noteProbe(resolved.probe, card: card, displayed: displayed, base: base, target: resolved.target)
+        noteProbe(resolved.probe, centre: centre, leading: leading, displayed: displayed, base: base, target: resolved.target)
         return .some(resolved.target)
     }
 
     /// Records the drop probe (debug.sidebar_rows "drop"): the card point
     /// that decided (`used`, nil when none could), its row and zone.
-    private func noteProbe(_ used: DropResolver.DragProbe?, card: CGRect, displayed: SidebarLayout, base: SidebarLayout,
+    private func noteProbe(_ used: DropResolver.DragProbe?, centre: CGFloat, leading: CGFloat, displayed: SidebarLayout, base: SidebarLayout,
                    target: DropTarget? = nil) {
         let edge = used == .centre ? "centre" : (movingUp ? "top" : "bottom")
-        let displayY = used == .centre ? card.midY : (movingUp ? card.minY : card.maxY)
+        let displayY = used == .centre ? centre : leading
         guard used != nil, let y = DropResolver.baseY(forDisplayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
             probe = SidebarDropProbe(edge: edge, displayY: displayY, target: self.target.map { String(describing: $0) })
             return

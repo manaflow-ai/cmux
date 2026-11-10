@@ -64,7 +64,33 @@ class SidebarRowView: NSView {
     /// The view an accessibility element stands for (a control answers through its cell).
     private func accessibilityView(of element: Any?) -> NSView? { (element as? NSView) ?? (element as? NSCell)?.controlView }
 
+    /// The stuck project header covers the row (`SidebarListView.updateVeiledRows`): it is no accessibility element and
+    /// its controls leave the key view loop until it shows again, so VoiceOver and Tab reach the header over it, not a
+    /// row nobody can see. A control that had focus hands it to the list.
+    var isVeiled = false {
+        didSet {
+            guard isVeiled != oldValue else { return }
+            for case let control as NSControl in interactiveSubviews {
+                if isVeiled {
+                    if control.refusesFirstResponder { continue }
+                    control.refusesFirstResponder = true
+                    veiledControls.append(control)
+                    if window?.firstResponder === control { window?.makeFirstResponder(superview) }
+                }
+            }
+            if !isVeiled {
+                for control in veiledControls { control.refusesFirstResponder = false }
+                veiledControls = []
+            }
+        }
+    }
+    /// The controls `isVeiled` took out of the key view loop (and only those: one that refused focus already stays so).
+    private var veiledControls: [NSControl] = []
+
+    override func isAccessibilityElement() -> Bool { isVeiled ? false : super.isAccessibilityElement() }
+
     override func accessibilityChildren() -> [Any]? {
+        if isVeiled { return [] }
         guard let children = super.accessibilityChildren() else { return nil }
         let clear = clearHoverControls
         guard !clear.isEmpty else { return children }

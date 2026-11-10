@@ -147,7 +147,7 @@ extension SidebarListViewComponents {
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let (base, rules) = dragBase(drag)
-        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules)
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules, dropY: dropY)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
