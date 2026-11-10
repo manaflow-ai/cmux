@@ -433,16 +433,22 @@ def latencies(inputs, frames, ok, horizon_ns, refresh_ms):
 
 
 def pacing(frames, spans, refresh_ms):
-    """Intervals (ms) between changed frames inside each span (start_ns, end_ns), and the refreshes they missed."""
-    intervals, missed = [], 0
+    """Intervals (ms) between changed frames inside each span (start_ns, end_ns), the refreshes they missed, and the
+    frozen spans: an input span in which the window gave fewer than 2 changed frames has no interval at all, so it
+    counts every refresh of the span as missed (a frozen window must never read as 0 missed)."""
+    intervals, missed, frozen = [], 0, 0
     for start, end in spans:
         times = [f["t"] for f in frames if start <= f["t"] <= end and f.get("n", 0) > 0]
+        if len(times) < 2:
+            frozen += 1
+            missed += max(1, round((end - start) / 1e6 / refresh_ms))
+            continue
         for a, b in zip(times, times[1:]):
             ms = (b - a) / 1e6
             intervals.append(ms)
             if ms > 1.5 * refresh_ms:
                 missed += round(ms / refresh_ms) - 1
-    return intervals, missed
+    return intervals, missed, frozen
 
 
 def ready_time(keys, frames, t0, ok, refresh_ms, run=3):
@@ -752,12 +758,16 @@ def measure_pacing(ctx, rect, name, steps, kind, tail_ms):
     finally:
         frames, summary = w.stop()
     spans = spans_of(hidlog, kind, tail_ms=tail_ms)
-    intervals, missed = pacing(frames, spans, ctx.refresh_ms)
+    intervals, missed, frozen = pacing(frames, spans, ctx.refresh_ms)
     changed = sum(1 for f in frames if f.get("n", 0) > 0)
+    result = {"samples": intervals, "missed": missed, "spans": len(spans), "inputs": len(spans), "lost": frozen,
+              "frames": changed, "sck": summary, "rect": rect, "rate_ok": hidlog["rate_ok"]}
     if changed < 10:
-        raise NotRun(f"{name}: the input moved nothing on screen ({changed} changed frames)")
-    return {"samples": intervals, "missed": missed, "spans": len(spans), "frames": changed, "sck": summary,
-            "rect": rect, "rate_ok": hidlog["rate_ok"]}
+        # The inputs were sent and the window showed nothing: no sample and no number. The report makes it a FAIL
+        # when the other arm answered the same inputs (a frozen window), "not run" when neither did.
+        result.update({"samples": [], "lost": len(spans), "no_frames": f"{name}: the input moved nothing on screen "
+                                                                      f"({changed} changed frames)"})
+    return result
 
 
 def row_scroll_page(ctx, arm, load, rng):
@@ -1149,6 +1159,89 @@ def run(args):
 # ---------------------------------------------------------------- report
 
 
+def cell_of(runs):
+    """One arm's cell of a table row from its measured runs: the samples' distribution, the missed refreshes, the
+    inputs sent and the inputs that got no frame (`lost`)."""
+    samples = [s for e in runs for s in e.get("samples", [])]
+    p95s = [stats(e.get("samples", [])).get("p95") for e in runs if e.get("samples")]
+    return {**stats(samples), "missed": sum(e.get("missed", 0) for e in runs),
+            "lost": sum(e.get("lost", 0) for e in runs), "inputs": sum(e.get("inputs", 0) for e in runs),
+            "runs": len(runs), "p95_spread": [min(p95s), max(p95s)] if p95s else None}
+
+
+def verdict_of(c, g):
+    """(verdict, reason) of one row from the cmux cell `c` and the Chrome cell `g`.
+
+    An arm with no sample is never a pass and never a number. When cmux got inputs and showed no frame for any of
+    them while Chrome answered the same inputs, the cmux window was frozen (or the input never reached it): FAIL.
+    When Chrome is the arm with no sample, or neither arm has one, there is nothing to compare: not run."""
+    cn, gn = c.get("n", 0), g.get("n", 0)
+    if cn == 0 and gn > 0 and c.get("inputs", 0) > 0:
+        return "FAIL", f"cmux showed no frame for {c['inputs']} inputs (frozen window or input not delivered); Chrome answered"
+    if cn == 0 or gn == 0:
+        who = "no arm has" if cn == 0 and gn == 0 else "Chrome has no" if gn == 0 else "cmux has no"
+        return "not run", f"{who} sample".replace("no arm has sample", "no arm has a sample")
+    if c["p95"] <= g["p95"] and c["missed"] <= g["missed"]:
+        return "PASS", ""
+    return "FAIL", ""
+
+
+def selfcheck(_args):
+    """Proves the judge on made-up frames, with no app and no display: a frozen cmux window FAILS the frame rows, and
+    an input that is not delivered gives no sample (never a fast number). Prints one line per check; exit 1 on a miss."""
+    refresh = 1000.0 / 120
+    ms = 1_000_000
+    checks = []
+
+    def check(name, ok, detail):
+        checks.append(ok)
+        print(f"PARITY-SELFCHECK {'ok ' if ok else 'BAD'} {name}: {detail}")
+
+    keys = [i * 150 * ms for i in range(1, 21)]
+    live = [{"t": t + 12 * ms, "n": 40} for t in keys]
+    any_frame = lambda f: f.get("n", 0) > 0  # noqa: E731
+    lat, lost, missed = latencies(keys, live, any_frame, 300 * ms, refresh)
+    check("keys, live window", len(lat) == 20 and lost == 0 and abs(max(lat) - 12) < 0.01, f"n {len(lat)} lost {lost}")
+    # A frozen window: ScreenCaptureKit gives no changed frame at all.
+    lat, lost, missed = latencies(keys, [], any_frame, 300 * ms, refresh)
+    frozen_keys = {"samples": lat, "lost": lost, "missed": missed, "inputs": len(keys)}
+    check("keys, frozen window: no sample", lat == [] and lost == 20 and missed == 20 * LOST_LATE, f"n {len(lat)} lost {lost} missed {missed}")
+    # An input that is not delivered: the screen changes only BEFORE the key (an old frame) and long after it
+    # (another cause). Neither may count as that key's frame.
+    stale = [{"t": keys[0] - 2 * ms, "n": 40}, {"t": keys[0] + 400 * ms, "n": 40}]
+    lat, lost, missed = latencies(keys[:1], stale, any_frame, 300 * ms, refresh)
+    check("key not delivered: no sample", lat == [] and lost == 1, f"n {len(lat)} lost {lost}")
+    # A frame that changes less than the row's response size (a caret, a clock) is not the key's frame.
+    small = [{"t": t + 3 * ms, "n": 1} for t in keys]
+    lat, lost, missed = latencies(keys, small, lambda f: f.get("n", 0) >= 10, 300 * ms, refresh)
+    check("key, only an unrelated small change: no sample", lat == [] and lost == 20, f"n {len(lat)} lost {lost}")
+    spans = [(i * 1000 * ms, i * 1000 * ms + 500 * ms) for i in range(1, 6)]
+    smooth = [{"t": a + k * int(refresh * ms), "n": 500} for a, b in spans for k in range(60)]
+    iv, missed, frozen = pacing(smooth, spans, refresh)
+    live_pacing = {"samples": iv, "missed": missed, "lost": frozen, "inputs": len(spans)}
+    check("scroll, live window", len(iv) == 5 * 59 and missed == 0 and frozen == 0, f"n {len(iv)} missed {missed} frozen {frozen}")
+    iv, missed, frozen = pacing([], spans, refresh)
+    frozen_pacing = {"samples": iv, "missed": missed, "lost": frozen, "inputs": len(spans)}
+    check("scroll, frozen window: no sample, every refresh missed", iv == [] and frozen == 5 and missed == 5 * 60,
+          f"n {len(iv)} missed {missed} frozen {frozen}")
+    one = [{"t": a + 10 * ms, "n": 500} for a, b in spans]  # one frame per burst: the picture jumped once and froze
+    iv, missed, frozen = pacing(one, spans, refresh)
+    check("scroll, one frame per burst: frozen spans", iv == [] and frozen == 5 and missed == 5 * 60, f"missed {missed} frozen {frozen}")
+    live_keys = {"samples": [12.0] * 20, "lost": 0, "missed": 0, "inputs": 20}
+    for name, cmux, chrome, want in (
+            ("verdict, frozen cmux keys vs live Chrome", frozen_keys, live_keys, "FAIL"),
+            ("verdict, frozen cmux scroll vs live Chrome", frozen_pacing, live_pacing, "FAIL"),
+            ("verdict, live cmux vs frozen Chrome", live_keys, frozen_keys, "not run"),
+            ("verdict, both frozen", frozen_keys, frozen_keys, "not run"),
+            ("verdict, equal arms", live_keys, live_keys, "PASS"),
+            ("verdict, cmux lost 1 key of 20", {**live_keys, "samples": [12.0] * 19, "lost": 1, "missed": LOST_LATE},
+             live_keys, "FAIL")):
+        got, why = verdict_of(cell_of([{"status": "measured", **cmux}]), cell_of([{"status": "measured", **chrome}]))
+        check(name, got == want, f"{got}{' (' + why + ')' if why else ''}, want {want}")
+    print(f"PARITY-SELFCHECK {'PASS' if all(checks) else 'FAIL'} {sum(checks)}/{len(checks)}")
+    return 0 if all(checks) else 1
+
+
 def report(args):
     out = os.path.abspath(args.out)
     entries = [json.loads(line) for line in open(os.path.join(out, "results.jsonl"))]
@@ -1166,23 +1259,14 @@ def report(args):
                 continue
             arm_loads = [v for e in entries if e.get("load") == load and e.get("scenario") == scenario_of(row)
                          for v in (e.get("load1_before"), e.get("load1_after")) if v is not None]
-            cells = {}
-            for arm in ("cmux", "chrome"):
-                runs = [e for e in mine if e.get("arm") == arm and e.get("status") == "measured"]
-                samples = [s for e in runs for s in e.get("samples", [])]
-                p95s = [stats(e.get("samples", [])).get("p95") for e in runs if e.get("samples")]
-                cells[arm] = {**stats(samples), "missed": sum(e.get("missed", 0) for e in runs),
-                              "lost": sum(e.get("lost", 0) for e in runs), "runs": len(runs),
-                              "p95_spread": [min(p95s), max(p95s)] if p95s else None}
+            cells = {arm: cell_of([e for e in mine if e.get("arm") == arm and e.get("status") == "measured"])
+                     for arm in ("cmux", "chrome")}
             reasons = sorted({e.get("reason", "") for e in mine if e.get("status") == "not run"})
             c, g = cells["cmux"], cells["chrome"]
-            if c.get("n", 0) == 0 or g.get("n", 0) == 0:
-                verdict = "not run"
-            elif c["p95"] <= g["p95"] and c["missed"] <= g["missed"]:
-                verdict = "PASS"
-            else:
-                verdict = "FAIL"
-            slower = None if verdict == "not run" else c["p95"] > g["p95"]
+            verdict, why = verdict_of(c, g)
+            if why:
+                reasons.append(why)
+            slower = c["p95"] > g["p95"] if c.get("n") and g.get("n") else None
             table.append({"row": row, "metric": metric, "kind": kind, "load": load, "cmux": c, "chrome": g,
                           "verdict": verdict + (f", {note}" if note and verdict != "not run" else ""),
                           "cmux_p95_over_chrome": slower,
@@ -1197,9 +1281,12 @@ def report(args):
     if args.md:
         def cell(s):
             return "-" if not s.get("n") else f"{s['p50']} / {s['p95']} / {s['p99']} / {s['max']} (n {s['n']})"
+
+        def missed(s):  # an arm that got no input has no missed count: "0" there would read as "none missed"
+            return s.get("missed") if s.get("n") or s.get("inputs") else "-"
         lines = [f"# Chrome parity, {time.strftime('%Y-%m-%d %H:%MZ', time.gmtime())}", "",
                  f"Host {machine.get('host')} ({machine.get('model')}), macOS {machine.get('macos')}, "
-                 f"{machine.get('hz')} Hz, cmux {machine.get('cmux')} at {machine.get('cmux_sha') or '?'}, "
+                 f"judged against {machine.get('hz')} Hz (nominal, not measured here), cmux {machine.get('cmux')} at {machine.get('cmux_sha') or '?'}, "
                  f"Chrome {machine.get('chrome')}. ms, p50 / p95 / p99 / max; missed = late or missed {hz} Hz refreshes."
                  + (f" {note}." if note else ""), "",
                  "| Metric | Load | 1-min load | cmux | Chrome | missed cmux / Chrome | cmux p95 > Chrome p95 | verdict "
@@ -1210,7 +1297,7 @@ def report(args):
             lo = r["load1"]
             slower = {None: "-", True: "yes", False: "no"}[r["cmux_p95_over_chrome"]]
             lines.append(f"| {r['metric']} | {r['load']} | {f'{lo[0]}-{lo[1]}' if lo else '-'} | {cell(r['cmux'])} | "
-                         f"{cell(r['chrome'])} | {r['cmux'].get('missed')} / {r['chrome'].get('missed')} | {slower} | "
+                         f"{cell(r['chrome'])} | {missed(r['cmux'])} / {missed(r['chrome'])} | {slower} | "
                          f"{r['verdict']}{' (' + why + ')' if why and r['verdict'] == 'not run' else ''} | "
                          f"{r['cmux_surface']} / {r['chrome_surface']} |")
         with open(args.md, "w") as f:
@@ -1240,9 +1327,12 @@ def main():
     p.add_argument("--md", default="")
     p.add_argument("--json", default="")
     sub.add_parser("rows")
+    sub.add_parser("selfcheck", help="proves the judge on made-up frames: frozen window = FAIL, undelivered input = no sample")
     args = parser.parse_args()
     if args.cmd == "run":
         return run(args) or 0
+    if args.cmd == "selfcheck":
+        return selfcheck(args)
     if args.cmd == "report":
         return report(args)
     for row, (metric, kind, a, b) in ROWS.items():

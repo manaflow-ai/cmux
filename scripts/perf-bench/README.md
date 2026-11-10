@@ -220,6 +220,31 @@ Mappings and known asymmetries:
 The Chrome terminal arm has no PTY round trip, so it is a lower bound for a web terminal. Launch types keys from the
 first moment; before the app's window is up they go to the app in front (Finder on a bench host).
 
+### Where the bench process has no privacy right: the app-clock method
+
+`chrome_parity.py` sends real HID events and reads a ScreenCaptureKit stream of the display, so the process that
+starts it needs PostEvent and Screen Recording. Where it has neither (an ssh session on a mini: the responsible
+process is `tailscaled`), `parity_appclock.py` measures 7 rows with no right:
+
+```
+python3 scripts/perf-bench/parity_appclock.py selfcheck --cmux APP --out DIR     # first: must print PASS
+python3 scripts/perf-bench/parity_appclock.py run --cmux APP --out DIR --loads light,load --rounds 2
+python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
+```
+
+- cmux arm: input through the debug socket (`debug.key`, `debug.mouse`, `debug.window_frame`); frames from the
+  app's own recorder (`debug.motion record_*`). Chrome arm: `parity_chrome_cdp.py` (DevTools input, Chrome's trace).
+- Each sample is the bench's send stamp to the frame's time. The hop from the keyboard through WindowServer to the
+  app is in no number, and the two frame clocks are not the same clock: a difference under one refresh is inside the
+  method's error. A before/after pair by this method is A/B evidence; it is not a parity proof by the HID method.
+- The report labels each run: method, display (id, size, rate), the refresh interval measured in that run, screen
+  locked or not, load. A run on a locked screen, on a sleeping display or with a measured refresh that is not the
+  `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
+- Not possible by this method (9 rows stay "not run", each with its reason): native field key, Cmd-T to
+  interactive, split resize, the 2 hover rows, the 2 drag rows, the 2 launch rows. They need the HID method.
+- `chrome_parity.py selfcheck` proves the judge on made-up frames (a frozen arm is FAIL, an input that was not
+  delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`.
+
 ## Files
 
 - `xbench.py`: run, report (BENCH.md + results.json), gate.
@@ -227,4 +252,5 @@ first moment; before the app's window is up they go to the app in front (Finder 
 - `pages.py`, `procs.py`, `benchhelper.swift`, `fetch_browsers.py`.
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
+- `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
 - `../measure/perf-bench.sh`: the fleet entry.
