@@ -38,7 +38,9 @@ public struct SidebarSeed {
     /// `failed` lists machines whose first connection gave up while their
     /// header still says connecting: their placeholders end and do not
     /// reappear during a later connecting callback.
-    public mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
+    /// `unloaded` lists machines whose rows have not been loaded yet (no first tree from their daemon).
+    public mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = [],
+                               unloaded: Set<MachineID> = []) -> [SidebarSection] {
         if !launching, !settled {
             settled = true
             // Cancel a pending grace callback before it can repopulate rows
