@@ -36,14 +36,24 @@ use crate::mux::walk_counters::walk_counts_for_test;
 /// SELECT statements that a close may run more in one session than in the other for a reason that
 /// is not the session's size.
 ///
-/// Seen on aws-m4pro-2, 2026-11-10, at the commit that made the close scoped: this test alone
-/// (with one other test in the process) counted the same SELECTs for a close of the last workspace
-/// at 60 and at 826, but with the 282 tests of the `close` filter in one process on a loaded host
-/// each close of the session of 60 counted 4 more than each close of the session of 826 (202
-/// against 198, the same rows written). The SMALLER session had more, so it is not a cost per
-/// workspace; the cause is not found. One statement for each workspace would add 766, so this
-/// allowance does not hide the growth this test is for. When the counts differ the test prints the
-/// tables whose reads differ.
+/// The cause: the parsed sidebar document is cached in ONE slot for the whole process
+/// (`state/sidebar_doc_store.rs`, `CACHE`), keyed by the registry. A daemon has one registry, so
+/// its close finds the document there. `cargo test` runs every test of a filter in one process:
+/// when an other test's registry took the slot, this session's close reads the document again,
+/// which is 4 SELECT statements (`read_rows`: the revision in `meta`, the table check in
+/// `sqlite_master`, `sidebar_sections`, `sidebar_items`). nextest runs one process for each test
+/// and does not see it.
+///
+/// Seen on aws-m4pro-2, 2026-11-10: this test alone (with one other test in the process) counted
+/// 198 SELECTs for a close of the last workspace at 60 and at 826; with the 282 tests of the
+/// `close` filter in one process each close of the session of 60 counted 202, and the tables whose
+/// reads differed were exactly those four (`meta` 43 against 41, `sqlite_master` 22 against 20,
+/// `sidebar_sections` 1 against 0, `sidebar_items` 2 against 1). The session of 60 runs while the
+/// other tests still run; the session of 826 runs after them.
+///
+/// The bound is 4 such reads. One statement for each workspace would add 766, so it does not hide
+/// the growth this test is for. When the counts differ the test prints the tables whose reads
+/// differ.
 const BACKGROUND_SELECTS: u64 = 16;
 
 /// What the registry connection ran: SELECT statements compiled (the registry prepares each
