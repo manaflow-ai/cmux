@@ -215,6 +215,8 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
+            # CI's crash ratchet comparison: the gate's crash ratchet layer runs it (origin/feat-cmux-next's for the hook).
+            "scripts/ci/crash_ratchet_compare.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -1789,7 +1791,9 @@ let package = Package(
     # gate's trees hold only the changed files, so their count never reached the row: #39304's first head (60550abe)
     # added two non-test `.lock().unwrap()`, passed the hook and was refused by CI. A main-based push (no CmuxNext app
     # entry in its tree) got no crash check at all: check-crash-safety.sh died on the missing file and only warned.
-    CRATE_FILE = "cmux-tui/crates/cmux-tui-core/src/undo_fixture.rs"
+    # A crate with no baseline row (the fixture copies the real crash-safety-baseline.json): one new unwrap puts it
+    # over its row, so CI's ratchet refuses it. In cmux-tui-core (row 1135) CI's ratchet passes one.
+    CRATE_FILE = "cmux-tui/crates/cmux-fixture-crash/src/undo_fixture.rs"
     RUST_CLEAN = """use std::sync::Mutex;
 
 pub struct Snapshot {
@@ -1820,7 +1824,9 @@ pub fn twice(value: u32) -> u32 {
         self.git("fetch", "--quiet", "origin")
         self.git("checkout", "--quiet", "-b", "topic", "--no-track", "origin/main")
 
-    def test_a_main_based_push_that_adds_a_lock_unwrap_is_refused(self):
+    def test_a_main_based_push_that_adds_a_lock_unwrap_passes_as_mains_ci_passes_it(self):
+        # Lead decision (BLOCK of #39853 at 578e28ae): main's CI has no crash ratchet and main keeps no baseline, so
+        # the gate refused every new non-test unwrap of a main port that main's CI passes (6 of the last 40).
         self.main_branch()
         self.write(self.CRATE_FILE, self.RUST_LOCK_UNWRAP)
         self.commit("main-based: a lock().unwrap() in production code")
@@ -1828,12 +1834,10 @@ pub fn twice(value: u32) -> u32 {
         result = self.push_ref("topic")
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertFalse(self.remote_has("refs/heads/topic"), "the unwrap must not reach origin")
+        self.assertEqual(result.returncode, 0, output)
+        self.assertTrue(self.remote_has("refs/heads/topic"), output)
         self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
-        self.assertIn("Crash ratchet", output)
-        self.assertIn(f"{self.CRATE_FILE}:", output)
-        self.assertIn("unwrap", output)
+        self.assertNotIn("[crash-ratchet]", output)
 
     def test_a_main_based_clean_push_passes_with_no_crash_check_warning(self):
         self.main_branch()
@@ -1891,6 +1895,246 @@ mod tests {
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_lock_unwrap_in_a_path_declared_test_module_passes(self):
+        # cmux-vnc's session.rs declares `#[cfg(test)] #[path = "session_backpressure.rs"] mod ...;`: that file is test
+        # code for CI's ratchet (rust_test_modules reads the #[path] line in any file). The gate's trees held only the
+        # changed file, so it counted the file's unwraps as production code and refused a push CI passes (review of
+        # #39767). The same for a #[path] that names a file in another folder, and a folder below a #[path] module.
+        crate = "cmux-tui/crates/cmux-vnc/src"
+        self.write(f"{crate}/lib.rs", "pub mod session;\npub mod net;\n")
+        self.write(f"{crate}/session.rs", self.RUST_CLEAN + '\n#[cfg(test)]\n#[path = "session_backpressure.rs"]\n'
+                   "mod backpressure_tests;\n")
+        self.write(f"{crate}/session_backpressure.rs", "#[test]\nfn reads() {}\n")
+        self.write(f"{crate}/net/mod.rs", '#[cfg(test)]\n#[path = "../fixtures_net/wire.rs"]\nmod wire;\n')
+        self.write(f"{crate}/fixtures_net/wire.rs", "#[test]\nfn wire() {}\n")
+        self.write(f"{crate}/fixtures_net/wire/frames.rs", "#[test]\nfn frames() {}\n")
+        self.commit("base: test modules declared with #[path]")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        unwrap = "\n#[test]\nfn locks() {\n    let state = std::sync::Mutex::new(1);\n    assert_eq!(*state.lock().unwrap(), 1);\n}\n"
+        for path in ("session_backpressure.rs", "fixtures_net/wire.rs", "fixtures_net/wire/frames.rs"):
+            self.write(f"{crate}/{path}", (self.repo / crate / path).read_text() + unwrap)
+        self.commit("lock().unwrap() in #[path] test modules")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("[crash-ratchet]", output)
+
+    def test_a_new_unwrap_in_a_changed_file_is_refused_when_the_crate_is_over_its_row_on_both_sides(self):
+        # Lead decision on #39853: the files the gate adds to tell test code (here lib.rs, which declares the changed
+        # module) only classify; they never hide a hit. The "Crash safety" scanner compared whole-crate counts with
+        # the baseline row, and a crate over its row on both sides printed the same line, so a new unwrap passed. The
+        # crate has no row: lib.rs's unwrap alone puts it over on both sides. Judged in every mode, the hook and a
+        # direct --base/--head run (fast gates, car guards).
+        crate = "cmux-tui/crates/cmux-fixture/src"
+        self.write(f"{crate}/lib.rs", "pub mod feature;\n\npub fn first(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.write(f"{crate}/feature.rs", "pub fn second(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.commit("base: a crate over its (missing) row")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{crate}/feature.rs", (self.repo / crate / "feature.rs").read_text()
+                   + "\npub fn third(state: &std::sync::Mutex<u32>) -> u32 {\n    *state.lock().unwrap()\n}\n")
+        self.commit("a new lock().unwrap() in a changed file")
+
+        direct = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD"], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        pushed = self.push()
+
+        for result in (direct, pushed):
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn(f"{crate}/feature.rs:", output)
+            self.assertIn("lock().unwrap()", output)
+            self.assertNotIn(f"{crate}/lib.rs:", output, "an unchanged file's hit is never the push's")
+        self.assertEqual(self.remote_head(), before, "the unwrap must not reach origin")
+
+    # Lead rule (BLOCK of #39853 at 900cea4b): the gate gives exactly the verdict of CI's crash ratchet
+    # (crash_ratchet_compare.py: each touched crate against its baseline row, a moved hit only with its row carried),
+    # in every mode: the hook and a direct --base/--head run (fast gates, car guards).
+    def set_crash_row(self, crate, kind, count):
+        import json
+        path = self.repo / "scripts/cmux-next/crash-safety-baseline.json"
+        data = json.loads(path.read_text())
+        rows = data.setdefault("rust", {}).setdefault(kind, {})
+        if count:
+            rows[crate] = count
+        else:
+            rows.pop(crate, None)
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+    def base_commit(self, message):
+        self.commit(message)
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+
+    def judged(self):
+        """(the direct --base/--head run, the hook push) of HEAD over its parent."""
+        direct = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD"], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        return direct, self.push()
+
+    def assert_passes_like_ci(self):
+        for result in self.judged():
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            self.assertNotIn("[crash-ratchet]", output)
+
+    def assert_refused_like_ci(self, *texts):
+        before = self.remote_head()
+        for result in self.judged():
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn("Crash ratchet", output)
+            for text in texts:
+                self.assertIn(text, output)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_new_expects_in_a_crate_under_its_row_pass_as_ci_passes_them(self):
+        # fe273bc6a2f (#39574): two new expect in cmux-tui-core, 189 of its row 190. CI's ratchet passed it; the gate
+        # refused every rise in the changed files.
+        crate = "cmux-tui/crates/cmux-fixture-roomy/src"
+        self.write(f"{crate}/lib.rs", 'pub fn one(v: Option<u32>) -> u32 {\n    v.expect("one")\n}\n')
+        self.set_crash_row("cmux-fixture-roomy", "expect", 3)
+        self.base_commit("base: a crate with 1 expect under its row of 3")
+        self.write(f"{crate}/views.rs", 'pub fn two(v: Option<u32>) -> u32 {\n    v.expect("two")\n}\n'
+                   'pub fn three(v: Option<u32>) -> u32 {\n    v.expect("three")\n}\n')
+        self.commit("two new expect, still within the row")
+
+        self.assert_passes_like_ci()
+
+    def test_a_hit_moved_into_a_crate_with_no_row_is_refused_as_ci_refuses_it(self):
+        # CI allows a moved hit only when the head's baseline carries its row (crash_ratchet.py --update-baseline
+        # --base); the gate allowed every proven move.
+        line = "pub fn moved(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n"
+        self.write("cmux-tui/crates/cmux-fixture-from/src/lib.rs", line)
+        self.set_crash_row("cmux-fixture-from", "unwrap", 1)
+        self.base_commit("base: crate from has one unwrap and its row")
+        self.write("cmux-tui/crates/cmux-fixture-from/src/lib.rs", "pub fn stays() {}\n")
+        self.write("cmux-tui/crates/cmux-fixture-to/src/lib.rs", line)
+        self.commit("move the unwrap into crate to; the baseline is not changed")
+
+        self.assert_refused_like_ci("cmux-fixture-to")
+
+    def test_a_hit_moved_with_its_row_carried_passes(self):
+        line = "pub fn moved(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n"
+        self.write("cmux-tui/crates/cmux-fixture-from/src/lib.rs", line)
+        self.set_crash_row("cmux-fixture-from", "unwrap", 1)
+        self.base_commit("base: crate from has one unwrap and its row")
+        self.write("cmux-tui/crates/cmux-fixture-from/src/lib.rs", "pub fn stays() {}\n")
+        self.write("cmux-tui/crates/cmux-fixture-to/src/lib.rs", line)
+        self.set_crash_row("cmux-fixture-from", "unwrap", 0)
+        self.set_crash_row("cmux-fixture-to", "unwrap", 1)
+        self.commit("move the unwrap into crate to, and its row")
+
+        self.assert_passes_like_ci()
+
+    def test_a_deleted_file_frees_its_hits_for_a_new_one_within_the_row(self):
+        crate = "cmux-tui/crates/cmux-fixture-del/src"
+        self.write(f"{crate}/lib.rs", "pub mod old;\n")
+        self.write(f"{crate}/old.rs", "pub fn old(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-del", "unwrap", 1)
+        self.base_commit("base: one unwrap in old.rs, row 1")
+        self.git("rm", "--quiet", f"{crate}/old.rs")
+        self.write(f"{crate}/lib.rs", "pub mod fresh;\n")
+        self.write(f"{crate}/fresh.rs", "pub fn fresh(v: Result<u32, ()>) -> u32 {\n    v.unwrap()\n}\n")
+        self.commit("delete old.rs; a different unwrap in fresh.rs")
+
+        self.assert_passes_like_ci()
+
+    def test_a_renamed_file_in_a_crate_over_its_row_passes(self):
+        crate = "cmux-tui/crates/cmux-fixture-ren/src"
+        self.write(f"{crate}/lib.rs", "pub mod x;\n")
+        self.write(f"{crate}/x.rs", "pub fn x(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.base_commit("base: a crate over its (missing) row")
+        self.git("mv", f"{crate}/x.rs", f"{crate}/y.rs")
+        self.write(f"{crate}/lib.rs", "pub mod y;\n")
+        self.commit("rename x.rs to y.rs")
+
+        self.assert_passes_like_ci()
+
+    def test_a_new_unwrap_in_a_nested_crate_is_refused(self):
+        # The ratchet's crate is the first folder under cmux-tui/crates (crates/outer/inner/src is crate outer).
+        nested = "cmux-tui/crates/cmux-fixture-outer/inner/src/x.rs"
+        self.write(nested, "pub fn x() {}\n")
+        self.base_commit("base: a nested crate")
+        self.write(nested, "pub fn x(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.commit("a new unwrap in the nested crate")
+
+        self.assert_refused_like_ci(f"{nested}:", "cmux-fixture-outer")
+
+    def test_a_push_that_raises_only_a_rust_row_is_refused_as_ci_refuses_it(self):
+        # ratchet-path-2 (BLOCK of #39853 at 578e28ae): a push that changes only crash-safety-baseline.json ran no crash
+        # layer, and CI refused it: "crash-safety-baseline.json may only go down".
+        crate = "cmux-tui/crates/cmux-fixture-raise/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n"
+                   "pub fn b(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-raise", "unwrap", 2)
+        self.base_commit("base: a crate at its row of 2")
+        self.set_crash_row("cmux-fixture-raise", "unwrap", 5)
+        self.commit("raise the row only")
+
+        self.assert_refused_like_ci("crash-safety-baseline.json", "may only go down", "cmux-fixture-raise")
+
+    # ratchet-rev-3 (BLOCK of #39853 at 95f48d97): main_based() asked where HEAD left origin/main, so a feat branch
+    # that merged the current origin/main (not on feat) read as main-based and got no Rust crash check at all.
+    def merges_main(self):
+        """origin/main one commit ahead of feat's tip (with the CmuxNext app entry, as a real main tip merged into a
+        feat branch keeps feat's file), merged into the local feat-cmux-next."""
+        self.git("checkout", "--quiet", "-b", "main", "origin/feat-cmux-next")
+        self.write("docs/main-only.md", "main's own work\n")
+        self.commit("main: its own commit")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/main")
+
+    def test_a_feat_push_that_merges_main_and_adds_an_unwrap_is_refused(self):
+        crate = "cmux-tui/crates/cmux-fixture-synced/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-synced", "unwrap", 1)
+        self.base_commit("base: a crate at its row of 1")
+        self.merges_main()
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n"
+                   "pub fn b(v: Mutex<u32>) -> u32 {\n    *v.lock().unwrap()\n}\nuse std::sync::Mutex;\n")
+        self.commit("after the main sync: a lock().unwrap() in production code")
+
+        self.assert_refused_like_ci("cmux-fixture-synced", f"{crate}/lib.rs:")
+
+    def test_a_feat_push_that_merges_main_and_raises_only_a_rust_row_is_refused(self):
+        crate = "cmux-tui/crates/cmux-fixture-synced-row/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-synced-row", "unwrap", 1)
+        self.base_commit("base: a crate at its row of 1")
+        self.merges_main()
+        self.set_crash_row("cmux-fixture-synced-row", "unwrap", 4)
+        self.commit("after the main sync: raise the row only")
+
+        self.assert_refused_like_ci("crash-safety-baseline.json", "may only go down", "cmux-fixture-synced-row")
+
+    def test_a_push_that_lowers_only_a_rust_row_passes(self):
+        crate = "cmux-tui/crates/cmux-fixture-lower/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-lower", "unwrap", 3)
+        self.base_commit("base: a crate under its row of 3")
+        self.set_crash_row("cmux-fixture-lower", "unwrap", 1)
+        self.commit("lower the row only")
+
+        self.assert_passes_like_ci()
+
+    def test_a_push_that_only_deletes_a_test_module_declaration_is_refused(self):
+        # A push that only deletes .rs files ran no crash layer; CI counts the module the deleted file declared test.
+        crate = "cmux-tui/crates/cmux-fixture-undeclared/src"
+        self.write(f"{crate}/lib.rs", "#[cfg(test)]\nmod helpers;\n")
+        self.write(f"{crate}/helpers.rs", "pub fn h(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.base_commit("base: a test module with an unwrap")
+        self.git("rm", "--quiet", f"{crate}/lib.rs")
+        self.commit("delete the file that declares the test module")
+
+        self.assert_refused_like_ci("cmux-fixture-undeclared")
 
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
