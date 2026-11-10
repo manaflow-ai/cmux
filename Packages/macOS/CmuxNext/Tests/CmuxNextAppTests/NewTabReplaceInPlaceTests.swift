@@ -163,7 +163,7 @@ import Testing
     ///
     /// The density is process-wide and a settings load elsewhere in the run leaves it at the file's
     /// Default (`cozy`, #37274), so each case sets the one it measures: Compact (the in-memory
-    /// default) and Default (the fresh-install density).
+    /// default) and Default (the fresh-install density), in a pane wide enough for four tabs at either.
     @Test(.serialized, arguments: [DensityPreset.compact, .cozy])
     func aTabOpenedToTheRightGrowsInAtItsSlot(density: DensityPreset) async throws {
         _ = NSApplication.shared
@@ -182,11 +182,13 @@ import Testing
         let state = WindowState(record: record)
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: state)
         defer { pane.teardown() }
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 300), styleMask: [.borderless],
+        // Room for four tabs at their widest at either density (4 x 220 pt at Default): a row too narrow for the
+        // fourth shares the room again (TabLayoutEngine.rowShare), so every slot, the neighbour's too, moves.
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1_200, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        pane.view.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+        pane.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 300)
         window.contentView = pane.view
         window.orderFrontRegardless()
         state.selection.select(anchor.id, in: pane.paneKey)
