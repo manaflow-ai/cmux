@@ -23,6 +23,14 @@ export const stackWorld = () => {
   const removedInStack: Array<string> = []
   /** Stack anonymous users (profile user.is_anonymous), by user id. */
   const anonymous = new Set<string>()
+  /** Each Stack team's operator Cloud grant (client_read_only_metadata.cmuxVmPlan); absent = none. */
+  const vmPlans = new Map<string, string>()
+  /** Each Stack user's operator Cloud grant; absent = none. */
+  const userVmPlans = new Map<string, string>()
+  /** Every user grant the cmux side wrote in Stack, in order. */
+  const userVmPlanWrites: Array<{ user: string; vm_plan: string }> = []
+  /** Fail this many user grant writes first (a Stack outage). */
+  const failWrites = { left: 0 }
   let calls = 0
   const fake = {
     findUserByEmail: async () => undefined,
@@ -34,14 +42,24 @@ export const stackWorld = () => {
     },
     getTeam: async (t: string) => {
       calls++
-      return teams.has(t) ? { display_name: teams.get(t)!, plan: null } : null
+      return teams.has(t) ? { display_name: teams.get(t)!, plan: null, vm_plan: vmPlans.get(t) ?? null } : null
     },
     listUserTeams: async (u: string) => {
       calls++
       return [...members.keys()].filter((k) => k.endsWith(`:${u}`) && teams.has(k.slice(0, k.length - u.length - 1))).map((k) => k.slice(0, k.length - u.length - 1))
     },
     getUserPlan: async () => null,
-    getUserVmPlan: async () => ({ vm_plan: null }),
+    getUserVmPlan: async (u: string) => ({ vm_plan: userVmPlans.get(u) ?? null }),
+    setUserVmPlan: async (u: string, vm_plan: string) => {
+      calls++
+      if (failWrites.left > 0) {
+        failWrites.left--
+        throw new Error("stack PATCH /users returned 503")
+      }
+      userVmPlans.set(u, vm_plan)
+      userVmPlanWrites.push({ user: u, vm_plan })
+      return "set" as const
+    },
     listTeamMembers: async (t: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const
@@ -61,7 +79,7 @@ export const stackWorld = () => {
       return had ? ("removed" as const) : ("absent" as const)
     }
   }
-  return { teams, members, perms, removedInStack, anonymous, fake, calls: () => calls }
+  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userVmPlanWrites, failWrites, fake, calls: () => calls }
 }
 export type World = ReturnType<typeof stackWorld>
 
