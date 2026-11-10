@@ -265,7 +265,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// Each evaluation the system type makes runs as a scheduled task of `site` (``ObservationSite/evaluate(_:)``);
         /// the system type's own hop and tracking are unchanged.
         init(_ emit: @escaping @MainActor @Sendable () -> Element, site: ObservationSite) {
-            base = Observations<Element, Never>({ @MainActor in site.evaluate(emit) }).makeAsyncIterator()
+            base = Observations<Element, Never>({ @MainActor in site.evaluate { emit() } }).makeAsyncIterator()
         }
 
         func next(isolation iteratorIsolation: isolated (any Actor)?) async -> Element? {

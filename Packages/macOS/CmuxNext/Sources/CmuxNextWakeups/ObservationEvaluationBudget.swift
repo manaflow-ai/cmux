@@ -9,8 +9,9 @@ import CmuxNextCompat
 @MainActor
 final class ObservationEvaluationBudget: ObservationEvaluationRunner {
     private let budget: MainFrameBudget
-    /// Each site's owner, interned on the board at the site's first evaluation (about 400 sites in the app): later
-    /// evaluations take no lock and build no string.
+    /// Each site's owner, interned on the board at the site's first evaluation (one lock and one string per site,
+    /// about 400 sites in the app; the stream is a plain value with no scheduler at hand where it is made): later
+    /// evaluations take one dictionary lookup, no lock and no string.
     private var owners: [ObservationSite: MainTaskOwner] = [:]
 
     init(budget: MainFrameBudget) {
@@ -18,7 +19,7 @@ final class ObservationEvaluationBudget: ObservationEvaluationRunner {
     }
 
     func evaluate<T>(at site: ObservationSite, _ body: () -> T) -> T {
-        budget.run(.visible, owner: owner(of: site), body)
+        budget.runArrived(.visible, owner: owner(of: site), body)
     }
 
     private func owner(of site: ObservationSite) -> MainTaskOwner {
