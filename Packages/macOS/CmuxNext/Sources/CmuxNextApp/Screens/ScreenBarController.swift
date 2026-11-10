@@ -37,9 +37,9 @@ final class ScreenBarController {
         view = TabStripView(model: model)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
+        view.joinsContent = false // at the bottom, opening nothing under its tabs: no folder tab
         view.renamesOnDoubleClick = true
-        // The screen bar's + is a plain one-click new-screen action. Holding or right-clicking
-        // still exposes the existing screen type menu through the strip's context path.
+        // The + is a one-click new-screen action; holding or right-clicking still shows the screen type menu.
         view.opensNewTabMenuOnPress = false
         view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview

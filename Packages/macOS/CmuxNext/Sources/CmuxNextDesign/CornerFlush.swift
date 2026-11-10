@@ -105,10 +105,14 @@ public protocol TabStripCorner: AnyObject {
     /// The selected folder along a move in flight (its tab's width or slot), in the folder layer's
     /// coordinates as ``selectedFolder`` gives them; nil at rest.
     var selectedFolderMotion: FolderMotion? { get }
+    /// The strip's pane paints its own backdrop under it, over the window's shade: the strip draws its
+    /// own band, on the top row too.
+    var sitsOnPaneBackdrop: Bool { get }
 }
 
 extension TabStripCorner {
     public var selectedFolderMotion: FolderMotion? { nil }
+    public var sitsOnPaneBackdrop: Bool { false }
 }
 
 extension Metrics {
@@ -220,7 +224,8 @@ public final class CornerFlushChrome: NSView {
         if isHidden { return hiddenBand }
         guard let drawn else { return 0 }
         let frame = root.convert(strip.cornerFrameInWindow, from: nil)
-        let onFrame = abs(frame.minY - drawn.card.maxY) < 2 && !Metrics.floatingPanes
+        // A pane painting its own backdrop covers the frame's shade under its strip (Codex at b01bf4ed, F1).
+        let onFrame = abs(frame.minY - drawn.card.maxY) < 2 && !Metrics.floatingPanes && !strip.sitsOnPaneBackdrop
         return onFrame ? 0 : drawn.alpha
     }
 

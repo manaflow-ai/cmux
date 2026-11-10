@@ -58,8 +58,8 @@ extension PaneContentView {
         } else {
             backdropState.tintView?.isHidden = true
         }
-        // A pane with its own pick decides its content's fill from its own scope (its terminals
-        // already do): over its art the content stays clear.
+        stripView.sitsOnPaneBackdrop = plan.art != nil || plan.cover // over the window's shade: the strip draws the band
+        // A pane with its own pick fills its content from its own scope, as its terminals do: clear over its art.
         if backdropState.pin != .inherit {
             let paints = WindowBackdrop(paneScope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                         selection: paneScope.backdropSelection).panesPaintBackground

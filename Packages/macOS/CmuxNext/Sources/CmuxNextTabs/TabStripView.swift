@@ -95,6 +95,18 @@ public final class TabStripView: NSView {
     /// folder that moved.
     weak var cornerChrome: CornerFlushChrome?
     var reportedFolder: (path: CGPath?, frame: CGRect, band: CGFloat)?
+    /// The strip's selected tab joins the content below it as a folder tab (design/selected-is-foreground.md).
+    /// False for a strip whose tabs open nothing under them, as the screen bar, which sits at the bottom
+    /// whatever the pane tabs' position: its selected tab keeps the pill.
+    public var joinsContent = true {
+        didSet { if joinsContent != oldValue { needsLayout = true } }
+    }
+    /// The pane paints its own backdrop under this strip (its own art, `appearance.paneBackgrounds`
+    /// perPane, or a cover over the window's), over the window's chrome shade: the strip draws the
+    /// chrome's band itself there, on the top row too, so its selected folder tab stands out.
+    public var sitsOnPaneBackdrop = false {
+        didSet { if sitsOnPaneBackdrop != oldValue { reportFolder(animated: false) } }
+    }
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the

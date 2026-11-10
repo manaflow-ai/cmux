@@ -43,6 +43,10 @@ const variants: Record<string, { props: FolderTabsProps; note: string }> = {
     props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "image" },
     note: "over a picture: the folder tab shows exactly what the content shows (the shade is cut away); the row keeps the fill",
   },
+  "goo-r8-image-per-pane": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "image" },
+    note: "appearance.paneBackgrounds perPane: the pane's own picture covers the window's shade, so its strip draws the band itself; it reads as the shared picture does",
+  },
   "goo-r8-floating": {
     props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, panes: "floating" },
     note: "Floating Panes: each pane is its own card with its own folder tab, its pane padding kept",
