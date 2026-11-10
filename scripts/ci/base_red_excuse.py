@@ -157,6 +157,10 @@ PROJECTIONS = (
     # A run's jobs (filter=all or latest), one page each.
     (re.compile(r"repos/[^/]+/[^/]+/actions/runs/\d+(?:/attempts/\d+)?/jobs(?:\?.*)?"),
      f"{{total_count, jobs: [.jobs[] | {{{JOB_FIELDS}, steps: [.steps[]? | {{{STEP_FIELDS}}}]}}]}}"),
+    # A commit's statuses, newest first, with who posted each (compile_status_at).
+    (re.compile(r"repos/[^/]+/[^/]+/commits/[^/?]+/statuses(?:\?.*)?"),
+     "[.[] | {context, state, description, target_url, created_at, creator: {login: .creator.login, "
+     "id: .creator.id, type: .creator.type}}]"),
     # A commit's combined status.
     (re.compile(r"repos/[^/]+/[^/]+/commits/[^/?]+/status(?:\?.*)?"),
      "{state, sha, total_count, statuses: [.statuses[] | {context, state, description, target_url, created_at, "
@@ -656,6 +660,14 @@ SUMMARY_RED = re.compile(r"^##\[error\]\s*summary red: ")
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
 COMPILE_PASS_STATUS = "cmux-next/compile"
+# Who may post it. A commit status is trusted only by who posted it: anyone who can write statuses on this repository
+# can post one by this name, so its name and state alone are no evidence. Two jobs post it, both with the cmux-bot App's
+# token: cmux-next.yml's compile-status (the fleet's controller verdict) and the compile check's fallback poster, which
+# turns a compile made off the controller into this status only after it has checked that run's own job metadata
+# (exact commit, recipe 2, `--app --release`, a successful run of the default branch). A status by anyone else, a
+# person's token included, is not a compile verdict (2026-11-10: with the office Macs and the controller down, the
+# fallback poster was the only compile verdict a held PR could get, so the gate must tell it from a look-alike).
+COMPILE_STATUS_POSTER = {"login": "cmux-bot[bot]", "id": 348531757, "type": "Bot"}
 # The Mac Release compile's steps that compile (or reuse a pass for the same inputs).
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
 
@@ -1038,7 +1050,8 @@ def generated_no_verdict(log: str) -> str | None:
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
-    `Release compile` or `Reuse that pass` step succeeded), a cmux-next/compile success, or else the fleet's compile
+    `Release compile` or `Reuse that pass` step succeeded), a cmux-next/compile success its one poster made
+    (compile_status_at: never a look-alike by anyone else), or else the fleet's compile
     receipt for SHA reading "pass" (compile_receipt: this repository, that exact commit, recipe 2, release-onone).
 
     The receipt is what cmux-next/compile publishes (cmux-next.yml's compile-status step maps the same fields to the
@@ -1074,13 +1087,9 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
         if job.get("conclusion") == "success" and any(steps.get(name) == "success" for name in COMPILE_STEPS):
             return f"'{check['name']}' (job {link[2]})"
         break
-    status = github.json(f"repos/{repo}/commits/{sha}/status")
-    for found in status.get("statuses") or []:
-        if found.get("context") == COMPILE_PASS_STATUS:
-            # The combined status lists the newest per context.
-            if found.get("state") == "success":
-                return f"the {COMPILE_PASS_STATUS} status"
-            break
+    # The newest cmux-next/compile its one poster made (compile_status_at): a look-alike by anyone else never passes.
+    if (compile_status_at(repo, sha, github) or {}).get("state") == "success":
+        return f"the {COMPILE_PASS_STATUS} status"
     receipt = compile_receipt(repo, sha)
     if receipt is not None and receipt.get("state") == "pass":
         return (f"the fleet's app compile receipt (job {receipt.get('job_id') or 'unnamed'}, recipe "
@@ -1121,8 +1130,13 @@ COMPILE_RECEIPT_DOWN = 500  # an HTTP answer at or above this (5xx, Cloudflare's
 # that (github_compile_red refuses it), but a compile that passed at the head elsewhere can. A no-verdict status is
 # judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head (compile_pass_at, the Mac
 # Release compile first) ignores it, so a down controller makes landing slower, never impossible.
-COMPILE_STATUS_NO_VERDICT = re.compile(r"No compile result for this head|The compile check gave no verdict|"
-                                       r"The compile result does not match this head")
+# cmux-next.yml starts every no-verdict description with COMPILE_STATUS_NO_VERDICT_MARKER (its note-84), and this keys
+# on it; the prose stays matched too, for statuses posted before the marker (and the results service down, cmux#40667:
+# "No compile verdict: ...", whose description says it on its own), so either change may land first.
+COMPILE_STATUS_NO_VERDICT_MARKER = "[no-verdict]"
+COMPILE_STATUS_NO_VERDICT = re.compile(re.escape(COMPILE_STATUS_NO_VERDICT_MARKER) + r"|No compile result for this head|"
+                                       r"The compile check gave no verdict|The compile result does not match this head|"
+                                       r"No compile verdict:")
 
 
 class ReceiptUnreachable(Refused):
@@ -1197,10 +1211,36 @@ def log_decider(message: str) -> None:
     print(f"base_red_excuse: {message}", file=sys.stderr)
 
 
+def trusted_poster(status: dict) -> bool:
+    """Whether STATUS was posted by the one account that posts cmux-next/compile (COMPILE_STATUS_POSTER)."""
+    creator = status.get("creator")
+    return isinstance(creator, dict) and all(creator.get(key) == value for key, value in COMPILE_STATUS_POSTER.items())
+
+
+# Pages of a commit's statuses list read for its poster's compile status. GitHub keeps at most 1000 statuses per
+# context and commit, so ten full pages before it are anything but a real history: refused, never read as "none".
+COMPILE_STATUS_PAGES = 10
+
+
 def compile_status_at(repo: str, sha: str, github) -> dict | None:
-    """SHA's newest cmux-next/compile commit status, or None when it has none."""
-    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
-    return next((found for found in statuses if found.get("context") == COMPILE_PASS_STATUS), None)
+    """SHA's newest cmux-next/compile commit status its poster made (COMPILE_STATUS_POSTER), or None only when the
+    whole list has none. The commit's statuses list, newest first, names who posted each (the combined status does
+    not), so a look-alike posted by anyone else is skipped: it can neither pass a head nor stand for a base's red.
+    The list is read page by page until that status or a short page; COMPILE_STATUS_PAGES full pages without it
+    (a flood of other statuses) refuse, because "none" there would let a base red be looked for on another commit
+    (cmux#40609 review F1)."""
+    for page in range(1, COMPILE_STATUS_PAGES + 1):
+        statuses = github.json(f"repos/{repo}/commits/{sha}/statuses?per_page=100&page={page}") or []
+        if not isinstance(statuses, list):
+            raise Refused(f"the statuses of {sha[:12]} are not a list")
+        found = next((status for status in statuses if isinstance(status, dict)
+                      and status.get("context") == COMPILE_PASS_STATUS and trusted_poster(status)), None)
+        if found is not None:
+            return found
+        if len(statuses) < 100:
+            return None
+    raise Refused(f"the statuses of {sha[:12]}: {COMPILE_STATUS_PAGES} full pages hold no {COMPILE_PASS_STATUS} "
+                  "from its poster; too many statuses to tell whether it has one")
 
 
 def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused) -> str:
