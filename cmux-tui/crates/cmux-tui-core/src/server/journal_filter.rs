@@ -250,14 +250,6 @@ impl JournalStreamFilter {
         })
     }
 
-    /// Whether the kind filter lets a record of `kind` through (the other
-    /// filters are not asked).
-    pub(super) fn may_match_kind(&self, kind: &str) -> bool {
-        (self.exact_kinds.is_empty() && self.kind_prefixes.is_empty())
-            || self.exact_kinds.contains(kind)
-            || self.kind_prefixes.iter().any(|prefix| kind.starts_with(prefix))
-    }
-
     pub(super) fn matches(&self, document: &JournalDocument) -> bool {
         let record = &document.record;
         let kind_matches = (self.exact_kinds.is_empty() && self.kind_prefixes.is_empty())

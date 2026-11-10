@@ -100,16 +100,7 @@ impl Mux {
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
                 let mut projects = store::load(transaction)?;
-                let disabled = projects.disabled().clone();
                 let changed = apply(&mut projects)?;
-                // The stored projects already say this (an app sends one
-                // complete observation per chat index change, and a sync on
-                // each connection): that is no change, so nothing is
-                // written. It was one revision, one ledger row and one
-                // journal row each time (42 to 47 MB a day on one Mac).
-                if changed.is_empty() && *projects.disabled() == disabled {
-                    return Ok(StateChanges::unchanged(json!({"changed": changed})));
-                }
                 store::write(transaction, &projects, &changed)?;
                 store::write_disabled(transaction, &projects)?;
                 Ok(changes(&projects, &changed))

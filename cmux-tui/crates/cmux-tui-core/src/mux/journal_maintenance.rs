@@ -490,15 +490,11 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        // Before the registry lock, as a hook report takes them
-        // (`agent_hooks_at_rest.rs`).
-        let hooks_changing = self.agent_hooks_at_rest.journal_hooks_changing();
         let commit = self
             .workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .put_journal_hook(manifest, origin, idempotency_key)?;
-        drop(hooks_changing);
         if !commit.replayed {
             self.publish_journal_event();
         }

@@ -50,10 +50,6 @@ pub(super) struct SessionJournalStreamStart {
     pub(super) reader: Option<crate::workspace_registry::SessionJournalReader>,
     pub(super) shared_fanout: bool,
     pub(super) remote_redacted: bool,
-    /// Held for the stream's life when it follows the journal and its kind
-    /// filter can match the rows of hook reports that change no durable
-    /// state: while it lives they are appended (`mux/agent_hooks_at_rest.rs`).
-    pub(super) _agent_rows: Option<crate::mux::JournalRowFollower>,
 }
 
 fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
@@ -523,14 +519,6 @@ pub(super) fn prepare_session_journal_stream(
         &outbound,
         "session.journal.subscribe",
     )?;
-    // A stream that follows gets every row from here on: a hook report that
-    // changes no durable state is appended while it lives. A bounded read
-    // ends at the head it found and follows nothing. Taken last, so a
-    // refused request leaves nothing behind.
-    let agent_rows = through_sequence
-        .is_none()
-        .then(|| mux.follow_journal_agent_rows(|kind| filter.may_match_kind(kind)))
-        .flatten();
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionJournalStreamStart {
@@ -548,7 +536,6 @@ pub(super) fn prepare_session_journal_stream(
             reader,
             shared_fanout,
             remote_redacted,
-            _agent_rows: agent_rows,
         },
     ))
 }

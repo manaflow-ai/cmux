@@ -64,7 +64,6 @@ impl Mux {
         self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
-        self.agent_hooks_at_rest.forget_terminal(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events

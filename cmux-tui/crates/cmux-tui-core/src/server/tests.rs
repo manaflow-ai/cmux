@@ -549,7 +549,6 @@ mod identify_before_queue;
 mod incognito_orphans;
 mod incognito_remote;
 mod input_lane;
-mod journal_follower_at_rest;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod rds_input_lane;

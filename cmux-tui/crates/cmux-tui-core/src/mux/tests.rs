@@ -6,8 +6,6 @@ use std::collections::HashMap;
 
 mod agent_hook_fences;
 mod agent_hook_retry;
-#[cfg(unix)]
-mod agent_hooks_at_rest;
 mod agent_presence;
 mod agent_reply_text;
 mod agent_reports;
@@ -42,7 +40,6 @@ mod matrix;
 mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
-mod project_observe_at_rest;
 mod read_paths;
 mod registry_premigrate;
 mod registry_reads;
