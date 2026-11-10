@@ -209,7 +209,22 @@ public actor AgentSessionAttachClient {
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
         }
+        if let timings = Self.machineTimings(object["timings_ms"]) { Self.startLogger.info("cloud start machine: \(timings, privacy: .public)") }
         return session
+    }
+
+    /// The `cloud` category the Cloud probe's log stream reads (cmuxterm-hq cloud_chat_app_probe.py APP_LOG_PREDICATE).
+    private static let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.start")
+
+    /// The start's machine-side phases (`timings_ms`, cmux-tui-core agent_session_start.rs `StartTimings`) as one
+    /// line, `session_new 1800 ms, ...`, in the daemon's phase order; nil when the daemon sent none. Durations only.
+    static func machineTimings(_ value: Any?) -> String? {
+        guard let timings = value as? [String: Any] else { return nil }
+        let phases = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
+        var parts = phases.compactMap { name in (timings[name] as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
+        guard !parts.isEmpty else { return nil }
+        if let started = timings["acpmux_started"] as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
+        return parts.joined(separator: ", ")
     }
 
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
