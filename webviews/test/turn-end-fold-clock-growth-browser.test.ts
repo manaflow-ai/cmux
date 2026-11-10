@@ -91,7 +91,7 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
     });
   });
   afterAll(async () => {
-    server?.stop(true);
+    await server?.stop(true);
     if (scratch) await rm(scratch, { recursive: true, force: true });
   });
 
