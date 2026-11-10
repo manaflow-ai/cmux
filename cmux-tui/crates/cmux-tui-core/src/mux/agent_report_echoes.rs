@@ -273,7 +273,7 @@ impl Mux {
                         .roster
                         .entries
                         .get(terminal.as_str())
-                        .filter(|entry| super::reducer_owned(entry))
+                        .filter(|entry| reducer_owned(entry))
                         .cloned();
                     (terminal.clone(), entry)
                 })
