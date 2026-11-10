@@ -65,6 +65,19 @@ fn create_options_reach_backend_and_preserve_its_capability_refusal() {
 }
 
 #[test]
+fn create_origin_and_ttl_reach_backend_unchanged() {
+    let mut s = server();
+    let args = json!({"name":"probe", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "origin":{"kind":"workflow","label":"cloud round trip","url":"https://example.com/runs/1"},
+        "ttl_seconds":3600});
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("origin-key"),
+        json!({"error":{"code":"validation.invalid","message":"invalid params","retryable":false}}));
+    let error = err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "origin-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["upstream_code"], "validation.invalid");
+}
+
+#[test]
 fn list_pages_follow_the_cursor() {
     let mut s = server();
     let first = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 2 })));

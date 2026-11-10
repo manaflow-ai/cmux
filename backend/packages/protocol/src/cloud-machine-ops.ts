@@ -38,6 +38,32 @@ export const CloudRetentionNotice = Schema.Struct({
   delete_at: Millis
 }).annotate({ identifier: "CloudRetentionNotice" })
 
+/**
+ * Text in an origin: no control characters (C0, DEL, C1) and no invisible format characters (zero-width, bidi marks,
+ * embeddings, overrides and isolates, the byte order mark). An origin is shown in machine lists, audit rows and logs
+ * as given, and must read as what it is. The platform's POST /v1/machines `origin` (MachineOrigin) is the same.
+ */
+const OriginText = (max: number) =>
+  Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(max),
+    // oxlint-disable-next-line no-control-regex -- refusing control characters is the point.
+    isPattern(/^[^\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]*$/)
+  )
+
+/**
+ * Who started a machine, as its create said: a workflow run, a lane, an agent or a person, with a label to show and
+ * where to look (`url`, https only). Bounded free text; the platform stores it as given and never acts on it.
+ */
+export const CloudMachineOrigin = Schema.Struct({
+  kind: Schema.optionalKey(Schema.Literals(["workflow", "lane", "agent", "person"])),
+  label: OriginText(200),
+  url: Schema.optionalKey(OriginText(500).check(isPattern(/^https:\/\/[^\s/?#@]+(?:[/?#]\S*)?$/))),
+  run: Schema.optionalKey(OriginText(200)),
+  workflow: Schema.optionalKey(OriginText(200)),
+  lane: Schema.optionalKey(OriginText(200))
+}).annotate({ identifier: "CloudMachineOrigin" })
+
 export const CloudMachine = Schema.Struct({
   id: MachineId,
   team: TeamId,
@@ -107,6 +133,10 @@ export const CloudMachine = Schema.Struct({
    * (the 15-minute warning). A pause, a start or a raised cap clears it.
    */
   spend_cap_pause_at: Schema.optionalKey(Millis),
+  /** Who started it, when its create said (cloud.machine.create `origin`). Absent: its create gave none. */
+  origin: Schema.optionalKey(CloudMachineOrigin),
+  /** When the platform deletes it (ms): its create's `ttl_seconds` after its create. Absent: no ttl. */
+  expires_at: Schema.optionalKey(Millis),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 
@@ -299,10 +329,19 @@ export const CloudMachineGet = cloudRead("cloud.machine.get", MachineParams, Clo
 export const CloudMachineCreate = cloudMutation(
   "cloud.machine.create",
   "money",
-  Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
+  Schema.Struct({
+    name: Schema.optionalKey(MachineName),
+    size: CloudMachineSize,
+    image: Schema.optionalKey(ImageId),
+    from_snapshot: Schema.optionalKey(SnapshotId),
+    /** Who started it (a workflow run, a lane, an agent, a person): stored on the machine and shown in every list. */
+    origin: Schema.optionalKey(CloudMachineOrigin),
+    /** Seconds it may live, 5 minutes to 7 days: then the platform deletes it as cloud.machine.delete would. */
+    ttl_seconds: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 300, maximum: 604800 })))
+  }),
   MachineResult,
   ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...PROVIDER, ...LIMITED, ...APPROVAL],
-  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
+  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine)." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
