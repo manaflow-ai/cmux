@@ -78,10 +78,13 @@ final class ComputerUseActivityReporter: Sendable {
         let now = clock()
         let given = (object["app"] as? [String: Any]).map { App(id: $0["id"] as? String, name: $0["name"] as? String) }
         // The window captured within the last 2 s names the app, unless the event names one.
-        let window = given == nil ? state.withLockUnchecked { state -> UInt32? in
-            guard let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2 else { return nil }
-            return state.windowApps[captured.id] == nil ? captured.id : nil
-        } : nil
+        var window: UInt32?
+        if given == nil {
+            window = state.withLockUnchecked { state -> UInt32? in
+                guard let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2 else { return nil }
+                return state.windowApps[captured.id] == nil ? captured.id : nil
+            }
+        }
         // Outside the lock: one CGWindowList read for a window not seen before.
         let resolved = window.flatMap { id in windowApp(id).map { (id, $0) } }
         let line = state.withLockUnchecked { state -> Data? in

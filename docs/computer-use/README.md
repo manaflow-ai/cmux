@@ -41,6 +41,20 @@ answered by `ready`; later `config` and `approvals` (`forget`, `always`, `never`
 host, which routes it to an attached cmux client and answers `allow_once`,
 `allow_session`, `always`, `deny`, `never` or `unavailable`.
 
+On macOS the worker also sends `activity` lines: which agent session acted
+(its label and the app it acted on, with the time), at most every half second
+per session, and one with `ended` when the session's cursor hides. cmux Remote
+keeps the latest per session as `workers["computer-use"].activity`; the cmux-tui
+daemon sends each change to the app as `computer-use-activity`
+(cmux-tui/spec/events.md), and the app shows a dot on its menu bar icon while
+an agent acted within the last 2 seconds, and the sessions in the menu's
+Computer Use row.
+
+An agent can tag its cursor with an optional `cursor_tag` argument on any
+acting tool (60 characters at most); the tag stays for the session's later
+calls. Without one, the tag is the agent's cmux workspace name. When the tag
+shows is `computerUse.cursorTag` (`hover`, `always`, `never`).
+
 ## Policy
 
 One decision function (`policy::decide`) runs for every route: a local agent, the
