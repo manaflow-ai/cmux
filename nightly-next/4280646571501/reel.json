@@ -1,0 +1,395 @@
+{
+  "version": 1,
+  "build": "4280646571501",
+  "notes": "notes/4280646571501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40220,
+      "title": "perf(cmux-next): waits read the one id they wait for (O9)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40376,
+      "title": "base red: web lint (fast) is green again; the unread banner is a fieldset, not a div with role=\"group\"",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40146,
+      "title": "perf(cmux-next): iPhone host folders observe each workspace's tabs on their own (O5)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39591,
+      "title": "Sidebar: a Sections group background draws each group as a plain section heading",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40347,
+      "title": "acpmux: a resend of a prompt still queued or running settles as delivered",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40213,
+      "title": "perf(cmux-next): sidebar link favicons observe each workspace's tabs on their own (O4)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40169,
+      "title": "perf(terminal): Ghostty's present callback replaces the setContents: swizzle (ghostty-integration step 3, P23)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40140,
+      "title": "perf-bench: Chrome parity bench (suite=parity)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40315,
+      "title": "acpmux: a peer cache save writes the rows that changed, not the whole file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40141,
+      "title": "Daemon splits terminal titles; a spinner frame announces nothing (MTS-3, D2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37469,
+      "title": "cmux NEXT: the action catalog comes from Rust; the Swift catalog data is deleted (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40327,
+      "title": "billing: test mode bills by Leo's rules (list + 10%, the cap); staging runs v2; a go-live page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40301,
+      "title": "A space shows on the press, at rest, in the turn of its input",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40361,
+      "title": "base red: the resource API boundary scan reads terminal identity env names from terminal_env.rs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40336,
+      "title": "Cloud page: a paused machine says what its pause costs a month",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40137,
+      "title": "perf(cmux-next): chat history observes each live tab's chat on its own (O6)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40353,
+      "title": "Cloud chat matrix for Claude: every sign-in, model and chat kind, nightly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40281,
+      "title": "CLI app reconnects: a quit app fails in about 1 s, MCP calls keep their own deadline (fix forward #40147)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40349,
+      "title": "Home Messages: rows keep across page renders, the Set Up card shows once, revisits draw at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40242,
+      "title": "cmux ext: scaffold an extension and watch it reload in cmux as you edit (ext new, ext dev, ext dev --once --json)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40289,
+      "title": "ios: connectivity and reliability matrix in CI (Linux protocol cells, iOS simulator cells, nightly)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40326,
+      "title": "Transcript: restyle the unread marker, add the banner and Jump up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40290,
+      "title": "ios: a network change restarts a dial in flight on the dead path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40130,
+      "title": "perf(cmux-next): Needs you observes each workspace's marks on its own (O3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40313,
+      "title": "cmux-mobile-link: one channel read slowly no longer holds the link reader",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40318,
+      "title": "Home Messages: the attachment drag's op routing keeps try out of a ternary (#37940)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40295,
+      "title": "webviews_affected: an asset imported with a query is an import edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40342,
+      "title": "Shared pressed fill: the text over clear, never an opaque slab on glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40292,
+      "title": "cmux-next: nightly quality report (crash count by signature, metrics JSON)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40297,
+      "title": "acpmux: a chat's metadata save no longer rewrites its large, rarely-changing fields",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40303,
+      "title": "Settings: hover, selection and press take the app's fill ramp; fields stop being opaque white in light",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40306,
+      "title": "Agent chat cards: one action size (28 / 6 / 13 in footers, 24 inline)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40305,
+      "title": "Empty states: buttons on the shared control scale and a heading-sized title",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40304,
+      "title": "Shared buttons: hover and press are two steps, not one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40126,
+      "title": "perf(cmux-next): session tree observes each workspace's chats on its own (O2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39805,
+      "title": "cmux-tui: a hosted reader whose frame demultiplexer does not start ends the connection",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40278,
+      "title": "perf(next): pane zoom and swap show in the turn of their key",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40317,
+      "title": "CI: Web status names its failed children when the scope wrote partial outputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40324,
+      "title": "cmux vm new --help: a machine made with no flags pauses when idle; --persistent keeps it running",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40302,
+      "title": "Agent chat menus: a highlighted row is a clear text wash, never an opaque slab on glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40240,
+      "title": "Themes can swap the agent chat's thinking indicator: the first theme slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40309,
+      "title": "Cloud cleanup follow-ups: archives with no machines, Restore's answer, Return during the archive wait, vm: in make-room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40244,
+      "title": "Extensions get cmux.watch: live, cached, typed signals, with a live PR list sidebar example",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40316,
+      "title": "base red: String tables, fill the 108 missing translations (#37777's playground notice tipped the debt past 100)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40273,
+      "title": "cmux chat send|wait|read default to the last chat; -w; --timeout takes durations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37940,
+      "title": "Home Messages: drag an attachment out to Finder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40153,
+      "title": "ghostty-next: pin a0975fd8c, upstream endUpdate scroll cost + three resize fixes (GI PIN SYNC, ghostty-integration step 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40232,
+      "title": "agent pane: a window resize or a new workspace never opens Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40171,
+      "title": "CI: every summary gate calls the needs_verdict rule once, so a failure always wins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40291,
+      "title": "cmux NEXT: feat compiles again after #37777 (4 errors in 4 files: one public import, three callers of moved names)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40053,
+      "title": "acpmux register: a stable name for a Claude Code session or Codex desktop thread acpmux did not start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39993,
+      "title": "Fix: a hosted Chromium page keeps its top-left corner on its pane in every frame of a split (m81)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40206,
+      "title": "Cloud start: start-session reports its stages; start-chat --wait reads the reply over the link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39806,
+      "title": "cmux-tui: empty host frames count against the demultiplexer's queue budget",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40234,
+      "title": "fix(next): a screen switch shows the new screen in one frame; the slide and fade are gone",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40279,
+      "title": "hot-apply: --restart-acpmux review follow-ups (#40219 F1-F3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40185,
+      "title": "Fix the five CI guard group tip reds on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40275,
+      "title": "Cloud stall text: typing carries over to the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40293,
+      "title": "cloud-chat-proof: hand the proof socket to the launched app as open --env",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40265,
+      "title": "Extension platform design: what distros, tiling window managers and ricing teach (take or reject each)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40221,
+      "title": "nightly: operator switches send signing to GitHub-hosted runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40128,
+      "title": "Cloud: automatic machine cleanup in the app (dates, Keep, Archive and delete, archives, cap offer, settings, CLI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40274,
+      "title": "webviews: give the toggle round-trip test the 480 s it needs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37777,
+      "title": "cmux NEXT Home: conversation tabs and the Chief panel are the React Messages page; delete the native transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
