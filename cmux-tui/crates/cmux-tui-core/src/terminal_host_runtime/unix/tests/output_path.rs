@@ -228,3 +228,31 @@ fn a_failed_write_ends_the_writer_and_releases_the_batch() {
     write_queued_frames(&mut stream, &receiver, &tap);
     assert_eq!(tap.queued_bytes.load(Ordering::Acquire), 0);
 }
+
+#[test]
+fn an_accepted_client_gets_a_send_buffer_that_holds_one_writer_batch() {
+    let host = test_host_shared();
+    let (accepted, client) = UnixStream::pair().unwrap();
+    let probe = accepted.try_clone().unwrap();
+    shared::host_accept::serve_accepted(&host, accepted).unwrap();
+    let mut size: libc::c_int = 0;
+    let mut len = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: `probe` is an open socket for this call; getsockopt writes at
+    // most `len` bytes into the live local `size`.
+    let status = unsafe {
+        libc::getsockopt(
+            probe.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&raw mut size).cast(),
+            &raw mut len,
+        )
+    };
+    assert_eq!(status, 0);
+    assert!(
+        usize::try_from(size).unwrap() >= MAX_BATCH_BYTES,
+        "send buffer {size} bytes; one writer batch is {MAX_BATCH_BYTES}"
+    );
+    // The client never says hello: its serving thread ends.
+    drop(client);
+}
