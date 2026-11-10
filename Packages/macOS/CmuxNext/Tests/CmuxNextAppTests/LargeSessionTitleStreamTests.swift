@@ -9,7 +9,10 @@ import Testing
 /// Step 0 adds the fixture only. Its cases come with steps 3 and 4, each red first in its own PR: (a) a spinner-only
 /// title change wakes 0 observations, (b) a text change wakes only observations of that tab and its workspace, (c) no
 /// observation outside a list owner is woken by changes in more than one workspace (``ObservationWakes``).
-struct LargeSessionFixture {
+///
+/// Not `LargeSessionFixture`: that name is the one shared 60 x 6 store fixture of #40126 (MTS-4 O2), which the row
+/// tests use. This one keeps its own shape (one pane per workspace) and the title streams, so any merge order compiles.
+struct LargeSessionTitleStreamFixture {
     static let workspaces: UInt64 = 60
     static let tabsPerWorkspace: UInt64 = 6
     /// The workspaces whose first terminal streams titles (0-based, as perf-stress-session.py TITLE_STREAM_WORKSPACES).
@@ -59,20 +62,22 @@ struct LargeSessionFixture {
 }
 
 @MainActor
-struct LargeSessionObservationTests {
+struct LargeSessionTitleStreamTests {
     /// The fixture is the LARGE shape, and its 5 x 100 title events reach the store (the cases of steps 3 and 4 count
     /// the observations they wake).
     @Test func theFixtureIsTheLargeSessionAndItsTitleStreamsApply() throws {
         let store = DaemonStore()
         _ = store.apply(.connected(DaemonIdentity(generation: "boot"), generationChanged: true))
-        store.apply(snapshot: LargeSessionFixture.tree())
+        store.apply(snapshot: LargeSessionTitleStreamFixture.tree())
         #expect(store.workspaces.count == 60)
         let tabs = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
         #expect(tabs.count == 360)
-        let events = LargeSessionFixture.titleEvents(frames: 100)
+        let events = LargeSessionTitleStreamFixture.titleEvents(frames: 100)
         #expect(events.count == 500)
         for event in events { _ = store.apply(event) }
-        let streamed = LargeSessionFixture.streamWorkspaces.map { LargeSessionFixture.surface(workspace: $0, index: 0) }
+        let streamed = LargeSessionTitleStreamFixture.streamWorkspaces.map {
+            LargeSessionTitleStreamFixture.surface(workspace: $0, index: 0)
+        }
         for surface in streamed {
             let tab = try #require(tabs.first { $0.surface == surface })
             #expect(tab.title.hasSuffix("agent task 3"), "stream \(surface.rawValue): title \(tab.title)")
