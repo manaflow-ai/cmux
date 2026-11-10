@@ -9706,6 +9706,38 @@ filed under this store's `registry:` host with its session in
 chat in a tab of its own and shows it with `agent-session-attach`); any other
 session there is `conversation_tab.machine_mismatch`.
 
+### agent-session-side
+
+`agent-session-side-v1`: `{id, cmd:"agent-session-side", surface, op, ...}` on
+the owner's own attached tab opens and drives side chats of the attached chat
+(the app's `/side` and `/btw` for a chat on another machine). Everything runs
+on this machine's acpmux.
+
+- `op:"open"` with `through_seq` (a completed turn, above 0) or `live:true`
+  (the chat as it is now), exactly one: forks the attached chat (acpmux
+  `acp.session.fork`) and tags the fork its side chat (`_acpmux/side`) in one
+  step. A fork whose tag is refused is ended, so no untagged copy stays.
+  Answers acpmux's fork answer (`sessionId`, `_meta.acpmux`).
+- `op:"btw"` with `text`: acpmux's read-only side question about the chat
+  (`_acpmux/btw`). Answers `{sessionId}`.
+- `op:"prompt"` with `session`, `prompt_id`, `text`: a text prompt to a side
+  chat this attachment opened. Answers as `agent-session-prompt`.
+- `op:"discard"` with `session`: ends a side chat this attachment opened and
+  its conversation copy (`_acpmux/kill` with `purge` and `cancelFork`).
+
+The frame names no folder, command, agent, model, name or tag, and `session`
+must be a side chat this same attachment opened (an id from this machine's
+acpmux answer); any other id or field is `agent_session.bad_request`. A side
+chat's id may be filed in `new-conversation-tab` like a child chat's.
+
+Owner only. A teammate link, a Cloud team member, a link guest and a phone
+are refused the verb (`agent_session.not_trusted`, or their entry's own
+refusal), an observer gets `agent_session.read_only`. A side chat is its
+owner's alone: an authored `agent-session-attach` to a tab whose session the
+daemon opened as a side chat, or whose acpmux summary carries the `side` tag,
+is `agent_session.not_trusted`, and `agent-session-team-list` leaves such tabs
+out.
+
 ### agent-session-typing, agent-session-view
 
 `agent-session-presence-v1` (advertised with `agent-session-attach-v1`): who is

@@ -65,9 +65,10 @@ export function messageMenuSessionMatches(
 }
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
-/// chat is on this computer (acpmux refuses the rest).
-const forkServed = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) &&
+/// chat is on this computer (acpmux refuses the rest). `side`: for a side chat, which a chat on
+/// another machine forks too where its relay serves it (`canSide`).
+const forkServed = (snapshot: AcpmuxSnapshot, side = false) =>
+  Boolean(snapshot.canFork || (side && snapshot.canSide)) &&
   !snapshot.summary?.peer &&
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
@@ -82,10 +83,42 @@ export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !sn
 /// acpmux, the connection or the chat's machine does not serve the fork, "nothingYet" before the
 /// chat's first turn (a Claude chat with none has no conversation to copy). A working chat forks
 /// now, as it is: the person never waits for its turn to end (2026-10-21).
-export function forkRefusal(snapshot: AcpmuxSnapshot): "unavailable" | "nothingYet" | undefined {
-  if (!forkServed(snapshot)) return "unavailable";
+export function forkRefusal(snapshot: AcpmuxSnapshot, side = false): "unavailable" | "nothingYet" | undefined {
+  if (!forkServed(snapshot, side)) return "unavailable";
   if (!snapshot.isWorking && latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
   return undefined;
+}
+
+/// What a chat offers of side chats (`/side`, New side chat, Send in side chat) and side questions
+/// (`/btw`), read by every entry point so none offers what cannot work.
+/// - `sideHere`: a side chat can open beside this chat: it runs on this computer (`localCwd`), or on
+///   another machine whose relay forks it there (`canSide`, a Cloud chat). Never in Quick Chat,
+///   whose panel has no split beside it.
+/// - `sideFork`: why `/side` cannot fork now (`forkRefusal`), undefined when it can.
+/// - `sideRow`: the chat menu's New side chat forks a finished turn (not a working chat).
+/// - `side`: `/side` is offered.
+/// - `btw`: side questions are offered: not in Quick Chat, and not for a chat on another machine
+///   whose relay does not start them (`canBtw: false`).
+export function sideOffer(
+  snapshot: AcpmuxSnapshot,
+  chat: { localCwd: string | undefined; quick: boolean },
+): {
+  sideHere: boolean;
+  sideFork: "unavailable" | "nothingYet" | undefined;
+  sideRow: boolean;
+  side: boolean;
+  btw: boolean;
+} {
+  const remote = snapshot.origin === "remote" && snapshot.canSide === true;
+  const sideHere = !chat.quick && (chat.localCwd !== undefined || remote);
+  const sideFork = forkRefusal(snapshot, true);
+  return {
+    sideHere,
+    sideFork,
+    sideRow: sideHere && forkServed(snapshot, true) && !snapshot.isWorking,
+    side: sideHere && sideFork === undefined,
+    btw: !chat.quick && snapshot.canBtw !== false,
+  };
 }
 
 /// What Fork Conversation forks: a working chat as it is now (`live`: acpmux copies its running

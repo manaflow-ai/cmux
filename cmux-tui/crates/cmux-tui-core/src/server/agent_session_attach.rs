@@ -31,6 +31,8 @@ mod agent_session_trust;
 mod context;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
+#[path = "agent_session_side.rs"]
+pub(super) mod side;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -45,6 +47,7 @@ pub use agent_session_start::{
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
 };
+pub use side::AGENT_SESSION_SIDE_CAPABILITY;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 /// Ordered ACP content on `agent-session-prompt`; older clients keep sending `text`.
@@ -131,6 +134,9 @@ pub(crate) struct AgentSessions {
     /// `agent-session-children-v1`: the descendants acpmux answered, which
     /// a `registry:` tab of this store may show.
     pub(crate) known_children: agent_session_children::KnownChildren,
+    /// `agent-session-side-v1`: the side chats this daemon opened or saw tagged. The owner's
+    /// alone: no teammate attaches to one, and the team list leaves them out.
+    pub(crate) sides: side::SideSessions,
 }
 
 #[derive(Default)]
@@ -285,6 +291,9 @@ struct Attachment {
     /// The session's descendants this attachment follows
     /// (`agent-session-children-v1`): their changes are streamed too.
     children: Mutex<HashSet<String>>,
+    /// The side chats this attachment opened (`agent-session-side-v1`): the only sessions its
+    /// `prompt` and `discard` may name.
+    sides: Mutex<HashSet<String>>,
 }
 
 impl Attachment {
@@ -406,6 +415,7 @@ enum AgentSessionCommand {
     Detach(SurfaceParams),
     Children(SurfaceParams),
     Fork(ForkParams),
+    Side(side::SideParams),
     Media(MediaParams),
     Typing(TypingParams),
     View(ViewParams),
@@ -433,6 +443,7 @@ impl AgentSessionCommand {
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
             "agent-session-fork" => Self::Fork(from_value(params).ok()?),
+            "agent-session-side" => Self::Side(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
             "agent-session-typing" => Self::Typing(from_value(params).ok()?),
             "agent-session-view" => Self::View(from_value(params).ok()?),
@@ -963,6 +974,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
         AgentSessionCommand::Fork(params) => params.surface,
+        AgentSessionCommand::Side(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
         AgentSessionCommand::Typing(params) => params.surface,
         AgentSessionCommand::View(params) => params.surface,
@@ -1077,6 +1089,10 @@ fn attach(
     if author.is_some() && pinned.as_deref() != Some(session.as_str()) {
         return refuse(writer, id, Refusal::NotShared);
     }
+    // A side chat is the owner's alone, whoever shares or lists its tab.
+    if author.is_some() && sessions.sides.contains(&session) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
     let record_session = session.clone();
     let mut acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
@@ -1176,10 +1192,10 @@ impl ReaderSlot {
 
 #[path = "agent_session_media.rs"]
 mod media;
-#[path = "agent_session_proxy.rs"]
-mod proxy;
 #[path = "agent_session_member.rs"]
 pub(super) mod member;
+#[path = "agent_session_proxy.rs"]
+mod proxy;
 use media::media;
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
@@ -1214,6 +1230,7 @@ fn run_on_worker(
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
                 | AgentSessionCommand::Fork(_)
+                | AgentSessionCommand::Side(_)
                 | AgentSessionCommand::SetModel(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
@@ -1248,6 +1265,13 @@ fn run_on_worker(
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     // A Cloud team member's typing and view carry its own author (acpmux presence), like a guest's.
     let member = attachment.author.as_ref().is_some_and(proxy::is_member);
+    // A side chat is the owner's alone: no teammate, team member or link guest opens, prompts or
+    // discards one, and the phone carrier has no pane beside the chat to open it in.
+    if matches!(&command, AgentSessionCommand::Side(_))
+        && (attachment.author.is_some() || attachment.cloud_mobile)
+    {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
     // Only the owner answers an ask or decides a held prompt (acpmux refuses an author too).
     if attachment.author.is_some()
         && matches!(
@@ -1343,10 +1367,13 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, steer, .. }) => {
-            prompt(attachment, prompt_id, text, content, steer)
+            prompt(attachment, None, prompt_id, text, content, steer)
         }
         AgentSessionCommand::QueueApprove(QueueDecisionParams {
-            prompt_id, turn_id, revision, ..
+            prompt_id,
+            turn_id,
+            revision,
+            ..
         }) => {
             let (Some(turn_id), Some(revision)) = (turn_id, revision) else {
                 return Err(Refusal::BadRequest);
@@ -1469,6 +1496,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             Ok(forked)
         }
+        AgentSessionCommand::Side(params) => side::side(attachment, params),
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
@@ -1558,8 +1586,11 @@ fn valid_prompt_id(prompt_id: &str) -> bool {
         && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Sends one prompt to the attached chat, or to `side`, a side chat this attachment opened
+/// (`agent-session-side`, the owner's own).
 fn prompt(
     attachment: &Attachment,
+    side: Option<&str>,
     prompt_id: String,
     text: Option<String>,
     content: Option<Vec<Value>>,
@@ -1595,7 +1626,7 @@ fn prompt(
         prompts.insert(prompt_id.clone(), sender);
     }
     let mut params = json!({
-        "sessionId": attachment.session,
+        "sessionId": side.unwrap_or(attachment.session.as_str()),
         "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });

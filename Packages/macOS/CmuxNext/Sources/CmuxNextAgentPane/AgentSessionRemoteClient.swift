@@ -58,6 +58,12 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
     /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
     func login(_ op: String, _ fields: [String: String]) async throws -> Data
+    /// Whether that machine's daemon opens side chats of the chat (`agent-session-side-v1`).
+    func servesSide() async -> Bool
+    /// One step of the chat's side chats on that machine (`agent-session-side-v1`): `op` `open`
+    /// (`through_seq` or `live`), `btw` (`text`), `prompt` (`session`, `prompt_id`, `text`) or
+    /// `discard` (`session`). The daemon pins the chat, and a `session` is one this attachment opened.
+    func side(_ op: String, _ fields: [String: any Sendable]) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -104,6 +110,12 @@ extension AgentSessionRemoteClient {
     public func servesLogin() async -> Bool { false }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
         Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+    }
+    /// A daemon without `agent-session-side-v1` opens no side chat.
+    public func servesSide() async -> Bool { false }
+    public func side(_ op: String, _ fields: [String: any Sendable]) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.side_unsupported",
+                                      message: "update cmux on that machine to open a side chat from here")
     }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {

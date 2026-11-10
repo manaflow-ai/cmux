@@ -36,6 +36,10 @@ const COMMANDS: &[&str] = &[
     "agent-session-detach",
     "agent-session-children",
     "agent-session-fork",
+    // The owner's side chats of a Cloud chat (`/side`, `/btw`): a fork of the attached chat
+    // tagged its side chat, on this machine. No folder, command or tag in the frame; the one
+    // session id it may carry is a side chat the same attachment opened (agent_session_side.rs).
+    "agent-session-side",
     "agent-session-media",
     "agent-session-typing",
     "agent-session-view",
@@ -145,6 +149,7 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY,
     agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
     agent_inventory::CAPABILITY,
@@ -341,5 +346,7 @@ mod fork_admission_tests {
     fn a_native_owner_may_fork_its_attached_chat() {
         assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
         assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
+        assert!(admits(r#"{"cmd":"agent-session-side","surface":1,"op":"open","live":true}"#));
+        assert!(CAPABILITIES.contains(&agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY));
     }
 }

@@ -2344,6 +2344,9 @@ export class AcpmuxDirectClient {
   private clockOffset?: number;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
+  /// A side chat can fork the chat, and a side question can start (model.ts `canSide`, `canBtw`).
+  private canSide = false;
+  private canBtw = true;
   private handoffSupported = false;
   private readonly peerEvents = new PeerStateEvents();
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
@@ -2938,6 +2941,7 @@ export class AcpmuxDirectClient {
       this.queueGet = Array.isArray(features) && features.includes("queueGet");
       const origin = initialized?._meta?.acpmux?.origin;
       this.origin = origin === "local" || origin === "remote" || origin === "peer" ? origin : "unknown";
+      this.readSideOperations(initialized);
       this.ownerCloud = this.origin === "remote" && initialized?._meta?.acpmux?.ownerCloud === true;
       this.handoffSupported = supportsHandoff(initialized);
       this.peerEvents.configure(initialized);
@@ -8459,6 +8463,8 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      canSide: this.canSide,
+      ...(this.canBtw ? {} : { canBtw: false as const }),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
@@ -10298,6 +10304,8 @@ export class AcpmuxDirectClient {
     const trustCancellation = this.trustCancellation;
     try {
       const result = await this.request("session/new", params);
+      // A new chat on another machine: its relay says here whether that machine opens side chats.
+      if (this.origin === "remote" && result?._meta?.acpmux?.operations) this.readSideOperations(result);
       // A canceled start owns neither the next Trust question nor one-shot startup defaults.
       if (generation !== this.selectionGeneration || trustCancellation !== this.trustCancellation) return undefined;
       return result;
@@ -11191,6 +11199,21 @@ export class AcpmuxDirectClient {
     }
     this.emit();
   }
+  /// What `reply` (an `initialize` answer, or a remote relay's `session/new` answer) says of side
+  /// chats. acpmux on this computer forks for a side chat whenever it forks at all, and starts side
+  /// questions. A chat on another machine (the app's relay, `origin: "remote"`) lists
+  /// `acp.session.fork` only where that machine's daemon opens side chats, and its fork is a side
+  /// chat's alone: `canFork` stays off there (model.ts `canSide`).
+  private readSideOperations(reply: unknown): void {
+    if (this.origin !== "remote") {
+      this.canSide = this.canFork;
+      this.canBtw = true;
+      return;
+    }
+    this.canFork = false;
+    this.canSide = servesOperation(reply, FORK_OP);
+    this.canBtw = servesOperation(reply, SIDE_SESSION_METHOD);
+  }
   /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux
   /// `hub/fork_cancel.rs`). Not waited on: the pane already went back to the chat.
   private takeBackFork(sessionId: string): void {
@@ -11204,7 +11227,7 @@ export class AcpmuxDirectClient {
   /// chat of one chat and opened beside another.
   async forkAside(throughSeq: number | "live"): Promise<string | undefined> {
     const sessionId = this.selectedSessionId;
-    if (!this.canFork || !sessionId || this.forking) return undefined;
+    if (!this.canSide || !sessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {

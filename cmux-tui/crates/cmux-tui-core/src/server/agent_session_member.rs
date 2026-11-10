@@ -14,7 +14,7 @@
 //! running turn, say it types and views (presence). The daemon stamps the member as the author of
 //! every call (`_meta.acpmux.author {id: user_…, name}`), so acpmux records who asked; a frame's
 //! own `_host_*` markers or author are refused. Never: start, trust, a folder, media, children, a
-//! fork, a move, a model, mode or option change, the owner's sign-in, an answer to an ask, a
+//! fork, a side chat (`agent-session-side`, nor an attach to one the owner opened), a move, a model, mode or option change, the owner's sign-in, an answer to an ask, a
 //! decision on a prompt held for the owner, a share, a terminal or the workspace layout. Those stay
 //! the owner's (`agent_session.owner_only` for an answer, `remote_denied` for the rest).
 //!
@@ -181,9 +181,10 @@ pub(in crate::server) fn try_handle(
             }
             object.insert("_host_author".into(), author);
             let frame = Value::Object(object).to_string();
-            Some(super::try_handle(mux, client, &frame, writer).unwrap_or_else(|| {
-                refuse(writer, None, Refusal::NotTrusted)
-            }))
+            Some(
+                super::try_handle(mux, client, &frame, writer)
+                    .unwrap_or_else(|| refuse(writer, None, Refusal::NotTrusted)),
+            )
         }
         _ => None,
     }
@@ -242,9 +243,17 @@ pub(in crate::server) fn team_list(mux: &Mux, client: u64) -> Value {
     let mut chats: Vec<Value> = surfaces
         .into_iter()
         .filter_map(|(surface, runtime)| match mux.conversation_tab_of(&runtime)? {
+            // A side chat is its owner's alone: never listed (and never attached, `attach`).
+            ConversationTabRecord::AgentSession { session: Some(session), .. }
+                if mux.control_clients.agent_sessions.sides.contains(&session) =>
+            {
+                None
+            }
             ConversationTabRecord::AgentSession { session: Some(session), harness, .. } => {
                 let cloud_id = match (&team, &machine) {
-                    (Some(team), Some(machine)) => json!(format!("cloud:{team}/{machine}/{session}")),
+                    (Some(team), Some(machine)) => {
+                        json!(format!("cloud:{team}/{machine}/{session}"))
+                    }
                     _ => Value::Null,
                 };
                 Some(json!({"surface": surface, "session": session, "harness": harness,
