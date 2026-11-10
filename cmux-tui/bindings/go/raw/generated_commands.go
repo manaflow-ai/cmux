@@ -15638,52 +15638,6 @@ func (value *ListWorkspacesRequest) UnmarshalJSON(data []byte) error {
 
 type ListWorkspacesResult = Tree
 
-type ListWorkspacesOptions struct {
-	Known Presence[ListWorkspacesKnown] `json:"-"`
-}
-
-func (value ListWorkspacesOptions) MarshalJSON() ([]byte, error) {
-	type wire ListWorkspacesOptions
-	encoded, err := json.Marshal(wire(value))
-	if err != nil {
-		return nil, err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &object); err != nil {
-		return nil, err
-	}
-	if value.Known.IsAbsent() {
-		delete(object, "known")
-	} else if value.Known.IsNull() {
-		object["known"] = json.RawMessage("null")
-	} else {
-		fieldValue, _ := value.Known.Get()
-		encodedField, err := json.Marshal(fieldValue)
-		if err != nil {
-			return nil, fmt.Errorf("encode ListWorkspacesOptions.Known: %w", err)
-		}
-		object["known"] = encodedField
-	}
-	return json.Marshal(object)
-}
-
-func (value *ListWorkspacesOptions) UnmarshalJSON(data []byte) error {
-	if !isJSONObject(data) {
-		return fmt.Errorf("decode ListWorkspacesOptions: expected object")
-	}
-	var fields struct {
-		Known Presence[ListWorkspacesKnown] `json:"known"`
-	}
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return fmt.Errorf("decode ListWorkspacesOptions: %w", err)
-	}
-	type wire ListWorkspacesOptions
-	var decoded wire
-	decoded.Known = fields.Known
-	*value = ListWorkspacesOptions(decoded)
-	return nil
-}
-
 // MachineListeningTcpRequest is the exact machine-listening-tcp wire payload.
 type MachineListeningTcpRequest struct {
 }
@@ -36974,18 +36928,6 @@ func (c *Client) ListTerminals(ctx context.Context) (ListTerminalsResult, error)
 func (c *Client) ListWorkspaceGroups(ctx context.Context) (ListWorkspaceGroupsResult, error) {
 	var result ListWorkspaceGroupsResult
 	err := c.requestGenerated(ctx, commandMetadata["list-workspace-groups"], "list-workspace-groups", nil, &result)
-	return result, err
-}
-
-// ListWorkspaces sends list-workspaces. Protocol v5; authority control.
-func (c *Client) ListWorkspaces(ctx context.Context, options ListWorkspacesOptions) (ListWorkspacesResult, error) {
-	var result ListWorkspacesResult
-	params, err := commandMap(options)
-	if err != nil {
-		err = fmt.Errorf("%w: encode list-workspaces parameters: %v", ErrInvalidArgument, err)
-		return result, err
-	}
-	err = c.requestGenerated(ctx, commandMetadata["list-workspaces"], "list-workspaces", params, &result)
 	return result, err
 }
 

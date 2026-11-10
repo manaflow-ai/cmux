@@ -1183,11 +1183,11 @@ class JavaEmitter:
                 )
             lines.append("    }")
             lines.append("")
-            if wire_name == "identify" and has_fields:
+            if wire_name in ("identify", "list-workspaces") and has_fields:
                 # Keep the original no-argument entry point as this command evolves.
                 lines.extend([
-                    f"    public final {result_type} identify() throws CmuxException {{",
-                    f"        return identify({request_name}.builder().build());",
+                    f"    public final {result_type} {method}() throws CmuxException {{",
+                    f"        return {method}({request_name}.builder().build());",
                     "    }",
                     "",
                 ])

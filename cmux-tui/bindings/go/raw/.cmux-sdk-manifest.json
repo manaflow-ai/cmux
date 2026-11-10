@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "generated_commands.go",
-      "sha256": "b2fa1a643c81f297e08e4c368bb8f5ce9c896fd0fe909e5e4e7a12a311b54076",
-      "size": 1284331
+      "sha256": "a5249d56b1b19c1c44e9a92348612121bd54d1b5392e8a7ee1c18b65ecad6881",
+      "size": 1282538
     },
     {
       "path": "generated_events.go",
@@ -17,8 +17,8 @@
     },
     {
       "path": "generated_presence_test.go",
-      "sha256": "1b272a116185052d836e38a6bb7231d78bf371907a8302657d1bec415a7f4657",
-      "size": 2858701
+      "sha256": "590b3b741bdc08b4bad941f6b76c195521e3edd54a8722ce7c977dc415610d0f",
+      "size": 2857791
     },
     {
       "path": "generated_types.go",

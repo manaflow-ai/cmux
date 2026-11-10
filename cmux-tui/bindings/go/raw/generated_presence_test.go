@@ -20981,32 +20981,6 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "known", true, "{}")
 	})
-	t.Run("ListWorkspacesOptions.Known", func(t *testing.T) {
-		var missing ListWorkspacesOptions
-		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
-			t.Fatal(err)
-		}
-		if !missing.Known.IsAbsent() {
-			t.Fatal("Known did not preserve absence")
-		}
-		assertGeneratedFieldJSON(t, missing, "known", false, "")
-		var nullValue ListWorkspacesOptions
-		if err := json.Unmarshal([]byte("{\"known\":null}"), &nullValue); err != nil {
-			t.Fatal(err)
-		}
-		if !nullValue.Known.IsNull() {
-			t.Fatal("Known did not preserve null")
-		}
-		assertGeneratedFieldJSON(t, nullValue, "known", true, "null")
-		var presentValue ListWorkspacesOptions
-		if err := json.Unmarshal([]byte("{\"known\":{}}"), &presentValue); err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := presentValue.Known.Get(); !ok {
-			t.Fatal("Known did not preserve a value")
-		}
-		assertGeneratedFieldJSON(t, presentValue, "known", true, "{}")
-	})
 	t.Run("MintTerminalRendererRequest.TtlMs", func(t *testing.T) {
 		var missing MintTerminalRendererRequest
 		if err := json.Unmarshal([]byte("{\"surface\":1}"), &missing); err != nil {
@@ -62719,8 +62693,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1733
-	generatedOptionalNullableFieldCount    = 1224
+	generatedFieldShapeCount               = 1732
+	generatedOptionalNullableFieldCount    = 1223
 	generatedRequiredNullableFieldCount    = 163
 	generatedOptionalNonnullableFieldCount = 346
 	generatedRequiredFieldCount            = 1542

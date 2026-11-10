@@ -31,6 +31,10 @@ REVIEWED_TYPES = {
     # harness session. One optional string; it names no program, directory or environment.
     "SendExpectAgent": ("an agent's harness session id that a send must still match; it only narrows the write",
                         "201877f6931063f5"),
+    # `list-workspaces` `known` (list-workspaces-known-v1): the ids and revisions of the tree the phone
+    # holds, five plain strings and numbers; the daemon only compares them to its own.
+    "ListWorkspacesKnown": ("the registry ids and revisions of the tree the client holds; the daemon only "
+                            "compares them", "addc7ffa128980b5"),
 }
 REVIEWED_FIELDS = {
     ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",

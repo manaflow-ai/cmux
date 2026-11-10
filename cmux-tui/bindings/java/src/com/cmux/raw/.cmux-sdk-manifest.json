@@ -1422,8 +1422,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "d573572e44084390bd8e1ccf942a61ed125e1aa5acc5c64856ab50c79b3cdf09",
-      "size": 71050
+      "sha256": "8b813b6cfdefc1f1c5440276e0fee7dfa6983b7f83ddd73e4feada5046d65c9d",
+      "size": 71191
     },
     {
       "path": "GetBlobRequest.java",

@@ -9833,7 +9833,36 @@
     },
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
-    "request:list-workspaces": {},
+    "request:list-workspaces": {
+      "/known": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/known/generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/pane_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known/registry_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/terminal_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known/tree_revision": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/workspace_revision": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
     "request:machine-listening-tcp": {},
     "request:machine-usage": {},
     "request:mark-workspaces-provider-managed": {
@@ -18006,6 +18035,12 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64"
+      },
+      "/data/tree_revision": {
+        "ty": "string"
+      },
+      "/data/unchanged": {
+        "ty": "boolean"
       },
       "/data/workspace_revision": {
         "ty": "uint64"

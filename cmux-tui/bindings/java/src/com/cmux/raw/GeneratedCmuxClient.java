@@ -732,6 +732,10 @@ public abstract class GeneratedCmuxClient {
         return Tree.fromWire(result);
     }
 
+    public final Tree listWorkspaces() throws CmuxException {
+        return listWorkspaces(ListWorkspacesRequest.builder().build());
+    }
+
     public final MachineListeningTcpResult machineListeningTcp() throws CmuxException {
         Object result = execute(Commands.MACHINE_LISTENING_TCP, Map.of());
         return MachineListeningTcpResult.fromWire(result);
