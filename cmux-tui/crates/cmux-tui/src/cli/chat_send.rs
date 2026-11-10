@@ -207,8 +207,9 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
 }
 
 /// The words after `chat send` or `chat` for a send to a session, else `None`: `chat send` with
-/// `--to` (or no session word) is chief/chat_scope.rs's, and a `chat` start without `--resume`
-/// is chat_start.rs's.
+/// `--to` (or no session word, unless it asks for help) is chief/chat_scope.rs's, and a `chat`
+/// start without `--resume` is chat_start.rs's. `chat send --help` is this file's, because
+/// `cmux chat --help` points there for the session form.
 fn words_of(command: &[String]) -> Option<&[String]> {
     let [scope, rest @ ..] = command else { return None };
     if scope != "chat" {
@@ -218,7 +219,8 @@ fn words_of(command: &[String]) -> Option<&[String]> {
         Some((verb, after)) if verb == "send" => {
             let (flags, positional) = scan(after);
             let names_a_chief = flags.iter().any(|flag| ["--to", "--text"].contains(flag));
-            (positional && !names_a_chief).then_some(after)
+            let help = flags.iter().any(|flag| ["-h", "--help"].contains(flag));
+            ((positional || help) && !names_a_chief).then_some(after)
         }
         _ => scan(rest).0.contains(&"--resume").then_some(rest),
     }

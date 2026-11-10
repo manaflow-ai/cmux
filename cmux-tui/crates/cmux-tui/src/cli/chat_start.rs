@@ -105,7 +105,9 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--agent AGENT] [--model MODE
 Starts an agent chat, right here unless --on names another target:
 
   --on here          This machine, as a tab in the cmux app (the default)
-  --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
+  --on cloud         Today the same as --on vm: your one VM, the one running VM of
+                     several, or a new one when you have none; several and none
+                     running is refused with their names
   --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
