@@ -20,6 +20,8 @@
 //! - `--workspaces W` (default 4), `--payload-bytes P` (default 6144)
 //! - `--batch-rows R` rows per transaction (default 20000)
 //! - `--seal`: seal the first half of the journal into segments
+//! - `--seal-segments N`: seal about N full segments (1,024 records each)
+//!   instead, capped at the whole journal
 //! - `--roster-version-bump`: write the roster snapshot one version behind,
 //!   so the next start re-folds the whole journal
 //! - `--quiet`: no progress on stderr
@@ -64,6 +66,7 @@ fn main() -> anyhow::Result<()> {
             "--payload-bytes" => options.payload_bytes = value()?.parse()?,
             "--batch-rows" => options.batch_rows = value()?.parse()?,
             "--seal" => options.seal = true,
+            "--seal-segments" => options.seal_segments = Some(value()?.parse()?),
             "--roster-version-bump" => options.roster_version_bump = true,
             "--quiet" => options.progress = false,
             "--registry" => registry = Some(PathBuf::from(value()?)),

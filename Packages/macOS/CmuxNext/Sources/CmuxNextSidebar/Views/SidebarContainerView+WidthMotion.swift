@@ -51,6 +51,14 @@ extension SidebarContainerView {
         if progress >= 1 { widthLeg = nil }
     }
 
+    /// The panel's leading x in window coordinates, from this view's frame and the pins that place
+    /// the panel: inside this view's `layout()` the panel's own frame is not set yet (its clip lays it out
+    /// after), so reading it would carry the last frame's position.
+    var panelOriginInWindow: CGFloat {
+        let x = side == .left ? bounds.width + clipTrailing.constant - panelWidth.constant : clipLeading.constant
+        return convert(CGPoint(x: x, y: 0), to: nil).x
+    }
+
     func refreshHover() {
         hoverRefresh.cancel()
         PointerHover.refresh(in: window)

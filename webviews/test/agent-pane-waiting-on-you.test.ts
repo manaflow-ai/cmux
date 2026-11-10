@@ -279,6 +279,7 @@ test("History opens a chat in its own tab (`chat.select`); another machine's pul
   const verdicts: unknown[] = [];
   const client = {
     ledger: async () => ({}),
+    teamAudit: async () => ({}),
     reviewQueue: async () => ({}),
     reviewVerdict: async (params: Record<string, unknown>) => verdicts.push(params),
     audit: async () => ({ entries: [] }),
@@ -326,6 +327,7 @@ test("Export audit fails when neither clipboard path copies, rather than saying 
   const pages = historyPages({
     client: () => ({
       ledger: async () => ({}),
+      teamAudit: async () => ({}),
       reviewQueue: async () => ({}),
       reviewVerdict: async () => ({}),
       audit: async () => ({ entries: [{ seq: 1 }] }),
@@ -399,6 +401,7 @@ test("a Request changes comment an older acpmux dropped opens the chat to say it
   const pages = historyPages({
     client: () => ({
       ledger: async () => ({}),
+      teamAudit: async () => ({}),
       reviewQueue: async () => ({}),
       reviewVerdict: async () => reply,
       audit: async () => ({ entries: [] }),
@@ -424,6 +427,7 @@ test("a dropped comment the clipboard also refused keeps the page open: its noti
   const pages = historyPages({
     client: () => ({
       ledger: async () => ({}),
+      teamAudit: async () => ({}),
       reviewQueue: async () => ({}),
       reviewVerdict: async () => ({}),
       audit: async () => ({ entries: [] }),
@@ -481,6 +485,7 @@ test("a comment the chat did not get goes to the clipboard, and the chat opens t
   const pages = historyPages({
     client: () => ({
       ledger: async () => ({}),
+      teamAudit: async () => ({}),
       reviewQueue: async () => ({}),
       reviewVerdict: async () => ({ recorded: true }),
       audit: async () => ({ entries: [] }),

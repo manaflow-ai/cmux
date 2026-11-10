@@ -130,7 +130,12 @@ import CmuxNextTestSupport
         let workspace = workspaceCardEntrance(in: h.window)
         defer { workspace.panel.close() }
 
-        h.card.highlights = Highlights()
+        // A page no taller than the card fits beside it inside the window, so it is top-aligned. A taller one
+        // is kept inside the window (#24077); since the system font (ab5bc5a1228) made the card shorter, a 120 pt
+        // page at the foot of this window no longer fits and rose 7 pt above the card's top.
+        let page = Highlights()
+        page.contentHeight = h.card.frame.height.rounded(.down)
+        h.card.highlights = page
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first { $0 !== workspace.panel }, "no update hover card")
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))

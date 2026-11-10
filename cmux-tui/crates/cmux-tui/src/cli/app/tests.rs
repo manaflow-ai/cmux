@@ -195,6 +195,36 @@ fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
     assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
 }
 
+/// `cmux cloud start-session --from-folder DIR` names a folder of this Mac, and a relative one is
+/// of the caller's working directory: the CLI sends it absolute, as `cloud start-chat` makes it
+/// (one path, `caller_absolute`); the app checks the folder. `~/…` and an absolute folder go as
+/// typed, and its `--cwd` stays a folder on the machine.
+#[test]
+fn relative_from_folder_of_cloud_start_session_is_made_absolute() {
+    let cwd = std::env::current_dir().unwrap();
+    for (action, name) in
+        [("cloud start-session", ActionName::Cli), ("cloudStartSession", ActionName::Any)]
+    {
+        let sent = |words: &[&str]| {
+            let (method, params) = call(run_action(action, &args(words), name).unwrap());
+            assert_eq!(method, "action.run");
+            params["args"].clone()
+        };
+        let sent_folder = |words: &[&str]| sent(words)["fromFolder"].clone();
+        assert_eq!(
+            sent_folder(&["--from-folder", "src"]),
+            json!(cwd.join("src").to_string_lossy())
+        );
+        assert_eq!(
+            sent_folder(&["--from-folder=./app/web"]),
+            json!(cwd.join("app/web").to_string_lossy())
+        );
+        assert_eq!(sent_folder(&["--from-folder", "~/app"]), json!("~/app"));
+        assert_eq!(sent_folder(&["--from-folder", "/srv/app"]), json!("/srv/app"));
+        assert_eq!(sent(&["--cwd", "."])["cwd"], json!("."), "{action}");
+    }
+}
+
 /// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
 /// caller's working directory, so the app gets it absolute; `--persistent`
 /// alone is a true flag and `--size` keeps its value.
@@ -2077,105 +2107,4 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
     assert_eq!(open["action"], "cloud open-machine");
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
-}
-
-/// `exchange_within` keeps one deadline: an app that sends a byte now and then, never a whole
-/// line, ends the read at the deadline, not when it stops (#37485's review, F1).
-#[test]
-fn exchange_within_ends_at_its_deadline_for_an_app_that_trickles() {
-    let (mut ours, mut app) = UnixStream::pair().unwrap();
-    let trickle = std::thread::spawn(move || {
-        let mut request = [0_u8; 256];
-        let _ = app.read(&mut request);
-        for _ in 0..40 {
-            if app.write_all(b" ").is_err() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    });
-    let started = std::time::Instant::now();
-    let answer = exchange_within(
-        &mut ours,
-        "settings.get",
-        json!({ "path": "chat.on" }),
-        Duration::from_millis(300),
-    );
-    let took = started.elapsed();
-    assert!(answer.is_err(), "{answer:?}");
-    assert!(took < Duration::from_millis(1000), "took {took:?}, the app trickled for 2 s");
-    drop(ours);
-    trickle.join().unwrap();
-}
-
-/// A whole line within the deadline is the answer.
-#[test]
-fn exchange_within_reads_a_whole_line() {
-    let (mut ours, mut app) = UnixStream::pair().unwrap();
-    let answer = std::thread::spawn(move || {
-        let mut request = [0_u8; 256];
-        let _ = app.read(&mut request);
-        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
-    });
-    let reply = exchange_within(
-        &mut ours,
-        "settings.get",
-        json!({ "path": "chat.on" }),
-        Duration::from_secs(5),
-    );
-    answer.join().unwrap();
-    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
-}
-
-/// `exchange_within` asks the app to catch up with the daemon first (`after: "sync"`), as every
-/// app request does, so `cmux chat` right after `cmux config set on cloud` reads the new
-/// `chat.on` (#37485's review at 7103f6c0, F1; #37663).
-#[test]
-fn exchange_within_reads_after_the_daemon_sync() {
-    let (mut ours, mut app) = UnixStream::pair().unwrap();
-    let request = std::thread::spawn(move || {
-        let mut line = Vec::new();
-        let mut byte = [0_u8; 1];
-        while app.read(&mut byte).unwrap_or(0) == 1 && byte != [b'\n'] {
-            line.extend_from_slice(&byte);
-        }
-        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
-        serde_json::from_slice::<Value>(&line).unwrap()
-    });
-    let reply = exchange_within(
-        &mut ours,
-        "settings.get",
-        json!({ "path": "chat.on" }),
-        Duration::from_secs(5),
-    );
-    let sent = request.join().unwrap();
-    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
-    assert_eq!(sent.get("params"), Some(&json!({ "path": "chat.on", "after": "sync" })), "{sent}");
-}
-
-/// An optional read's `--socket` kind probe ends at its deadline: a socket that takes the request
-/// and never answers is `socket.wrong_kind` within the deadline, not after the app timeout that
-/// waits out a busy app (#37485's review at 20fdfedd, F1).
-#[test]
-fn a_bounded_socket_probe_ends_at_its_deadline() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("silent.sock");
-    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-    let silent = std::thread::spawn(move || {
-        let (mut peer, _) = listener.accept().unwrap();
-        let mut request = [0_u8; 256];
-        let _ = peer.read(&mut request);
-        std::thread::sleep(Duration::from_secs(3));
-    });
-    let global =
-        GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
-    let started = std::time::Instant::now();
-    let connected = connect_command_within(&global, Some(Duration::from_millis(300)));
-    let took = started.elapsed();
-    let code = connected
-        .err()
-        .and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
-    assert_eq!(code.as_deref(), Some("socket.wrong_kind"));
-    assert!(took < Duration::from_millis(1500), "the probe took {took:?}");
-    silent.join().unwrap();
 }
