@@ -473,6 +473,7 @@ final class ConversationAudioComposer {
 
 /// Messages' recording reds, read from iOS 26 in dark mode (light mode
 /// uses systemRed's own light values at the same strengths).
+@MainActor
 enum AudioRecordingInk {
     /// The timer and the bars just recorded (255,80,91).
     static let live = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(red: 1, green: 80 / 255, blue: 91 / 255, alpha: 1) : .systemRed }
