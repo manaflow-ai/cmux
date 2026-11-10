@@ -279,7 +279,10 @@ pub async fn deliver(
                     .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
                     .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
                     .ok_or_else(|| {
-                        format!("the session's inbox key {} is missing or unreadable", key.display())
+                        format!(
+                            "the session's inbox key {} is missing or unreadable",
+                            key.display()
+                        )
                     })?
             }
         };

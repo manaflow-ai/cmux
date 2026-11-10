@@ -280,7 +280,10 @@ impl Hub {
                 (claude, codex)
             } else {
                 let mine = |c: &(String, String)| registered.contains(&c.0);
-                (claude.into_iter().filter(mine).collect(), codex.into_iter().filter(mine).collect())
+                (
+                    claude.into_iter().filter(mine).collect(),
+                    codex.into_iter().filter(mine).collect(),
+                )
             };
             if claude.is_empty() && codex.is_empty() {
                 return None;
@@ -457,7 +460,10 @@ mod tests {
         let live = vec![peer(None)];
         let listed = vec!["claude-desktop".to_owned()];
         // acpmux (50) under bash (45) under the desktop session's claude (42).
-        assert_eq!(bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, &[]).as_deref(), Some("chat-1"));
+        assert_eq!(
+            bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, &[]).as_deref(),
+            Some("chat-1")
+        );
         // Another process tree: nothing.
         assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed, &[]), None);
         // An entrypoint the setting does not list: nothing.

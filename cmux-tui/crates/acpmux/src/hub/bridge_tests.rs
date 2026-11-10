@@ -293,7 +293,14 @@ fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed()
     assert_eq!(with_reply_hint("hi", None, None), "hi");
     assert_eq!(with_reply_hint("hi", Some("  "), None), "hi");
     let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None);
-    assert!(hinted.starts_with("hi\n\n[From cosmic-gray/claude-sr2-coord"), "{hinted}");
+    assert!(
+        hinted.starts_with(
+            "From another agent (cosmic-gray/claude-sr2-coord), not the person:\nhi\n\n"
+        ),
+        "{hinted}"
+    );
+    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"));
+    assert!(named.starts_with("From another agent (desktop-zoe, claude), not the person:\nhi"));
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
     let quoted = with_reply_hint("hi", Some("it's"), None);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
@@ -455,7 +462,10 @@ async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown
     assert_eq!(added.len(), 1);
     assert_eq!(added[0]["threadId"], thread);
     let sent = added[0]["input"][0]["text"].as_str().unwrap();
-    assert!(sent.starts_with("ping from claude\n\n[From desktop cmux"), "{sent}");
+    assert!(
+        sent.starts_with("From another agent (desktop cmux), not the person:\nping from claude\n\n[Answer desktop cmux"),
+        "{sent}"
+    );
     let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
     let user = events.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
     assert_eq!(user.msg["promptId"], "p-codex");

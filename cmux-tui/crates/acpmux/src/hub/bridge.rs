@@ -333,23 +333,21 @@ impl Hub {
     }
 }
 
-/// `text` as the app reads it: an agent's message ends with how to answer that agent. Claude
-/// Code's own messaging cannot reach an `acpmux:` address, and its `acpmux send` from the app's
-/// shell is bound to this chat (`desktop_bridge.rs`), so the answer lands in the sender's inbox
-/// under the chat's name. The person's prompt goes as typed.
-///
-/// The line names the sender's harness too, when the daemon bound one (`fromHarness`, display
-/// only): the same `NAME (HARNESS)` whatever app or harness receives it.
+/// `text` as the app reads it: an agent's message opens with the line every harness reads ahead
+/// of another agent's message (`prompt_attribution::agent_line`: its name, and its harness when
+/// the daemon bound one) and ends with how to answer that agent. Claude Code's own messaging
+/// cannot reach an `acpmux:` address, and its `acpmux send` from the app's shell is bound to this
+/// chat (`desktop_bridge.rs`), so the answer lands in the sender's inbox under the chat's name.
+/// The person's prompt goes as typed.
 fn with_reply_hint(text: &str, agent: Option<&str>, harness: Option<&str>) -> String {
     match agent.map(str::trim).filter(|a| !a.is_empty()) {
         Some(agent) => {
             let quoted = agent.replace('\'', "'\\''");
-            let who = match harness.map(str::trim).filter(|h| !h.is_empty()) {
-                Some(harness) => format!("{agent} ({harness})"),
-                None => agent.to_owned(),
-            };
+            let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
+            let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+            let line = super::prompt_attribution::agent_line(&who);
             format!(
-                "{text}\n\n[From {who}, an acpmux session. Answer it with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+                "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
             )
         }
         None => text.to_owned(),

@@ -98,21 +98,29 @@ impl Hub {
         .map_err(|e| RpcError::internal(e.to_string()))?
         .ok_or_else(not_found)?;
         let (family, agent_session_id, cwd, tags, pid) = match &found {
-            Found::Claude(p) => {
-                ("claude", p.session_id.clone(), p.cwd.clone(), super::desktop_bridge::tags_of(p), Some(p.pid))
-            }
-            Found::Codex(t) => {
-                ("codex", t.id.clone(), t.cwd.clone(), super::desktop_bridge::codex_tags_of(t), None)
-            }
+            Found::Claude(p) => (
+                "claude",
+                p.session_id.clone(),
+                p.cwd.clone(),
+                super::desktop_bridge::tags_of(p),
+                Some(p.pid),
+            ),
+            Found::Codex(t) => (
+                "codex",
+                t.id.clone(),
+                t.cwd.clone(),
+                super::desktop_bridge::codex_tags_of(t),
+                None,
+            ),
         };
         let name = req.name.clone();
         let stores = super::adoption::store_families(&*self.config.read().await);
         let shown = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             let shown = super::adoption::adopted_in(&sessions, &stores, family, &agent_session_id);
-            let taken = sessions.values().any(|s| {
-                s.meta().name == name && shown.as_ref().is_none_or(|own| own.id != s.id)
-            });
+            let taken = sessions
+                .values()
+                .any(|s| s.meta().name == name && shown.as_ref().is_none_or(|own| own.id != s.id));
             if taken {
                 return Err(RpcError::invalid_params(format!(
                     "session name {name:?} is taken: pick another, or rename that session first"
@@ -140,7 +148,9 @@ impl Hub {
                 self.list_bridged_session(listing)
                     .await
                     .map_err(|e| RpcError::internal(format!("could not list the chat: {e}")))?
-                    .ok_or_else(|| RpcError::internal("another chat showed it meanwhile; run it again"))?
+                    .ok_or_else(|| {
+                        RpcError::internal("another chat showed it meanwhile; run it again")
+                    })?
             }
         };
         // A session acpmux runs itself is reached over ACP: the name is all it needs.
@@ -156,8 +166,9 @@ impl Hub {
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {
                     let kept = crate::claude_peers::ChildToken { pid: peer.pid, socket, token };
-                    crate::claude_peers::save_token(&home, &session.id, &kept)
-                        .map_err(|e| RpcError::internal(format!("could not keep the token: {e}")))?;
+                    crate::claude_peers::save_token(&home, &session.id, &kept).map_err(|e| {
+                        RpcError::internal(format!("could not keep the token: {e}"))
+                    })?;
                     token_kept = true;
                 }
                 _ => crate::claude_peers::forget_token(&home, &session.id),

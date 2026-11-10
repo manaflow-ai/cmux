@@ -553,7 +553,9 @@ pub enum Command {
     /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
     /// Run it again after the session restarts (a new process gets a new token); a SessionStart
     /// hook does that by itself
-    #[command(after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'")]
+    #[command(
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
+    )]
     Register {
         /// The name, e.g. desktop-zoe.
         name: String,

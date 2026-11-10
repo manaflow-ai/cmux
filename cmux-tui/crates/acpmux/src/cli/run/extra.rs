@@ -284,13 +284,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if json_out {
                 print_json(&v)
             } else {
-                let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+                let field =
+                    |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
                 let how = match field("token").as_str() {
                     "registered" => "delivered with its own messaging token",
-                    "peer-key" => "delivered with its peer key (no CLAUDE_CODE_MESSAGING_TOKEN here)",
+                    "peer-key" => {
+                        "delivered with its peer key (no CLAUDE_CODE_MESSAGING_TOKEN here)"
+                    }
                     _ => "reached over ACP",
                 };
-                println!("registered {} ({} session {}): {how}", field("name"), field("family"), field("agentSessionId"));
+                println!(
+                    "registered {} ({} session {}): {how}",
+                    field("name"),
+                    field("family"),
+                    field("agentSessionId")
+                );
             }
             Ok(())
         }
