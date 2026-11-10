@@ -79,8 +79,8 @@ def parse_args(argv=None):
     parser.add_argument("--expected-api-origin", help="with --app")
     parser.add_argument("--credentials-file", help="with --app: a 0600 Stack credentials file the app reads")
     parser.add_argument("--grant-claude-login", action="store_true",
-                        help="with --app: turn on Use My Claude Login on My Own Cloud Machines in the launched app "
-                             "for the run, then reset it (a claude chat waits for that consent otherwise)")
+                        help="with --app: the launched app's own scratch cmux.json says yes to Use My Claude Login "
+                             "on My Own Cloud Machines (a Release build's claude chat waits for that consent)")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -367,18 +367,35 @@ def git_state(folder: Path) -> dict | None:
             "changed": len(status.splitlines())}
 
 
-def launch_argv(app: str, socket: str, credentials_file: str | None, backend: str) -> list[str]:
-    """The `open` command that starts --app on its own socket, as cloud-chat-proof.py does. The socket goes
-    only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app then strips the
-    CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507)."""
-    argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}"]
+def launch_argv(app: str, socket: str, credentials_file: str | None, backend: str, config: str) -> list[str]:
+    """The `open` command that starts --app on its own socket and its own cmux.json, as cloud-chat-proof.py
+    does. The socket goes only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app
+    then strips the CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507).
+    CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
+    ~/.config/cmux/cmux-next.json that the person's other apps read."""
+    argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
+            "--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
     if credentials_file:
         argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
                  "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
     return argv + [str(Path(app).resolve()), "--args", "--cloud-backend", backend]
 
 
-CLAUDE_LOGIN_SETTING = "cloud.useMyClaudeLoginOnMyCloudMachines"
+CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
+
+
+def scratch_config(folder: Path, grant_claude_login: bool) -> Path:
+    """The launched app's own cmux.json (0600), deleted with the run's temporary folder. With
+    --grant-claude-login it holds the one-time consent a Release build's claude chat on the account's own
+    machine waits for (CloudLoginCopyConsentSetting: only the file can say yes). Run 42864046223 failed
+    all 20 cells on it. A file, not `settings set`: that write asks a person on screen, which CI has not."""
+    config: dict = {}
+    if grant_claude_login:
+        config = {CLAUDE_LOGIN_SETTING[0]: {CLAUDE_LOGIN_SETTING[1]: True}}
+    path = folder / "cmux-next.json"
+    path.touch(mode=0o600)
+    path.write_text(json.dumps(config, indent=2) + "\n")
+    return path
 
 
 class Matrix:
@@ -386,11 +403,14 @@ class Matrix:
         self.args = args
         self.cli = args.cli or str(Path(args.app) / "Contents/Resources/bin/cmux")
         self.env = dict(os.environ)
+        self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
-            self.env.update(CMUX_SOCKET_PATH=socket, CMUX_NEXT_SOCKET_PATH=socket)
+            self.config_dir = Path(tempfile.mkdtemp(prefix="cmux-matrix-config-"))
+            self.config = scratch_config(self.config_dir, args.grant_claude_login)
+            self.env.update(CMUX_SOCKET_PATH=socket, CMUX_NEXT_SOCKET_PATH=socket,
+                            CMUX_NEXT_CONFIG_FILE=str(self.config))
         self.launcher = None
-        self.granted = False
         self.lock = threading.Lock()
         self.machines: set[str] = set()
 
@@ -425,7 +445,8 @@ class Matrix:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
         if args.app:
-            launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file, args.cloud_backend)
+            launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file,
+                                 args.cloud_backend, str(self.config))
             self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
         # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
@@ -453,33 +474,19 @@ class Matrix:
                 if time.monotonic() >= deadline:
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
-        if args.grant_claude_login:
-            return self.grant_claude_login()
-        return ""
-
-    def grant_claude_login(self) -> str:
-        """The one-time consent a claude chat on the person's own machine waits for (CloudStartSession
-        consentFirst), given in the app this run launched and reset in quit(). Run 42864046223 failed
-        all 20 cells on it: the CI app starts with the setting off, its default."""
-        code, out, err = self.cmux("settings", "set", CLAUDE_LOGIN_SETTING, "true", "--yes", timeout=60)
-        if code != 0:
-            return f"could not turn on {CLAUDE_LOGIN_SETTING}: {clean(err or out, 300)}"
-        self.granted = True
-        code, out, err = self.cmux("settings", "get", CLAUDE_LOGIN_SETTING, timeout=60)
-        if code != 0 or "true" not in (out or "").lower():
-            return f"{CLAUDE_LOGIN_SETTING} did not read back as on: {clean(err or out, 300)}"
         return ""
 
     def quit(self) -> None:
-        if self.granted:
-            self.cmux("settings", "reset", CLAUDE_LOGIN_SETTING, "--yes", timeout=60)
-            self.granted = False
         if self.launcher is not None:
             self.cmux("app", "quit", "--json", timeout=30)
             try:
                 self.launcher.wait(timeout=60)
             except subprocess.TimeoutExpired:
                 pass
+            self.launcher = None
+        if self.config_dir is not None:
+            shutil.rmtree(self.config_dir, ignore_errors=True)
+            self.config_dir = None
 
     def kill(self, machine: str) -> bool:
         for _ in range(2):
@@ -696,7 +703,7 @@ def main(argv=None) -> int:
     canary = f"cmxcanary{random.token_hex(10)}"
     matrix = Matrix(args)
     # A cancelled CI job sends SIGTERM, which skips `finally`: turn it into SystemExit so quit() still
-    # resets the Claude-login consent and quits the app, and the machines are swept.
+    # quits the app and deletes its scratch cmux.json, and the machines are swept.
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
     report = {"tag": args.tag, "agents": agents, "cells": [], "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     try:

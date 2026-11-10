@@ -80,37 +80,40 @@ class FixtureTests(unittest.TestCase):
 
 class LaunchTests(unittest.TestCase):
     def test_socket_travels_only_as_the_next_knob(self):
-        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging")
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging", "/tmp/c.json")
         envs = [argv[i + 1] for i, word in enumerate(argv) if word == "--env"]
-        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock"])
+        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock", "CMUX_NEXT_CONFIG_FILE=/tmp/c.json"])
         self.assertEqual(argv[-3:], ["--args", "--cloud-backend", "staging"])
 
     def test_credentials_sign_the_launched_app_in(self):
-        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/s.sock", "/tmp/creds.json", "prod")
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/s.sock", "/tmp/creds.json", "prod", "/tmp/c.json")
         self.assertIn("CMUX_DEV_AUTH_REPLACE_SESSION=1", argv)
         self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
 
 
 class GrantTests(unittest.TestCase):
+    APP = ["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
+           "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x"]
+
     def test_grant_only_for_the_launched_app(self):
         with self.assertRaises(SystemExit):
             matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--grant-claude-login"])
-        args = matrix.parse_args(["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
-                                  "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x",
-                                  "--grant-claude-login"])
-        self.assertTrue(args.grant_claude_login)
+        self.assertTrue(matrix.parse_args([*self.APP, "--grant-claude-login"]).grant_claude_login)
 
-    def test_grant_is_reset_on_quit(self):
-        args = matrix.parse_args(["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
-                                  "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x",
-                                  "--grant-claude-login"])
-        m = matrix.Matrix(args)
-        calls = []
-        m.cmux = lambda *words, timeout=120: (calls.append(words), (0, "true", ""))[1]
-        self.assertEqual(m.grant_claude_login(), "")
+    def test_the_consent_lives_only_in_the_runs_own_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = matrix.scratch_config(Path(folder), True)
+            self.assertEqual(json.loads(path.read_text()), {"cloud": {"useMyClaudeLoginOnMyCloudMachines": True}})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(matrix.scratch_config(Path(folder), False).read_text()), {})
+
+    def test_an_app_run_never_reads_the_shared_file_and_cleans_up(self):
+        m = matrix.Matrix(matrix.parse_args([*self.APP, "--grant-claude-login"]))
+        config = Path(m.env["CMUX_NEXT_CONFIG_FILE"])
+        self.assertTrue(config.is_file())
+        self.assertNotIn(".config/cmux", str(config))
         m.quit()
-        self.assertEqual(calls[0], ("settings", "set", matrix.CLAUDE_LOGIN_SETTING, "true", "--yes"))
-        self.assertIn(("settings", "reset", matrix.CLAUDE_LOGIN_SETTING, "--yes"), calls)
+        self.assertFalse(config.exists())
 
 
 if __name__ == "__main__":
