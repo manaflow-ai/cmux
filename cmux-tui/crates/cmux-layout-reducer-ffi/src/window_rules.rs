@@ -9,10 +9,10 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
-#[path = "window_rules_workspaces.rs"]
-mod workspaces;
 #[path = "window_rules_misc.rs"]
 mod misc;
+#[path = "window_rules_workspaces.rs"]
+mod workspaces;
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {

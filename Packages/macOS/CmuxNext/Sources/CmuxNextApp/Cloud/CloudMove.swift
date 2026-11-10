@@ -50,6 +50,25 @@ struct CloudMove {
         return back
     }
 
+    /// Why the invocation's tab cannot move (its menu rows disabled with it, every run refused); nil when a Retry only reopens it.
+    func refusal(_ invocation: ActionInvocation, context: AppActionContext) -> String? {
+        // An agent's run names its own chat, not the focused tab: its ask checks that chat (``CloudMoveAsks``).
+        guard !CloudMoveAsks.isAgent(invocation), let (tab, _) = context.daemonTab(invocation), let reason = Self.refusal(tab, services) else { return nil }
+        if case .show = services.cloud.moveRetries[tab.id] { return nil } // read only on a refusal: a defaults read per menu validation
+        return reason
+    }
+
+    private static func refusal(_ tab: TabModel, _ services: AppServices) -> String? {
+        guard let record = tab.agentSession else { return CloudMoveStrings.notAChat }
+        guard services.machines.daemon(forTab: tab).isLocal, !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix),
+              !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return CloudMoveStrings.alreadyRemote }
+        return session(tab, services) == nil ? CloudMoveStrings.noSession : nil
+    }
+
+    private static func session(_ tab: TabModel, _ services: AppServices) -> String? {
+        services.agentTabs.sessions[services.agentTabs.tabKey(tab.id, machine: services.machines.daemon(forTab: tab).machineID)] ?? tab.agentSession?.session
+    }
+
     /// Starts the move of the invocation's chat tab. Throws, before anything
     /// moves, when the tab is not a chat of this Mac with a session.
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
@@ -62,14 +81,8 @@ struct CloudMove {
         if tab.agentSession == nil { left = nil }
         if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
-        guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
-        let tabs = services.agentTabs
-        guard services.machines.daemon(forTab: tab).isLocal, !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix),
-              !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else {
-            throw ActionFailure(message: CloudMoveStrings.alreadyRemote)
-        }
-        let scoped = tabs.tabKey(tab.id, machine: services.machines.daemon(forTab: tab).machineID)
-        guard let session = tabs.sessions[scoped] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
+        if let reason = Self.refusal(tab, services) { throw ActionFailure(message: reason) }
+        guard let record = tab.agentSession, let session = Self.session(tab, services) else { return }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
         // A person's Retry pinned to a machine since deleted drops the pin, as a kept pin does above.

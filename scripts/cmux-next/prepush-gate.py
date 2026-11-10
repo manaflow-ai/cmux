@@ -174,6 +174,10 @@ DATA_SUFFIXES = (".tsv", ".json")
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
+SURFACE_MATERIALS_CHECK = "Each surface's material is one its kind allows (design/surface-materials.md)"
+# The check reads its manifest and every file it judges, not only the changed ones: it gets each side's whole set.
+SURFACE_MATERIALS_DATA = "schemas/surface-materials/"
+SURFACE_MATERIALS_SOURCES = (PKG + "/Sources/", "webviews/src/ui/", "webviews/src/agent-session/")
 # Its finding that a baseline import is gone, and the hint line it prints under any finding.
 STALE_PAIR = re.compile(r": IMPORT_BASELINE lists (.+?), which is declared or gone now")
 DEPS_HINT = "One dependency per line"
@@ -190,6 +194,9 @@ SCANNERS = (
                     "--baseline", "{s}/swift-type-scale-baseline.tsv"], (PKG + "/",)),
     ("Motion tokens", ["/bin/bash", "{s}/check-motion.sh", "{pkg}"], (PKG + "/",)),
     ("Overlays are glass, never solid", ["python3", "-I", "{s}/check-overlay-glass.py", "{root}"], (PKG + "/",)),
+    (SURFACE_MATERIALS_CHECK,
+     ["python3", "-I", "{s}/check-surface-materials.py", "{root}"],
+     (PKG + "/", "webviews/src/", "schemas/surface-materials/", "scripts/cmux-next/check-surface-materials.py")),
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
@@ -310,6 +317,8 @@ FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 # The UI font is the macOS system font, everywhere (Lawrence 2026-11-07).
 UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
 UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
+# check-ui-font.py's stop on a read outside its INPUTS (Tree.covered).
+UI_FONT_GUARD = "which is not in INPUTS"
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -1296,53 +1305,37 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
-# The constants of check-ui-font.py that name every file and folder it reads.
-UI_FONT_INPUT_NAMES = ("TYPE_SCALE", "PIN", "CSS", "DESIGN_RESOURCES", "STACK_ROOTS")
-
-
-def ui_font_inputs(script: bytes) -> tuple[str, ...] | None:
-    """The paths and folder prefixes SCRIPT (a check-ui-font.py) reads, from its own module constants
-    (UI_FONT_INPUT_NAMES); None when a copy does not name them all as literals, so the caller runs it."""
+def ui_font_inputs(check: Path) -> tuple[str, ...] | None:
+    """The files and folders CHECK (a check-ui-font.py) reads, from its own `--inputs`; None when it cannot say
+    (a copy older than --inputs, or any failure), so the caller runs it."""
     try:
-        module = ast.parse(script)
-    except SyntaxError:
+        code, out = run(["python3", "-I", str(check), "--inputs"], check.parent, timeout=60)
+    except Exception:  # any failure to ask means "unknown": the check runs
         return None
-    values: dict[str, object] = {}
-    for node in module.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            try:
-                values[node.targets[0].id] = ast.literal_eval(node.value)
-            except ValueError:
-                continue
-    inputs: list[str] = []
-    for name in UI_FONT_INPUT_NAMES:
-        value = values.get(name)
-        items = value if isinstance(value, tuple) else (value,)
-        if not items or not all(isinstance(item, str) and item for item in items):
-            return None
-        inputs += items
-    return tuple(inputs)
+    inputs = tuple(line for line in out.splitlines() if line.strip())
+    return inputs if code == 0 and inputs else None
 
 
 def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the UI font check (UI_FONT_CHECK) over base: findings base does not have, and a
     pin change in base..head with no `Font-order:` trailer.
 
-    A push that changes none of the files the check reads (ui_font_inputs) cannot change what it finds, so
-    neither pass runs. Each pass reads every webviews/src and Native/OptChat source (4268 files on
-    feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one on-demand
-    fetch (5-8 s) per source blob a blob:none clone lacks."""
+    A push that changes none of the files the check reads (its `--inputs`) and not the check itself cannot
+    change what it finds, so neither pass runs. Each pass reads every webviews/src and Native/OptChat source
+    (4268 files on feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one
+    on-demand fetch (5-8 s) per source blob a blob:none clone lacks."""
     script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
-    inputs = ui_font_inputs(script)
-    if inputs is not None:
-        names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode()
-        if not any(path.startswith(inputs) for path in names.split("\0") if path):
-            return []
     with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
+        inputs = ui_font_inputs(check)
+        if inputs is not None:
+            names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head)
+            names = names.decode("utf-8", "surrogateescape")
+            if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
+                return []
 
         def findings(*args: str) -> list[str]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
@@ -1350,8 +1343,14 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
                 return [f"check-ui-font.py {' '.join(args)}: {out}"]
             return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
 
+        head_lines = findings("--rev", head, "--base", base)
+        # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
+        # would hide it and pass a push the check never judged (review of #39838): it refuses on its own.
+        stopped = [line for line in head_lines if UI_FONT_GUARD in line]
+        if stopped:
+            return stopped
         base_lines = set(findings("--rev", base))
-        return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
+        return [line for line in head_lines if line not in base_lines]
 
 
 def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
@@ -1779,7 +1778,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         deleted = [p for p in deleted if p in restrict]
     # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
     dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
-    if not changed and not dropped and not deleted:
+    # The surface materials manifest lies outside SCOPES too: a push that only edits it, or only deletes a file the
+    # check judges (an entry then goes stale), still runs its check.
+    materials_data = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--",
+                                     SURFACE_MATERIALS_DATA).decode().split("\0") if n]
+    materials_data += [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
+                                      "--", *SURFACE_MATERIALS_SOURCES).decode().split("\0")
+                       if n.endswith((".swift", ".tsx"))]
+    if not changed and not dropped and not deleted and not materials_data:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
@@ -1804,7 +1810,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
                 continue  # a main-based push: its crash rule is the crash ratchet below
-            if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
+            runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
+            if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
         if (dropped or deleted) and DEPS_CHECK not in jobs:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
@@ -1816,6 +1823,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
             trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, Path(tmp) / "deps", trusted_scripts,
                                                 index=False)
+        if SURFACE_MATERIALS_CHECK in jobs:
+            # Each side's manifest and every file the check judges, so a finding both sides have cancels out and an
+            # entry for an untouched file never reads as stale.
+            judged = sorted({p for rev in (base, head) for prefix in SURFACE_MATERIALS_SOURCES
+                             for p in ls_tree(repo, rev, prefix) if p.endswith((".swift", ".tsx"))}
+                            | {p for rev in (base, head) for p in ls_tree(repo, rev, SURFACE_MATERIALS_DATA)})
+            trees_for[SURFACE_MATERIALS_CHECK] = build_trees(repo, base, head, judged, Path(tmp) / "materials",
+                                                             trusted_scripts, index=False)
         if not lock.is_file():
             sources, swift = [], []  # a checkout older than the pinned tools: scanners only
         if sources and (only is None or "ast-grep" in only):

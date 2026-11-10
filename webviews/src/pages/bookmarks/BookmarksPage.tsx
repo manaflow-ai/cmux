@@ -4,7 +4,9 @@
 // in `BookmarksStore`; this file only renders it and turns plain keys, clicks and drops into store
 // intents. Cmd/Ctrl chords never reach page handlers.
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -162,10 +164,26 @@ export function BookmarksPage({
     openMenu(event, nodeItems(node, selection));
   };
 
+  // Up and Down on a row take DOM focus to the row they select (CMUX-303): the rows rove one tabindex,
+  // and the old row may leave the virtual list, which dropped focus to the page. From the search
+  // field focus stays in the field.
+  const pane = useRef<HTMLDivElement | null>(null);
+  const focusFollows = useRef(false);
+  useLayoutEffect(() => {
+    if (!focusFollows.current) return;
+    focusFollows.current = false;
+    const row = [...(pane.current?.querySelectorAll<HTMLElement>(".bm-row") ?? [])].find(
+      (element) => element.dataset.bookmark === snap.focus,
+    );
+    row?.focus();
+  }, [snap.focus]);
+
   const listKeys = (event: KeyboardEvent) => {
     if (!plain(event)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       const next = moveSelection(rows, snap.focus, event.key === "ArrowDown" ? 1 : -1);
+      const fromRow = event.target instanceof Element && event.target.closest(".bm-row") !== null;
+      focusFollows.current = fromRow && next !== undefined && next !== snap.focus;
       store.select(next, event.shiftKey ? "range" : "single");
     } else if (event.key === "Enter") {
       const node = focusIndex >= 0 ? rows[focusIndex] : undefined;
@@ -234,11 +252,20 @@ export function BookmarksPage({
     void store.dropInto(ids, folder);
   };
 
-  // Icons are asked for only for the rows the list rendered this frame.
-  const rendered: Bookmark[] = [];
-  useEffect(() => {
-    void store.requestIcons(rendered);
-  });
+  // Icons are asked for by the rows the list draws, in one call per commit. A scroll re-renders only
+  // the virtual list, never this page, so an effect here missed the rows it brought in (CMUX-300).
+  const wantedIcons = useRef<Bookmark[]>([]);
+  const askIcon = useCallback(
+    (node: Bookmark) => {
+      if (wantedIcons.current.push(node) > 1) return;
+      queueMicrotask(() => {
+        const nodes = wantedIcons.current;
+        wantedIcons.current = [];
+        void store.requestIcons(nodes);
+      });
+    },
+    [store],
+  );
 
   const trail = folderTrail(snap.tree, snap.folder, titles);
   // Without the tree (narrow, or the breadcrumb layout) the path starts at one root: the other is
@@ -279,6 +306,7 @@ export function BookmarksPage({
     // The list pane takes the plain keys of its rows; the search field forwards Up, Down and Return.
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- the rows are the grid's; this only hears their keys and the empty area's menu and click.
     <div
+      ref={pane}
       className="bm-list-pane"
       onKeyDown={listOnlyKeys}
       onContextMenu={(event) => openMenu(event, addItems())}
@@ -318,7 +346,6 @@ export function BookmarksPage({
           renderRow={(index, style) => {
             const node = rows[index];
             if (!node) return null;
-            rendered.push(node);
             return (
               <BookmarkRow
                 key={node.id}
@@ -337,6 +364,7 @@ export function BookmarksPage({
                       : ""
                 }
                 icon={snap.icons[iconKey(node)]}
+                onShown={askIcon}
                 onClick={(event) => {
                   event.currentTarget.focus();
                   store.select(node.id, event.shiftKey ? "range" : event.metaKey ? "toggle" : "single");
@@ -442,6 +470,8 @@ interface RowProps {
   drop?: "before" | "into";
   detail: string;
   icon?: RowIcon | null;
+  /** The row is drawn without an icon asked for yet (undefined, not null: null is "the host has none"). */
+  onShown: (node: Bookmark) => void;
   onClick: (event: MouseEvent<HTMLDivElement>) => void;
   onOpen: () => void;
   onMenu: (event: MouseEvent) => void;
@@ -452,8 +482,12 @@ interface RowProps {
   onDrop: (event: DragEvent) => void;
 }
 
-function BookmarkRow({ node, style, index, layout, selected, focused, drop, detail, icon, ...on }: RowProps) {
+function BookmarkRow({ node, style, index, layout, selected, focused, drop, detail, icon, onShown, ...on }: RowProps) {
   const title = node.title || (node.url ? displayURL(node.url) : "");
+  const unasked = icon === undefined;
+  useEffect(() => {
+    if (unasked) onShown(node);
+  }, [node, unasked, onShown]);
   return (
     // A row of the multi-select grid: the grid pane takes its keys (Up/Down, Return, Delete).
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
