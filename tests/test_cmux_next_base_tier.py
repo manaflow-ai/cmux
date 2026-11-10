@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
 import github_quota_client as quota  # noqa: E402
+import deadline_http  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 KICK = ROOT / ".github/workflows/cmux-next-base-tier-kick.yml"
@@ -964,6 +965,40 @@ class NothingAfterTheBound(unittest.TestCase):
                 self.assertNotEqual(outcome, 204, f"{name}: a 204 after {ended - started:.3f} s "
                                                   f"against a {self.BOUND} s bound")
                 self.assertIsInstance(outcome, notify.RequestTimeout)
+
+    def test_a_slow_lookup_ends_the_call_at_its_bound(self):
+        """Codex review of #40631, F2: getaddrinfo takes no timeout, so a 663 ms lookup ran 663 ms against a
+        100 ms bound. The lookup is now waited on for the time left, and nothing is sent after it."""
+        server = self.serve()
+        self.slow_lookup(8 * self.BOUND)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                server.arrivals.clear()
+                outcome, started, ended = self.dispatch(api)
+                self.assertIsInstance(outcome, notify.RequestTimeout, f"{name} returned {outcome!r}")
+                self.assertLess(ended - started, self.BOUND + 0.3, f"{name} waited out the lookup")
+                time.sleep(9 * self.BOUND)
+                self.assertEqual(server.arrivals, [], f"{name}: the abandoned lookup led to a request")
+
+    def test_an_answer_buffered_in_time_but_finished_after_the_bound_is_a_timeout(self):
+        """Codex review of #40631, F1: the whole answer arrives in one receive, then the caller pauses past
+        the deadline. No receive is left to check the time, so the answer used to succeed late."""
+        server = self.serve()
+        late = [0.0]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: time.monotonic() + late[0])
+        real = deadline_http._DeadlineReader.readinto
+
+        def readinto(reader, buffer):
+            read = real(reader, buffer)
+            late[0] += 2 * self.BOUND  # a pause once these bytes sit in the buffer
+            return read
+
+        deadline_http._DeadlineReader.readinto = readinto
+        self.addCleanup(setattr, deadline_http._DeadlineReader, "readinto", real)
+        with self.assertRaises(deadline_http.RequestTimeout):
+            deadline_http.request(urllib.request.Request(server.url + "/x", method="POST", data=b"{}"),
+                                  deadline=deadline)
+        self.assertEqual(len(server.arrivals), 1)
 
     def test_an_answer_within_the_bound_still_succeeds(self):
         server = self.serve()
