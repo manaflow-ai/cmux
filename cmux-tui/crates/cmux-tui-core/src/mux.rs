@@ -66,6 +66,7 @@ use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
 use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
+pub(crate) use kitty_budget_state::KittyImageAdoptionExpectation;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
