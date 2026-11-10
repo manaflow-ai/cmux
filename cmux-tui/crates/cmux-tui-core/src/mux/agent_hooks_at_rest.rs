@@ -205,6 +205,10 @@ pub(super) struct AgentHooksAtRest {
     /// `agent.state.changed`; `None` until read, and after a hook changed.
     journal_hook_reads_rows: Mutex<Option<bool>>,
     journal_followers: Arc<Mutex<JournalRowFollowers>>,
+    /// The daemon's clock as a test sets it, in Unix milliseconds (0: the
+    /// wall clock).
+    #[cfg(all(test, unix))]
+    clock_ms_for_test: std::sync::atomic::AtomicU64,
 }
 
 impl AgentHooksAtRest {
@@ -274,6 +278,15 @@ impl Mux {
     #[cfg(all(test, unix))]
     pub(crate) fn agent_hook_slots_for_test(&self) -> usize {
         self.agent_hooks_at_rest.slots()
+    }
+
+    /// Sets the daemon's clock for the agent activity time, so a test runs
+    /// hours of reports with no sleep.
+    #[cfg(all(test, unix))]
+    pub(crate) fn set_agent_activity_clock_for_test(&self, now_ms: u64) {
+        self.agent_hooks_at_rest
+            .clock_ms_for_test
+            .store(now_ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Counts a live journal stream as a reader of `agent.state.changed` rows
