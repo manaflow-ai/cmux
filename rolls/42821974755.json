@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42821974755",
+  "recorded_at": "2026-11-10T13:18:29Z",
+  "reason": "cmux-tui e0d9836e67f3 changes the image's cmux-tui (pinned 87b477c9a314)",
+  "dry_run": false,
+  "cmux_tui": "e0d9836e67f3d82a7833fd9be1432d8628d12f15",
+  "fixes": [
+    {
+      "sha": "e0d9836e67f3d82a7833fd9be1432d8628d12f15",
+      "mergedAt": "2026-11-10T04:52:41-08:00",
+      "subject": "acpmux: a second copy of a prompt hears its turn only once the first is accepted (#40396)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T13:18:29Z",
+    "snapshot_id": "sh-c127f785fa1446e487e0f855c2730163",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42821974755): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "13c4dc5bf87cc580dc875eb6f3bfe4e8aab20c62",
+    "image": "cloud-native-auto-e0d9836e-42821974755-1",
+    "revision": "ci-42821974755-1",
+    "at": "2026-11-10T13:18:29Z"
+  },
+  "rolled_back": false
+}
