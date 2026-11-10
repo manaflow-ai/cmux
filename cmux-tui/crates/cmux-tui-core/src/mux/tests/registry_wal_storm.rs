@@ -19,9 +19,10 @@ use crate::workspace_registry::wal_durability::WAL_SIZE_LIMIT_BYTES;
 
 /// WAL frame bytes the storm writes: the limit three times.
 const STORM_FRAME_BYTES: u64 = 3 * WAL_SIZE_LIMIT_BYTES;
-/// The WAL file's bound: the limit, plus the 4 MiB step between two tries to
-/// restart the WAL (far above one commit's frames).
-const WAL_FILE_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + 4 * 1024 * 1024;
+/// The WAL file's bound this test asserts: the limit and 16 MiB. The rule's
+/// own bound is the limit plus one commit; the margin lets two tries in a
+/// row end late on a busy disk (their steps: 4 MiB, then 8 MiB).
+const WAL_FILE_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + 16 * 1024 * 1024;
 /// A storm that needs more changes than this writes too little per change
 /// for this test: it then says so and does not pass.
 const MAX_CHANGES: u64 = 50_000;
@@ -41,7 +42,7 @@ fn a_change_storm_keeps_the_wal_file_under_its_bound(workspaces: usize) {
     let target = mux.with_state(|state| state.workspaces[0].id);
     let built = mux.write_path_stats();
 
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let mut changes = 0;
     let written = loop {
         assert!(mux.rename_workspace(target, format!("storm {changes}")), "rename {changes}");
@@ -56,13 +57,16 @@ fn a_change_storm_keeps_the_wal_file_under_its_bound(workspaces: usize) {
     };
     let seconds = started.elapsed().as_secs_f64();
     let after = mux.write_path_stats();
+    let (waits, longest_wait) = mux.registry_connection.wal_restart_waits_for_test();
     println!(
         "registry_wal_storm: workspaces={workspaces} changes={changes} seconds={seconds:.1} \
          wal_frame_bytes={written} wal_file_bytes_after_build={} wal_file_bytes={} \
-         wal_file_high_water_bytes={} bound={WAL_FILE_BOUND_BYTES}",
+         wal_file_high_water_bytes={} bound={WAL_FILE_BOUND_BYTES} restart_waits={waits} \
+         longest_wait_ms={}",
         built.registry_wal_file_bytes,
         after.registry_wal_file_bytes,
         after.registry_wal_file_high_water_bytes,
+        longest_wait.as_millis(),
     );
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
@@ -71,6 +75,9 @@ fn a_change_storm_keeps_the_wal_file_under_its_bound(workspaces: usize) {
         "{changes} renames wrote only {written} bytes of WAL frames: not a storm of \
          {STORM_FRAME_BYTES} bytes"
     );
+    // One wait per 64 MiB of WAL (the build and the storm), with room for
+    // tries a reader of another thread made miss. Never one per change.
+    assert!(waits <= 16, "{waits} of {changes} changes waited for a WAL restart checkpoint");
     assert!(
         after.registry_wal_file_high_water_bytes <= WAL_FILE_BOUND_BYTES,
         "{changes} changes with no pause ({written} bytes of WAL frames) on {workspaces} \

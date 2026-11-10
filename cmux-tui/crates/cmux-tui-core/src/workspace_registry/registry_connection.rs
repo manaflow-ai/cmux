@@ -235,6 +235,23 @@ impl RegistryConnection {
         }
     }
 
+    /// One PASSIVE checkpoint of the registry's WAL at a clean stop, on the
+    /// syncer thread; waits a short, bounded time for it (`wal_durability`).
+    pub(crate) fn checkpoint_at_stop(&self) {
+        if let Some(durability) = &self.durability {
+            durability.checkpoint_at_stop();
+        }
+    }
+
+    /// (commits that waited for a WAL restart checkpoint, the longest wait).
+    #[cfg(test)]
+    pub(crate) fn wal_restart_waits_for_test(&self) -> (u64, std::time::Duration) {
+        self.durability
+            .as_ref()
+            .map(super::wal_durability::WalDurability::restart_waits)
+            .unwrap_or_default()
+    }
+
     /// Commits no flush was requested for (`WalDurability::unrequested_commits`).
     #[cfg(test)]
     pub(crate) fn unrequested_commits_for_test(&self) -> u64 {

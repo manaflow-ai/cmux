@@ -25,9 +25,20 @@ took (two reads around one change give that change's bytes). A PASSIVE
 checkpoint never shrinks the WAL file, so each connection sets
 `journal_size_limit` to 64 MiB: the WAL restarts from its first frame, and the
 file shrinks to that size, at the first commit after a PASSIVE checkpoint
-copied the whole WAL and the last reader of the old WAL ended. A complete
-checkpoint alone does not make the next commit shrink it: a read transaction
-still open after the checkpoint delays the restart until it ends. A fully idle
+copied the whole WAL and the last reader of the old WAL ended. A checkpoint
+that runs beside commits never copies the whole WAL, so under commits with no
+pause (a session build, a restore) the file once grew without a bound. The
+restart rule: the commit that takes the WAL past 64 MiB asks the syncer for
+one more PASSIVE checkpoint and waits for its end, at most 250 ms. That thread
+owns the writing connection, so no commit lands meanwhile; the checkpoint
+copies the whole WAL and the next commit restarts it. The WAL file thus stays
+at or under 64 MiB plus one commit, for one short wait per 64 MiB of WAL. A
+read transaction open at that moment stops the checkpoint at its snapshot;
+the checkpoint ends at once and the commit does not wait for the reader. The
+rule then tries again after each further 4 MiB, and the file grows by what
+commits write until that read ends. A WAL that a previous run left large is
+checkpointed by the syncer when the registry opens, and a clean stop ends
+with one PASSIVE checkpoint; the WAL file is never deleted. A fully idle
 registry keeps its WAL at its size until its next commit. The syncer runs no
 TRUNCATE or RESTART checkpoint, which would hold the writer lock while it
 waited for readers and fail a transaction's read-to-write upgrade with

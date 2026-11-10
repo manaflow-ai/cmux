@@ -719,11 +719,13 @@ page into the database once more. Its first count after a start also holds the
 frames a previous run left in the WAL, so a reader compares two reads (the
 bytes one change writes). `registry_wal_file_bytes` is the registry's WAL file
 size now and `registry_wal_file_high_water_bytes` the largest size seen since
-the daemon started: a reader that pins an old snapshot keeps every later
-commit in the WAL, and the file shrinks to 64 MiB at the first commit after a
-checkpoint copied the whole WAL and the last reader of the old WAL ended (a
-read transaction still open after the checkpoint delays it); an idle registry
-keeps its size. Daemons
+the daemon started. The file stays at or under 64 MiB plus one commit: the
+commit that takes it past 64 MiB waits, at most 250 ms, for a checkpoint of
+the whole WAL, and the next commit restarts the WAL and cuts the file to
+64 MiB. A reader that pins an old snapshot keeps every later commit in the
+WAL until its read ends (the commit does not wait for it, and the cut is
+tried again after each further 4 MiB); an idle registry keeps its size.
+Daemons
 older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state

@@ -130,6 +130,9 @@ impl Mux {
         self.stop_agent_roster_worker();
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
+        // The journal writer ended: copy the registry's WAL into the
+        // database once, so the next start finds every commit there.
+        self.registry_connection.checkpoint_at_stop();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }

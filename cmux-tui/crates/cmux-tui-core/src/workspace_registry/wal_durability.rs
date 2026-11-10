@@ -38,6 +38,37 @@
 //! read first then fails its write with SQLITE_BUSY at once (the busy
 //! timeout does not cover that upgrade).
 //!
+//! A checkpoint that runs beside commits never ends with the whole WAL
+//! copied: a commit landed while it copied. So under commits with no pause (a
+//! session build, a restore, an agent burst) the WAL never restarted, and one
+//! registry's WAL grew to 1366 MB beside a 45 MB database. The restart rule:
+//! the WAL hook of the commit that takes the WAL past
+//! [`WAL_SIZE_LIMIT_BYTES`] asks the syncer for one more PASSIVE checkpoint
+//! and waits for its end, at most [`RESTART_WAIT`]. The committing thread
+//! owns its connection (the registry's connection lock; a store's own lock),
+//! the only one that writes, so no commit lands during that checkpoint: it
+//! copies the whole WAL, the next commit restarts the WAL, and SQLite cuts
+//! the file to the limit. The syncer already copied all but the newest
+//! commits, so the wait is one short checkpoint per 64 MiB of WAL. The bound
+//! is the limit plus one commit. A reader that holds a snapshot stops the
+//! checkpoint at its mark and the checkpoint ends at once (PASSIVE waits for
+//! no one), so the commit never waits for the reader; the rule then tries
+//! again at each further [`CHECKPOINT_BYTES`], never at each commit, and the
+//! bound grows by what commits write until the read ends. A wait that timed
+//! out (a slow disk) doubles the step to its next try, up to the limit.
+//! SQLite's own automatic checkpoint (which Chromium keeps: 1000 pages, on
+//! the committing connection, on the database's own sequence) has the same
+//! exclusion; here the bulk of the copy stays off the committing thread.
+//!
+//! A WAL a previous run left (a kill in a storm, an older build) is
+//! checkpointed by the syncer when the database opens, with no caller that
+//! asks; commits do not wait for that one. The WAL file is never deleted.
+//! A clean stop ends with one more PASSIVE checkpoint
+//! ([`WalDurability::checkpoint_at_stop`]): PASSIVE, because request threads
+//! and readers can still run then, and it waits for none of them. The next
+//! start then finds every commit in the database file and a WAL at or under
+//! the limit that its first commit restarts.
+//!
 //! Before, each registry commit ran `synchronous=FULL` with `fullfsync`
 //! while it held the registry connection lock: about 4.5 ms per commit on a
 //! fleet M4 Pro, one to three of them on every create and close reply, and
@@ -49,7 +80,7 @@
 use std::cell::RefCell;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
 use rusqlite::Connection;
@@ -66,6 +97,15 @@ const WAL_FRAME_HEADER_BYTES: u64 = 24;
 /// The WAL file size SQLite cuts the file back to when the WAL restarts
 /// (`journal_size_limit`).
 pub(crate) const WAL_SIZE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The longest a commit waits for the checkpoint that lets the WAL restart
+/// (module docs). The checkpoint copies only the commits since the syncer's
+/// last one and runs two plain fsyncs: milliseconds on an idle disk. The
+/// limit is for a disk that is slow now (a network disk's fsync, a host
+/// under load): the commit then goes on, and the rule tries again later.
+/// A request thread can be the one that waits: at most this long, once per
+/// try, and a try comes once per 64 MiB of WAL when the checkpoint ends.
+const RESTART_WAIT: Duration = Duration::from_millis(250);
 
 /// Commit counters shared with the syncer thread.
 #[derive(Default)]
@@ -89,6 +129,23 @@ struct SyncState {
     /// The largest WAL file size seen since the database opened (`server-stats`
     /// `write_path.registry_wal_file_high_water_bytes`).
     wal_file_high_water: u64,
+    /// Checkpoints commits asked for so the WAL can restart ([`wait_for_restart_checkpoint`]).
+    restart_asked: u64,
+    /// Of those, the ones the syncer ended.
+    restart_done: u64,
+    /// The WAL frame count from which a commit asks again; 0 after a restart.
+    restart_try_frames: u64,
+    /// Frames between two asks: [`CHECKPOINT_BYTES`], doubled after each wait that timed out.
+    restart_step_frames: u64,
+    /// The WAL a previous run left is large: the syncer checkpoints it first.
+    leftover_owed: bool,
+    /// The syncer runs that checkpoint now. It can copy a WAL of any size, so no commit waits for it.
+    leftover_running: bool,
+    /// Commits that waited for a restart checkpoint, and the longest wait.
+    #[cfg(test)]
+    restart_waits: u64,
+    #[cfg(test)]
+    restart_wait_longest: Duration,
 }
 
 struct Shared {
@@ -197,10 +254,18 @@ impl WalDurability {
         if let Err(error) = connection.execute_batch(&journal_size_limit_pragma()) {
             eprintln!("cmux-tui: SQLite journal_size_limit failed: {error}");
         }
+        let wal_path = PathBuf::from(wal_path);
+        // A large WAL from a previous run: the syncer checkpoints it at
+        // once, before any caller asks (module docs).
+        let leftover = std::fs::metadata(&wal_path).map_or(0, |meta| meta.len());
         let shared = Arc::new(Shared {
             database_path: database_path.to_path_buf(),
-            wal_path: PathBuf::from(wal_path),
-            state: Mutex::new(SyncState::default()),
+            wal_path,
+            state: Mutex::new(SyncState {
+                leftover_owed: leftover > CHECKPOINT_BYTES,
+                wal_file_high_water: leftover,
+                ..SyncState::default()
+            }),
             changed: Condvar::new(),
             slow_flush,
             flush_each_commit,
@@ -262,6 +327,24 @@ impl WalDurability {
         request_flush(&self.shared);
     }
 
+    /// One PASSIVE checkpoint on the syncer thread now, whatever the WAL's
+    /// size, for a clean stop (module docs). Waits for its end, at most
+    /// [`RESTART_WAIT`]; never for a reader or a writer.
+    pub(crate) fn checkpoint_at_stop(&self) {
+        let state = self.shared.state.lock().recover_poison();
+        if state.stopping || state.committed == 0 {
+            return;
+        }
+        drop(checkpoint_and_wait(&self.shared, state));
+    }
+
+    /// (commits that waited for a restart checkpoint, the longest wait).
+    #[cfg(test)]
+    pub(crate) fn restart_waits(&self) -> (u64, Duration) {
+        let state = self.shared.state.lock().recover_poison();
+        (state.restart_waits, state.restart_wait_longest)
+    }
+
     /// (committed, synced) commit counts, for `server-stats` `write_path`.
     pub(crate) fn counts(&self) -> (u64, u64) {
         let state = self.shared.state.lock().recover_poison();
@@ -306,14 +389,70 @@ fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
     // frame is new. A restart whose first commit writes more frames than the WAL held before counts only the
     // difference; the syncer checkpoints at 4 MiB (about 1000 frames), far above one commit.
     let appended = frames.checked_sub(state.wal_frames).unwrap_or(frames);
+    if frames < state.wal_frames {
+        state.restart_try_frames = 0;
+        state.restart_step_frames = 0;
+    }
     state.wal_frames = frames;
     state.wal_frame_bytes =
         state.wal_frame_bytes.saturating_add(appended.saturating_mul(shared.frame_bytes));
     if shared.flush_each_commit {
         state.requested = state.committed;
-        drop(state);
         shared.changed.notify_all();
     }
+    wait_for_restart_checkpoint(shared, state, frames);
+}
+
+/// The restart rule (module docs), on the committing thread, after its
+/// commit: SQLite released the write lock and the read snapshot before it
+/// ran the WAL hook. With `frames` in the WAL past the size limit, ask the
+/// syncer for one PASSIVE checkpoint and wait for its end, at most
+/// [`RESTART_WAIT`]. This thread owns the writing connection, so the
+/// checkpoint sees no new commit and the next commit restarts the WAL.
+fn wait_for_restart_checkpoint(shared: &Shared, state: MutexGuard<'_, SyncState>, frames: u64) {
+    if frames.saturating_mul(shared.frame_bytes) <= WAL_SIZE_LIMIT_BYTES
+        || frames < state.restart_try_frames
+        || state.leftover_owed
+        || state.leftover_running
+        || state.stopping
+    {
+        return;
+    }
+    let (mut state, ended, waited) = checkpoint_and_wait(shared, state);
+    // A checkpoint that ended and left frames (a reader holds a snapshot):
+    // try again one step on. One that did not end in time: twice that far.
+    let step = (CHECKPOINT_BYTES / shared.frame_bytes).max(1);
+    let limit = (WAL_SIZE_LIMIT_BYTES / shared.frame_bytes).max(step);
+    state.restart_step_frames =
+        if ended { step } else { state.restart_step_frames.saturating_mul(2).clamp(step, limit) };
+    state.restart_try_frames = frames.saturating_add(state.restart_step_frames);
+    #[cfg(test)]
+    {
+        state.restart_waits += 1;
+        state.restart_wait_longest = state.restart_wait_longest.max(waited);
+    }
+    #[cfg(not(test))]
+    let _ = waited;
+}
+
+/// Ask the syncer for one PASSIVE checkpoint, whatever the WAL's size, and
+/// wait for its end, at most [`RESTART_WAIT`]. Returns whether it ended and
+/// the time waited.
+fn checkpoint_and_wait<'a>(
+    shared: &'a Shared,
+    mut state: MutexGuard<'a, SyncState>,
+) -> (MutexGuard<'a, SyncState>, bool, Duration) {
+    state.restart_asked += 1;
+    let ask = state.restart_asked;
+    shared.changed.notify_all();
+    let started = std::time::Instant::now();
+    let mut waited = Duration::ZERO;
+    while state.restart_done < ask && !state.stopping && waited < RESTART_WAIT {
+        state = shared.changed.wait_timeout(state, RESTART_WAIT - waited).recover_poison().0;
+        waited = started.elapsed();
+    }
+    let ended = state.restart_done >= ask;
+    (state, ended, waited)
 }
 
 fn request_flush(shared: &Shared) {
@@ -329,7 +468,12 @@ fn run(shared: &Shared) {
     let mut checkpointer: Option<Connection> = None;
     let mut state = shared.state.lock().recover_poison();
     loop {
-        while state.requested <= state.handled && state.forced <= state.synced && !state.stopping {
+        while state.requested <= state.handled
+            && state.forced <= state.synced
+            && state.restart_asked <= state.restart_done
+            && !state.leftover_owed
+            && !state.stopping
+        {
             state = shared.changed.wait(state).recover_poison();
         }
         if state.stopping && state.committed <= state.synced {
@@ -338,29 +482,39 @@ fn run(shared: &Shared) {
         let force = state.stopping || state.forced > state.synced;
         let target = if force { state.committed } else { state.requested };
         state.handled = state.handled.max(state.requested);
+        // A commit waits for this checkpoint (the restart rule), or a
+        // previous run left a large WAL: checkpoint whatever the size.
+        let asked = state.restart_asked;
+        let leftover = std::mem::take(&mut state.leftover_owed);
+        state.leftover_running = leftover;
+        let owed = !state.stopping && (leftover || asked > state.restart_done);
         drop(state);
         // A forced flush syncs the WAL; otherwise the WAL reaches the disk
         // with its checkpoint (SQLite syncs it first), or at close.
-        let synced = if force {
+        let mut synced = force;
+        if force {
             flush(shared);
-            true
-        } else {
-            checkpoint_if_large(shared, &mut checkpointer)
-        };
+        }
+        if owed || !force {
+            synced |= checkpoint_if_large(shared, &mut checkpointer, owed);
+        }
         state = shared.state.lock().recover_poison();
+        state.leftover_running = false;
+        state.restart_done = state.restart_done.max(asked);
         if synced {
             state.synced = state.synced.max(target);
-            shared.changed.notify_all();
         }
+        shared.changed.notify_all();
     }
 }
 
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
-/// large: it copies what it can without waiting for a writer or reader.
-/// True when a checkpoint ran (it synced the WAL before copying it).
-fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
+/// large, or whatever its size when `owed`: it copies what it can without
+/// waiting for a writer or reader. True when a checkpoint ran (it synced the
+/// WAL before copying it).
+fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>, owed: bool) -> bool {
     let size = wal_file_len(shared);
-    if size <= CHECKPOINT_BYTES {
+    if size <= CHECKPOINT_BYTES && !owed {
         return false;
     }
     if checkpointer.is_none() {
@@ -439,10 +593,13 @@ fn drive_sync(file: &File, full: bool) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+mod restart_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn database(name: &str) -> (PathBuf, Connection) {
+    pub(super) fn database(name: &str) -> (PathBuf, Connection) {
         let dir =
             std::env::temp_dir().join(format!("wal-durability-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -564,7 +721,11 @@ mod tests {
     /// Commits about one and a half [`WAL_SIZE_LIMIT_BYTES`] while a reader
     /// holds its snapshot, as a long read of the registry does: no checkpoint
     /// can copy past it. Returns the pinned WAL's size after the reader ended.
-    fn grow_a_pinned_wal(path: &Path, connection: &Connection, durability: &WalDurability) -> u64 {
+    pub(super) fn grow_a_pinned_wal(
+        path: &Path,
+        connection: &Connection,
+        durability: &WalDurability,
+    ) -> u64 {
         let reader = Connection::open(path).unwrap();
         reader.execute_batch("BEGIN").unwrap();
         let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
@@ -613,101 +774,6 @@ mod tests {
         assert!(high_water >= pinned, "a high-water mark of {high_water} bytes, {pinned} pinned");
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The WAL file's bound under commits: the size limit, plus the step
-    /// between two tries to restart it (which is far above one commit).
-    const STORM_WAL_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + CHECKPOINT_BYTES;
-
-    /// Commits `frame_bytes` of WAL frames with no pause between them: each
-    /// rewrites one 64 KiB row and, like an answered request, asks for a
-    /// flush. Returns the commit count.
-    fn commit_storm(connection: &Connection, durability: &WalDurability, frame_bytes: u64) -> u64 {
-        let blob = vec![7u8; 64 * 1024];
-        connection.execute("INSERT OR REPLACE INTO t(rowid, v) VALUES (1, ?1)", [&blob]).unwrap();
-        let before = durability.wal_frame_bytes();
-        let mut commits = 0;
-        while durability.wal_frame_bytes() - before < frame_bytes {
-            connection.execute("UPDATE t SET v = ?1 WHERE rowid = 1", [&blob]).unwrap();
-            durability.request_flush();
-            commits += 1;
-        }
-        commits
-    }
-
-    #[test]
-    fn a_commit_storm_keeps_the_wal_file_under_its_bound() {
-        // A session build, a restore or an agent burst commits with no pause
-        // (one registry built 4000 changes in 53 s and left a 1366 MB WAL
-        // beside a 45 MB database). No reader pins the WAL here.
-        let (dir, connection) = database("storm");
-        let path = dir.join("r.sqlite");
-        let durability = WalDurability::attach(&connection, &path, None, false);
-        let storm = 3 * WAL_SIZE_LIMIT_BYTES;
-        let commits = commit_storm(&connection, &durability, storm);
-        let (now, high_water) = durability.wal_file_bytes();
-        println!(
-            "wal_storm: commits={commits} frame_bytes={storm} wal_file_bytes={now} \
-             wal_file_high_water_bytes={high_water} bound={STORM_WAL_BOUND_BYTES}"
-        );
-        drop(connection);
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(
-            high_water <= STORM_WAL_BOUND_BYTES,
-            "{commits} commits with no pause ({storm} bytes of frames) grew the WAL file to \
-             {high_water} bytes; the bound is {STORM_WAL_BOUND_BYTES}"
-        );
-    }
-
-    #[test]
-    fn a_wal_left_over_the_limit_is_cut_by_the_first_commits_of_the_next_open() {
-        // A daemon that was killed in a commit storm, or one of an older
-        // build, leaves a WAL far over the limit. The next daemon checkpoints
-        // it at once, with no caller that asks, and its first commits cut it.
-        let (dir, connection) = database("left");
-        let path = dir.join("r.sqlite");
-        let durability = WalDurability::attach(&connection, &path, None, false);
-        let left = grow_a_pinned_wal(&path, &connection, &durability);
-        // What a kill leaves on the disk: the database and its WAL as they
-        // are, with no close. The WAL is never deleted.
-        let next = dir.join("next");
-        std::fs::create_dir_all(&next).unwrap();
-        let next_path = next.join("r.sqlite");
-        let next_wal = next.join("r.sqlite-wal");
-        std::fs::copy(&path, &next_path).unwrap();
-        std::fs::copy(dir.join("r.sqlite-wal"), &next_wal).unwrap();
-        drop(connection);
-
-        let connection = Connection::open(&next_path).unwrap();
-        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;").unwrap();
-        let rows: i64 = connection.query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0)).unwrap();
-        assert!(rows > 0, "the copied WAL lost its rows");
-        let opened = std::fs::metadata(&next_wal).unwrap().len();
-        assert_eq!(opened, left, "the next open found another WAL than the one left");
-        let _durability = WalDurability::attach(&connection, &next_path, None, false);
-        // A quiet daemon: a small commit now and then, and no flush request.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let mut commits = 0;
-        let now = loop {
-            connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
-            commits += 1;
-            let len = std::fs::metadata(&next_wal).map_or(0, |meta| meta.len());
-            if len <= WAL_SIZE_LIMIT_BYTES || std::time::Instant::now() > deadline {
-                break len;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        println!(
-            "wal_left: left_bytes={left} commits={commits} wal_file_bytes={now} \
-             limit={WAL_SIZE_LIMIT_BYTES}"
-        );
-        drop(connection);
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(
-            now <= WAL_SIZE_LIMIT_BYTES,
-            "a WAL left at {left} bytes is {now} bytes after {commits} small commits in 10 s \
-             of the next open; the limit is {WAL_SIZE_LIMIT_BYTES}"
-        );
     }
 
     #[test]
