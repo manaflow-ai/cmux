@@ -87,8 +87,9 @@ public final class AppsPanelsPageProvider: PageProvider {
             throw PageError.invalidParams("app, section and object context are required")
         }
         guard let record = client.app(app), record.isVisible,
+              // A page mounts only its own surface's kind: New Tab a widget, Session Info a section.
               let implementation = record.manifest.implementations.first(where: {
-                  $0.id == section && ($0.isSessionInfoSection || $0.isNewTabWidget)
+                  $0.id == section && (params["surface"]?.stringValue == "newTab" ? $0.isNewTabWidget : $0.isSessionInfoSection)
               }) else {
             throw PageError(code: "cmux.apps.panels.not_found", message: "No visible Session Info section or New Tab widget \(app)#\(section)")
         }

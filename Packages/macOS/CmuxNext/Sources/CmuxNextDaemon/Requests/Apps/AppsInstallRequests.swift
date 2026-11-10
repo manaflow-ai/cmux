@@ -24,9 +24,10 @@ public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
     public var args: JSONValue
 
     /// `apps.panels.list`: the Session Info sections (`sessionInfo`) or New Tab widgets (`newTab`)
-    /// of installed, visible apps.
+    /// of installed, visible apps. Session Info sends no `surface`, so a daemon older than New Tab
+    /// widgets (which refuses unknown fields) still answers it.
     public static func panelsList(surface: String) -> AppsStoreRequest {
-        AppsStoreRequest(op: "apps.panels.list", args: .object(["surface": .string(surface)]))
+        AppsStoreRequest(op: "apps.panels.list", args: .object(surface == "sessionInfo" ? [:] : ["surface": .string(surface)]))
     }
 
     public init(op: String, args: JSONValue = .object([:])) {

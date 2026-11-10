@@ -171,6 +171,7 @@ export class AppPanelsClient {
         app: entry.panel.app,
         section: entry.panel.section,
         context: this.context ?? {},
+        ...(this.surface === "newTab" && { surface: "newTab" }),
       });
       if (typeof result?.mount_id !== "string" || !result.mount_id) {
         entry.failed = true;

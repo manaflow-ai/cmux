@@ -90,7 +90,12 @@ test("New Tab mounts only cmux.newtab.widget/1 widgets, with no session", async 
     expect(host.calls.find((call) => call.op === "cmux.apps.panels.list")?.params).toEqual({ surface: "newTab" });
     expect(container.textContent).toBe("My pull requests");
     const mount = host.calls.find((call) => call.op === "cmux.apps.panels.mount");
-    expect(mount?.params).toEqual({ app: "samples/my-prs", section: "cmux.newtab.widget/1", context: {} });
+    expect(mount?.params).toEqual({
+      app: "samples/my-prs",
+      section: "cmux.newtab.widget/1",
+      context: {},
+      surface: "newTab",
+    });
     expect(host.count("mount")).toBe(1);
     await act(async () => root.unmount());
     expect(host.count("unmount")).toBe(1);
