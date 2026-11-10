@@ -159,7 +159,7 @@ struct LargeSessionObservationTests {
         let waits = [
             wait("chief inspector tab") { store.locatedTab(surface: surface) != nil },
             wait("transfer chat tab") { store.listsConversationTab(inWorkspace: "o9-key") },
-            wait("home workspace") { store.workspace(resourceID: ResourceID(rawValue: "ws_o9")) != nil },
+            wait("home workspace") { store.listedWorkspace(resourceID: ResourceID(rawValue: "ws_o9")) != nil },
             wait("cloud workspace") { store.workspace(id: "o9-key") != nil },
         ]
         defer { waits.forEach { $0.cancel() } }
