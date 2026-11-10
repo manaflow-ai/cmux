@@ -114,7 +114,18 @@ fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value>
     let Some(reference) = reference else { return Ok(Ready::Reused) };
     let commit = |name: &str| git(Some(dir), ["rev-parse", "--verify", "--quiet", name]).ok();
     let head = commit("HEAD^{commit}");
-    if head.is_some() && head == checkout_target(reference, commit) {
+    // A branch is where the chat's commits go: `@topic` reuses a clone on `topic`, never one on
+    // another branch at the same commit (git checkout would have switched to `topic`).
+    let names_branch = commit(&format!("refs/heads/{reference}^{{commit}}")).is_some()
+        || commit(&format!("refs/remotes/origin/{reference}^{{commit}}")).is_some();
+    let on_branch = || {
+        git(Some(dir), ["symbolic-ref", "--quiet", "--short", "HEAD"]).ok().as_deref()
+            == Some(reference)
+    };
+    if head.is_some()
+        && head == checkout_target(reference, commit)
+        && (!names_branch || on_branch())
+    {
         return Ok(Ready::Reused);
     }
     Err(error(
@@ -128,9 +139,10 @@ fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value>
     ))
 }
 
-/// The commit `git checkout REFERENCE` would check out, as `commit` (a `rev-parse`) reads it:
-/// a local branch of that name first, then the name as git reads it anywhere (a tag, a commit, a
-/// full ref), then the remote branch checkout would make a local branch from.
+/// The commit `git checkout REFERENCE` would check out, as `commit` (a `rev-parse`) reads it. git
+/// resolves the name and prefers a local branch of it, so a local branch comes first, then the
+/// name anywhere (a tag, a commit, a full ref), then the remote branch checkout would make a
+/// local branch from.
 pub(super) fn checkout_target(
     reference: &str,
     commit: impl Fn(&str) -> Option<String>,

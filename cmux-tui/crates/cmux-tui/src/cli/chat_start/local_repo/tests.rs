@@ -175,8 +175,15 @@ fn a_ref_is_read_the_way_git_checkout_reads_it() {
     let url = origin(root.path());
     let dir = root.path().join("dir");
     assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
-    // HEAD is main; origin/topic is the same commit and there is no local `topic` branch.
+    // HEAD is main at the same commit as origin/topic: the chat's commits would go to main, not
+    // topic, so it is refused. A clone on topic is reused.
+    assert_eq!(ensure(&url, Some("topic"), &dir).unwrap_err()["code"], "repo.ref_mismatch");
+    git(&dir, &["checkout", "-q", "topic"]);
     assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Reused));
+    // A tag or commit names no branch: the commit alone decides.
+    git(&root.path().join("source"), &["tag", "t1"]);
+    git(&dir, &["fetch", "-q", "--tags"]);
+    assert_eq!(ensure(&url, Some("t1"), &dir), Ok(Ready::Reused));
     // A local branch wins over a tag of the same name, as checkout picks it.
     let pick = |names: &[(&str, &str)], reference: &str| {
         super::checkout_target(reference, |name| {
