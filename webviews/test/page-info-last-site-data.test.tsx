@@ -33,7 +33,9 @@ test("a site read once draws its last summary on the next opening, not Loading",
   expect(html).toContain("pageInfo.manageSiteData");
 
   // The host's new read replaces it.
-  const fresh = withLastSiteData(model("example.com", { firstPartyCookies: 2, siteCount: 1, thirdPartyPolicy: "allowed" }));
+  const fresh = withLastSiteData(
+    model("example.com", { firstPartyCookies: 2, siteCount: 1, thirdPartyPolicy: "allowed" }),
+  );
   expect(fresh.siteData?.firstPartyCookies).toBe(2);
   expect(withLastSiteData(model("example.com", null)).siteData?.firstPartyCookies).toBe(2);
 });
