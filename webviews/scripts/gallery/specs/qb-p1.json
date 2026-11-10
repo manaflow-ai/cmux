@@ -1,0 +1,27 @@
+{
+ "shots": [
+  {
+   "name": "menu-folder-hover",
+   "entry": "agent-pane.composer-context",
+   "arms": {
+    "before": ".acpmux-shell,.ui-positioner,:root{--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base))!important}",
+    "after": ""
+   },
+   "width": 620,
+   "height": 480,
+   "deviceScaleFactor": 1,
+   "variant": "folder-menu-hover"
+  },
+  {
+   "name": "menu-model",
+   "entry": "agent-pane.model-menu-density",
+   "arms": {
+    "before": ".acpmux-shell,.ui-positioner,:root{--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base))!important}",
+    "after": ""
+   },
+   "width": 560,
+   "height": 520,
+   "deviceScaleFactor": 1
+  }
+ ]
+}
