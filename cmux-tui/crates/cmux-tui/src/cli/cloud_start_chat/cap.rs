@@ -98,9 +98,10 @@ pub(super) fn at_cap(
     (lines.join("\n"), json!({"cap": cap, "machines": machines}))
 }
 
-/// What `--make-room` frees at a cap (cmux-platform Retention.ts `freeUpCandidate`): the machine the
-/// refusal names (`details.free_up`, or "You can delete NAME (" in the provider's own words) is
-/// deleted; with none named, the paused machine used longest ago is archived and deleted.
+/// What `--make-room` frees at a cap (cmux-platform Retention.ts `freeUpCandidate`): the machine
+/// the platform names by id (`details.free_up.machine`) is deleted; with none named, the paused
+/// machine used longest ago that nobody kept is archived and deleted. A machine to delete is never
+/// inferred from a name or the refusal's words: only an id the platform gave.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Room {
     pub machine: String,
@@ -120,63 +121,85 @@ impl Room {
     }
 
     pub(super) fn json(&self) -> Value {
+        let command = if self.machine.is_empty() {
+            Value::Null
+        } else {
+            json!(format!("cmux {}", self.command()[..5].join(" ")))
+        };
         json!({
             "machine_id": self.machine, "name": self.name,
             "how": if self.archive { "archive" } else { "delete" },
-            "command": format!("cmux {}", self.command()[..5].join(" ")),
+            "command": command,
         })
     }
 }
 
-/// The machine `--make-room` would free for the refusal at cap `cap` (its words `message` and the
-/// app error's `details`), from the account's machines in `listed`; `None` when there is nothing to
-/// free. The plan's running cap is freed by a pause, not a delete: only a `free_up` the platform
-/// named counts there.
-pub(super) fn room(cap: Cap, message: &str, details: &Value, listed: &Value) -> Option<Room> {
-    let rows: Vec<&Value> = at(listed, "machines").as_array().into_iter().flatten().collect();
-    let name_of = |id: &str| {
-        rows.iter()
-            .find(|row| at(row, "machine_id").as_str() == Some(id))
-            .and_then(|row| at(row, "title").as_str())
-            .filter(|title| !title.is_empty())
-            .unwrap_or(id)
-            .to_owned()
-    };
+/// The machine `--make-room` would free for the refusal at cap `cap` (the app error's `details`),
+/// from the account's machines in `rows`; `None` when there is nothing to free. The plan's running
+/// cap is freed by a pause, not a delete: only a `free_up` the platform named counts there.
+pub(super) fn room(cap: Cap, details: &Value, rows: &Value) -> Option<Room> {
+    let rows: Vec<&Value> = machine_rows(rows);
     let free = at(details, "free_up");
-    if let Some(id) = free.get("machine").and_then(Value::as_str) {
+    if let Some(id) = free.get("machine").and_then(Value::as_str).filter(|id| !id.is_empty()) {
         let name = free.get("name").and_then(Value::as_str).filter(|name| !name.is_empty());
+        let listed = rows.iter().find(|row| row_id(row) == Some(id)).and_then(|row| row_name(row));
         return Some(Room {
             machine: id.to_owned(),
-            name: name.map_or_else(|| name_of(id), str::to_owned),
+            name: name.or(listed).unwrap_or(id).to_owned(),
             archive: false,
         });
     }
     if cap != Cap::Held {
         return None;
     }
-    if let Some(named) =
-        message.split("You can delete ").nth(1).and_then(|rest| rest.split(" (").next())
-        && let Some(row) = rows.iter().find(|row| {
-            at(row, "title").as_str() == Some(named)
-                || at(row, "machine_id").as_str() == Some(named)
+    // A list without keep (the app's `cloud list-machines` rows): the archive is offered, and
+    // `--make-room` picks the machine from the Cloud app's full records when it runs.
+    let unknown = rows.iter().any(|row| {
+        at(row, "status").as_str() == Some("paused") && row.get("keep").is_none()
+    });
+    oldest_paused(&rows).or_else(|| {
+        unknown.then(|| Room {
+            machine: String::new(),
+            name: "the oldest paused machine nobody kept".to_owned(),
+            archive: true,
         })
-        && let Some(id) = at(row, "machine_id").as_str()
-    {
-        return Some(Room { machine: id.to_owned(), name: named.to_owned(), archive: false });
-    }
-    let used = |row: &Value| {
-        ["last_active_at", "lastActiveAt", "created_at", "createdAt"]
-            .iter()
-            .find_map(|key| row.get(*key).and_then(Value::as_f64))
-            .unwrap_or(f64::MAX)
-    };
+    })
+}
+
+/// The paused machine used longest ago that nobody kept, to archive and delete. A row whose keep
+/// is unknown (an older list without the field) counts as kept: never archived on a guess.
+pub(super) fn oldest_paused(rows: &[&Value]) -> Option<Room> {
     rows.iter()
-        .filter(|row| {
-            at(row, "status").as_str() == Some("paused") && row.get("keep") != Some(&json!(true))
+        .filter(|row| at(row, "status").as_str() == Some("paused"))
+        .filter(|row| row.get("keep").and_then(Value::as_bool) == Some(false))
+        .filter_map(|row| Some((used_ms(row)?, *row)))
+        .min_by_key(|(used, _)| *used)
+        .and_then(|(_, row)| {
+            let id = row_id(row)?;
+            Some(Room { machine: id.to_owned(), name: row_name(row).unwrap_or(id).to_owned(), archive: true })
         })
-        .min_by(|a, b| used(a).total_cmp(&used(b)))
-        .and_then(|row| {
-            let id = at(row, "machine_id").as_str()?;
-            Some(Room { machine: id.to_owned(), name: name_of(id), archive: true })
-        })
+}
+
+/// The rows of a `cloud list-machines` answer or of `cloud.machine.list`'s records.
+pub(super) fn machine_rows(listed: &Value) -> Vec<&Value> {
+    at(listed, "machines").as_array().into_iter().flatten().collect()
+}
+
+fn row_id(row: &Value) -> Option<&str> {
+    ["machine_id", "id"].iter().find_map(|key| row.get(*key).and_then(Value::as_str))
+}
+
+fn row_name(row: &Value) -> Option<&str> {
+    ["title", "name"].iter().find_map(|key| row.get(*key).and_then(Value::as_str)).filter(|n| !n.is_empty())
+}
+
+/// When the machine was last used (ms): its last activity, else its creation, each a number of ms
+/// or RFC 3339 text. `None` when neither is readable.
+pub(super) fn used_ms(row: &Value) -> Option<i64> {
+    let time = |key: &str| match row.get(key)? {
+        Value::Number(ms) => ms.as_i64().or_else(|| ms.as_f64().map(|ms| ms as i64)),
+        Value::String(text) => cmux_chat_index::time::parse_rfc3339_ms(text),
+        _ => None,
+    };
+    ["last_active_at", "lastActiveAt", "created_at", "createdAt"].iter().find_map(|key| time(key))
 }

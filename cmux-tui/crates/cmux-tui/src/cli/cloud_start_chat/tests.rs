@@ -1795,6 +1795,17 @@ fn three_machines() -> Ran {
     ]))
 }
 
+/// The Cloud app's own records (`cloud.machine.list`): keep and last use on each; the kept one is
+/// used longest ago and is never the pick.
+fn records() -> Ran {
+    ok(json!({"machines": [
+        {"id": "vm-a", "name": "api", "status": "running", "keep": false, "last_active_at": 30},
+        {"id": "vm-b", "name": "web", "status": "paused", "keep": false, "last_active_at": 20},
+        {"id": "vm-c", "name": "old", "status": "paused", "keep": false, "last_active_at": 10},
+        {"id": "vm-k", "name": "pinned", "status": "paused", "keep": true, "last_active_at": 1},
+    ]}))
+}
+
 #[test]
 fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
     let free = json!({"machine": "vm-b", "name": "web", "reason": "never_used"});
@@ -1844,15 +1855,16 @@ fn make_room_deletes_the_offered_machine_and_starts_again_once() {
 #[test]
 fn make_room_with_nothing_named_archives_the_oldest_paused_machine_and_says_to_ask_again() {
     let mut fake =
-        Fake::new(vec![three_machines(), held_refusal(Value::Null), ok(json!({"machine": {}}))]);
+        Fake::new(vec![three_machines(), held_refusal(Value::Null), records(), ok(json!({"machine": {}}))]);
     let Outcome::Failed { error, .. } =
         run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
     else {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(error["code"], "cloud.make_room_archiving");
+    assert_eq!(fake.ran[2][..4], strings(&["apps", "run", "cmux/cloud", "cloud.machine.list"]));
     assert_eq!(
-        fake.ran[2],
+        fake.ran[3],
         strings(&["cloud", "archive-machine", "--target", "machine:vm-c", "--confirm", "--json"])
     );
     assert!(error["message"].as_str().unwrap().starts_with("archiving old:"), "{error}");
@@ -1866,30 +1878,39 @@ fn make_room_that_is_refused_says_so_and_starts_nothing() {
             .to_string(),
         ..Ran::default()
     };
-    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), refused]);
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), records(), refused]);
     let Outcome::Failed { error, .. } =
         run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
     else {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(error["code"], "cloud.make_room_failed");
-    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
 }
 
 #[test]
-fn the_running_cap_offers_make_room_only_for_a_machine_the_platform_names() {
-    use super::cap::{Cap, room};
-    let listed = json!({"machines": [{"machine_id": "vm-c", "title": "old", "status": "paused"}]});
-    assert_eq!(room(Cap::Running, "this plan allows 5 active machines", &json!({}), &listed), None);
-    let named =
-        room(Cap::Running, "x", &json!({"free_up": {"machine": "vm-c", "name": null}}), &listed);
-    assert_eq!(named.map(|room| (room.name, room.archive)), Some(("old".to_owned(), false)));
-    // The provider's own words name the machine to delete.
-    let words = "limit of 20 machines (paused ones count). You can delete old (paused 70 days).";
-    assert_eq!(room(Cap::Held, words, &json!({}), &listed).map(|room| room.archive), Some(false));
-    // A kept machine is never archived to make room.
+fn make_room_deletes_only_a_machine_the_platform_names_by_id() {
+    use super::cap::{Cap, room, used_ms};
+    let listed = json!({"machines": [
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "created_at": "2026-01-02T00:00:00Z"},
+        {"machine_id": "vm-s", "title": "scratch", "status": "running"},
+    ]});
+    // The running cap: only a named free_up.
+    assert_eq!(room(Cap::Running, &json!({}), &listed), None);
+    let named = room(Cap::Running, &json!({"free_up": {"machine": "vm-c", "name": null}}), &listed);
+    assert_eq!(
+        named.map(|room| (room.machine, room.name, room.archive)),
+        Some(("vm-c".into(), "old".into(), false))
+    );
+    // Never a delete from the refusal's words: with no id, only an archive is offered, and its
+    // machine is picked from the full records when it runs.
+    let offered = room(Cap::Held, &json!({}), &listed).unwrap();
+    assert!(offered.archive && offered.machine.is_empty(), "{offered:?}");
+    // A kept machine is never archived.
     let kept = json!({"machines": [{"machine_id": "vm-c", "status": "paused", "keep": true}]});
-    assert_eq!(room(Cap::Held, "x", &json!({}), &kept), None);
+    assert_eq!(room(Cap::Held, &json!({}), &kept), None);
+    assert_eq!(used_ms(&json!({"created_at": "1970-01-01T00:00:01Z"})), Some(1000));
+    assert_eq!(used_ms(&json!({"last_active_at": 5, "created_at": 9})), Some(5));
 }
 
 #[test]

@@ -29,10 +29,11 @@ describe("Cloud cleanup: the row's delete date", () => {
     expect(deleteDate(paused({ evict_at: now, delete_reason: "requested" }), now)).toBeUndefined();
   });
 
-  test("today, tomorrow, then whole days rounded up", () => {
+  test("today, tomorrow, then calendar days in the local time zone", () => {
     expect(deleteDate(paused({ evict_at: now - 1000 }), now)).toEqual({ kind: "today" });
-    expect(deleteDate(paused({ evict_at: now + 3_600_000 }), now)).toEqual({ kind: "tomorrow" });
-    expect(deleteDate(paused({ evict_at: now + DAY_MS + 1 }), now)).toEqual({ kind: "days", days: 2 });
+    expect(deleteDate(paused({ evict_at: now + 3_600_000 }), now)).toEqual({ kind: "today" });
+    expect(deleteDate(paused({ evict_at: now + DAY_MS }), now)).toEqual({ kind: "tomorrow" });
+    expect(deleteDate(paused({ evict_at: now + 2 * DAY_MS }), now)).toEqual({ kind: "days", days: 2 });
     expect(deleteDate(paused({ evict_at: now + 14 * DAY_MS }), now)).toEqual({ kind: "days", days: 14 });
   });
 });
@@ -117,13 +118,13 @@ describe("Cloud cleanup: the cap offer", () => {
     expect(oldestPaused(machines)?.id).toBe("vm_old");
   });
 
-  test("the provider's held cap names a machine to delete in its message", () => {
+  test("the provider's words never pick a machine to delete: a name in them only archives", () => {
     const error = pageError(
       "cmux.cloud.upstream_error",
       "Reached the limit of 20 machines (paused ones count). You can delete old (paused 70 days).",
       false,
     );
-    expect(capOffer(error, machines)).toEqual({ kind: "delete", machine: "vm_old", name: "old" });
+    expect(capOffer(error, machines)).toEqual({ kind: "archive", machine: "vm_old", name: "old" });
   });
 
   test("any other refusal, or the active-machines quota, offers nothing", () => {

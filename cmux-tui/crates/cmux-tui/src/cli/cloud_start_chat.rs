@@ -857,6 +857,26 @@ fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Ou
     }) else {
         return outcome;
     };
+    // An archive picks from the Cloud app's own records (keep and last use on every one), never
+    // from the list's rows alone, which have neither.
+    let room = if room.archive {
+        let read = ["apps", "run", "cmux/cloud", "cloud.machine.list", "--args", "{\"limit\":100}"];
+        let records = step_result(&runner.cmux(&read.map(str::to_owned)));
+        match records.ok().and_then(|records| cap::oldest_paused(&cap::machine_rows(&records))) {
+            Some(room) => room,
+            None => {
+                return failed(
+                    "cloud.make_room_failed",
+                    "no paused machine nobody kept could be read to archive; archive one from the \
+                     app's Cloud page, then run this command again",
+                    json!({"make_room": room.json()}),
+                    1,
+                );
+            }
+        }
+    } else {
+        room
+    };
     if let Err(refused) = step_result(&runner.cmux(&room.command())) {
         let message = at(&refused, "message").as_str().unwrap_or("it was refused").to_owned();
         return failed(
@@ -1874,7 +1894,7 @@ fn cap_refusal(
     let (mut text, mut details) = cap::at_cap(found, refusal, listed, |id| {
         again_command(request, &Machine::Target(id.to_owned()))
     });
-    let room = cap::room(found, refusal, at(&app, "details"), listed);
+    let room = cap::room(found, at(&app, "details"), listed);
     if let Some(room) = &room {
         let how = if room.archive { "archives and deletes" } else { "deletes" };
         text.push_str(&format!(
