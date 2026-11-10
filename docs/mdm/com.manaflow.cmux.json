@@ -167,6 +167,12 @@
       "title" : "Chat Presentation",
       "type" : "string"
     },
+    "agentPane.display.promptCoach" : {
+      "default" : true,
+      "description" : "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+      "title" : "Prompt Coach",
+      "type" : "boolean"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -5423,16 +5429,6 @@
         "xterm-ghostty"
       ],
       "title" : "Terminal Type (TERM)",
-      "type" : "string"
-    },
-    "ui.animations.bounce" : {
-      "default" : "none",
-      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-      "enum" : [
-        "none",
-        "subtle"
-      ],
-      "title" : "Animation Bounce",
       "type" : "string"
     },
     "ui.animations.cursor" : {
