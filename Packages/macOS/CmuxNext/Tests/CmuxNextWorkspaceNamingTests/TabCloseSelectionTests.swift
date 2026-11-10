@@ -71,6 +71,14 @@ struct TabCloseSelectionTests {
             return sync()
         }
 
+        /// The selection a close causes at its press, before its tabs leave (a tab group's close, `tabGroup.close`).
+        /// `byPerson` false: the close came from the CLI or a script.
+        func closeSelects(_ next: String, byPerson: Bool) {
+            memory.closeRule.closeSelects(next, in: id)
+            if byPerson { memory.closeRule.personSelects(next, in: id) }
+            memory.select(next, in: id)
+        }
+
         /// The press of a close of `tab`: a close intent hides it at once (a guarded close while the daemon's read
         /// decides, `HiddenTabClose`; any close until the daemon answers). Returns the tab the pane shows then.
         @discardableResult
@@ -292,6 +300,22 @@ struct TabCloseSelectionTests {
         pane.closing = []
         pane.sync()
         #expect(pane.memory.closeRule.isEmpty)
+    }
+
+    /// A close's own selection is the close's only while it runs. A script's group close selects B at the press;
+    /// much later the person selects B again from an unrelated tab: that is a gesture, and it ends the relations.
+    @Test(arguments: [false, true]) func aClosesPickDoesNotOutliveItsClose(byPerson: Bool) {
+        let pane = Pane(["a", "b", "c", "d"], selected: "b")
+        pane.newTab("n")
+        pane.closeSelects("b", byPerson: byPerson)
+        #expect(pane.remove("n") == "b")
+        pane.click("c")
+        pane.newTab("m")
+        #expect(pane.tabs == ["a", "b", "c", "m", "d"])
+        pane.click("b") // unrelated to m: the person starts another task
+        pane.click("c")
+        pane.click("m")
+        #expect(pane.remove("m") == "d")
     }
 
     // MARK: Nothing for automation, and a relation holds inside one pane
