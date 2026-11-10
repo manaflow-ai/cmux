@@ -105,16 +105,18 @@ struct InstantPerfTests {
                 }
             }
         }
-        let small = try await memo(.small)
-        let god = try await memo(.god)
-        let smallRefresh = InstantPerfReport.median(try await refresh(.small))
-        let godRefresh = InstantPerfReport.median(try await refresh(.god))
+        // What a person waits for is the feed's path on that change: the whole `home-inbox`
+        // reply read again, compared and listed. The memo alone is in the note.
+        let small = try await refresh(.small)
+        let god = try await refresh(.god)
+        let smallMemo = InstantPerfReport.median(try await memo(.small))
+        let godMemo = InstantPerfReport.median(try await memo(.god))
         InstantPerfReport.record(
             "home_list_one_row_update", target: 4, small: small, god: god,
-            knownRed: [.ratio],
-            why: "the memo compares every row with the last rows and rebuilds the whole list on any change, so one row costs O(N)",
-            note: String(format: "row N/2 changes in place; the feed's full re-read of home-inbox on that change (parse + compare + memo): small %.3f ms, god %.3f ms",
-                         smallRefresh, godRefresh))
+            knownRed: [.ratio, .godBudget],
+            why: "one row's change re-reads and re-parses the whole home-inbox reply, then the memo compares every row and rebuilds the list, so one row costs O(N)",
+            note: String(format: "row N/2 changes in place; timed: re-read of home-inbox, compare, memo. The memo alone: small %.3f ms, god %.3f ms",
+                         smallMemo, godMemo))
     }
 
     // MARK: Agent chat

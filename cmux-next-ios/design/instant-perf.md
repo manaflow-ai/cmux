@@ -21,6 +21,10 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
   `withKnownIssue`. The baseline records the red honestly. When a fix makes the
   check pass, the test fails until the declaration is removed. Never raise a
   target or drop a check to make a run pass.
+- **Noise**: a god within 2 ms of small passes the ratio whatever the quotient
+  (timer and scheduler noise on a shared runner). A known-red mark must come
+  off only once its check passes at 75% of its limit; a check that only just
+  passes on a quick runner stays marked and never fails the run.
 
 ## Metrics
 
@@ -30,7 +34,7 @@ on every PR that touches `cmux-next-ios/**`):
 | Metric | What is timed | Small | God | Target |
 |---|---|---|---|---|
 | `home_list_first_screen` | `home-inbox` reply bytes to the list the first screen draws (JSON, `MacHomeRow.rows`, `MacHomeList`) | 20 rows | 5,000 rows | 16 ms |
-| `home_list_one_row_update` | one row changes in place in a list of N: the next list (`MacHomeList.Memo`); the note has the feed's full re-read | 20 rows | 5,000 rows | 4 ms |
+| `home_list_one_row_update` | one row changes in place in a list of N: what the feed does, the `home-inbox` reply read again, compared and listed; the note has `MacHomeList.Memo` alone | 20 rows | 5,000 rows | 4 ms |
 | `chat_open_last_messages` | `AgentChatStore` on a fake acpmux, until it holds the newest turn, finished | ~40 records | 50,000 records | 150 ms |
 | `chat_reconnect_catch_up` | link back (`bind`), reattach with `afterSeq`, until the newest turn shows | 10 missed | 20,000 missed | 150 ms |
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
