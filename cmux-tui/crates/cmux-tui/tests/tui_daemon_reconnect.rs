@@ -368,3 +368,53 @@ fn w5r_stop_with_end_terminals_removes_terminal_state_and_keeps_chiefs_and_conve
     );
     assert_eq!(stopped["removed_terminal_state"], true, "{stopped}");
 }
+
+/// Bench round 5 A8 (W6-E): after `daemon stop --end-terminals` the
+/// session's folder (registry sqlite + wal, launch keys, settings: 6-12 MB)
+/// stayed, and no stop flag removed it (herdr: `session delete`). `--purge`
+/// removes the whole session folder and its terminal-host records once the
+/// owner exits, and nothing of any other session in the same state root.
+#[test]
+fn w6e_stop_with_purge_removes_the_whole_session_folder_and_only_it() {
+    let fixture = Fixture::new("w6e-purge");
+    let other = fixture.dir.join("state").join("w6e-other-0000000000000000");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(other.join("keep.txt"), "another session").unwrap();
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+    assert_eq!(session_state_dirs(&fixture).len(), 1, "the running session has one folder");
+
+    let stopped = fixture.server("stop", &["--end-terminals", "--purge"]);
+    assert!(client.wait(DEADLINE).is_some(), "the client still ran after the stop");
+
+    let left = session_state_dirs(&fixture);
+    assert!(left.is_empty(), "stop --purge left the session folder {left:?}: {stopped}");
+    let hosts = terminal_host_dirs(&fixture);
+    assert!(hosts.is_empty(), "stop --purge left terminal-host records {hosts:?}");
+    assert_eq!(stopped["removed_session_state"], true, "{stopped}");
+    assert!(other.join("keep.txt").is_file(), "stop --purge touched another session's folder");
+}
+
+/// A session that is no longer running (its folder left by an earlier
+/// `stop --end-terminals`) is purged by `stop --purge` too: the stop says
+/// `not_running` and removes the folder.
+#[test]
+fn w6e_stop_with_purge_removes_the_folder_of_a_stopped_session() {
+    let fixture = Fixture::new("w6e-purge-later");
+    fixture.server("ensure", &[]);
+    fixture.server("stop", &["--end-terminals"]);
+    assert_eq!(
+        session_state_dirs(&fixture).len(),
+        1,
+        "a plain end-terminals stop keeps the folder"
+    );
+
+    let purged = fixture.server("stop", &["--purge"]);
+
+    assert_eq!(purged["status"], "not_running", "{purged}");
+    let left = session_state_dirs(&fixture);
+    assert!(left.is_empty(), "stop --purge left the stopped session's folder {left:?}: {purged}");
+    assert_eq!(purged["removed_session_state"], true, "{purged}");
+}
