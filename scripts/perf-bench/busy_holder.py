@@ -436,6 +436,7 @@ def supervise(args) -> int:
                     sys.executable, os.path.abspath(__file__), "_agent", "--token", args.token, "--owner", args.owner,
                     "--index", str(index), "--life", "%.1f" % max(0.0, deadline - time.monotonic()),
                     "--iters", str(args.iters), "--supervisor", str(me)], os.environ))
+                live.add(workers[-1])
                 continue
             pid = os.fork()
             if pid == 0:
@@ -444,8 +445,8 @@ def supervise(args) -> int:
                 finally:
                     os._exit(0)
             workers.append(pid)
+            live.add(pid)
         state["workers"] = workers
-        live = set(workers)
         # The safety loop must run on time beside its own load. `spin` workers keep the default class; each `agents`
         # process sets its own class (utility or background).
         set_qos("user-initiated")
@@ -496,12 +497,13 @@ def supervise(args) -> int:
                     reason = "lock lost: " + refusal
     finally:
         # Also on an error in the lines above (a failed spawn, a full disk): no worker and no file stays.
-        for pid in set(workers) | live:
+        # Only `live`: children that this process has not reaped yet. A reaped PID can belong to another process.
+        for pid in live:
             try:
                 os.kill(pid, signal.SIGKILL)  # our own children, by exact PID
             except ProcessLookupError:
                 pass
-        for pid in set(workers) | live:
+        for pid in live:
             try:
                 _, status, ru = os.wait4(pid, 0)
                 cpu_s += ru.ru_utime + ru.ru_stime
