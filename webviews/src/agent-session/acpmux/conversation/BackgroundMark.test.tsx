@@ -547,7 +547,8 @@ test("a drag across the note's line does not open it", async () => {
       new window.MouseEvent("click", { bubbles: true, button: 0, detail: 1, clientX: 30, clientY: 10 }),
     );
   });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Let the read the press asked for answer (an unguarded click would open the note then).
+  await settle();
   await settle();
   expect(line.getAttribute("aria-expanded")).toBe("false");
 });
