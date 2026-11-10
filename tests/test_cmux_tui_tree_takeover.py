@@ -51,7 +51,9 @@ class Repo:
         self.artifacts = [
             {"id": 100 + index, "name": f"cmux-next-tree-wait-{KEY}", "expired": False,
              "created_at": "2026-11-09T18:20:00Z", "archive_download_url": f"zip/{100 + index}",
-             "workflow_run": {"id": marker["run_id"]}}
+             # A same-repository run (cmux_next_tree_notify.from_same_repository): a fork's marker is ignored.
+             "workflow_run": {"id": marker["run_id"], "repository_id": 1, "head_repository_id": 1,
+                              "head_branch": marker.get("head_ref") or marker.get("branch")}}
             for index, marker in enumerate(markers)]
         self.zips = {f"zip/{100 + index}": marker_zip(marker) for index, marker in enumerate(markers)}
         self.tip_runs = tip_runs
