@@ -425,6 +425,20 @@ fn may_forward_install_token(mux: &Mux, client: u64) -> bool {
     )
 }
 
+/// [`may_forward_install_token`] as the refusal both gates of `cloud-environment` answer: the
+/// request loop's precheck and the worker's call.
+fn check_install_token_forwarder(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    if may_forward_install_token(mux, client) {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: "cloud-environment requires the cmux app or a local process of this user".into(),
+        retryable: false,
+    }
+    .into())
+}
+
 /// The verified app, or a local process with its own install token
 /// ([`may_forward_install_token`]), forwards a platform origin and an install token.
 pub(super) fn environment(
@@ -432,15 +446,7 @@ pub(super) fn environment(
     client: u64,
     params: EnvironmentParams,
 ) -> anyhow::Result<Value> {
-    if !may_forward_install_token(mux, client) {
-        return Err(CloudError::Rejected {
-            code: "forbidden".into(),
-            message: "cloud-environment requires the cmux app or a local process of this user"
-                .into(),
-            retryable: false,
-        }
-        .into());
-    }
+    check_install_token_forwarder(mux, client)?;
     Ok(service(mux, client)?.environment(
         &params.action,
         &params.params,
@@ -677,14 +683,7 @@ pub(super) fn start(
 ) -> bool {
     let precheck = || {
         if matches!(&cmd, Command::CloudEnvironment(_)) {
-            if !is_app(mux, client) {
-                return Err(CloudError::Rejected {
-                    code: "forbidden".into(),
-                    message: "cloud-environment requires the verified cmux app connection".into(),
-                    retryable: false,
-                }
-                .into());
-            }
+            check_install_token_forwarder(mux, client)?;
             return Ok(service(mux, client)?.begin_request()?);
         }
         lease_user(mux, client).and_then(|service| {
