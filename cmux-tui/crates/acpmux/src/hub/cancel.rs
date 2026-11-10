@@ -358,6 +358,11 @@ impl Hub {
         self.cancel_pending_permissions(session);
         // Its own process group only (`ChildAgent::kill`), and it waits for the process to end.
         child.kill().await;
+        // A host that did not take the terminate still runs the stopped agent, and the agent
+        // that starts again would be that same host adopted.
+        if child.host_unended() {
+            self.end_unadopted_host(session).await;
+        }
         if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
             session.steer_end.send_replace(Some((turn.turn_id.clone(), forced_answer(true))));
         }

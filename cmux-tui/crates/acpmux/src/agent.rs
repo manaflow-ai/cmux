@@ -1362,9 +1362,12 @@ impl ChildAgent {
                 return;
             }
             // Bounded: a host whose link stopped reading (its queue full) never takes the frame.
-            // Its caller ends that host by its nonce (`host_unended`).
-            let told = tokio::time::timeout(grace, h.link().terminate(grace)).await;
-            if matches!(told, Ok(Ok(()))) {
+            // Its caller ends that host by its nonce (`host_unended`). The send goes on in its
+            // own task past the bound, so a host whose queue clears later still takes it.
+            let link = h.link();
+            let mut send = tokio::spawn(async move { link.terminate(grace).await });
+            let told = tokio::time::timeout(grace, &mut send).await;
+            if matches!(told, Ok(Ok(Ok(())))) {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
                 let _ =
