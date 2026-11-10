@@ -232,8 +232,16 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
         Reader::GeminiAccounts => s(&v, "/active").hash(&mut h),
         Reader::GrokAuth => {
             // Its schema is grok's own: every account-shaped field it has, at the top or one level down.
-            const IDS: [&str; 8] =
-                ["user_id", "userId", "account_id", "accountId", "email", "sub", "team_id", "teamId"];
+            const IDS: [&str; 8] = [
+                "user_id",
+                "userId",
+                "account_id",
+                "accountId",
+                "email",
+                "sub",
+                "team_id",
+                "teamId",
+            ];
             let mut ids = Vec::new();
             let mut scan = |o: &serde_json::Map<String, serde_json::Value>, at: &str| {
                 for id in IDS {

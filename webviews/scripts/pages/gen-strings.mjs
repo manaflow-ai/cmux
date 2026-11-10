@@ -124,7 +124,13 @@ export const PAGES = {
           all.filter(
             (key) =>
               key.startsWith("git.") ||
-              ["changes.stageFile", "changes.unstageFile", "changes.stageFailed"].includes(key),
+              [
+                "changes.stageFile",
+                "changes.unstageFile",
+                "changes.stageFailed",
+                "changes.createPullRequest",
+                "changes.pullRequestFailed",
+              ].includes(key),
           ),
       },
     ],

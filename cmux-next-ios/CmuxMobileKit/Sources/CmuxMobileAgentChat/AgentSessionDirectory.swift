@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 /// Owns one `AgentChatStore` per agent tab so the chat, Home and Feed share
@@ -134,8 +135,29 @@ public struct AgentChatDestinationView: View {
             let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
             AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac))
                 .onAppear { appStore.noteOpened(tabID: tab.id, in: workspace.id) }
+        } else if isLoading {
+            // The workspaces are still on their way (a cold open from a notification): the
+            // chat loads, it is not "closed".
+            CmuxSpinner(label: Text("Loading chat…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("agentChat.destination.loading")
         } else {
             ContentUnavailableView("Tab closed", systemImage: "sparkle", description: Text("This agent tab is no longer open."))
+        }
+    }
+
+    /// The tab may still come: the team's data or a Mac's list is loading (or showing last-known
+    /// rows while its link comes up). Only a live list that lacks the tab means it closed.
+    private var isLoading: Bool {
+        if appStore.teamDataState == .loading { return true }
+        let workspace = appStore.workspaces.first { $0.id == destination.workspaceID }
+        let macs = workspace.map { [$0.macID] } ?? Array(appStore.macData.keys)
+        if workspace == nil, appStore.tracksMacData, appStore.macData.isEmpty { return true }
+        return macs.contains { macID in
+            switch appStore.macDataPhase(macID) {
+            case .loading, .cached: true
+            case .live, .empty, .failed, .offline, .idle: false
+            }
         }
     }
 }
