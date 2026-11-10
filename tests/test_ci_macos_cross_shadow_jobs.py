@@ -83,7 +83,10 @@ class ShadowJobTests(unittest.TestCase):
                 self.assertIn("python3 tests/test_ci_macho_parity.py", block)
                 # The sysroot is Zig's darwin stub: it must be the Zig the
                 # ghostty-next manifest sets (pin run 37589232394 got another).
-                self.assertRegex(block, r"GHOSTTY_ZIG_SOURCE: ghostty-next\n(?:.*\n){0,4}.*ghostty-zig-version\.sh")
+                # .github/actions/setup-ghostty-zig installs it; its source input
+                # defaults to ghostty-next, so a shadow job must not set another.
+                self.assertIn("uses: ./.github/actions/setup-ghostty-zig", block)
+                self.assertNotRegex(block, r"(?m)^\s*source:\s*(?!ghostty-next\b)\S")
 
 
 if __name__ == "__main__":
