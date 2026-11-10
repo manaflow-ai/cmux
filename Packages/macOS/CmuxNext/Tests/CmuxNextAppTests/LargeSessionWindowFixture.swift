@@ -12,8 +12,11 @@ import Testing
 /// ``withWindow(_:)`` opens a whole window through the app's real composition root (`AppServices`), so every observer the
 /// app starts (sidebar, strip, link places, attention, favicons, the namer, ...) runs through its real init. Tests count
 /// what a change wakes with `ObservationWakes`.
+///
+/// Not `LargeSessionFixture`: that name is the one shared 60 x 6 store fixture of #40126 (MTS-4 O2), which the row
+/// tests use. This one opens a whole window through `AppServices`, so it keeps its own name and any merge order compiles.
 @MainActor
-enum LargeSessionFixture {
+enum LargeSessionWindowFixture {
     static let workspaces = 60
     static let tabsPerWorkspace = 6
     /// The surfaces of the 5 agent terminals, in 5 different hidden workspaces.

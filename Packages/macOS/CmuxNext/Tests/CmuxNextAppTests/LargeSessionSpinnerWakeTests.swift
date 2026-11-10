@@ -7,7 +7,7 @@ import Testing
 /// Which observations a change wakes in the `large` session (plans/cmux-next/main-thread-scheduling.md 1.5), checked by
 /// its effect with `ObservationWakes`. No GUI timing: what a change wakes does not depend on the host.
 @MainActor @Suite(.serialized)
-struct LargeSessionObservationTests {
+struct LargeSessionSpinnerWakeTests {
     private static let spinner = Array("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
     /// (a) D2: a spinner-only title change wakes 0 observations. 5 agents in 5 hidden workspaces step their spinner 100
@@ -15,22 +15,22 @@ struct LargeSessionObservationTests {
     /// As Chrome steps a tab's throbber without touching its title (C7).
     @Test(.timeLimit(.minutes(2)))
     func aSpinnerFrameWakesNoObservation() async throws {
-        try await LargeSessionFixture.withWindow { store in
-            for (index, surface) in LargeSessionFixture.agentSurfaces.enumerated() {
-                store.apply(LargeSessionFixture.titleChanged(surface, raw: "⠂ Fix the bug \(index)", text: "Fix the bug \(index)", activity: "working"))
+        try await LargeSessionWindowFixture.withWindow { store in
+            for (index, surface) in LargeSessionWindowFixture.agentSurfaces.enumerated() {
+                store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "⠂ Fix the bug \(index)", text: "Fix the bug \(index)", activity: "working"))
             }
-            await LargeSessionFixture.drainMain()
+            await LargeSessionWindowFixture.drainMain()
 
             let wakes = ObservationWakes()
             for frame in 0..<100 {
                 ObservationWakes.$current.withValue(wakes) {
-                    for (index, surface) in LargeSessionFixture.agentSurfaces.enumerated() {
+                    for (index, surface) in LargeSessionWindowFixture.agentSurfaces.enumerated() {
                         let glyph = Self.spinner[(frame + index) % Self.spinner.count]
-                        store.apply(LargeSessionFixture.titleChanged(surface, raw: "\(glyph) Fix the bug \(index)",
+                        store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "\(glyph) Fix the bug \(index)",
                                                                      text: "Fix the bug \(index)", activity: "working"))
                     }
                 }
-                await LargeSessionFixture.drainMain() // woken observers re-arm before the next frame
+                await LargeSessionWindowFixture.drainMain() // woken observers re-arm before the next frame
             }
             for (site, count) in wakes.bySite.sorted(by: { $0.key < $1.key }) {
                 print("spinner wakes \(site): \(count)")
@@ -40,7 +40,7 @@ struct LargeSessionObservationTests {
             // The counter is wired: new words in the shown workspace's terminal wake its tab's observers.
             let control = ObservationWakes()
             ObservationWakes.$current.withValue(control) {
-                store.apply(LargeSessionFixture.titleChanged(LargeSessionFixture.shownTerminal, raw: "vim notes.md", text: "vim notes.md", activity: nil))
+                store.apply(LargeSessionWindowFixture.titleChanged(LargeSessionWindowFixture.shownTerminal, raw: "vim notes.md", text: "vim notes.md", activity: nil))
             }
             #expect(control.count > 0, "fixture: a shown tab's new title woke no observation (the counter is not wired)")
         }
