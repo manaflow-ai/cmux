@@ -14,9 +14,10 @@ extension MainThreadWatchdog {
     }
 
     /// Reports a nested run of the main run loop parked past the hang threshold with no input
-    /// (``NestedRunLoopWatch``), and closes its hang file once it ended. Watchdog thread only.
+    /// (``NestedRunLoopWatch``), and closes its hang file once it ended. A main thread busy inside the
+    /// nested run is not parked: the heartbeat reports that hang, once. Watchdog thread only.
     func checkNestedRunLoop(sampler: ThreadStackSampler?) {
-        switch nested.take(now: uptime(), hangNanos: hangNanos) {
+        switch nested.take(now: uptime(), hangNanos: hangNanos, parked: mainAsleep.load(ordering: .acquiring)) {
         case .idle:
             return
         case let .ended(id, durationNanos):

@@ -77,18 +77,30 @@ final class NestedRunLoopWatch: Sendable {
         }
     }
 
-    /// Watchdog thread: what to do now; marks a report as made and drops an ended run.
-    func take(now: UInt64, hangNanos: UInt64) -> Action {
+    /// Watchdog thread: what to do now; marks a report as made and drops an ended run. `parked` is
+    /// whether the main thread sleeps in the run loop now: a main thread busy in one turn inside the
+    /// nested run is a hang the heartbeat reports, so the nested run is not reported for it as well.
+    func take(now: UInt64, hangNanos: UInt64, parked: Bool) -> Action {
         episode.withLock { episode in
             guard var open = episode else { return .idle }
             if let end = open.endNanos {
                 episode = nil
                 return .ended(id: open.id, durationNanos: end >= open.startNanos ? end - open.startNanos : 0)
             }
-            guard open.isParked(now: now, hangNanos: hangNanos) else { return .idle }
+            guard parked, open.isParked(now: now, hangNanos: hangNanos) else { return .idle }
             open.reported = true
             episode = open
             return .report(id: open.id, elapsedNanos: now - open.startNanos)
+        }
+    }
+
+    /// Main thread, at the end of a turn the heartbeat timed as a hang: the open nested run is timed
+    /// again from `now`, so the hang already reported is not reported a second time as a parked run.
+    func hangTurnEnded(now: UInt64) {
+        episode.withLock { episode in
+            guard var open = episode, open.endNanos == nil, !open.reported else { return }
+            open.startNanos = now
+            episode = open
         }
     }
 
