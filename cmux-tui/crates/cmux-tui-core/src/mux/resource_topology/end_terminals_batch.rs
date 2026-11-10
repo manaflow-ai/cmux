@@ -332,7 +332,7 @@ mod tests {
         let revision = || mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
         let before = revision();
 
-        let began = std::time::Instant::now();
+        let began = Instant::now();
         let mut ended = mux.end_all_terminals().unwrap();
         let stop_ms = began.elapsed().as_secs_f64() * 1000.0;
 
