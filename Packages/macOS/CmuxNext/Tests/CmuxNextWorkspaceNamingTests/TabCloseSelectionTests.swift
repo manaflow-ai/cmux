@@ -18,6 +18,8 @@ struct TabCloseSelectionTests {
         var tabs: [String]
         /// The members of a collapsed group.
         var hidden: Set<String> = []
+        /// The tabs a pending close hides (the store's close intents, `DaemonStore.closingTabIDs`).
+        var closing: Set<String> = []
 
         init(_ tabs: [String], selected: String, id: String = "pane", memory: TabSelectionMemory = TabSelectionMemory()) {
             (self.memory, self.id, self.tabs) = (memory, id, tabs)
@@ -29,7 +31,7 @@ struct TabCloseSelectionTests {
 
         /// The pane's apply: the tab it shows for its tabs as they are now.
         @discardableResult
-        func sync() -> String? { memory.resolve(pane: id, tabs: tabs, defaultIndex: 0, hidden: hidden) }
+        func sync() -> String? { memory.resolve(pane: id, tabs: tabs, defaultIndex: 0, hidden: hidden, closing: { self.closing }) }
 
         /// A person's new tab (Cmd-T, the +), right after the selected tab, or at the end.
         func newTab(_ new: String, atEnd: Bool = false) {
@@ -67,6 +69,30 @@ struct TabCloseSelectionTests {
         func remove(_ closed: String...) -> String? {
             tabs.removeAll { closed.contains($0) }
             return sync()
+        }
+
+        /// The press of a close of `tab`: a close intent hides it at once (a guarded close while the daemon's read
+        /// decides, `HiddenTabClose`; any close until the daemon answers). Returns the tab the pane shows then.
+        @discardableResult
+        func press(_ tab: String) -> String? {
+            closing.insert(tab)
+            tabs.removeAll { $0 == tab }
+            return sync()
+        }
+
+        /// The pending close of `tab` is cancelled or refused: it shows again at `index`. `selected`: the pane
+        /// selects it again, as `TabCloseGuard`'s restore does for the tab it showed at the press.
+        func cancel(_ tab: String, at index: Int, selected: Bool = true) {
+            closing.remove(tab)
+            tabs.insert(tab, at: index)
+            sync()
+            if selected { memory.select(tab, in: id) }
+        }
+
+        /// The pending close of `tab` is committed: the daemon's records dropped it.
+        func commit(_ tab: String) {
+            closing.remove(tab)
+            sync()
         }
     }
 
@@ -209,6 +235,49 @@ struct TabCloseSelectionTests {
         pane.click("b")
         pane.click("l2")
         #expect(pane.remove("l2") == "b")
+    }
+
+    // MARK: The press of a close keeps the relation; the committed close ends it
+
+    /// A guarded close hides its tab at the press (`TabCloseGuard`, `HiddenTabClose`); a running program's question
+    /// answered Cancel, or a close the daemon refuses, shows the tab again, selected. It keeps its opener, as a
+    /// workspace does (`WorkspaceCloseReviewTests.aCancelledCloseKeepsTheOpener`). `atEnd`: the quick look-up.
+    @Test(arguments: [false, true]) func aCancelledCloseKeepsTheOpener(atEnd: Bool) {
+        let pane = Pane(["a", "b", "c", "d"], selected: "b")
+        pane.newTab("n", atEnd: atEnd)
+        let index = atEnd ? 4 : 2
+        #expect(pane.press("n") == "b")
+        #expect(pane.memory.closeRule.isEmpty == false)
+        pane.cancel("n", at: index)
+        #expect(pane.selected == "n")
+        #expect(pane.tabs.firstIndex(of: "n") == index)
+        // The close the person asks for again goes to the opener, not to the next tab.
+        #expect(pane.press("n") == "b")
+        pane.commit("n")
+        #expect(pane.memory.closeRule.isEmpty)
+    }
+
+    /// The tab under a pending close was not the selected one (its close button): the selection stays, and the tab
+    /// that comes back still returns to its opener.
+    @Test func aCancelledCloseOfATabThatIsNotSelectedKeepsItsOpener() {
+        let pane = Pane(["a", "b", "c", "d"], selected: "b")
+        pane.linkTab("l", from: "b", after: "b")
+        #expect(pane.press("l") == "b")
+        pane.cancel("l", at: 2, selected: false)
+        pane.click("l")
+        #expect(pane.remove("l") == "b")
+    }
+
+    /// The committed close ends the relations of its tab: a tab it opened takes its opener (R4).
+    @Test func aCommittedCloseEndsTheRelationsOfItsTab() {
+        let pane = Pane(["a", "b", "c", "d"], selected: "b")
+        pane.newTab("n")
+        pane.linkTab("l", from: "n", after: "n")
+        #expect(pane.tabs == ["a", "b", "n", "l", "c", "d"])
+        #expect(pane.press("n") == "l")
+        pane.commit("n")
+        #expect(pane.remove("l") == "b")
+        #expect(pane.memory.closeRule.isEmpty)
     }
 
     // MARK: Nothing for automation, and a relation holds inside one pane
