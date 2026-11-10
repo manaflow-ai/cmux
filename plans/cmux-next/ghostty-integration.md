@@ -1,5 +1,7 @@
 # cmux NEXT: Ghostty integration from first principles (parity with upstream Ghostty.app)
 
+Status: approved by Lawrence 2026-11-10 (m91); path groups P23, P1-P8+P10-P12, P17+P18 in progress, one PR each.
+
 Status: DESIGN, 2026-11-10. Doc only: no app change, no ghostty-next change, no pin change until Lawrence
 says OK. Owner: GHOSTTY INTEGRATION (perf lead task, cmux-ad m86).
 
