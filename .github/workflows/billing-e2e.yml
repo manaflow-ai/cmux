@@ -44,6 +44,10 @@ jobs:
       E2E_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
       E2E_STATE: /tmp/billing-e2e-state.json
       E2E_BIG_CALLS: ${{ inputs.calls }}
+    # pipefail: a phase piped to tee fails its step when bun fails (#40356 F3).
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

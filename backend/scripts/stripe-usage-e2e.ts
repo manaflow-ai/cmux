@@ -65,9 +65,12 @@ const submit = async (token: string, op: string, params: unknown) => {
   const res = await fetch(`${ORIGIN}/v1/ops`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ op, params, idempotency_key: `usage-e2e-${crypto.randomUUID()}`, origin: "cli" }) })
   return { status: res.status, body: (await res.json().catch(() => null)) as any }
 }
-const filler = "The quick brown fox jumps over the lazy dog. ".repeat(Number(process.env.E2E_REPEAT ?? "26000"))
-/** One AI call for the personal team, or (team set) for the shared team named in x-cmux-team. */
-const chat = async (token: string, team?: string) => {
+const REPEAT = Number(process.env.E2E_REPEAT ?? "26000")
+/** A team's cap refuses a call whose most it could cost passes the cap (team-cap.ts), not only a team at the cap. */
+const capRefused = (r: 200 | string) => r !== 200 && r.startsWith("402") && r.includes("team.cap_reached")
+/** One AI call for the personal team, or (team set) for the shared team named in x-cmux-team, `repeat` filler sentences long. */
+const chat = async (token: string, team?: string, repeat = REPEAT) => {
+  const filler = "The quick brown fox jumps over the lazy dog. ".repeat(repeat)
   const res = await fetch(`${ORIGIN}/v1/inference/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(team ? { "x-cmux-team": team } : {}) }, body: JSON.stringify({ model: "deepseek/deepseek-v4-pro", max_tokens: 8, messages: [{ role: "user", content: `${filler}\nReply with ok.` }] }) })
   const text = await res.text()
   return res.status === 200 ? 200 : `${res.status} ${text.slice(0, 160)}`
@@ -102,7 +105,21 @@ const SIDES: ReadonlyArray<Side> = ["team", "seat"]
 const levelItem = (side: Side) => (side === "team" ? { stack_user: stackUser } : { stack_team: STACK_TEAM })
 const levelNow = async (side: Side) => (await internal("/v1/internal/billing/levels", { items: [{ ...levelItem(side), from: st[side].start * 1000, to: st[side].end * 1000 }] })).levels[0]
 const sync = (side: Side) => internal("/v1/internal/billing/sync", { subscription: st[side].sub })
-const call = (side: Side) => chat(token, side === "seat" ? st.team_id : undefined)
+/**
+ * One call for a side, sized to the cap's headroom (#40356 F1): the default call reserves about 1.50 USD against the
+ * e2e set's 2 USD cap, so a team with 0.50 spent is refused while under it. A cap refusal halves the call and tries
+ * again, down to 1/256 of the default; only a call that small being refused returns the refusal. The size is kept
+ * for the side's next calls in this run.
+ */
+const sizeOf: Record<Side, number> = { team: REPEAT, seat: REPEAT }
+const call = async (side: Side) => {
+  for (;;) {
+    const r = await chat(token, side === "seat" ? st.team_id : undefined, sizeOf[side])
+    if (!capRefused(r) || sizeOf[side] <= Math.ceil(REPEAT / 256)) return r
+    sizeOf[side] = Math.ceil(sizeOf[side] / 2)
+    log(`call_smaller_${side}`, { repeat: sizeOf[side] })
+  }
+}
 /** What each meter should show: the whole level per team, the level above included x seats per seat. */
 const meterValue = (side: Side, usd: number) => (side === "seat" ? Math.max(0, Math.round((usd - INCLUDED.seat) * 1e6) / 1e6) : usd)
 /** Stripe aggregates meter events asynchronously (45-50 s measured): wait, bounded, until the summary shows the level sent. */
@@ -173,8 +190,8 @@ if (phase === "cap") {
   const n = Number(process.env.E2E_CAP_CALLS ?? "40")
   let refusal: string | null = null
   for (let i = 0; i < n && refusal === null; i++) {
-    const r = await chat(token)
-    if (r !== 200 && r.startsWith("402") && r.includes("team.cap_reached")) refusal = r
+    const r = await call("team")
+    if (capRefused(r)) refusal = r
     else if (r !== 200) log("chat_error_before_cap", r)
     if (i % 4 === 3) await syncAndLevel("sync-cap")
   }
@@ -238,9 +255,16 @@ if (phase === "c") {
     const usageCents = (renewal?.lines.data ?? []).filter((l: any) => /AI usage/i.test(l.description ?? "")).reduce((n: number, l: any) => n + l.amount, 0)
     const usd = st[side].level.micros / 1e6
     const expect = Math.round(Math.max(0, usd - INCLUDED[side]) * 100)
-    // The billed level carries the model overage at list + 10%: above the pool it is more than the level at cost.
-    const cost = st[side].level.cost_micros / 1e6
-    checks[side] = { level_usd: usd, cost_usd: cost, markup_bp: st[side].level.markup_bp, marked_up: usd > INCLUDED[side] ? usd > cost : null, included_usd: INCLUDED[side], meter_summary: summary.data.map((x: any) => x.aggregated_value), expected_usage_cents: expect, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, pass: usageCents > 0 && usageCents === expect && renewal?.total === st[side].plan_cents + expect }
+    // The billed level, worked out here from the level's model and machine amounts (#40356 F4), not read back: the
+    // pool at cost, then the overage split pro rata to models and machines, the model part x 1.10 (Leo, 2026-11-09:
+    // list + 10%). The period must pin exactly 11000 bp.
+    const { models_micros: models, machine_micros: machine, markup_bp } = st[side].level
+    const pool = INCLUDED[side] * 1e6
+    const over = Math.max(0, models + machine - pool)
+    const overModels = models + machine > 0 ? Math.floor((over * models) / (models + machine)) : 0
+    const billed = Math.min(models + machine, pool) + Math.round(overModels * 1.1) + (over - overModels)
+    const markedUp = markup_bp === 11_000 && Math.abs(billed - st[side].level.micros) <= 1
+    checks[side] = { level_usd: usd, cost_usd: st[side].level.cost_micros / 1e6, models_usd: models / 1e6, machine_usd: machine / 1e6, markup_bp, expected_level_usd: billed / 1e6, marked_up: over > 0 ? markedUp : null, included_usd: INCLUDED[side], meter_summary: summary.data.map((x: any) => x.aggregated_value), expected_usage_cents: expect, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, pass: markedUp && over > 0 && usageCents > 0 && usageCents === expect && renewal?.total === st[side].plan_cents + expect }
   }
   log("check", checks)
 }
