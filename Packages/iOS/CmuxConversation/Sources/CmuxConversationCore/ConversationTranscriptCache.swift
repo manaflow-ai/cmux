@@ -127,7 +127,7 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         let read: ConversationTranscriptSnapshot? = try? await run(started) { db in
             let messages = try db.newest(key, limit: limit)
             let head = try db.info(key)
-            guard !messages.isEmpty || head?.info != nil else { return nil }
+            guard !messages.isEmpty || head != nil else { return nil }
             return ConversationTranscriptSnapshot(info: head?.info, meID: head?.meID, messages: messages)
         }
         guard started == scope else { return nil }
