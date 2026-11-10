@@ -460,6 +460,7 @@ jobs:
           retention-days: 1
 
       - name: Staging Cloud chat and reply
+        id: staging_chat
         if: inputs.cleanup_machine == '' && !inputs.matrix && !inputs.paused_capture
         timeout-minutes: 30
         env:
@@ -475,6 +476,7 @@ jobs:
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
 
       - name: Staging paused price capture
+        id: staging_paused
         if: inputs.cleanup_machine == '' && !inputs.matrix && inputs.paused_capture
         timeout-minutes: 50
         run: |
@@ -483,6 +485,24 @@ jobs:
             --paused-capture "$RUNNER_TEMP/cloud-chat-proof/paused-price" --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$CMUX_PROOF_CREDENTIALS" \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
+
+      # A proof cut off by a cancel or its step timeout can leave its machine up. The proof kills the run's
+      # machines when it is stopped; when the runner stopped it first (its evidence is missing or says
+      # `pending`), this kills every machine named after the run (cmuxterm-hq#8702).
+      - name: Staging machine cleanup after a cut-off proof
+        if: always() && (steps.staging_chat.outcome != 'skipped' || steps.staging_paused.outcome != 'skipped') && env.CMUX_PROOF_APP != ''
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
+          state="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("machine_cleanup", "not-started"))' "$evidence" 2>/dev/null || echo cut-off)"
+          case "$state" in killed|none|not-started) echo "machine cleanup: $state"; exit 0 ;; esac
+          echo "::warning title=Cloud chat proof cut off::machine cleanup was $state; killing the machines named $CMUX_PROOF_TAG"
+          credentials=()
+          [ -s "${CMUX_PROOF_CREDENTIALS:-}" ] && credentials=(--credentials-file "$CMUX_PROOF_CREDENTIALS")
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" --cleanup-tag \
+            --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev ${credentials[@]+"${credentials[@]}"} \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-cleanup-evidence.json"
 
       - name: Upload the paused price images
         if: always() && inputs.paused_capture
@@ -692,6 +712,7 @@ jobs:
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Prod Cloud chat and reply
+        id: prod_chat
         if: inputs.cleanup_machine == '' && !inputs.matrix
         timeout-minutes: 30
         env:
@@ -705,6 +726,24 @@ jobs:
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
             --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
+
+      # A proof cut off by a cancel or its step timeout can leave its machine up. The proof kills the run's
+      # machines when it is stopped; when the runner stopped it first (its evidence is missing or says
+      # `pending`), this kills every machine named after the run (cmuxterm-hq#8702).
+      - name: Prod machine cleanup after a cut-off proof
+        if: always() && (steps.prod_chat.outcome != 'skipped') && env.CMUX_PROOF_APP != ''
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
+          state="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("machine_cleanup", "not-started"))' "$evidence" 2>/dev/null || echo cut-off)"
+          case "$state" in killed|none|not-started) echo "machine cleanup: $state"; exit 0 ;; esac
+          echo "::warning title=Cloud chat proof cut off::machine cleanup was $state; killing the machines named $CMUX_PROOF_TAG"
+          credentials=()
+          [ -s "${CMUX_PROOF_CREDENTIALS:-}" ] && credentials=(--credentials-file "$CMUX_PROOF_CREDENTIALS")
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" --cleanup-tag \
+            --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev ${credentials[@]+"${credentials[@]}"} \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-cleanup-evidence.json"
 
       - name: Prod Cloud workspace matrix
         if: inputs.cleanup_machine == '' && inputs.matrix
