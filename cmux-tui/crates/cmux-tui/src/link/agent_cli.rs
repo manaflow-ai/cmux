@@ -662,6 +662,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 &sync.local.to_string_lossy(),
                 &sync.socket,
                 &sync.remote,
+                &sync.owner,
                 &mut quiet,
             )
             .map(|_| ())

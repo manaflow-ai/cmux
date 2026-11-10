@@ -108,7 +108,8 @@ pub(super) fn run(args: &[String]) -> i32 {
         }
     }
     let mut printer = super::progress_printer();
-    match relay(&from, &from_root, &to, &to_root, &mut printer) {
+    // One person's copy from a shell: its own owner, apart from any chat's move.
+    match relay(&from, &from_root, &to, &to_root, "cli", &mut printer) {
         Ok(summary) => {
             let mut line = summary.json();
             line.set("ok", json!(true));
@@ -148,12 +149,15 @@ fn parse(args: &[String]) -> Option<(PathBuf, PathBuf, String, String)> {
 }
 
 /// Copies `from_root` on the machine at `from` to `to_root` on the machine
-/// at `to` (module docs), with progress through `progress`.
+/// at `to` (module docs), with progress through `progress`. `owner` is the move
+/// the copy is for: its record is that move's alone, so another move to the same
+/// folder finds it there and is refused (`relay.target_exists`).
 pub(in crate::link) fn relay(
     from: &Path,
     from_root: &str,
     to: &Path,
     to_root: &str,
+    owner: &str,
     progress: &mut dyn FnMut(Progress),
 ) -> anyhow::Result<Summary> {
     let mut source = Remote::connect_negotiated(from)?;
@@ -163,7 +167,7 @@ pub(in crate::link) fn relay(
     }
     let mut skipped = Skipped::default();
     let (dirs, items) = walk(&mut source, from_root, &mut skipped)?;
-    let record_path = record_path(from, from_root, to, to_root);
+    let record_path = record_path(from, from_root, to, to_root, owner);
     let kept = record_path.as_deref().and_then(load);
     // A folder already on the target that no relay made is someone's work: never written over.
     if kept.is_none() && target.list(to_root)?.is_some_and(|entries| !entries.is_empty()) {
@@ -687,11 +691,17 @@ impl Read for PartReader {
     }
 }
 
-fn record_path(from: &Path, from_root: &str, to: &Path, to_root: &str) -> Option<PathBuf> {
+fn record_path(
+    from: &Path,
+    from_root: &str,
+    to: &Path,
+    to_root: &str,
+    owner: &str,
+) -> Option<PathBuf> {
     let state = cmux_tui_core::platform::workspace_state_dir()?;
     let mut hash = Sha256::new();
-    for part in [from.to_string_lossy().as_ref(), from_root, to.to_string_lossy().as_ref(), to_root]
-    {
+    let (from, to) = (from.to_string_lossy(), to.to_string_lossy());
+    for part in [from.as_ref(), from_root, to.as_ref(), to_root, owner] {
         hash.update(part.as_bytes());
         hash.update([0]);
     }

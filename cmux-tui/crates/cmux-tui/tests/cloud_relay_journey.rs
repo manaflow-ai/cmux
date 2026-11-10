@@ -318,6 +318,10 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert!(!ok, "a move into VM two's own folder: {refused}");
     assert_eq!(fs::read_to_string(theirs.join("keep.txt")).unwrap(), "not ours\n");
     assert!(one_acpmux.summary(&session).is_some_and(|s| s["status"] != "closed"), "chat left");
+    // The folder step 1's relay made is that copy's, not this chat's: its record is not this
+    // move's, so the move is refused there too and never copies over it.
+    let (ok, refused) = move_to(&second, "pump-refused-relayed");
+    assert!(!ok, "a move into another relay's folder: {refused}");
     let mac_before = digest(&repo);
     let (ok, moved) = move_to(&moved_to, "pump");
     assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");

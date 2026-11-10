@@ -216,15 +216,13 @@ struct CloudBringBack {
                 throw Failure(message: failure.message, retry: again)
             }
         }
-        var onto: (socket: String, vmKind: String, remote: (folder: String, chat: String))?
+        var onto: (socket: String, vmKind: String, remotes: [(folder: String, chat: String)])?
         if let target {
             guard let socket = await target.daemon.connection?.endpoint?.socketPath, let folder = CloudMoveFolder(chat: entry.localChat) else {
                 throw Failure(message: CloudMoveStrings.notConnected(target.machine.title), retry: again)
             }
             let suffix = Self.targetSuffix(machineID: target.machineID, session: entry.session)
-            let remote = CloudMove.remote(folder, under: services.cloud.move.workRoots.first ?? "", suffix: suffix)
-            let vmKind = await CloudMove.ownerAnswer(target).vmKind
-            onto = (socket, vmKind, remote)
+            onto = (socket, await CloudMove.ownerAnswer(target).vmKind, services.cloud.move.workRoots.map { CloudMove.remote(folder, under: $0, suffix: suffix) })
         }
         // From here the chat may land on the target: every stop's Retry is pinned to it (``pending`` above), kept now
         // so a quit or a crash mid-transfer leaves the pin too.
@@ -232,16 +230,18 @@ struct CloudBringBack {
             again = .move(machineID: target.machineID)
             services.cloud.bringBackRetries[tab.id] = again
         }
-        let moved: CloudMoveCLI.Answer
+        var moved = CloudMoveCLI.Answer(ok: false), landing = onto?.remotes.first
         do {
-            // A running turn goes on where the chat lands, with what it wrote on the machine since the pull above
-            // (to another machine: relayed machine to machine, the bulk before the chat freezes).
-            let sync = onto.map { CloudMoveCLI.FrozenSync(pull: false, socket: $0.socket, local: entry.remoteFolder, remote: $0.remote.folder,
-                                                          fromSocket: machineSocket, seedLocal: entry.localRoot) }
-                ?? CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
-            moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: onto?.socket ?? localSocket,
-                                            cwd: onto?.remote.chat ?? entry.localChat, sync: sync, askFirst: askFirst,
-                                            vmKind: onto?.vmKind)
+            // A running turn goes on where the chat lands with its last changes (to another machine: relayed; a refused work root, the next).
+            for remote in onto.map({ $0.remotes.map(Optional.some) }) ?? [nil] {
+                landing = remote
+                let sync = onto.map { CloudMoveCLI.FrozenSync(pull: false, socket: $0.socket, local: entry.remoteFolder, remote: remote?.folder ?? "",
+                                                              fromSocket: machineSocket, seedLocal: entry.localRoot) }
+                    ?? CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
+                moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: onto?.socket ?? localSocket,
+                                                cwd: remote?.chat ?? entry.localChat, sync: sync, askFirst: askFirst, vmKind: onto?.vmKind)
+                if moved.ok || moved.errorCode != "fs.permission_denied" { break }
+            }
         } catch {
             services.cloud.logger.error("cloud bring back: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
@@ -252,7 +252,7 @@ struct CloudBringBack {
             if target != nil, failure.retry == nil { failure.retry = again }
             throw failure
         }
-        if let target, let onto { return try await landed(on: target, onto.remote, session: session, entry: entry, key: moved.transferID, tab: tab) }
+        if let target, let landing { return try await landed(on: target, landing, session: session, entry: entry, key: moved.transferID, tab: tab) }
         // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
         // keeps that (not only memory) until the tab opened.
         let back = CloudMovedChats.BroughtBack(session: session, key: moved.transferID ?? session)
