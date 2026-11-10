@@ -17,8 +17,9 @@ import CmuxNextCompat
 /// a second fill of the rows feed, ahead of the commit that shows the switch).
 @MainActor
 public final class SidebarSameTurn {
-    /// What one pass's observation tells its task: a value the pass read is about to change.
-    private final class Change: Sendable {
+    /// What one pass's observation tells its task: a value the pass read is about to change. Not main-actor
+    /// isolated: the will-set callback marks it from inside the write.
+    nonisolated private final class Change: Sendable {
         /// Set by the will-set callback (inside the write); cleared by the run that reads the new values.
         private let stale = Atomic<Bool>(true)
         let wakes: AsyncStream<Void>
