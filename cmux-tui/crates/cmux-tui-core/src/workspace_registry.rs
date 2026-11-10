@@ -79,7 +79,9 @@ mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
 mod workspace_rows_commit;
-use workspace_rows_commit::commit_workspace_registry_in_transaction;
+use workspace_rows_commit::{
+    commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+};
 pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
@@ -2530,6 +2532,8 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
+        // The session's locks: a wait here is an earlier owner still closing.
+        timings.lap("registry.session_locks");
         // A rollback an earlier start could not finish goes first.
         output_cleanup::finish_pending_rollback(&db_path)?;
         if roll_back_first && output_cleanup::rollback_possible(&db_path) {
@@ -2563,6 +2567,7 @@ impl WorkspaceRegistry {
         // the only copy of the session.
         output_cleanup::restore_interrupted_swap(&db_path);
         output_cleanup::refuse_open_beside_backup(&db_path)?;
+        timings.lap("registry.output_cleanup_swap");
         // The locks stay held across a failed open and its rollback: no
         // other owner can open either file in between.
         let mut session_guard = Some(session_guard);
@@ -3020,6 +3025,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
+            resource_store::create_lookup_indexes(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             mutation_ledger::migrate_add_actor_columns(&tx)?;

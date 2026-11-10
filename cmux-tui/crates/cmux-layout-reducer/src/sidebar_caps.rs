@@ -127,12 +127,19 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
     // The valid active members, ascending and unique.
     let mut actives: Vec<Active> = Vec::with_capacity(active.len());
     for a in active {
-        if a.index < count && is_active(a.flags) && actives.last().is_none_or(|last| last.index < a.index) {
+        if a.index < count
+            && is_active(a.flags)
+            && actives.last().is_none_or(|last| last.index < a.index)
+        {
             actives.push(*a);
         }
     }
     let quiet_total = count - actives.len() as u32;
-    let mut limit = if caps.cap == 0 { quiet_total } else { caps.cap.saturating_add(caps.revealed).min(quiet_total) };
+    let mut limit = if caps.cap == 0 {
+        quiet_total
+    } else {
+        caps.cap.saturating_add(caps.revealed).min(quiet_total)
+    };
     // One row over the limit shows whole: a row that hides one row saves nothing.
     if quiet_total == limit.saturating_add(1) {
         limit = quiet_total;
@@ -171,7 +178,9 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
         index += 1;
     }
     let work = index.saturating_add(u32::try_from(actives.len()).unwrap_or(u32::MAX));
-    rows.extend(actives.get(next_active..).unwrap_or_default().iter().filter(|a| stays(a)).map(|a| a.index));
+    rows.extend(
+        actives.get(next_active..).unwrap_or_default().iter().filter(|a| stays(a)).map(|a| a.index),
+    );
 
     let hidden = quiet_total - quiet_shown;
     let tail = if hidden > 0 {
