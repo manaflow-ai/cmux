@@ -1368,7 +1368,14 @@ export function ModelPicker(props: ModelPickerProps) {
                         quickRow("", model),
                       )
                     : [],
-                current: props.predictedModel ?? props.model,
+                // The running model's row: an alias row ("opus") whose release the session reports
+                // ("claude-opus-5-5") is the running one. Matched on the raw id alone, no row ran:
+                // the Effort column showed the first row's levels and a level pick switched model.
+                current:
+                  props.predictedModel ??
+                  (modelsNeeded && props.model && current && !current.models.some((model) => model.id === props.model)
+                    ? (current.models.find((model) => model.release === props.model)?.id ?? props.model)
+                    : props.model),
                 ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
                 onModel: (id) => {
                   quickPicked.current = true;
