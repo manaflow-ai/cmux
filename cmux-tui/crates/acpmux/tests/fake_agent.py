@@ -59,6 +59,11 @@ FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and 
 FAKE_FORK_ERROR=1: the agent offers session/fork but answers it with a bare "Internal
 error", as Claude's ACP adapter does for a chat with no turn.
 
+FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering everything else.
+
+FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
+answering everything else meanwhile.
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -1938,6 +1943,8 @@ def main():
             if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error"}})
                 continue
+            if os.environ.get("FAKE_FORK_SILENT") == "1":
+                continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
             # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
@@ -1948,6 +1955,10 @@ def main():
                      "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]},
                     {"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
                      "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
+            if os.environ.get("FAKE_FORK_DELAY_MS"):
+                reply = {"jsonrpc": "2.0", "id": rid, "result": result}
+                threading.Timer(int(os.environ["FAKE_FORK_DELAY_MS"]) / 1000, send, args=(reply,)).start()
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
             # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.

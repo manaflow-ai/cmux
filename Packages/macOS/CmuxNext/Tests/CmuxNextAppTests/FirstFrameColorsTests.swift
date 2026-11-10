@@ -4,7 +4,6 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApps
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
-@testable import CmuxNextFeed
 @testable import CmuxNextRemoteView
 @testable import CmuxNextServer
 import SwiftUI
@@ -25,14 +24,6 @@ import Testing
 
     private static func expect(_ color: NSColor, _ rgb: ThemeRGB, _ name: String) {
         #expect(ThemedOverlayColorsTests.same(color, rgb.nsColor), "\(name): \(color) is not the theme's \(rgb.nsColor)")
-    }
-
-    @Test func theFeedStartsInTheAppTheme() {
-        let colors = FeedColors()
-        Self.expect(colors.primary, Self.app.textPrimary, "primary")
-        Self.expect(colors.tertiary, Self.app.textTertiary, "tertiary")
-        Self.expect(colors.selection, Self.app.selectionFill, "selection")
-        Self.expect(colors.danger, Self.app.danger, "danger")
     }
 
     @Test func theServerUIStartsInTheAppTheme() {

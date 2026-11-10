@@ -182,6 +182,8 @@ test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures
   expect(html).toContain('data-role="default">Upgrade</button>');
   expect(html).toContain(">Run on This Mac</button>");
   expect(html).toContain(">Not Now</button>");
+  // A refusal by policy keeps the checklist shut, so its actions stay in view in a short pane.
+  expect(html).toContain('aria-expanded="false"');
   const generic = renderToStaticMarkup(
     <CloudStartView
       start={{ ...refusal, code: "cloud_start_failed" }}

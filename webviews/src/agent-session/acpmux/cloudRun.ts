@@ -24,7 +24,7 @@ export type CloudStart = {
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
   gestureTicket?: string;
-  /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (resumeSignedIn). */
+  /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (cloudSignIn.ts startAfterSignIn). */
   signedIn?: true;
   /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
   team?: string;
@@ -116,7 +116,7 @@ export type CloudFolderGrants = ReturnType<typeof cloudFolderGrants>;
 export function grantedCloudStart(
   callNative: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
   grants: CloudFolderGrants,
-): (start: CloudStart, key?: string, signingIn?: boolean) => Promise<CloudStartAnswer> | undefined {
+): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
   return oneCloudStart((method, params) =>
     grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
   );
@@ -165,21 +165,6 @@ export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | u
   return retry;
 }
 
-/// A `cloud.signIn` that signed in starts nothing itself (`cloud_signed_in`): the host keeps the
-/// click for that exact start, and the page sends it again only while it still waits for it
-/// (`stillWaiting`). A page that left Cloud meanwhile sends nothing, so its prompt never starts behind
-/// it; its `cloud.signInCancel` drops the kept click, so a send again already out starts nothing either.
-export function resumeSignedIn(
-  answer: CloudStartAnswer,
-  stillWaiting: () => boolean,
-  again: () => Promise<CloudStartAnswer> | undefined,
-): Promise<CloudStartAnswer> {
-  if (answer.ok || answer.code !== "cloud_signed_in") return Promise.resolve(answer);
-  const withdrawn: CloudStartAnswer = { ok: false, code: "cloud_sign_in_cancelled" };
-  if (!stillWaiting()) return Promise.resolve(withdrawn);
-  return again() ?? Promise.resolve(withdrawn);
-}
-
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
 /// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
 /// before provisioning and uploads them before opening the chat. A refused prompt stays in the composer.
@@ -193,7 +178,6 @@ export async function startCloudChat(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   start: CloudStart,
   key: string = crypto.randomUUID(),
-  signingIn = false,
 ): Promise<CloudStartAnswer> {
   const params: Record<string, unknown> = { task: start.task, key };
   if (start.attachments?.length) params.attachments = start.attachments;
@@ -207,7 +191,7 @@ export async function startCloudChat(
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
   try {
-    await call(signingIn ? "cloud.signIn" : "cloud.startChat", params);
+    await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
     const { code, message, userMessage, retryable, details } = (error ?? {}) as {
@@ -232,12 +216,12 @@ export async function startCloudChat(
 /// another Return starts nothing and says nothing, instead of a second start the host refuses.
 export function oneCloudStart(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): (start: CloudStart, key?: string, signingIn?: boolean) => Promise<CloudStartAnswer> | undefined {
+): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
   let waiting = false;
-  return (start, key, signingIn) => {
+  return (start, key) => {
     if (waiting) return undefined;
     waiting = true;
-    return startCloudChat(call, start, key, signingIn).finally(() => {
+    return startCloudChat(call, start, key).finally(() => {
       waiting = false;
     });
   };
