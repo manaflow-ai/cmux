@@ -149,11 +149,16 @@ impl OutputCleanupWorker {
 
 /// Ends [`OutputCleanupState::rebuild_possible`] when the worker thread ends,
 /// a panic included: the retention pass then deletes in place.
-struct NoRebuildAfter(Arc<AtomicBool>);
+///
+/// It then wakes the journal maintenance worker: a retention pass that gave
+/// way to this worker has settled, and a settled worker sleeps until the
+/// journal changes (an idle daemon: up to the hourly ledger scan).
+struct NoRebuildAfter(Arc<AtomicBool>, Arc<super::journal_maintenance::JournalMaintenanceControl>);
 
 impl Drop for NoRebuildAfter {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
+        self.1.note_change();
     }
 }
 
@@ -231,6 +236,7 @@ impl Mux {
         let pending = self.output_cleanup.pending.clone();
         let rebuild_possible = self.output_cleanup.rebuild_possible.clone();
         let weak_mux = Arc::downgrade(self);
+        let maintenance = self.journal_maintenance_control.clone();
         #[cfg(test)]
         let records_limit_for_test = self.output_cleanup.records_limit_for_test.clone();
         let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
@@ -241,7 +247,7 @@ impl Mux {
             std::thread::Builder::new().name("cmux-output-cleanup".into()).spawn(move || {
                 let _exited = exited_sender;
                 // However the worker ends, no rebuild starts after it.
-                let _no_rebuild = NoRebuildAfter(rebuild_possible);
+                let _no_rebuild = NoRebuildAfter(rebuild_possible, maintenance.clone());
                 lower_thread_priority();
                 let delay =
                     env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS").unwrap_or(START_DELAY);
@@ -287,6 +293,10 @@ impl Mux {
                         // retention floor is another question, asked below.
                         CleanupOutcome::Skipped if floor == 0 => {
                             done = true;
+                            // The retention pass gave way while this pass
+                            // was pending and its worker may have settled:
+                            // the next tick names the floor.
+                            maintenance.note_change();
                             continue;
                         }
                         CleanupOutcome::Skipped | CleanupOutcome::Ended => return,
@@ -312,6 +322,7 @@ impl Mux {
                     // No stored output: from here the worker waits for a
                     // retention floor, as for a registry that was done.
                     done = true;
+                    maintenance.note_change();
                 }
             });
         let thread = match spawned {
