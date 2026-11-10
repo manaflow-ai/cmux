@@ -87,6 +87,9 @@ public final class TabStripView: NSView {
     /// A pane's tab row, the one the flush corner runs into the card; false for the workspace's screen
     /// bar, which is no pane's top row: it neither reports to the flush chrome nor grows a foot.
     public let isPaneTabRow: Bool
+    /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
+    /// reports again with the strip's fresh place.
+    var reportedCornerFrame: CGRect?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the

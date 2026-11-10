@@ -31,9 +31,12 @@ extension TabStripView: TabStripCorner {
             leads = frame.minX <= 0.5 && frame.maxX > 0.5
         }
         if let id = model.selectedID { cells[id]?.cornerFeetSkipsLeading = leads }
-        // While it leads, every layout reports too: the strip may have reached the card's corner since.
-        guard leads != leadsWithSelection || leads || (on && !reportedCornerFlush) else { return }
+        // While it leads, every layout reports too: the strip may have reached the card's corner since. A
+        // strip that moved in the window reports its new place (the chrome checks the tab row is whole).
+        let frame = on ? cornerFrameInWindow : nil
+        guard leads != leadsWithSelection || leads || (on && !reportedCornerFlush) || frame != reportedCornerFrame else { return }
         leadsWithSelection = leads
+        reportedCornerFrame = frame
         // Not yet in a window root's tree: report again on the next layout.
         reportedCornerFlush = CornerFlushChrome.stripDidChange(self) && on
     }
