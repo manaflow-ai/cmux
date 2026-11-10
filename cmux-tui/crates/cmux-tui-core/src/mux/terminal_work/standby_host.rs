@@ -130,7 +130,16 @@ impl StandbyHostSlot {
             return;
         }
         #[cfg(target_os = "macos")]
-        self.pressure.get_or_init(|| memory_pressure::watch(Arc::downgrade(self)));
+        self.pressure.get_or_init(|| {
+            // Warning or critical pressure drops the spare and stops refills
+            // until the pressure is normal again.
+            let slot = Arc::downgrade(self);
+            crate::mux::memory_pressure::watch(move |pressured| {
+                if let Some(slot) = slot.upgrade() {
+                    slot.set_memory_pressure(pressured);
+                }
+            });
+        });
         let slot: Weak<Self> = Arc::downgrade(self);
         let spawn = self.spawn;
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
@@ -145,80 +154,6 @@ impl StandbyHostSlot {
             // inline on the caller's thread; the next new tab tries again.
             drop(job);
             self.state().refilling = false;
-        }
-    }
-}
-
-/// Memory pressure through libdispatch (macOS): warning or critical drops the
-/// spare and stops refills until pressure is normal again. Event-driven; no
-/// thread or timer of our own.
-#[cfg(target_os = "macos")]
-mod memory_pressure {
-    use std::ffi::c_void;
-    use std::sync::Weak;
-
-    use super::StandbyHostSlot;
-
-    #[allow(non_camel_case_types)]
-    type dispatch_object_t = *mut c_void;
-    const DISPATCH_MEMORYPRESSURE_NORMAL: usize = 0x01;
-    const DISPATCH_MEMORYPRESSURE_WARN: usize = 0x02;
-    const DISPATCH_MEMORYPRESSURE_CRITICAL: usize = 0x04;
-
-    unsafe extern "C" {
-        static _dispatch_source_type_memorypressure: c_void;
-        fn dispatch_get_global_queue(identifier: isize, flags: usize) -> dispatch_object_t;
-        fn dispatch_source_create(
-            kind: *const c_void,
-            handle: usize,
-            mask: usize,
-            queue: dispatch_object_t,
-        ) -> dispatch_object_t;
-        fn dispatch_set_context(object: dispatch_object_t, context: *mut c_void);
-        fn dispatch_source_set_event_handler_f(
-            source: dispatch_object_t,
-            handler: extern "C" fn(*mut c_void),
-        );
-        fn dispatch_resume(object: dispatch_object_t);
-        fn dispatch_source_get_data(source: dispatch_object_t) -> usize;
-    }
-
-    /// The source, for reading the pressure level in the handler.
-    struct Watch {
-        slot: Weak<StandbyHostSlot>,
-        source: dispatch_object_t,
-    }
-
-    extern "C" fn on_pressure(context: *mut c_void) {
-        // SAFETY: the context is the leaked `Watch` set in `watch`, alive for
-        // the source's lifetime (the process); its source is that source.
-        let watch = unsafe { &*(context as *const Watch) };
-        let level = unsafe { dispatch_source_get_data(watch.source) };
-        if let Some(slot) = watch.slot.upgrade() {
-            slot.set_memory_pressure(level & DISPATCH_MEMORYPRESSURE_NORMAL == 0);
-        }
-    }
-
-    /// Watches memory pressure for `slot` for the rest of the process.
-    pub(super) fn watch(slot: Weak<StandbyHostSlot>) {
-        // SAFETY: plain libdispatch calls on a source this function creates;
-        // the context outlives it (leaked, one per owner that made a spare).
-        unsafe {
-            let queue = dispatch_get_global_queue(0, 0);
-            let source = dispatch_source_create(
-                &raw const _dispatch_source_type_memorypressure,
-                0,
-                DISPATCH_MEMORYPRESSURE_NORMAL
-                    | DISPATCH_MEMORYPRESSURE_WARN
-                    | DISPATCH_MEMORYPRESSURE_CRITICAL,
-                queue,
-            );
-            if source.is_null() {
-                return;
-            }
-            dispatch_set_context(source, Box::into_raw(Box::new(Watch { slot, source })).cast());
-            dispatch_source_set_event_handler_f(source, on_pressure);
-            dispatch_resume(source);
         }
     }
 }

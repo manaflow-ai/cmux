@@ -43,6 +43,8 @@
 
 #[cfg(any(unix, windows))]
 pub(super) mod launch;
+#[cfg(any(unix, windows))]
+mod line_pause;
 pub(crate) mod manual;
 #[cfg(any(unix, windows))]
 mod prefill;
@@ -136,6 +138,14 @@ pub(crate) struct TerminalRespawns {
     /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
     /// takes it; the creator removes it when the creation fails.
     seeds: Mutex<HashMap<String, Vec<u8>>>,
+    /// The restarts that wait for a turn of the respawn gate, by terminal
+    /// id: these terminals are not started. True once somebody needed the
+    /// terminal while it waited (`line_pause.rs`): it then goes first.
+    waiting: Mutex<HashMap<String, bool>>,
+    /// The memory pressure watch that stops the respawn gate's line, armed
+    /// at this owner's first restart (`line_pause.rs`).
+    #[cfg(target_os = "macos")]
+    pressure_watch: std::sync::OnceLock<()>,
     /// Respawn launches still to fail on purpose ([`LAUNCH_FAILURES_ENV`]).
     injected_launch_failures: AtomicU64,
     /// Respawn launches still to fail on purpose with a launch error
@@ -197,6 +207,9 @@ impl TerminalRespawns {
             wake: (Mutex::new(()), Condvar::new()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
+            waiting: Mutex::default(),
+            #[cfg(target_os = "macos")]
+            pressure_watch: std::sync::OnceLock::new(),
             injected_launch_failures: AtomicU64::new(
                 std::env::var(LAUNCH_FAILURES_ENV)
                     .ok()

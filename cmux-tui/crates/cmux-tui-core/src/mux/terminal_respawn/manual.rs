@@ -95,6 +95,9 @@ impl Mux {
         if let Some(recovered) = self.recover_failed_link_tab(surface) {
             return Ok(recovered);
         }
+        if let Some(waiting) = self.start_waiting_restart_now(surface) {
+            return Ok(waiting);
+        }
         let mut plan = self.plan_user_restart(surface)?;
         // A frontend restores a session with one `restart-tab` per tab kept
         // with no `on_show` (the terminals that ran an agent): those take
@@ -110,6 +113,48 @@ impl Mux {
         };
         Self::spawn_respawn_worker(Arc::clone(self), plan);
         Ok(accepted)
+    }
+
+    /// A second `restart-tab` for a tab whose restart is not started yet
+    /// (it waits in the respawn gate's line, or the line is stopped under
+    /// memory pressure, `line_pause.rs`): somebody needs this terminal now,
+    /// so its restart goes in front of the line. It was refused
+    /// (`tab-not-dead`), and the terminal came back after every restore
+    /// start ahead of it. A frontend sends it when the person shows the
+    /// tab's workspace or asks for the restart again; the first request for
+    /// a kept agent tab is the restore's and takes its place in line. None
+    /// when no restart of the tab's terminal waits.
+    #[cfg(unix)]
+    fn start_waiting_restart_now(&self, surface: SurfaceId) -> Option<TabRestart> {
+        let public_id = self.with_state(|state| {
+            let ContentPublicId::Terminal(public_id) =
+                state.resource_indexes.content_ids.get(&surface)?
+            else {
+                return None;
+            };
+            Some(public_id.clone())
+        })?;
+        let terminal_id = {
+            let pending = self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner);
+            match pending.get(public_id.as_str()) {
+                Some((terminal_id, PendingTerminal::Respawning)) => terminal_id.clone(),
+                _ => return None,
+            }
+        };
+        if !self.start_waiting_respawn_now(&terminal_id) {
+            return None;
+        }
+        // The incarnation the waiting restart replaces: the row stays ended
+        // until that restart has its turn.
+        let previous_incarnation = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_record(&terminal_id)
+            .ok()
+            .flatten()
+            .and_then(|record| record.incarnation);
+        Some(TabRestart { terminal: public_id.as_str().to_string(), previous_incarnation })
     }
 
     /// Run a restart planned under the locks (the exit commit of an

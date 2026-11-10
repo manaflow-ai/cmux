@@ -220,6 +220,8 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+#[cfg(target_os = "macos")]
+mod memory_pressure;
 mod output_cleanup;
 mod pinned_columns;
 #[cfg(unix)]

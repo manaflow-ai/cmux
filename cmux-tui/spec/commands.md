@@ -2365,8 +2365,12 @@ home) and stops being kept once the new shell is in the tab (`relaunch`
 null; an exit closes it as for any terminal tab); a launch that fails first
 leaves it kept.
 The reply comes when the worker started; the tree shows the tab adopting,
-then running, or dead again when the launch failed. Errors (`error_code`):
-`tab-not-dead` (the terminal runs, launches or already restarts),
+then running, or dead again when the launch failed. Restarts take turns; the
+ones of a restored session wait in a line, which stops while the Mac's memory
+pressure is above normal and goes on by itself. A second `restart-tab` for a
+tab whose restart still waits is accepted and starts it at once, in front of
+the line (the person shows the tab, or asks again). Errors (`error_code`):
+`tab-not-dead` (the terminal runs, launches, or its restart has its turn),
 `tab-not-terminal` (the tab shows no daemon terminal) and
 `tab-restart-unavailable` (the owner shuts down or cannot start hosts).
 
