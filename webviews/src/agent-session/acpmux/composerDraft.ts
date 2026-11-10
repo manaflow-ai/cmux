@@ -187,6 +187,12 @@ function pageDraftAction(name: "chat.readDraft" | "chat.writeDraft"): DraftActio
   return page?.cmuxAcpmuxActions?.[name];
 }
 
+/// Whether the page can read acpmux's drafts now (its client installed the draft actions): before,
+/// an unanswered read says nothing about the draft; after, a failed one means acpmux can't say.
+export function readsDurableDrafts(): boolean {
+  return pageDraftAction("chat.readDraft") !== undefined;
+}
+
 function persistedDraftKey(sessionId: string | undefined): string | undefined {
   if (!sessionId?.trim()) return undefined;
   return `${PERSISTED_DRAFT_PREFIX}${encodeURIComponent(sessionId)}`;

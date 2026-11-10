@@ -207,6 +207,31 @@ impl Paths {
         Self { selector, paths, remembered: None }
     }
 
+    /// Add path `via` to a live set (a backup path found after the first dial,
+    /// `peer_overlay.rs`). It starts unprobed, like every path of [`Paths::new`]. False when
+    /// it is already one of these or the selector has no room for it.
+    pub fn add(&mut self, via: Via) -> bool {
+        if self.find(via).is_some() {
+            return false;
+        }
+        let next =
+            self.paths.iter().map(|path| path.id.0).max().map_or(Some(0), |id| id.checked_add(1));
+        let Some(next) = next else { return false };
+        let id = PathId(next);
+        if self.selector.add_path(id, via.kind()).is_err() {
+            return false;
+        }
+        self.paths.push(Path {
+            via,
+            id,
+            last_pong: None,
+            dead_at: None,
+            recoveries: 0,
+            recover_at: None,
+        });
+        true
+    }
+
     /// The path that carried the session last time (`peer_last_good.rs`), if it is still one
     /// of these.
     pub fn remember(&mut self, via: Option<Via>) {
@@ -321,6 +346,31 @@ impl Paths {
     /// every path at once.
     pub fn in_doubt(&self, now: u64) -> bool {
         self.active().is_none_or(|via| self.health(via, now) != Some(Health::Alive))
+    }
+
+    /// The path to send on as well while `serving` (the path the live link runs on) is in
+    /// doubt: no pong on it for more than [`DOUBT_AFTER`] (or past its trust), and another path
+    /// answers. The other path with the lowest round trip; None while `serving` answers, or
+    /// when no other path does (`peer_dual.rs`).
+    pub fn dual_partner(&self, serving: Via, now: u64) -> Option<Via> {
+        self.dual_partner_among(serving, now, |_| true)
+    }
+
+    /// [`Self::dual_partner`] among the paths `eligible` takes.
+    pub fn dual_partner_among(
+        &self,
+        serving: Via,
+        now: u64,
+        eligible: impl Fn(Via) -> bool,
+    ) -> Option<Via> {
+        if !matches!(self.health(serving, now)?, Health::Doubt | Health::Dead) {
+            return None;
+        }
+        self.stream_vias()
+            .into_iter()
+            .filter(|via| *via != serving && eligible(*via))
+            .filter(|via| matches!(self.health(*via, now), Some(Health::Alive | Health::Doubt)))
+            .min_by_key(|via| (self.rtt(*via).map_or(u64::MAX, millis), *via))
     }
 
     /// Whether a dead `via` is due for its recovery probe at `now`; it is then scheduled for

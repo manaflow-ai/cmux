@@ -10,7 +10,8 @@
 // waiting. A broken state that is not on it fails the check; a listed state that now renders is
 // printed so its line can go.
 //
-// Each state must also say it is ready within its budget (ready-budgets.ts, ready-budgets.json): a
+// Each state must also say it is ready within its budget of renderer CPU time, not wall time
+// (ready-budgets.ts, ready-budgets.json): a
 // state past its budget's margin is rendered again with the broken ones, and fails only if its
 // fastest run is still past it. A state well under its budget is printed so its row can come down.
 //

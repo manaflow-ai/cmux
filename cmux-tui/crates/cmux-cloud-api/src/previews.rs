@@ -89,7 +89,7 @@ pub(crate) async fn publications(
             let sent =
                 async { client.cloud_publications_domains().await.map(|r| json!(r.into_inner())) };
             let list = answered(request, PREVIEW_TIMEOUT, "Cloud domains".into(), sent).await?;
-            super::classic::field(list, "domains", "Cloud domains")
+            super::field(list, "domains", "Cloud domains")
         }
         "vm.publications" => listed(request, &client).await,
         "vm.provision_api" => {
@@ -117,7 +117,7 @@ pub(crate) async fn publications(
                     keys.map(|r| json!(r.into_inner()))
                 };
                 let list = answered(request, PREVIEW_TIMEOUT, path.clone(), sent).await?;
-                return super::classic::field(list, "apiKeys", &path);
+                return super::field(list, "apiKeys", &path);
             }
             let key = text(args, "keyId")?;
             let sent = async {
@@ -127,7 +127,7 @@ pub(crate) async fn publications(
                     .map(|r| json!(r.into_inner()))
             };
             let revoked = answered(request, PREVIEW_TIMEOUT, path.clone(), sent).await?;
-            super::classic::field(revoked, "apiKey", &path)
+            super::field(revoked, "apiKey", &path)
         }
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }
@@ -138,7 +138,7 @@ async fn listed(request: &Request, client: &cmux_cloud_client::Client) -> Result
     let sent =
         async { client.cloud_publications_publications().await.map(|r| json!(r.into_inner())) };
     let list = answered(request, PREVIEW_TIMEOUT, "Cloud publications".into(), sent).await?;
-    super::classic::field(list, "previews", "Cloud publications")
+    super::field(list, "previews", "Cloud publications")
 }
 
 /// The machine and port a key call names: `machine` and `port`, or the listed publication whose id

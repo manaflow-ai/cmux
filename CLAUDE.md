@@ -88,6 +88,21 @@ Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks in
   `action-wait`). Effect kinds and monitors: [zero-latency.md](plans/cmux-next/zero-latency.md),
   "Native actions: the budget contract".
 
+### Retry a failed push
+
+Push with `git push -q`: without `-q`, git spends 4-14 s printing a status for
+all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. The hook ends with
+`pre-push: hook times: <each phase> Ns; total Ns`, which shows where a slow push spent its time.
+- `pre-push: refused in <phase>` with a check's findings: fix them and push again. Do not retry unchanged.
+- The gate's `ran past its 600s limit`, a failure after `pre-push: passed`
+  (`[remote rejected] ... (failed)`, `RPC failed`, `remote end hung up`, a timeout), or a
+  `timeout 1500` kill: retry at most 3 times. Wait 30 s before the first retry, 60 s before
+  the second and 120 s before the third.
+- After each try, `git ls-remote origin refs/heads/<branch>` must equal `git rev-parse HEAD`.
+  If it does, the push landed: stop.
+- A failed push is never a reason for `--no-verify` or the git data API. After 3 failed retries,
+  report the hook-times line and the last error.
+
 ## Before you touch hot paths
 
 - Use the patterns in [PATTERNS.md](plans/cmux-next/PATTERNS.md) (composition root, seam adapters, targeted

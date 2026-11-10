@@ -3,6 +3,8 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+import type { EndpointBackend } from "../shared/byoEndpoint";
+
 /** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
  * one message, never on a send. A send with more files goes as several messages
  * (`messageGroups`), so any number of files attaches. cap-allow: route */
@@ -171,7 +173,8 @@ export interface HomeChiefBackend {
  * The key goes to the Keychain through the host; the page never keeps it after submit. */
 export type HomeChiefByoBackend =
   | { kind: "command"; name: string; command: string; args: string[] }
-  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+  /** `id` and `replace` (the form's own earlier add, written again): shared/byoEndpoint.ts. */
+  | EndpointBackend;
 
 /** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
 export interface HomeChiefDoctor {
@@ -225,6 +228,8 @@ export interface HomeConversation {
   createdAt?: number;
   /** Messages after my read cursor. */
   unread: number;
+  /** The others' read cursors (the newest seq each read), by participant id: my messages' Read receipts. */
+  readCursors?: Readonly<Record<string, { seq: number }>>;
   /** Mentions of me after my read cursor (the owner's count; 0 where the owner keeps none). */
   mentions: number;
   muted: boolean;
@@ -254,9 +259,91 @@ export interface HomeMention {
 
 export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
-  | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
+  | {
+      type: "work";
+      title: string;
+      status: "running" | "waiting" | "done" | "failed";
+      preview?: string;
+      /** The acpmux session it names (a machine name: never shown as its text). */
+      session?: string;
+    }
   | HomeAttachment
+  | HomeQuestion
+  | HomeLinkPreviewPart
+  | HomeLocation
+  | HomeWidgetPart
   | { type: "other"; text: string };
+
+/** An agent's chat widget (`Part::Widget`, cmux-tui cmux-conversation `widget.rs`;
+ * plans/cmux-next/chat-widgets-DESIGN.md section 3): a Mac with the named app draws it as a card
+ * from the app's `cmux.chat.widget/1` export; everywhere else, and until it loads, the fallback. */
+export interface HomeWidgetPart {
+  type: "widget";
+  /** The app id, `publisher/name`. */
+  app: string;
+  /** The interface the app implements (`cmux.chat.widget/1`). */
+  widget: string;
+  /** The export's input (a JSON object, data only). */
+  props: Record<string, unknown>;
+  /** Plain text every client without the card shows (copy, search, previews). */
+  fallback: string;
+  url?: string;
+}
+
+/** One option of a question item (`QuestionItem.options`). */
+export interface HomeQuestionOption {
+  id: string;
+  label: string;
+  detail?: string;
+  /** Shown beside the option (a Chief approval's allow option carries the request JSON here). */
+  preview?: { text: string; format: "monospace" | "markdown" | "html" };
+}
+
+/** One question of an ask (`QuestionItem`). */
+export interface HomeQuestionItem {
+  id: string;
+  header?: string;
+  prompt: string;
+  options: HomeQuestionOption[];
+  multiSelect: boolean;
+  allowsOther: boolean;
+}
+
+/** Where a question stands; only its owner moves it out of pending. */
+export type HomeQuestionState =
+  | { kind: "pending" }
+  | { kind: "cancelled" }
+  | { kind: "answered"; selections: Record<string, { optionIds: string[]; other?: string }> };
+
+/** A `question` part (cmux-tui spec/commands.md `Question`): an agent's question with options. A
+ * Chief's permission card is one of these (one `approval:<digest>` item with allow and deny). */
+export interface HomeQuestion {
+  type: "question";
+  harness: "claude" | "codex" | "acp" | "chief";
+  session: string;
+  permission?: string;
+  agent?: string;
+  items: HomeQuestionItem[];
+  state: HomeQuestionState;
+}
+
+/** A `link_preview` part: a link with the preview its sender fetched (receivers never fetch it). */
+export interface HomeLinkPreviewPart {
+  type: "link_preview";
+  url: string;
+  title?: string;
+  site?: string;
+  /** Its picture, a blob of the conversation read by hash. */
+  image?: HomeDerivedImage;
+}
+
+/** A shared place. */
+export interface HomeLocation {
+  type: "location";
+  latitude: number;
+  longitude: number;
+  label?: string;
+}
 
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
 export interface HomeDerivedImage {

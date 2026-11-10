@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -188,15 +189,22 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+
+    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
+    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
+    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
+    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
     func showFirstRunSteps(isFirstRun: Bool) async {
         guard !services.environment.skipsOnboarding else { return }
+        let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
+        guard route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
-    func historyImportFinished() {
-        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
-    }
+    func historyImportFinished() { UserDefaults.standard.set(true, forKey: HomeMessagesFirstRunProvider.memoryOfferUsedKey) }
 
 }
 

@@ -200,7 +200,14 @@ export function useToastMotion(
       const gone = exiting.find((item) => item.toast.serial === serial);
       if (!gone) return [];
       element.dataset.toastFading = "true";
-      Object.assign(element.style, { position: "absolute", width: `${gone.place.w}px`, pointerEvents: "none" });
+      // Its size in the stack, both ways: a crowded stack shrinks a toast's Details, and out of the flow
+      // the copy would grow back to their full height while it fades (CMUX-359).
+      Object.assign(element.style, {
+        position: "absolute",
+        width: `${gone.place.w}px`,
+        height: `${gone.place.h}px`,
+        pointerEvents: "none",
+      });
       return [{ element, serial, gone }];
     });
     const origin = root.getBoundingClientRect();

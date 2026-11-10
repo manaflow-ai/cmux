@@ -51,6 +51,11 @@ public final class TabStripModel {
     /// strip shows the new tab in that tab's cell, which leaves with no close, instead of growing
     /// one in while the other shrinks away (Leo 2026-10-13).
     @ObservationIgnored public var successors: [TabID: TabID] = [:]
+    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App):
+    /// each leaves at once with no close, and the tabs left close up on the strip's move (Leo
+    /// 2026-11-07: "you have a thing that you already dragged, and yet you're playing the closed tab
+    /// animation. You should play no animation there").
+    @ObservationIgnored public var departures: Set<TabID> = []
 
     public init(
         stripID: UUID = UUID(),

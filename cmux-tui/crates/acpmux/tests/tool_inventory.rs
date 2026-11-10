@@ -258,6 +258,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_eq!(info["toolsMutable"], json!(false), "{info}");
     let cmux_servers = vec![
         row("mcp:cmux-cua", "cmux", "cmux", true, false),
+        row("mcp:cmux-sessions", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
         row("mcp:acpmux", "cmux", "cmux", true, false),
@@ -340,6 +341,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         rows(&info["tools"]),
         vec![
             row("mcp:cmux-cua", "cmux", "cmux", true, true),
+            row("mcp:cmux-sessions", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
             row("mcp:acpmux", "cmux", "cmux", true, true),
@@ -350,8 +352,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("skill:cmux:cmux-live", "cmux", "cmux", true, false),
             row("skill:cmux:acpmux", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-chat", "cmux", "cmux", true, false),
-            // When and how to ask for one root command (#37949).
-            row("skill:cmux:cmux-sudo", "cmux", "cmux", true, false),
+            // No cmux-sudo: it is listed only with the cmux-secrets server
+            // (#39122), and this test runs without ACPMUX_SECRET_TOOLS.
             row("mcp:github", "mcp", "claude", true, true),
             row("mcp:linear", "mcp", "claude", false, false),
             row("mcp:claude.ai Foo  (Beta)", "mcp", "claude", true, true),

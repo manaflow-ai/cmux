@@ -15,6 +15,7 @@ import {
   inlineIds,
   inlinePlugin,
   insertInline,
+  type InlinePlace,
   orderInline,
   placeTokensIn,
   removeInline,
@@ -146,8 +147,10 @@ export type MarkdownFieldHandle = {
   insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet). `replace`: the person's paste or drop, which
-  /// takes the selection's place; otherwise nothing typed is replaced.
-  insertInline(ids: readonly string[], replace?: boolean): boolean;
+  /// takes the selection's place; otherwise nothing typed is replaced. `at` "start": at the start of
+  /// the prompt's first line that can hold them, the selection kept; "restore": there, as no undo
+  /// step of its own (inlineNode.ts `insertInline`).
+  insertInline(ids: readonly string[], replace?: boolean, at?: InlinePlace): boolean;
   /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
   removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
@@ -1632,10 +1635,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           insertPlain(view.current, text);
         },
-        insertInline: (ids, replace) => {
+        insertInline: (ids, replace, at) => {
           if (!view.current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids, replace);
+          return insertInline(view.current, ids, replace, at);
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);

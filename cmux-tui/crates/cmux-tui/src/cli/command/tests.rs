@@ -117,6 +117,20 @@ fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
     );
 }
 
+#[test]
+fn terminal_pin_tail_maps_to_set_terminal_tail_pin() {
+    const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+    let on = raw_request(&["terminal", TERMINAL, "pin-tail", "on"]);
+    assert_eq!(on["cmd"], "set-terminal-tail-pin");
+    assert_eq!(on["terminal"], TERMINAL);
+    assert_eq!(on["pinned"], true);
+    let off = raw_request(&["terminal", TERMINAL, "pin-tail", "off"]);
+    assert_eq!(off["pinned"], false);
+    for bad in [["terminal", "@2", "pin-tail", "on"], ["terminal", TERMINAL, "pin-tail", "maybe"]] {
+        assert!(parse(&strings(&bad), super::super::Surface::CmuxTui).is_err());
+    }
+}
+
 fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }

@@ -1448,127 +1448,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Web Reload: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ライブ Web リロード: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "إعادة تحميل الويب المباشرة: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ponovno učitavanje weba uživo: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live-genindlæsning af web: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live-Web-Neuladen: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Recarga web en vivo: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rechargement web en direct : %@"
+            "state" : "translated",
+            "value" : "cmux Live : %@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ricarica web in tempo reale: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ការផ្ទុកវេបឡើងវិញផ្ទាល់៖ %@"
+            "value" : "cmux Live: %@"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "실시간 웹 새로고침: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live-omlasting av web: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Przeładowanie WWW na żywo: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Recarga web ao vivo: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Живая перезагрузка веба: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "การรีโหลดเว็บแบบสด: %@"
+            "value" : "cmux Live: %@"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Canlı Web Yenileme: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Живе перезавантаження вебу: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tải lại web trực tiếp: %@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "实时网页重载：%@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "即時網頁重載：%@"
+            "state" : "translated",
+            "value" : "cmux Live: %@"
           }
         }
       }
@@ -1972,127 +1972,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The dev server is running, but Live Web Reload is off. Turn it on in Settings > Updates to see your edits."
+            "value" : "The dev server is running, but cmux Live is off. Turn it on in Settings > General to see your edits."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "خادم التطوير يعمل، لكن Live Web Reload متوقف. شغّله في الإعدادات > التحديثات لترى تعديلاتك."
+            "state" : "translated",
+            "value" : "خادم التطوير يعمل، لكن cmux Live متوقف. شغّله في الإعدادات > عام لترى تعديلاتك."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Razvojni server radi, ali je Live Web Reload isključen. Uključite ga u Postavke > Ažuriranja da vidite svoje izmjene."
+            "state" : "translated",
+            "value" : "Razvojni server radi, ali je cmux Live isključen. Uključite ga u Postavke > Opće da vidite svoje izmjene."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Udviklingsserveren kører, men Live Web Reload er slået fra. Slå det til i Indstillinger > Opdateringer for at se dine ændringer."
+            "state" : "translated",
+            "value" : "Udviklingsserveren kører, men cmux Live er slået fra. Slå det til i Indstillinger > Generelt for at se dine ændringer."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Der Entwicklungsserver läuft, aber Live Web Reload ist aus. Schalte es unter Einstellungen > Updates ein, um deine Änderungen zu sehen."
+            "state" : "translated",
+            "value" : "Der Entwicklungsserver läuft, aber cmux Live ist aus. Schalte es unter Einstellungen > Allgemein ein, um deine Änderungen zu sehen."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "El servidor de desarrollo está en marcha, pero Live Web Reload está desactivado. Actívalo en Ajustes > Actualizaciones para ver tus cambios."
+            "state" : "translated",
+            "value" : "El servidor de desarrollo está en marcha, pero cmux Live está desactivado. Actívalo en Ajustes > General para ver tus cambios."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le serveur de développement tourne, mais Live Web Reload est désactivé. Activez-le dans Réglages > Mises à jour pour voir vos modifications."
+            "state" : "translated",
+            "value" : "Le serveur de développement tourne, mais cmux Live est désactivé. Activez-le dans Réglages > Général pour voir vos modifications."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Il server di sviluppo è attivo, ma Live Web Reload è disattivato. Attivalo in Impostazioni > Aggiornamenti per vedere le tue modifiche."
+            "state" : "translated",
+            "value" : "Il server di sviluppo è attivo, ma cmux Live è disattivato. Attivalo in Impostazioni > Generali per vedere le tue modifiche."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "開発サーバーは動作していますが、Live Web Reload がオフです。編集を反映するには、設定 > アップデート でオンにしてください。"
+            "state" : "translated",
+            "value" : "開発サーバーは動作していますが、cmux Live がオフです。編集を反映するには、設定 > 一般 でオンにしてください。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ម៉ាស៊ីនមេអភិវឌ្ឍន៍កំពុងដំណើរការ ប៉ុន្តែ Live Web Reload ត្រូវបានបិទ។ បើកវានៅក្នុង ការកំណត់ > បច្ចុប្បន្នភាព ដើម្បីមើលការកែសម្រួលរបស់អ្នក។"
+            "state" : "translated",
+            "value" : "ម៉ាស៊ីនមេអភិវឌ្ឍន៍កំពុងដំណើរការ ប៉ុន្តែ cmux Live ត្រូវបានបិទ។ បើកវានៅក្នុង ការកំណត់ > ទូទៅ ដើម្បីមើលការកែសម្រួលរបស់អ្នក។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "개발 서버는 실행 중이지만 Live Web Reload가 꺼져 있습니다. 편집 내용을 보려면 설정 > 업데이트에서 켜세요."
+            "state" : "translated",
+            "value" : "개발 서버는 실행 중이지만 cmux Live가 꺼져 있습니다. 편집 내용을 보려면 설정 > 일반에서 켜세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Utviklingsserveren kjører, men Live Web Reload er av. Slå det på i Innstillinger > Oppdateringer for å se endringene dine."
+            "state" : "translated",
+            "value" : "Utviklingsserveren kjører, men cmux Live er av. Slå det på i Innstillinger > Generelt for å se endringene dine."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Serwer deweloperski działa, ale Live Web Reload jest wyłączone. Włącz je w Ustawienia > Aktualizacje, aby zobaczyć swoje zmiany."
+            "state" : "translated",
+            "value" : "Serwer deweloperski działa, ale cmux Live jest wyłączone. Włącz je w Ustawienia > Ogólne, aby zobaczyć swoje zmiany."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "O servidor de desenvolvimento está rodando, mas o Live Web Reload está desligado. Ative-o em Ajustes > Atualizações para ver suas edições."
+            "state" : "translated",
+            "value" : "O servidor de desenvolvimento está rodando, mas o cmux Live está desligado. Ative-o em Ajustes > Geral para ver suas edições."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сервер разработки запущен, но Live Web Reload выключен. Включите его в Настройки > Обновления, чтобы увидеть свои правки."
+            "state" : "translated",
+            "value" : "Сервер разработки запущен, но cmux Live выключен. Включите его в Настройки > Основные, чтобы увидеть свои правки."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เซิร์ฟเวอร์สำหรับพัฒนากำลังทำงาน แต่ Live Web Reload ปิดอยู่ เปิดได้ที่ การตั้งค่า > อัปเดต เพื่อดูการแก้ไขของคุณ"
+            "state" : "translated",
+            "value" : "เซิร์ฟเวอร์สำหรับพัฒนากำลังทำงาน แต่ cmux Live ปิดอยู่ เปิดได้ที่ การตั้งค่า > ทั่วไป เพื่อดูการแก้ไขของคุณ"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Geliştirme sunucusu çalışıyor ama Live Web Reload kapalı. Düzenlemelerinizi görmek için Ayarlar > Güncellemeler'den açın."
+            "state" : "translated",
+            "value" : "Geliştirme sunucusu çalışıyor ama cmux Live kapalı. Düzenlemelerinizi görmek için Ayarlar > Genel'den açın."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сервер розробки працює, але Live Web Reload вимкнено. Увімкніть його в Налаштування > Оновлення, щоб побачити свої зміни."
+            "state" : "translated",
+            "value" : "Сервер розробки працює, але cmux Live вимкнено. Увімкніть його в Налаштування > Загальні, щоб побачити свої зміни."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Máy chủ phát triển đang chạy, nhưng Live Web Reload đang tắt. Bật nó trong Cài đặt > Cập nhật để thấy các chỉnh sửa của bạn."
+            "state" : "translated",
+            "value" : "Máy chủ phát triển đang chạy, nhưng cmux Live đang tắt. Bật nó trong Cài đặt > Chung để thấy các chỉnh sửa của bạn."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "开发服务器正在运行，但 Live Web Reload 已关闭。在 设置 > 更新 中打开它即可看到你的修改。"
+            "state" : "translated",
+            "value" : "开发服务器正在运行，但 cmux Live 已关闭。在 设置 > 通用 中打开它即可看到你的修改。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "開發伺服器正在執行，但 Live Web Reload 已關閉。在 設定 > 更新 中開啟它即可看到你的修改。"
+            "state" : "translated",
+            "value" : "開發伺服器正在執行，但 cmux Live 已關閉。在 設定 > 一般 中開啟它即可看到你的修改。"
           }
         }
       }

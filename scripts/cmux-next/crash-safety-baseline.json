@@ -5,7 +5,6 @@
    "chatmux-relay": 12,
    "cmux-app-host": 2,
    "cmux-browser-host": 2,
-   "cmux-mux2": 17,
    "cmux-rd-host": 1,
    "cmux-tui": 1
   },
@@ -14,7 +13,6 @@
    "chatmux-relay": 81,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
-   "cmux-mux2": 42,
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
    "cmux-tui": 75,
@@ -112,7 +110,7 @@
    "exit": {
     "acpmux": 6,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,
@@ -179,7 +177,7 @@
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 2
+    "MessagesLabHome": 3
    }
   }
  }

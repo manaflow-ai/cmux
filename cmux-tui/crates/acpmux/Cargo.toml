@@ -90,11 +90,14 @@ sha2.workspace = true
 # already in the graph through rustls.
 ring.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
 # Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
 flate2.workspace = true
+# A cold-archived chat's log, one compressed file (src/store/cold.rs).
+zstd.workspace = true
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -162,6 +165,10 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# Property tests of the stores under random operations, restarts and torn writes (src/stress/).
+proptest = { version = "1", default-features = false, features = ["std"] }
+# The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.
+cmux-cloud-api.workspace = true
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
@@ -177,6 +184,8 @@ cmux-relay = { path = "../cmux-relay" }
 axum.workspace = true
 # WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
 blake2 = "0.10"
+# A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).
+rusqlite.workspace = true
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]

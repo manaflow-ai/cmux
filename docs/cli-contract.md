@@ -149,9 +149,10 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
+| 1 | Operation failure (the request ran and failed). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
+| 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. On a Cloud machine, a timed-out `process wait` exits 124 only for a caller that sets `CMUX_CALLER_READS_WAIT_124=1` (the current guest adapter does); for any other it still exits 0 and says `timed_out: true`, so an older adapter keeps working. |
 
 `cmux acp` keeps acpmux's own exit codes (for example `acp wait` exits 2 when a
 permission is waiting and 3 on timeout).
@@ -428,9 +429,14 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 `home`, `end`, `pageup`, `pagedown`, `space`, `f1` to `f24`, or one character.
 Example: `cmux terminal current keys ctrl+c enter`.
 
-`screen wait` prints its result either way and exits 1 when the timeout passes
-without a match. `cmux agents wait` does the same: it prints its receipt
-(`matched: false`) and exits 1 when its timeout passes.
+Every wait prints its result either way, and a wait whose timeout passed says
+`timed_out: true` and exits 124, as timeout(1) does; exit 0 means the wait
+ended for its own reason. `screen wait` answers `matched: false`, `timed_out:
+true` and `waited_ms` when the timeout passes without a match. `process wait`
+answers `outcome` once the process ends (exit 0, whatever the process's own
+code), and `state: "pending"`, `timed_out: true` and `waited_ms` when it still
+runs at the timeout. `cmux agents wait` prints its receipt (`matched: false`,
+`timed_out: true`) and exits 124 when its timeout passes.
 
 `wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
 from OSC 133 shell integration); `--until idle` when no plain command runs, no
@@ -443,7 +449,11 @@ reattaches to a running terminal host, the prompt and command state come back
 only with the shell's next mark. `--until ready` waits until the terminal's
 agent can take a message, as `cmux agent start` does (spec/cli.md "Agent start
 and resume"): a startup dialog such as Claude's folder-trust question ends it
-as `blocked` with `dialog` and `reason` (exit 4).
+as `blocked` with `dialog` and `reason` (exit 4). Both `agent start` and
+`--until ready` also give the dialog's numbered `options` and, for folder
+trust, `accept_keys` and `accept_label` (the option those keys pick); the
+`reason` names the terminal and warns when that option also turns approvals
+off.
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
@@ -454,9 +464,8 @@ turn finished and nobody has viewed the terminal yet, `working`, `idle`,
 Blocked agents sort first, then done, working, idle, unknown and ended.
 Listing never clears `done`; viewing the tab in a client does. `--json` prints
 `[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
-updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
-ended session) and `state` is a deprecated alias that has the same word
-(`ended` for an ended session).
+updated_at_ms, age_ms, source}]`: `status` is the word above (`ended` for an
+ended session) and `state` is a deprecated alias that has the same word.
 
 Each `list --agents` row also has `name` (the tab's name when it is an agent
 name, see `cmux agent start`), `tab_id`, `tab_name`, `pane_id` and
@@ -479,10 +488,15 @@ or OSC 9;4 progress runs, and the screen has not changed for `--settle`
 after the message's echo (reading history pages when the reply is longer than
 the screen), less the harness's input box and status footer; `--json` prints
 `{terminal, harness, bracketed_paste, status, state, timed_out, waited_ms,
-anchored, output}`. `status` is the word `list --agents` says for the same
+anchored, reply, reply_source, output}`. `reply` is the agent's own last
+message, whole, from its hooks when they reported it after the send and the
+wait ended idle (`reply_source: "hook"`); else it is `output`
+(`reply_source: "screen"`). `status` is the word `list --agents` says for the same
 turn: `idle`, `done` (the turn finished and the terminal has an unread
 notification), `blocked`, `working` (the wait timed out) or `ended` (the
-program exited); `state` is the wait's own word (`idle`, `blocked`, `working`,
+program exited), from a session read after the wait (tried twice; when both
+reads fail, a finished turn says `unknown`, never an older read's word); `state`
+is the wait's own word (`idle`, `blocked`, `working`,
 `exited`). `--timeout` (default 5m) exits 124 with the output so far. A
 terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)
 unless `--force`, because the text would answer the dialog. The MCP tools
@@ -538,17 +552,19 @@ cmux agent plugin use --builtin
 chats created in its workspaces (`--all-sessions` for every session and every
 chat on the machine). Each row's `status` is the word `terminal list --agents`
 uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
-`unknown`, or null for an ended session; `state` is a deprecated alias with
-the same word (`ended` for an ended session), and an acpmux chat's own status
-is `acp_status`. The CLI does not list an ended agent of a terminal that
-closed; `--state ended` shows those rows too. `--state` takes those words and
+`unknown`, or `ended` for an ended session (as in the `send` receipt; it was
+null); `state` is a deprecated alias with the same word, and an acpmux chat's
+own status is `acp_status`. The CLI does not list an ended agent of a terminal
+that closed; `--state ended` shows those rows too, and the text output ends
+with a line that says how many rows it left out. `--state` takes those words and
 `ended` (`--state done` selected ended sessions before; that is `--state ended`
 now). It puts blocked agents first, then done, working, idle, unknown and
 ended (`--sort recent|none` for recency or the daemon's order). `agent report --state ended` reports a session
 that ended (`--state done` is an old alias of it), and its record says
 `ended`. `--json` stays
 a bare array of agents; `--json --counts` adds the counts by status, `ended` and
-`total` (`{"agents": [...], "counts": {...}}`).
+`total`, and `hidden_ended`, the ended agents of closed terminals it left out
+(`{"agents": [...], "counts": {...}, "hidden_ended": 0}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when

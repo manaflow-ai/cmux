@@ -71,7 +71,8 @@
       "agent": "settable",
       "why": "Sidebar control visibility (looks only)",
       "keys": [
-        "sidebar.controlsOnHover"
+        "sidebar.controlsOnHover",
+        "sidebar.floatOnHover"
       ]
     },
     {
@@ -283,7 +284,6 @@
         "ui.animationSpeed",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
-        "ui.animations.bounce",
         "ui.animations.enabled",
         "ui.animations.sidebar",
         "ui.animations.tabs",
@@ -735,6 +735,7 @@
         "agentPane.display.pinnedPlan",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.unreadBanner",
         "agentPane.display.senderIcon.lead",
         "agentPane.display.senderIcon.badge",
         "agentPane.display.senderIcon.corner",
@@ -749,6 +750,7 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
         "agentPane.display.harnessPlacement",
@@ -929,6 +931,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
+      "keys": [
+        "cloud.turnCheckpoints"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
       "keys": [
@@ -960,6 +969,14 @@
       "why": "Each recap is an extra model call on the person's usage: theirs to turn on or off.",
       "keys": [
         "agents.chats.sessionRecap"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.",
+      "keys": [
+        "agents.chats.coldArchive",
+        "agents.chats.coldArchiveAfterDays"
       ]
     },
     {

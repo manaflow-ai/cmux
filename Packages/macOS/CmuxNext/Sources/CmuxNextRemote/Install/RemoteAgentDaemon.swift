@@ -28,15 +28,23 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
     /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
     /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
     public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
-        let command = [
-            "set -eu",
-            #"b="$HOME/.cmux/bin/cmux-tui""#,
-            #"[ -x "$b" ] || exit 82"#,
-            #""$b" acp --json daemon status </dev/null""#,
-        ].joined(separator: "; ")
-        guard let result = try? await api.exec(machine, command: command, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
+        guard let result = try? await api.exec(machine, command: cloudStatusCommand, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
         return RemoteAgentDaemonStatus(json: result.stdout)
     }
+
+    /// The machine's exec script of ``read(cloudMachine:api:)``: the status as `cmux-tui` prints it; exit 82 with no cmux-tui.
+    /// A provider's exec may run with no login profile (HOME unset, or the provider's own `/root`), so HOME is the exec
+    /// user's home from the passwd database, else the image's work user's: the daemon's socket is under it. Read from
+    /// `$HOME`, the status was unreadable on every Cloud start, and the keyed restart never ran beside the login.
+    public static let cloudStatusCommand = [
+        "set -eu",
+        #"h=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6 || true)"#,
+        #"[ -z "$h" ] || HOME=$h"#,
+        #"export HOME="${HOME:-/home/cmux}""#,
+        #"b="$HOME/.cmux/bin/cmux-tui""#,
+        #"[ -x "$b" ] || exit 82"#,
+        #""$b" acp --json daemon status </dev/null"#,
+    ].joined(separator: "; ")
 
     public static func read(_ host: SSHHost, environment: [String: String]) async -> RemoteAgentDaemonStatus? {
         guard let status = try? await SSHProcessRunner.run(
@@ -162,6 +170,21 @@ public actor RemoteApprovalPreparations {
         return await run(machine: machine, keepBusy: true) {
             guard await idle() else { return false }
             return await restart()
+        }
+    }
+
+    /// Runs `body` while `prep` (a start's keyed-restart prep) runs beside it. The prep belongs to the caller: it is awaited
+    /// before this returns, and cancelled first on an error exit, so no restart outlives the start that asked (#39069's review).
+    @MainActor public static func owned<T>(_ prep: @escaping @MainActor @Sendable () async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
+        let task = Task { await prep() } // task-owner: awaited on every exit below
+        do {
+            let value = try await body()
+            _ = await task.value
+            return value
+        } catch {
+            task.cancel()
+            _ = await task.value
+            throw error
         }
     }
 }

@@ -112,7 +112,7 @@ import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
-import { latestLine, toolDetail } from "./trayDetail";
+import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -126,7 +126,7 @@ import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
-import { Tick } from "./trayMotion";
+import { Tick, useGlide } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
@@ -138,6 +138,7 @@ import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
+import { focusRingShown } from "../../../ui/focusModality";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -360,6 +361,9 @@ export const SubagentTray = memo(function SubagentTray({
   // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
+  // "+N more" and the time move as one trailing segment: a width change before them glides them to
+  // their new place instead of jumping (trayMotion.tsx `useGlide`).
+  useGlide(headButton, ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time");
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -715,8 +719,14 @@ export const SubagentTray = memo(function SubagentTray({
               ))}
             </span>
           )}
+          {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
+              and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
+            <Tick
+              className="acpmux-summary-meta acpmux-running-tray__more"
+              text={t("tools.more", { n: moreCount })}
+              steadyCounts
+            />
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneEnd ? (
@@ -740,10 +750,11 @@ export const SubagentTray = memo(function SubagentTray({
                 </>
               )}
             </span>
+          ) : // The clock is the time element itself, so a range over it holds only its text.
+          starts.length > 0 ? (
+            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={Math.min(...starts)} />
           ) : (
-            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? <Elapsed since={Math.min(...starts)} /> : undefined}
-            </span>
+            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}
@@ -1060,7 +1071,11 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
 /// what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
-    agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
+    agent.state !== "running"
+      ? undefined
+      : agent.actionShell
+        ? actionDetail(t, agent.action, true)
+        : namedAction(t, agent.action);
   const label = subagentTaskLabel(t, agent);
   const name = subagentDisplayName(t, agent);
   const lines = [
@@ -1224,10 +1239,10 @@ function withLeaving(cards: readonly TrayCard[], leaving: ReadonlyMap<string, Le
   return out;
 }
 
-/// Focus that arrived by keyboard (`:focus-visible`), which holds the hat; a click's focus does not.
+/// Focus a navigation key moved here (focusRingShown), which holds the hat; a click's focus does not.
 function focusVisible(event: FocusEvent<HTMLElement>): boolean {
   try {
-    return (event.target as Element).matches(":focus-visible");
+    return focusRingShown(event.target as Element);
   } catch {
     return false;
   }

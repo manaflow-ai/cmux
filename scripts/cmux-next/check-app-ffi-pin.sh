@@ -2,8 +2,8 @@
 # Checks the app FFI pin (CCmuxAppFFI: the remote desktop core and the sidebar
 # layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/Package.swift.
 #
-#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF]
-#   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs
+#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF] [--tree DIR]
+#   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs [--tree DIR]
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -11,23 +11,38 @@
 # URL and checksum in one commit. With --verify-release it also downloads the
 # release's SOURCE_SHA and SHA256SUMS anonymously and fails unless they name
 # the pinned sha and the pinned checksum.
+#
+# --tree DIR checks the repository at DIR (its Package.swift, its FFI sources,
+# its git history) instead of the one this script is in. The pin reader is
+# always this script's own copy. cmux-next.yml runs the base's copy of both
+# against a pull request's tree, so the pull request's own copy never decides
+# its pin verdict.
 set -euo pipefail
 
 verify=0
 list_inputs=0
 base_ref=""
+tree=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify-release) verify=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
-    *) echo "usage: $0 [--verify-release] [--base REF]" >&2; exit 2 ;;
+    --tree) tree="${2:?--tree needs a directory}"; shift ;;
+    *) echo "usage: $0 [--verify-release] [--base REF] [--tree DIR]" >&2; exit 2 ;;
   esac
   shift
 done
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+# code: the repository this script is in, whose pin reader runs. root: the tree it checks.
+code="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+root="$code"
+if [[ -n "$tree" ]]; then
+  root="$(cd "$tree" 2>/dev/null && pwd -P)" || { echo "error: --tree $tree is not a directory" >&2; exit 2; }
+fi
 manifest="$root/Packages/macOS/CmuxNext/Package.swift"
+# The JSON pin (cmux#37645): when the tree has it, the pin is that file's and Package.swift holds only its loader block.
+pin_file="$root/Packages/macOS/CmuxNext/app-ffi-pin.json"
 asset="CCmuxAppFFI.xcframework.zip"
 
 # The FFI sources: cmux-app-ffi and every crate it reaches through Cargo path
@@ -68,8 +83,15 @@ fi
 # The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
 # picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
 # naming its first line that does not match.
-pin_reader="$root/scripts/ci/app_ffi_pin.py"
-if ! pinned="$(python3 "$pin_reader" read "$manifest" 2>&1)"; then
+pin_reader="$code/scripts/ci/app_ffi_pin.py"
+# Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import
+# path, and PYTHONPATH and the user site are ignored. Otherwise a module a change adds (scripts/ci/json.py beside the
+# reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
+# the verdict, while base_red_excuse.py trusts the verdict of a change that leaves this check's files alone. The
+# reader imports only the standard library.
+read_pin=(read "$manifest")
+[[ -f "$pin_file" ]] && read_pin=(read-pin-file "$pin_file" "$manifest")
+if ! pinned="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>&1)"; then
   echo "error: no canonical cmux-app-ffi pin in $manifest: ${pinned#error: }" >&2
   exit 1
 fi
@@ -91,9 +113,17 @@ fi
 own_change=1
 if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
-    # The base's pin through the same canonical match; a base that does not match it pins nothing here.
-    base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" 2>/dev/null \
-      | python3 "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
+    # The base's pin through the same canonical match, in either form; a base that does not match it pins nothing
+    # here.
+    base_dir="$(mktemp -d)"
+    base_pin=""
+    if git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" >"$base_dir/Package.swift" 2>/dev/null; then
+      read_pin=(read "$base_dir/Package.swift")
+      git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" >"$base_dir/app-ffi-pin.json" 2>/dev/null \
+        && read_pin=(read-pin-file "$base_dir/app-ffi-pin.json" "$base_dir/Package.swift")
+      base_pin="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>/dev/null | awk '{print $1}' || true)"
+    fi
+    rm -rf "$base_dir"
     if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
@@ -143,7 +173,7 @@ if [[ "$verify" -eq 1 ]]; then
     local api="https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" name="${BASH_REMATCH[4]}" asset_url
     echo "app FFI pin: $2 failed; fetching it through the release-assets API" >&2
     asset_url="$(get -H 'Accept: application/vnd.github+json' "$api/releases/tags/${BASH_REMATCH[3]}" \
-      | python3 -c 'import json, sys; print(next(a["url"] for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$name")" \
+      | python3 -I -c 'import json, sys; print(next(a["url"] for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$name")" \
       || return 1
     get -H 'Accept: application/octet-stream' -o "$1" "$asset_url"
   }

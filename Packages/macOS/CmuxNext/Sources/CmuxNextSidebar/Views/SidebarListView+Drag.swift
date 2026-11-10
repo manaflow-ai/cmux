@@ -19,24 +19,19 @@ extension SidebarListViewComponents {
         var standing: WorkspaceID?
         if let header = pressed.standingHeader, case let .workspace(id) = press.key,
            !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
-            if let before = press.switchedOnPress {
-                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
-                model.selection = before.selection
-                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
-            }
+            if let before = press.switchedOnPress { restorePressSelection(before, pressed: id) }
             key = header.key
             standing = id
         }
         switch key {
         case let .workspace(id):
-            guard !model.isPlaceholder(id) else { return }
+            // A creating row drags alone (it is never selected); a placeholder bar never drags.
+            guard !model.isPlaceholder(id) || model.isCreating(id) else { return }
             let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
             // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
             // before the press: a press that switched on mouse-down switches back.
             if let before = press.switchedOnPress {
-                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
-                model.selection = before.selection
-                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
+                restorePressSelection(before, pressed: id)
             } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
@@ -64,9 +59,21 @@ extension SidebarListViewComponents {
         }
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
         let rows = SidebarListLift.rows(self, for: key, hidden: hidden)
-        guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
-        let count: Int
-        if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
+        let rowFrame: NSRect, content: NSView, count: Int, head: CGFloat?
+        var stacked = false
+        if case let .workspaces(ids) = payload, let stack = SidebarListLift.stack(self, ids: ids, pressed: key) {
+            // A selection lifts as the stack it drops as, as in a browser's vertical tabs: every row on the card, the gap its
+            // height. The count badge and stacked backs stay only for rows the card cannot show.
+            // Its drops resolve against the whole card, as a one-row card's do against its one-row gap: cut to its
+            // first row, the probe would stay inside the gap until the stack had moved its whole height.
+            (rowFrame, content, head) = (stack.frame, stack.content, nil)
+            count = stack.shown < ids.count ? ids.count : 1
+            stacked = true
+        } else {
+            guard let frame = SidebarListLift.blockFrame(self, rows), let block = SidebarListLift.content(self, rows, in: frame) else { return }
+            (rowFrame, content, head) = (frame, block, rows.first?.height)
+            if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
+        }
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
             payload: payload,
@@ -74,7 +81,7 @@ extension SidebarListViewComponents {
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
             gapHeight: rowFrame.height,
-            lift: lift, head: rows.first?.height,
+            lift: lift, head: head,
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
@@ -85,7 +92,7 @@ extension SidebarListViewComponents {
         let stepIn = max(0, rowFrame.minX - inset)
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
-        drag.morphs = rows.count == 1
+        drag.morphs = rows.count == 1 && !stacked // a stack keeps its shape, as a group's block does
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
@@ -101,6 +108,21 @@ extension SidebarListViewComponents {
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
         SidebarEmptyZones.begin(self, drag)
+    }
+    /// A press that became a drag puts back the shown workspace and the selection it switched on mouse-down. That is
+    /// no focus change: the list does not scroll to the workspace shown before the press (Leo 2026-11-06: "it jumps me
+    /// up or to the bottom"). A row pressed near the bottom of a scrolled list, with the shown workspace far above,
+    /// scrolled the list there as the drag lifted.
+    func restorePressSelection(_ before: (shown: WorkspaceID?, selection: Set<WorkspaceID>), pressed id: WorkspaceID) {
+        // Marked revealed before the click: in the app the click's select redraws the list in the same turn
+        // (`SidebarSameTurn.syncNow`), and that reload must see the put-back as no focus change too.
+        if let shown = before.shown, shown != model.activeWorkspaceID {
+            revealedActive = .workspace(shown)
+            model.click(shown)
+        }
+        model.selection = before.selection
+        revealedActive = selectionRevealKey
+        if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
@@ -517,10 +539,14 @@ extension SidebarListViewComponents {
         displayed = layout
         spliceBase = nil // the drag's look is no full layout of the model
         updateDocumentHeight()
+        // A header stuck over the dragged rows stays stuck over the drag's look.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         for i in dragLookRows(layout, realize: realize) {
             let row = layout.rows[i]
-            let target = frame(for: row)
+            let target = drawnFrame(for: row)
             guard let view = rowViews[row.key] else {
                 // A row the look adds (an empty Pinned that takes the drop) fades in at its slot.
                 guard target.intersects(realize) else { continue }

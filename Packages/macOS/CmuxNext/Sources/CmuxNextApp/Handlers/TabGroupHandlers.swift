@@ -57,13 +57,15 @@ enum TabGroupHandlers {
     /// Runs a group command with a transaction, shown at once through the
     /// store's intent log when it has an `intent`; a rejection re-pushes
     /// daemon truth into the pane's strip.
-    static func run(_ label: String, pane: PaneModel?, intent: Intent? = nil, _ ctx: AppActionContext,
-                    _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
+    static func run(_ label: String, pane: PaneModel?, intent: Intent? = nil, departing group: GroupID? = nil, into target: PaneModel? = nil,
+                    _ ctx: AppActionContext, _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
         guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
+        let departed = group.map { TabGroupMoves.depart($0, into: target, services: ctx.services) { _ in } }
         Task {
             let ok = await daemon.runGroupCommand(label, intent: intent, body)
+            departed?(ok)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }

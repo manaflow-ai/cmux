@@ -45,6 +45,8 @@ struct CmuxMobileApp: App {
                 BrowserEventsDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
+            } else if ShellScreenSharingDemo.isRequested {
+                ShellScreenSharingDemo()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {

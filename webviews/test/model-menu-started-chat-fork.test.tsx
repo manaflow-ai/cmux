@@ -341,9 +341,10 @@ test("a started chat lists another harness's models, and picking one holds it fo
   const tabs = railTabs().map((tab) => tab.getAttribute("aria-label"));
   expect(tabs).toContain("Claude Code");
   expect(tabs).toContain("Codex");
-  // The chat's own tab carries the "used here" ring, its running model the mark.
-  expect(railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude Code")?.dataset.used).toBe("glyph");
-  expect(models().filter((row) => row.querySelector(".acpmux-used-mark")).length).toBe(1);
+  // Nothing held: the running row's check says what the chat runs, and no "used here" mark (the
+  // clock Lucas couldn't read) stands beside it or on the chat's own tab.
+  expect(railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude Code")?.dataset.used).toBeUndefined();
+  expect(models().filter((row) => row.querySelector(".acpmux-used-mark")).length).toBe(0);
   await showTab("Codex");
   // Codex's models list as a New Tab's do, and no Fork to row stands in for them.
   expect(models().length).toBeGreaterThan(0);
@@ -363,6 +364,12 @@ test("a started chat lists another harness's models, and picking one holds it fo
   await open();
   expect(selectedTab()).toBe("Codex");
   expect(checked().map(nameOf)).toEqual([name]);
+  // Held: the chat's own tab carries the "used here" ring, its running model the mark, and the mark
+  // names itself on hover.
+  expect(railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude Code")?.dataset.used).toBe("glyph");
+  await showTab("Claude Code");
+  const marks = models().flatMap((row) => [...row.querySelectorAll<HTMLElement>(".acpmux-used-mark")]);
+  expect(marks.map((mark) => mark.title)).toEqual(["In this chat"]);
 });
 
 test("picking the chat's own model again drops the held pick", async () => {

@@ -32,7 +32,7 @@ state; React components hot reload in place.
 ```bash
 cmux live start                      # the checkout around the current folder
 cmux live start --worktree ~/src/wt  # another checkout (a worktree for one change)
-cmux live status                     # what cmux loads its web UI from
+cmux live status                     # what cmux loads its web UI from, and why
 cmux live stop                       # back to the web UI cmux shipped with
 ```
 
@@ -79,12 +79,17 @@ Swift outside function bodies still needs a build; edits inside them take a live
 
 ## When it does not change
 
-- `cmux live status` shows `web-dev.json` and the Live Web Reload setting. The switch is
-  `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
+- `cmux live status` starts with what the app loads its web UI from and why (the cmux Live
+  setting, `web-dev.json`, whether its server answers with its token, when it stopped on its own),
+  then the details. The switch is Settings > General > cmux Live, `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
   back on.
 - The dev server's log is in the status output's state folder (`dev-server.log`).
 - cmux loads only a dev server that proves it holds the token `start` wrote; one started some
   other way is ignored. Start it with `cmux live start`, not `bun run dev` by hand.
+- A page that goes blank or shows another page: the server's checkout predates the 404 for files
+  it lacks, or lacks that page. Pull, `cmux live start` again, and serve a tree near the app's commit.
+- `cmux live` and Live Web Reload are one feature: the command starts it, the setting lets the app
+  load it. Swift, Rust and Chromium are `--swift`, `--rust` and `--chromium` of the same command.
 
 The full guide, including remote slots and following a pull request's head, is
 `docs/cmux-next/hot-reload.md`.

@@ -114,7 +114,11 @@ try {
     await load(img, 2458, 2324);
     const button = host.querySelector(".cv-user__images button")!;
     expect(button.getAttribute("title")).toBe("Screenshot · 2458×2324");
-    expect(host.innerHTML).not.toContain("image.png");
+    // Nothing drawn or read names it image.png. The image's id, which the send's move uses to find
+    // its thumbnail (data-send-key, conversation/sendMorph.ts), is neither.
+    const shown = host.cloneNode(true) as HTMLElement;
+    for (const keyed of shown.querySelectorAll("[data-send-key]")) keyed.removeAttribute("data-send-key");
+    expect(shown.innerHTML).not.toContain("image.png");
     await act(async () => (button as HTMLElement).click());
     expect(opened.at(-1)?.alt).toBe("Screenshot · 2458×2324");
   });

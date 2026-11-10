@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextMacScreen
 import CmuxNextRemote
@@ -212,7 +213,7 @@ final class TabContentCache {
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
-                                  uploadsPasteboardFiles: daemon.machineID != "local",
+                                  remoteShell: !daemon.isLocal, uploadsPasteboardFiles: daemon.machineID != "local",
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
@@ -261,7 +262,9 @@ final class TabContentCache {
     /// the record keeps naming Chromium, so a build with CEF restores it.
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
-        claimAgentDriven(surface: tab.surface, key: key)
+        let daemon = browserTabs.daemon(for: tab)
+        claimAgentDriven(surface: tab.surface, key: key, pane: daemon.store.pane(containing: tab.surface)?.resourceID?.rawValue,
+                         machine: daemon.machineID)
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }

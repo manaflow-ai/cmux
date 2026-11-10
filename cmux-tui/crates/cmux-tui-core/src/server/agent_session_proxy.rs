@@ -476,6 +476,9 @@ mod tests {
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit",
                 "_host_author":author, "_host_session":SESSION}),
+            // A side question approves reads on the owner's machine: the owner's alone.
+            json!({"cmd":"agent-session-btw", "surface":surface, "question":"why?",
+                "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-typing", "surface":surface, "on":true,
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-view", "surface":surface, "visible":true,
@@ -555,6 +558,7 @@ mod tests {
             json!({"cmd":"agent-session-permission", "permission_id":"perm_attach", "option_id":"allow"}),
             json!({"cmd":"agent-session-typing", "on":true}),
             json!({"cmd":"agent-session-view", "visible":true}),
+            json!({"cmd":"agent-session-btw", "question":"why?"}),
         ] {
             let reply = client.request(pinned(frame.clone()));
             assert_code(&reply, "agent_session.not_trusted");

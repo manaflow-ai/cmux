@@ -212,21 +212,25 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
     let (hub, fake) = setup(FakeHub::default());
     let now = crate::store::now_ms();
     // Saved before `neverSent`, or after an attempt that went out: the peer may have run it.
-    let saved = hub.outbox.add(Delivery {
-        id: "d-reached".into(),
-        target: "huge-blue/lane".into(),
-        request: request("huge-blue/lane", "prompt-reached")["request"].clone(),
-        caller: None,
-        unproven_caller: None,
-        state: State::Queued,
-        attempts: 1,
-        never_sent: false,
-        relay_post: None,
-        error: Some("peer disconnected".into()),
-        accepted: None,
-        created_at: now,
-        updated_at: now,
-    });
+    let saved = hub
+        .outbox
+        .add(Delivery {
+            id: "d-reached".into(),
+            target: "huge-blue/lane".into(),
+            request: request("huge-blue/lane", "prompt-reached")["request"].clone(),
+            caller: None,
+            unproven_caller: None,
+            not_terminal: false,
+            state: State::Queued,
+            attempts: 1,
+            never_sent: false,
+            relay_post: None,
+            error: Some("peer disconnected".into()),
+            accepted: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .unwrap();
     resume(&hub, vec![saved]);
     let d = after_attempt(&hub, "d-reached", 2).await;
     assert_eq!(d.state, State::Queued, "{d:?}");
@@ -280,6 +284,7 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
         request: request("huge-blue/lane", "prompt-running")["request"].clone(),
         caller: None,
         unproven_caller: None,
+        not_terminal: false,
         state: State::Queued,
         attempts: 0,
         never_sent: true,
@@ -293,4 +298,75 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
     start_attempt(&mut d, 1);
     assert_eq!(d.state, State::Delivering);
     assert!(!d.never_sent, "a crash mid-attempt could relay what the peer may run: {d:?}");
+}
+
+/// A send whose record cannot be written is refused, so the sender knows to send it again, and
+/// nothing of it is kept: no delivery from memory, no attachments beside the file.
+#[tokio::test]
+async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
+    let (hub, fake) = setup(FakeHub::default());
+    let dir = std::env::temp_dir().join(format!("outbox-not-saved-{}", uuid::Uuid::now_v7()));
+    // Folders where `outbox.json` and its journal should be, made after the open (which sets
+    // an unreadable file aside): their writes fail, also for root, while the attachments beside
+    // them can still be written.
+    let path = dir.join("outbox.json");
+    std::fs::create_dir_all(&dir).unwrap();
+    hub.outbox.open(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::create_dir_all(crate::hub::outbox::journal_path(&path)).unwrap();
+    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let mut params = request("huge-blue/lane", "prompt-not-saved");
+    params["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
+    let error = call(&hub, method::MUX_SEND_QUEUE, params).await.unwrap_err();
+    assert_eq!(error["data"]["reason"], "outbox.not_saved", "{error}");
+    assert_eq!(error["data"]["retryable"], true, "{error}");
+    assert!(hub.outbox.list(None, 10).0.is_empty(), "kept in memory only");
+    let kept: Vec<_> = std::fs::read_dir(dir.join("outbox-attachments"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert!(kept.is_empty(), "attachments of a refused send are left: {kept:?}");
+    assert!(fake.sent.lock().unwrap().is_empty());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A peer whose link is ready again while an attempt runs (before its failure is saved) ends
+/// the wait for the next one: the retry does not sleep out its delay with the peer up.
+#[tokio::test(start_paused = true)]
+async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
+    let (hub, _fake) = setup(FakeHub { unknown: true.into(), ..FakeHub::default() });
+    // Fires `peer_ready` the moment attempt 1 starts, as a reconnect would.
+    let fired = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            loop {
+                let changed = hub.outbox.changed.notified();
+                let running = hub.outbox.list(None, 10).0;
+                if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
+                    hub.outbox.peer_ready.notify_waiters();
+                    return tokio::time::Instant::now();
+                }
+                changed.await;
+            }
+        })
+    };
+    let id = queue(&hub, request("huge-blue/lane", "prompt-ready-mid-attempt")).await;
+    let fired = fired.await.unwrap();
+    let d = after_attempt(&hub, &id, 1).await;
+    assert_eq!(d.state, State::Queued, "{d:?}");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let changed = hub.outbox.changed.notified();
+        if hub.outbox.get(&id).unwrap().attempts >= 2 {
+            break;
+        }
+        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "no attempt 2");
+    }
+    let waited = fired.elapsed();
+    assert!(
+        waited < Duration::from_secs(RETRY_DELAYS_SECS[0]),
+        "attempt 2 waited {waited:?} with the peer ready"
+    );
 }

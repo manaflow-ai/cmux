@@ -50,6 +50,19 @@ extension Motion {
         return false
     }
 
+    /// The window that shows `layer`: the window of the nearest view that owns `layer` or one of
+    /// its superlayers (a layer-backed view is its layer's delegate). Nil for a layer in no view
+    /// tree. The layer helpers ask it for the window whose live resize snaps their movement
+    /// (``MotionGate/policy(in:)``).
+    public static func window(showing layer: CALayer?) -> NSWindow? {
+        var current = layer
+        while let layer = current {
+            if let view = layer.delegate as? NSView { return view.window }
+            current = layer.superlayer
+        }
+        return nil
+    }
+
     /// The proxy to set a constraint through inside a Motion animation of
     /// `view`: its animator, or the constraint itself when `view`'s window
     /// has no screen. A constraint animator does not apply its value without
@@ -196,7 +209,7 @@ extension MotionGate {
     public func animateTimed(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
                                     completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
-        let duration = self.duration(token)
+        let duration = self.duration(token, in: view?.window)
         runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
     }
 
@@ -205,26 +218,27 @@ extension MotionGate {
     public func animateExit(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
-        let duration = self.duration(token)
+        let duration = self.duration(token, in: view?.window)
         runTimed(duration, changes, completion: duration > 0 ? traced("exit.\(token.rawValue)", completion) : completion,
                  curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
     }
 
-    /// The sidebar's Updated card curve: a fast start that settles long, 265 ms at 1x (Leo
-    /// 2026-11-08: "the animation also seems like it's a little bit slow"). The card's page runs the
+    /// The sidebar's Updated card curve: a fast start that settles, 180 ms at 1x, the motion scale's
+    /// settle (Leo 2026-11-08: "the animation also seems like it's a little bit slow"; 2026-11-09:
+    /// "the animations end to end need to just resolve faster"). The card's page runs the
     /// same one on its hover preview (webviews `updateSurfaces.css`, `--wn-preview-ease`), so the native
     /// glass behind the page and the page's preview move as one.
     public static var cardCurve: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1) }
-    public static let cardDuration: TimeInterval = 0.265
+    public static let cardDuration: TimeInterval = 0.18
 
     /// Animates `animator()` frame changes on the card curve (``cardCurve``) for ``cardDuration``, or
     /// applies them at once when movement does not animate. The duration does not follow the animation
-    /// speed: the page's CSS twin runs a fixed 265 ms, so a scaled native side would part from it. Call it
+    /// speed: the page's CSS twin runs a fixed 180 ms, so a scaled native side would part from it. Call it
     /// on `Motion.web`, the gate the page's `data-cmux-motion` follows (WebTheme.motionValue).
     public func animateCard(in view: NSView? = nil, _ changes: () -> Void,
                             completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
-        guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
+        guard animatesMovement(in: view?.window) else { return withoutAnimation(changes, completion: completion) }
         runTimed(Self.cardDuration, changes, completion: traced("card", completion), curve: Self.cardCurve)
     }
 
@@ -254,9 +268,10 @@ extension MotionGate {
     }
 
     /// `transaction(_:_:)` for layer geometry (progress bars): the spring's
-    /// perceived duration, instant when movement does not animate.
-    public func transaction(spring token: MotionSpring, _ changes: () -> Void) {
-        let duration = self.duration(token)
+    /// perceived duration, instant when movement does not animate in `window`,
+    /// the window that shows the layers.
+    public func transaction(spring token: MotionSpring, in window: NSWindow?, _ changes: () -> Void) {
+        let duration = self.duration(token, in: window)
         CATransaction.begin()
         if duration > 0 {
             CATransaction.setAnimationDuration(duration)
@@ -270,7 +285,8 @@ extension MotionGate {
 
     /// Sets `layer.keyPath` to `value` with a spring that starts from the
     /// current presentation value (`from` overrides the sample). Returns the
-    /// added animation, or nil when the change applied at once.
+    /// added animation, or nil when the change applied at once (movement does
+    /// not animate in the window that shows `layer`, ``Motion/window(showing:)``).
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
@@ -278,7 +294,7 @@ extension MotionGate {
         CATransaction.begin()
         defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
-        guard animatesMovement, let start else {
+        guard animatesMovement(in: Motion.window(showing: layer)), let start else {
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
@@ -375,7 +391,7 @@ extension MotionGate {
     /// shrink jumped the panel smaller in one frame before it faded.
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
-        guard animatesMovement else {
+        guard animatesMovement(in: Motion.window(showing: layer)) else {
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
@@ -508,9 +524,9 @@ extension MotionGate {
 
     /// Keeps a layer hidden while a `token` move is still more than 3% from
     /// its target, then fades it in: a row another row passes over shows
-    /// again once they no longer overlap (cx-ai79). Nil when moves snap.
-    public func passOverAnimation(_ token: MotionSpring) -> CAAnimation? {
-        guard animatesMovement else { return nil }
+    /// again once they no longer overlap (cx-ai79). Nil when moves snap in `window`.
+    public func passOverAnimation(_ token: MotionSpring, in window: NSWindow?) -> CAAnimation? {
+        guard animatesMovement(in: window) else { return nil }
         let settle = spring(token).settlingTime(within: 0.03)
         let total = settle + duration(MotionFade.fadeIn)
         let hide = CAKeyframeAnimation(keyPath: "opacity")
