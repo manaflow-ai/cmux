@@ -94,9 +94,17 @@ struct MobileSSHTmuxGroupedSessionLabTests {
         let session = "build-cmux-ios-demo"
         Self.tmux(socket, "new-session", "-d", "-s", session, "-x", "80", "-y", "24")
         let connection = try await connect()
-        defer { Task { await connection.close() } }
         let provider = MobileSSHTmuxProvider(connection: connection, tmuxPath: Self.tmuxPath, socketName: socket)
-        let workspaces = try await provider.listWorkspaces()
+        let workspaces: [MobileSSHWorkspace]
+        do {
+            workspaces = try await provider.listWorkspaces()
+        } catch {
+            await connection.close()
+            throw error
+        }
+        // The connection is closed before the checks, so they read the
+        // server as the phone left it.
+        await connection.close()
         #expect(workspaces.map(\.id) == [session])
         #expect(Self.tmuxStatus(socket, "has-session", "-t", "=" + session) == 0, "the user's session was killed")
     }
