@@ -78,13 +78,17 @@ const PARTS: &str = "_acpmuxParts";
 /// it are one hub message.
 const PART_BYTES: usize = 45 * 1024;
 
-/// The time a read in parts may take for each part, on average, past the first [`READ_WAIT`]: a
+/// The time a read in parts may take for each part, on average, past its two [`READ_WAIT`]s: a
 /// hub that answers each part just inside its own wait ends the read, not the asker's patience.
 /// A part takes one hub round trip, well under a second on a working hub.
 const PART_WAIT: Duration = Duration::from_secs(5);
 
 /// The refusal prefix of a session the receiving daemon does not have.
 const NO_SESSION: &str = "mesh.read_no_session";
+
+/// The refusal prefix of a held answer the receiving daemon no longer has: it went idle, or a
+/// newer answer took its room (`parts::MAX_HELD_BYTES`). Reading again holds it anew.
+const PART_GONE: &str = "mesh.read_part_gone";
 
 /// The receiving side: run one authorized read and answer it in the ack.
 pub(super) async fn answer(hub: &Arc<Hub>, message: &InMessage) -> Ack {
@@ -122,7 +126,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
         return match hub.mesh_read_parts.part(id, &session.id, index, PART_BYTES) {
             Some(part) => Ok(json!({"part": part}).to_string()),
-            None => Err("mesh.read_part_gone: this machine no longer holds that answer".into()),
+            None => Err(format!("{PART_GONE}: this machine no longer holds that answer")),
         };
     }
     // Whether the sender reads an answer in parts: only when a smallest page still does not fit.
@@ -314,7 +318,8 @@ async fn gather(
     let most = crate::rpc::MAX_MESSAGE_BYTES.div_ceil(PART_BYTES) as u64;
     let count = held.get("count").and_then(Value::as_u64).filter(|n| (1..=most).contains(n));
     let count = count.ok_or_else(malformed)?;
-    // The whole read's time: its first wait, then PART_WAIT for each part on average.
+    // The parts' time from here: one READ_WAIT, then PART_WAIT for each part on average. With
+    // the first ask's own READ_WAIT, a whole read ends within 2 READ_WAIT + PART_WAIT a part.
     let parts = u32::try_from(count).unwrap_or(u32::MAX);
     let until = tokio::time::Instant::now() + READ_WAIT + PART_WAIT.saturating_mul(parts);
     let mut text = Vec::new();
@@ -362,6 +367,9 @@ async fn ask(
                 let why = receipt.detail.unwrap_or_else(|| "the machine refused the read".into());
                 return Err(if why.starts_with(NO_SESSION) {
                     RpcError::not_found(format!("no session matches \"{host}/{key}\""))
+                } else if why.starts_with(PART_GONE) {
+                    RpcError::new(-32000, format!("{host} no longer holds this answer; read again"))
+                        .with_data(json!({"reason": PART_GONE, "retryable": true}))
                 } else {
                     RpcError::new(-32003, why).with_data(json!({"reason": "mesh.read_refused"}))
                 });
