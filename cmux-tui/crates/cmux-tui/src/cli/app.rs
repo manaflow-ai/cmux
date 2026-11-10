@@ -1452,7 +1452,7 @@ fn read_reply(
     alive: impl Fn(&UnixStream, Duration) -> bool,
 ) -> Result<Result<Value, Value>, String> {
     let mut reader = BufReader::new(
-        stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
+        stream.try_clone().map_err(|error| io_message(&error))?.take(MAX_RESPONSE_BYTES),
     );
     // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
     let mut response = Vec::new();
@@ -1464,7 +1464,12 @@ fn read_reply(
         let Some(window) = window_before(timeout, deadline) else {
             return Ok(Err(deadline_passed(method)));
         };
-        stream.set_read_timeout(window).map_err(|error| error.to_string())?;
+        // macOS refuses a socket option (EINVAL) once the peer closed: that is a dropped connection too.
+        stream.set_read_timeout(window).map_err(|error| match error.kind() {
+            // (A zero window is the other EINVAL, and not a dropped connection.)
+            std::io::ErrorKind::InvalidInput if window != Some(Duration::ZERO) => crate::localization::catalog().app_control.closed.to_owned(),
+            _ => io_message(&error),
+        })?;
         let read = match reader.fill_buf() {
             Ok(available) => {
                 let newline = available.iter().position(|byte| *byte == b'\n');

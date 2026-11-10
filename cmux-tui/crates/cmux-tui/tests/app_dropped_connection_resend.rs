@@ -158,9 +158,13 @@ fn a_socket_without_permission_is_not_waited_on() {
     let socket = dir.join("app.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let child = cmux(&socket, &["action", "run", "window.new"]);
-    let _first = serve_one(&listener, None);
-    let dropped = Instant::now();
+    // The socket is closed to this user before the connection drops, so the CLI's first reconnect meets it.
+    let (stream, _) = listener.accept().unwrap();
+    let mut line = String::new();
+    BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let dropped = Instant::now();
+    drop(stream);
     let output = child.wait_with_output().unwrap();
     let took = dropped.elapsed();
     listener.set_nonblocking(true).unwrap();
