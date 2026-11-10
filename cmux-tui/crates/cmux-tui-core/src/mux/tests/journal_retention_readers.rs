@@ -18,6 +18,7 @@ use super::journal_retention_bound::{
     ACTIVE_AGENTS, AGENTS, RECORDS, head, session, write_through,
 };
 use super::*;
+use crate::mux::agent_roster_restore::restore_agent_roster;
 
 /// The terminal and the tab of each agent session, by the provider's session
 /// id, as a fold of the journal from its first retained record gives them:
@@ -147,5 +148,90 @@ fn an_agent_session_below_the_retention_floor_keeps_its_terminal_and_tab_in_the_
     assert!(
         problems.is_empty(),
         "the list the app reads does not carry what the app's own journal fold had: {problems:#?}"
+    );
+}
+
+/// S2 of the migration review asked for a floor term "the oldest live agent".
+/// The floor has no such term: on a Mac whose agents rest for weeks it would
+/// keep every record since the oldest of them started. What the term was for
+/// is held by the saved states: a live agent whose records are ALL deleted
+/// stays in the roster the daemon serves, in the roster a start restores
+/// (with no rebuild from the journal), and in the list the app reads, where
+/// its session has not ended.
+#[test]
+fn a_live_agent_with_every_record_deleted_stays_in_the_roster_a_start_and_the_list() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-retention-live-agent-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let (mux, agents) = session(1, &root);
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    let idle_end = head(&mux);
+    let idle = &agents[ACTIVE_AGENTS..];
+
+    let mut next_step = 0;
+    write_through(&mux, &agents, &mut next_step, idle_end + RECORDS);
+    for _ in 0..32 {
+        mux.run_journal_maintenance_for_test();
+    }
+    // The setup: rows are deleted, not only a floor computed.
+    let floor = mux.journal_pruned_through().unwrap();
+    assert!(
+        floor >= idle_end,
+        "the setup: retention deleted through {floor}; the idle agents' records end at {idle_end}"
+    );
+    let first_retained =
+        mux.session_journal_after(0, 1).unwrap().records.first().map(|record| record.sequence);
+    assert!(
+        first_retained.is_some_and(|sequence| sequence > idle_end),
+        "the setup: the journal still has record {first_retained:?}, at or below {idle_end}"
+    );
+
+    let mut problems = Vec::new();
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    for agent in idle {
+        if mux.agent_roster_state_now_for_test(agent.terminal.as_str()).is_none() {
+            problems.push(format!("the served roster lost the live agent of {}", agent.terminal));
+        }
+    }
+    let live = mux.agent_roster.lock().unwrap().roster.snapshot();
+    let restored = {
+        let registry = mux.workspace_registry.lock().unwrap();
+        restore_agent_roster(&registry)
+    };
+    match restored {
+        Ok(restored) => {
+            if restored.rebuild {
+                problems.push("a start would rebuild the roster from the journal".into());
+            }
+            for agent in idle {
+                if !restored.host.roster.entries.contains_key(agent.terminal.as_str()) {
+                    problems.push(format!("a start loses the live agent of {}", agent.terminal));
+                }
+            }
+            if restored.host.roster.snapshot() != live {
+                problems.push("a start restores a roster that is not the served roster".into());
+            }
+        }
+        Err(error) => problems.push(format!("the roster does not restore: {error:#}")),
+    }
+    let listed = listed_agents(&mux);
+    for agent in idle {
+        match listed.get(&agent.session) {
+            None => problems.push(format!("the list lost the live session {}", agent.session)),
+            Some(row) if row.get("ended_at_ms").is_some() => {
+                problems.push(format!("the list says the live session {} ended", agent.session));
+            }
+            Some(_) => {}
+        }
+    }
+
+    mux.shutdown();
+    drop(agents);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        problems.is_empty(),
+        "a live agent whose records retention deleted is lost: {problems:#?}"
     );
 }
