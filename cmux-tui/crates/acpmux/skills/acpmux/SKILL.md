@@ -232,7 +232,7 @@ a terminal `claude`) takes a stable name from its own shell (a Codex thread gets
 one by being started with acpmux):
 
 ```bash
-acpmux register desktop-zoe            # in its Bash tool, or a SessionStart hook on resume
+acpmux register desktop-zoe            # in its Bash tool; then run the --code line it receives
 acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
 ```
 

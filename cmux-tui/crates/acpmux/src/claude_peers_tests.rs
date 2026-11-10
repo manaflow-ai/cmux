@@ -250,37 +250,27 @@ fn a_kept_token_is_the_live_sessions_only_while_its_process_and_inbox_are_the_sa
     assert_eq!(token_file(&home, "../x").parent(), Some(home.join("bridge-tokens").as_path()));
 }
 
-/// A registry entry is anyone's to write: it proves its conversation only when it is the only
-/// live claimant and its process wrote that conversation's transcript since it started.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+/// A second live entry claiming the same conversation (anyone may write one) proves neither.
 #[test]
-fn an_entry_proves_its_conversation_only_by_its_transcript_and_as_its_only_claimant() {
-    let dir = scratch("proves");
-    let me = std::process::id();
-    let sock = dir.join("me.sock");
-    std::fs::write(
-        dir.join(format!("sessions/{me}.json")),
-        entry(me, "sid-p", "cli", &sock).to_string(),
-    )
-    .unwrap();
-    let live = live(&dir);
-    let peer = live.first().cloned().expect("the entry is live");
-    let no_transcript = proves_conversation(&dir, &peer, &live).unwrap_err();
-    assert!(no_transcript.contains("no transcript"), "{no_transcript}");
-    std::fs::create_dir_all(dir.join("projects/-work")).unwrap();
-    let transcript = dir.join("projects/-work/sid-p.jsonl");
-    std::fs::write(&transcript, "{}\n").unwrap();
-    proves_conversation(&dir, &peer, &live).expect("written since it started");
-    // Another session's transcript, last written long before this process started.
-    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
-    std::fs::File::options().write(true).open(&transcript).unwrap().set_modified(old).unwrap();
-    let stale = proves_conversation(&dir, &peer, &live).unwrap_err();
-    assert!(stale.contains("since it started"), "{stale}");
-    std::fs::write(&transcript, "{}\n").unwrap();
-    // A second live claimant of the same conversation proves neither.
-    let mut twin = peer.clone();
-    twin.pid = me.wrapping_add(1);
-    let claimants = [peer.clone(), twin];
-    let both = proves_conversation(&dir, &peer, &claimants).unwrap_err();
-    assert!(both.contains("also claims"), "{both}");
+fn a_conversation_two_live_entries_claim_is_neither_ones() {
+    let peer = |pid: u32, id: &str| Peer {
+        pid,
+        session_id: id.into(),
+        cwd: None,
+        entrypoint: None,
+        kind: None,
+        name: None,
+        version: None,
+        socket: None,
+    };
+    let (mine, forged, other) = (peer(42, "sid"), peer(43, "sid"), peer(44, "other"));
+    assert!(sole_claimant(&mine, &[mine.clone(), other.clone()]));
+    assert!(!sole_claimant(&mine, &[mine.clone(), forged.clone(), other]));
+    assert!(!sole_claimant(&forged, &[mine, forged.clone()]));
+}
+
+/// A process is Claude Code only by its signature: this test binary, whatever its name, is not.
+#[test]
+fn a_process_that_is_not_signed_as_claude_code_is_not_claude_code() {
+    assert!(!is_claude_code(std::process::id()));
 }

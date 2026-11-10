@@ -292,7 +292,22 @@ impl Hub {
             let listed = crate::claude_peers::listed_entrypoints();
             if !claude.is_empty() {
                 let live = crate::claude_peers::live(&homes.claude);
-                if let Some(id) = bound_chat(&ancestry, &claude, &live, &listed, &registered) {
+                // A registered chat binds only the process its registration recorded (pid,
+                // inbox, start: `claude_peers::token_for`), when it is its conversation's only
+                // live claimant; any entry may name a registered chat's session id.
+                let acpmux_home = crate::config::home();
+                let registered_by = |id: &str, peer: &Peer| {
+                    registered.iter().any(|r| r == id)
+                        && crate::claude_peers::sole_claimant(peer, &live)
+                        && crate::claude_peers::token_for(
+                            &acpmux_home,
+                            id,
+                            peer,
+                            crate::claude_peers::started_at(&homes.claude, peer.pid),
+                        )
+                        .is_some()
+                };
+                if let Some(id) = bound_chat(&ancestry, &claude, &live, &listed, registered_by) {
                     return Some(id);
                 }
             }
@@ -315,20 +330,20 @@ impl Hub {
 }
 
 /// The chat (of `chats`, `(chat id, Claude session id)`) whose live registry entry (`live`) has
-/// a pid in `ancestry` and an entrypoint in `listed`, or any entrypoint for a chat of
-/// `registered` (its session registered it from its own shell, `register.rs`). The nearest
+/// a pid in `ancestry` and an entrypoint in `listed`, or any entrypoint for a chat whose
+/// registration recorded that process (`registered_by`, `register.rs`). The nearest
 /// ancestor wins: a Claude Code run inside another's shell is its own sender.
 fn bound_chat(
     ancestry: &[u32],
     chats: &[(String, String)],
     live: &[Peer],
     listed: &[String],
-    registered: &[String],
+    registered_by: impl Fn(&str, &Peer) -> bool,
 ) -> Option<String> {
     ancestry.iter().find_map(|pid| {
         let peer = live.iter().find(|p| p.pid == *pid)?;
         let (id, _) = chats.iter().find(|(_, sid)| *sid == peer.session_id)?;
-        (registered.contains(id) || peer.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
+        (registered_by(id, peer) || peer.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
             .then(|| id.clone())
     })
 }
@@ -456,24 +471,30 @@ mod tests {
         let chats = vec![("chat-1".to_owned(), "sid".to_owned())];
         let live = vec![peer(None)];
         let listed = vec!["claude-desktop".to_owned()];
+        let none = |_: &str, _: &Peer| false;
         // acpmux (50) under bash (45) under the desktop session's claude (42).
         assert_eq!(
-            bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, &[]).as_deref(),
+            bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, none).as_deref(),
             Some("chat-1")
         );
         // Another process tree: nothing.
-        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed, &[]), None);
+        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed, none), None);
         // An entrypoint the setting does not list: nothing.
-        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &[]), None);
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], none), None);
         // A live app with no chat the bridge made: nothing.
         let other = vec![("chat-2".to_owned(), "other".to_owned())];
-        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed, &[]), None);
-        // A chat its session registered is bound whatever its entrypoint.
-        let registered = vec!["chat-1".to_owned()];
+        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed, none), None);
+        // A chat its session registered is bound whatever its entrypoint, by the process its
+        // registration recorded.
+        let recorded = |id: &str, p: &Peer| id == "chat-1" && p.pid == 42;
         assert_eq!(
-            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &registered).as_deref(),
+            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], recorded).as_deref(),
             Some("chat-1")
         );
+        // Repro: another process writes an entry naming the registered chat's session id; with
+        // the setting off it is not the recorded process, so its sends are not that chat's.
+        let forged = |_: &str, p: &Peer| p.pid == 99;
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], forged), None);
     }
 
     #[test]

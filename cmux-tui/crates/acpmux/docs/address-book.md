@@ -15,12 +15,16 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   finds the session from the kernel's process tree of the caller: the nearest Claude Code process
   whose inbox is the caller's `CLAUDE_CODE_MESSAGING_SOCKET`, opened with that shell's
   `CLAUDE_CODE_MESSAGING_TOKEN`. It never takes a session the caller names. The registry entry
-  (`~/.claude/sessions/<pid>.json`) is anyone's to write, so register also needs what a forged one
-  cannot show (`claude_peers::proves_conversation`, `inbox_is`): the inbox's listener is that
-  process, run by this user (kernel peer credentials); no other live process claims the
-  conversation; and the process wrote the conversation's transcript since it started (the Bash
-  call running `acpmux register` is one such write). Otherwise `register.unproven`. A kept token
-  is that process's only while its pid, inbox and start time are the same. A Codex desktop thread
+  (`~/.claude/sessions/<pid>.json`) is anyone's to write, so what it says is taken only from a
+  process the kernel proves: Claude Code by its code signature (Anthropic's, checked on the live
+  process with `codesign`), the listener on its inbox (peer credentials, this user), and the only
+  live claimant of its conversation. Then it takes two steps: `acpmux register NAME` delivers a
+  one-time code into that inbox with the session's own token (only a genuine session accepts it,
+  and only its model reads it), and the session finishes with `acpmux register NAME --code CODE`
+  within ten minutes. Otherwise `register.unproven`. macOS only: elsewhere no signature proves a
+  process is Claude Code, so register refuses. Delivery and send binding then use only the
+  process the registration recorded (pid, inbox, start time), while it is the conversation's only
+  live claimant. A Codex desktop thread
   does not register: a process named `codex` with `CODEX_THREAD_ID` set is anyone's to start, so
   nothing proves the caller runs in the thread. A Codex session acpmux starts already has a name. A name
   another session has is refused (`register.name_taken`). The daemon alone records which chats
@@ -34,7 +38,7 @@ should offer it for codex too! ..." (and for the other harnesses people use).
 | Harness | Send (tools it gets) | Receive | Mid-turn | Idle notice (`watch_add`) | Sender it reads | Gaps |
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code, started by acpmux | `acpmux` MCP server through `--mcp-config` (`agent_tools.rs`) | ACP `session/prompt` | yes (acpmux's Claude adapter steers) | yes | `From another agent (NAME, HARNESS), not the person:` | none known |
-| Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME`, then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | the same line, plus how to answer; Claude Code also says it came from another session | text only; register again after a restart |
+| Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME` and the `--code` it then receives (macOS), then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | the same line, plus how to answer; Claude Code also says it came from another session | text only; register again after a restart |
 | Codex, started by acpmux (in-process bridge) | `acpmux` MCP server in ACP `mcpServers` | ACP `session/prompt` | yes (`turn/steer`) | yes | the same line | none known |
 | Codex through the outside `codex-acp` | same | same | no: after the turn | yes | the same line | no steering |
 | Codex desktop thread | shell `acpmux send` bound by `CODEX_THREAD_ID`; `acpmux desktop link` guest tools | the bridge setting only (no `register`: nothing proves a shell runs in the thread), then the app-server queue (`thread/queue/add`) | no: its next turn | as the watched one yes | the same line, plus how to answer | text only |
@@ -80,8 +84,8 @@ How it degrades:
 - The session is closed or restarted: a send the outbox carries is refused as
   `bridge.not_running` (retryable), so the outbox keeps it and tries again for a day; `--status`
   shows it queued. A person's own prompt in the chat gets the read-only refusal with Take Over. A restarted
-  session has a new token, so it registers again (a `SessionStart` hook does that on resume);
-  until then its sends wait the same way, and are never opened with the peer key instead.
+  session has a new token, so it registers again from its Bash tool (both steps); until then its
+  sends wait the same way, and are never opened with the peer key instead.
   A brand-new session registers after its first turn: register needs its transcript, and refuses
   a session that has none yet.
 - The inbox is a symlink, or the connection fails: nothing is written, the outbox tries again.

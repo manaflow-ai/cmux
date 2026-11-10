@@ -263,48 +263,34 @@ pub fn started_at(config: &Path, pid: u32) -> Option<u64> {
     record.get("startedAt").and_then(Value::as_u64)
 }
 
-/// The transcript Claude Code writes for conversation `session_id` (`projects/<folder>/<id>.jsonl`).
-fn transcript_of(config: &Path, session_id: &str) -> Option<PathBuf> {
-    if session_id.is_empty() || !session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    {
-        return None;
-    }
-    let name = format!("{session_id}.jsonl");
-    let dir = std::fs::read_dir(config.join("projects")).ok()?;
-    dir.flatten().map(|d| d.path().join(&name)).find(|p| p.is_file())
+/// Whether `peer` is the only live registry entry that claims its conversation: a second
+/// claimant (an entry anyone may write, naming the same session id) proves neither.
+pub fn sole_claimant(peer: &Peer, live: &[Peer]) -> bool {
+    !live.iter().any(|p| p.pid != peer.pid && p.session_id == peer.session_id)
 }
 
-/// Most a transcript's last write may come before its process's recorded start (clock skew).
-const START_SLACK_MS: u64 = 2_000;
+/// The code-signing requirement Claude Code's own binary meets (the CLI and the desktop app's).
+#[cfg(target_os = "macos")]
+const CLAUDE_CODE_REQUIREMENT: &str = "=anchor apple generic and certificate leaf[subject.OU] = \"Q6L2SF6YDW\" and identifier \"com.anthropic.claude-code\"";
 
-/// Whether the registry entry `peer` runs the conversation it names, by what a forged entry
-/// cannot show: no other live entry claims that conversation, and its transcript was written
-/// since this process started (a process that writes `<its pid>.json` naming another session's
-/// id never wrote that session's transcript). Err says why not.
-pub fn proves_conversation(config: &Path, peer: &Peer, live: &[Peer]) -> Result<(), String> {
-    if live.iter().any(|p| p.pid != peer.pid && p.session_id == peer.session_id) {
-        return Err(format!(
-            "another live Claude Code process also claims session {}",
-            peer.session_id
-        ));
-    }
-    let started = started_at(config, peer.pid)
-        .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))?;
-    let transcript = transcript_of(config, &peer.session_id)
-        .ok_or_else(|| format!("session {} has no transcript yet", peer.session_id))?;
-    let written = std::fs::metadata(&transcript)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .and_then(|d| u64::try_from(d.as_millis()).ok())
-        .ok_or_else(|| format!("cannot read when {} was written", transcript.display()))?;
-    if written < started.saturating_sub(START_SLACK_MS) {
-        return Err(format!(
-            "process {} has not written session {}'s transcript since it started",
-            peer.pid, peer.session_id
-        ));
-    }
-    Ok(())
+/// Whether the running process `pid` is Claude Code, as the kernel's code signing says
+/// (`codesign --verify` of the live process against Anthropic's signature), never by its name
+/// or path. Blocking: a second at most.
+#[cfg(target_os = "macos")]
+pub fn is_claude_code(pid: u32) -> bool {
+    std::process::Command::new("/usr/bin/codesign")
+        .args(["--verify", "-R", CLAUDE_CODE_REQUIREMENT, &pid.to_string()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// No code signature to check off macOS: no process is proven to be Claude Code.
+#[cfg(not(target_os = "macos"))]
+pub fn is_claude_code(_pid: u32) -> bool {
+    false
 }
 
 /// Whether the process listening on `socket` is `pid`, run by this daemon's user (the kernel's

@@ -135,7 +135,7 @@ shell, and from then on is an address like any lane (a Codex session gets one by
 with acpmux, `acpmux new -n NAME -m codex`):
 
 ```bash
-acpmux register desktop-zoe                          # in its Bash tool, or a SessionStart hook on resume
+acpmux register desktop-zoe                          # in its Bash tool; then run the --code line it receives
 acpmux send --no-wait cosmic-gray/desktop-zoe "..."  # from any peered machine; prints a delivery id
 acpmux send --status ID                              # queued, delivering, delivered, held or failed
 ```

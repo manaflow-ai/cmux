@@ -269,16 +269,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
-        Command::Register { name } => {
+        Command::Register { name, code } => {
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
             // Claude Code exports both to its Bash commands and hooks (its documented inbox).
             let socket = env("CLAUDE_CODE_MESSAGING_SOCKET");
             let token = socket.as_ref().and(env("CLAUDE_CODE_MESSAGING_TOKEN"));
-            let params = json!({"name": name, "socket": socket, "token": token});
+            let params = json!({"name": name, "socket": socket, "token": token, "code": code});
             let v = client.request(method::MUX_REGISTER, params).await?;
             if json_out {
                 print_json(&v)
+            } else if v.get("pending").and_then(Value::as_bool) == Some(true) {
+                println!(
+                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `acpmux register {name} --code ...` it gives to finish"
+                );
             } else {
                 let field =
                     |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();

@@ -260,21 +260,25 @@ impl Hub {
                 crate::claude_peers::enabled()
                     && p.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
             };
-            let peer = crate::claude_peers::find(&homes.claude, &agent_session_id)
-                .filter(|p| registered || by_setting(p))?;
-            let token = registered
-                .then(|| {
-                    let started = crate::claude_peers::started_at(&homes.claude, peer.pid);
-                    crate::claude_peers::token_for(&acpmux_home, &chat_id, &peer, started)
-                })
-                .flatten();
-            // A registered chat opens only with the token its session handed over. A restarted
-            // session's new process has none until it registers again, so the send waits
-            // (`bridge.not_running`) rather than opening with the undocumented peer key, with the
-            // bridge setting on or off.
-            if registered && token.is_none() {
-                return None;
+            if registered {
+                // A registered chat opens only with the token its session handed over, into the
+                // process that registration recorded (pid, inbox, start), while it is its
+                // conversation's only live claimant. A restarted session's new process has none
+                // until it registers again, so the send waits (`bridge.not_running`), never
+                // opening with the undocumented peer key, with the bridge setting on or off.
+                let live = crate::claude_peers::live(&homes.claude);
+                let (peer, token) =
+                    live.iter().filter(|p| p.session_id == agent_session_id).find_map(|p| {
+                        let started = crate::claude_peers::started_at(&homes.claude, p.pid);
+                        let token =
+                            crate::claude_peers::token_for(&acpmux_home, &chat_id, p, started)?;
+                        crate::claude_peers::sole_claimant(p, &live).then(|| (p.clone(), token))
+                    })?;
+                return Some(Target::Claude { config: homes.claude, peer, token: Some(token) });
             }
+            let peer =
+                crate::claude_peers::find(&homes.claude, &agent_session_id).filter(by_setting)?;
+            let token = None;
             Some(Target::Claude { config: homes.claude, peer, token })
         })
         .await

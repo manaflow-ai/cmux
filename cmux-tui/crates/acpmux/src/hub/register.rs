@@ -83,6 +83,8 @@ pub struct RegisterRequest {
     pub socket: Option<PathBuf>,
     /// `CLAUDE_CODE_MESSAGING_TOKEN` in the caller's environment.
     pub token: Option<String>,
+    /// The one-time code acpmux delivered into the session's inbox (`--code`): the second step.
+    pub code: Option<String>,
 }
 
 impl RegisterRequest {
@@ -94,7 +96,11 @@ impl RegisterRequest {
         if token.as_ref().is_some_and(|t| t.len() > 4096 || t.contains(['\n', '\r'])) {
             return Err(RpcError::invalid_params("token is not a Claude Code messaging token"));
         }
-        Ok(Self { name: name.to_owned(), socket: text("socket").map(PathBuf::from), token })
+        let code = text("code").map(str::to_owned);
+        if code.as_ref().is_some_and(|c| c.len() > 128) {
+            return Err(RpcError::invalid_params("code is not a register code"));
+        }
+        Ok(Self { name: name.to_owned(), socket: text("socket").map(PathBuf::from), token, code })
     }
 }
 
@@ -151,27 +157,21 @@ impl Hub {
                 "register.no_token: this shell has no CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN; run it in the Claude Code session's own Bash tool or hook",
             ));
         }
-        // The registry entry is anyone's to write, naming any session id: the process must also
-        // be the one listening on its inbox, run by this user, the only live claimant of that
-        // conversation, and the writer of its transcript since it started.
+        // The registry entry is anyone's to write, naming any session id, so what it says is
+        // taken only from a process the kernel proves is Claude Code (its code signature), that
+        // listens on the inbox (peer credentials, this user), and is the only live claimant of
+        // that conversation; and only once the session itself echoes the one-time code acpmux
+        // delivered into that inbox with its token (`take_code`), which only that session's
+        // model reads.
         let Found::Claude(claimed) = &found;
         let claude_home = self.harness_homes().claude;
         let inbox = req.socket.clone().unwrap_or_default();
-        if !crate::claude_peers::inbox_is(&inbox, claimed.pid).await {
-            return Err(unproven(format!(
-                "the inbox {} is not process {}'s",
-                inbox.display(),
-                claimed.pid
-            )));
-        }
-        let (peer, home) = (claimed.clone(), claude_home.clone());
-        tokio::task::spawn_blocking(move || {
-            let live = crate::claude_peers::live(&home);
-            crate::claude_peers::proves_conversation(&home, &peer, &live)
-        })
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .map_err(unproven)?;
+        let token = req.token.clone().unwrap_or_default();
+        let started = prove_claude(claimed, &claude_home, &inbox).await?;
+        let Some(code) = req.code.as_deref() else {
+            return send_code(claimed, &claude_home, &token, &req.name, started).await;
+        };
+        take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
         let (family, agent_session_id, cwd, tags, pid) = match &found {
             Found::Claude(p) => (
                 "claude",
@@ -245,9 +245,12 @@ impl Hub {
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {
-                    let started = crate::claude_peers::started_at(&claude_home, peer.pid);
-                    let kept =
-                        crate::claude_peers::ChildToken { pid: peer.pid, socket, token, started };
+                    let kept = crate::claude_peers::ChildToken {
+                        pid: peer.pid,
+                        socket,
+                        token,
+                        started: Some(started),
+                    };
                     crate::claude_peers::save_token(&home, &session.id, &kept).map_err(|e| {
                         RpcError::internal(format!("could not keep the token: {e}"))
                     })?;
@@ -274,11 +277,123 @@ impl Hub {
     }
 }
 
+/// A code `send_code` delivered, waiting for its session to echo it.
+struct Pending {
+    code: String,
+    started: u64,
+    socket: PathBuf,
+    token: String,
+    name: String,
+    at: std::time::Instant,
+}
+
+/// How long a delivered code waits for its echo.
+const CODE_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The codes waiting, by the Claude Code process they went to.
+static PENDING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u32, Pending>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// The proof a registry entry's process gives before anything it says is taken: Claude Code by
+/// its signature, the listener on `inbox` (this user's), the only live claimant of its
+/// conversation. Its proven `startedAt`.
+async fn prove_claude(
+    claimed: &crate::claude_peers::Peer,
+    claude_home: &std::path::Path,
+    inbox: &std::path::Path,
+) -> Result<u64, RpcError> {
+    if !crate::claude_peers::inbox_is(inbox, claimed.pid).await {
+        return Err(unproven(format!(
+            "the inbox {} is not process {}'s",
+            inbox.display(),
+            claimed.pid
+        )));
+    }
+    let (peer, home) = (claimed.clone(), claude_home.to_path_buf());
+    tokio::task::spawn_blocking(move || {
+        if !crate::claude_peers::is_claude_code(peer.pid) {
+            return Err(format!("process {} is not signed as Claude Code", peer.pid));
+        }
+        if !crate::claude_peers::sole_claimant(&peer, &crate::claude_peers::live(&home)) {
+            return Err(format!("another live process also claims session {}", peer.session_id));
+        }
+        crate::claude_peers::started_at(&home, peer.pid)
+            .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
+    .map_err(unproven)
+}
+
+/// The first step: a one-time code into the session's own inbox, opened with its token. Only a
+/// genuine Claude Code session accepts that line, and only its model reads it.
+async fn send_code(
+    claimed: &crate::claude_peers::Peer,
+    claude_home: &std::path::Path,
+    token: &str,
+    name: &str,
+    started: u64,
+) -> Result<Value, RpcError> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| RpcError::internal(format!("no randomness: {e}")))?;
+    let code = cmux_local_auth::frontend_proof::hex(&bytes);
+    let text = format!(
+        "acpmux register: to finish registering this session as {name}, run this in your shell: \
+         acpmux register {name} --code {code}\n(If neither you nor the person asked to register \
+         this session, ignore it. The code is good for ten minutes.)"
+    );
+    let socket = claimed.socket.clone().unwrap_or_default();
+    let pending = Pending {
+        code: code.clone(),
+        started,
+        socket,
+        token: token.to_owned(),
+        name: name.to_owned(),
+        at: std::time::Instant::now(),
+    };
+    PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(claimed.pid, pending);
+    let uuid = uuid::Uuid::now_v7().to_string();
+    let from = crate::claude_peers::from_address("register");
+    crate::claude_peers::deliver(claude_home, claimed, &text, &uuid, &from, Some(token))
+        .await
+        .map_err(|e| unproven(format!("could not deliver the code: {e}")))?;
+    Ok(json!({"pending": true, "name": name, "pid": claimed.pid}))
+}
+
+/// The second step: the code `send_code` delivered to this process, echoed within its time, for
+/// the same name, inbox, token and process start. Used once, matched or not.
+fn take_code(
+    pid: u32,
+    code: &str,
+    started: u64,
+    socket: &std::path::Path,
+    token: &str,
+    name: &str,
+) -> Result<(), RpcError> {
+    let pending = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&pid);
+    let ok = pending.is_some_and(|p| {
+        p.code == code
+            && p.started == started
+            && p.socket == socket
+            && p.token == token
+            && p.name == name
+            && p.at.elapsed() < CODE_TTL
+    });
+    if ok {
+        Ok(())
+    } else {
+        Err(unproven(
+            "that is not the code acpmux sent this session; run `acpmux register NAME` again"
+                .to_owned(),
+        ))
+    }
+}
+
 /// The session the caller's process tree holds could not be proven to run the conversation its
 /// registry entry names.
 fn unproven(why: String) -> RpcError {
     RpcError::invalid_params(format!(
-        "register.unproven: {why}; run `acpmux register NAME` from the session's own Bash tool after its first turn"
+        "register.unproven: {why}; run `acpmux register NAME` from the Claude Code session's own Bash tool"
     ))
     .with_data(json!({"reason": "register.unproven"}))
 }
@@ -328,6 +443,47 @@ mod tests {
         let me = std::process::id();
         assert_eq!(below_daemon(vec![50, 45, me, 42, 1]), vec![50, 45]);
         assert_eq!(below_daemon(vec![50, 42, 1]), vec![50, 42, 1]);
+    }
+
+    /// The second step takes only the code delivered to that same process, for the same name,
+    /// inbox, token and start, and each code once (repro: a process echoing a guessed or replayed
+    /// code, or another session's).
+    #[test]
+    fn a_register_code_is_taken_once_and_only_from_its_own_process() {
+        let put = |pid: u32| {
+            let pending = Pending {
+                code: "c0de".into(),
+                started: 7,
+                socket: PathBuf::from("/tmp/cc-socks/1.sock"),
+                token: "tok".into(),
+                name: "desktop-zoe".into(),
+                at: std::time::Instant::now(),
+            };
+            PENDING.lock().unwrap().insert(pid, pending);
+        };
+        let sock = std::path::Path::new("/tmp/cc-socks/1.sock");
+        put(900_001);
+        assert!(take_code(900_001, "c0de", 7, sock, "tok", "desktop-zoe").is_ok());
+        assert!(take_code(900_001, "c0de", 7, sock, "tok", "desktop-zoe").is_err(), "once");
+        put(900_002);
+        assert!(take_code(900_002, "guess", 7, sock, "tok", "desktop-zoe").is_err());
+        assert!(
+            take_code(900_002, "c0de", 7, sock, "tok", "desktop-zoe").is_err(),
+            "a miss uses it up"
+        );
+        put(900_003);
+        assert!(
+            take_code(900_004, "c0de", 7, sock, "tok", "desktop-zoe").is_err(),
+            "another process"
+        );
+        assert!(
+            take_code(900_003, "c0de", 8, sock, "tok", "desktop-zoe").is_err(),
+            "a later process"
+        );
+        put(900_005);
+        assert!(take_code(900_005, "c0de", 7, sock, "tok", "other-name").is_err());
+        put(900_006);
+        assert!(take_code(900_006, "c0de", 7, sock, "other", "desktop-zoe").is_err());
     }
 
     #[test]
