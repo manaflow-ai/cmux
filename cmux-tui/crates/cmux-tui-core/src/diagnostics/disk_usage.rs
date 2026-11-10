@@ -9,6 +9,8 @@
 //!   pragmas, the first and last journal sequence (two rowid seeks), and the
 //!   newest [`JOURNAL_TAIL_SAMPLE_ROWS`] journal rows, never a scan of the
 //!   live journal;
+//! - the `journal_checkpoints` rows, which pruning holds to about
+//!   [`JOURNAL_CHECKPOINT_SLOTS`] (`octet_length` reads no overflow page);
 //! - sealed segments are summed once per daemon, then only the segments
 //!   sealed since the last request (a range of the `start_sequence` index;
 //!   `length(content)` reads no overflow page). An output cleanup that
@@ -59,6 +61,29 @@ pub const DEFAULT_JOURNAL_KIND_BUDGET: u64 = 64 * MIB;
 /// session a day since #39116 (about 900 MB before).
 pub const REGISTRY_BYTES_PER_SESSION_PER_DAY: u64 = 256 * MIB;
 
+/// Checkpoints the registry holds at once: the newest
+/// `JOURNAL_CHECKPOINTS_KEPT` (16) that pruning keeps, plus room for 8
+/// that no sealed segment covers yet. Pruning never deletes an unsealed
+/// checkpoint; the maintenance worker waits for its own to be sealed before
+/// it takes the next, so the 8 are for client `journal-checkpoint` calls.
+pub const JOURNAL_CHECKPOINT_SLOTS: u64 =
+    crate::workspace_registry::JOURNAL_CHECKPOINTS_KEPT as u64 + 8;
+
+/// The bytes one checkpoint row may hold. Each holds the whole reduced
+/// state: about 1.5 MB on Leo's registry (2026-11-09), so the kept 16 are
+/// about 24 MB (#39217).
+pub const JOURNAL_CHECKPOINT_BYTES_EACH: u64 = 2 * MIB;
+
+/// Bytes the `journal_checkpoints` table may hold:
+/// [`JOURNAL_CHECKPOINT_SLOTS`] checkpoints of
+/// [`JOURNAL_CHECKPOINT_BYTES_EACH`], 48 MiB. Checkpoints are a table, not a
+/// journal kind, so their budget is a size, not a rate: before #39217 a
+/// trigger refused every delete and the table only grew (1.78 GB).
+/// `disk_budget_guard` fails when the table outgrows it after a prune, and
+/// `server-stats` `disk` flags it (`checkpoints.over_budget`).
+pub const JOURNAL_CHECKPOINT_BYTES_BUDGET: u64 =
+    JOURNAL_CHECKPOINT_SLOTS * JOURNAL_CHECKPOINT_BYTES_EACH;
+
 const MIB: u64 = 1024 * 1024;
 
 /// The budget of `kind` in bytes per day.
@@ -89,6 +114,13 @@ pub(crate) const JOURNAL_ROW_BYTES_SQL: &str = "(64
     + ifnull(length(CAST(correlation_id AS BLOB)), 0)
     + length(CAST(subjects_json AS BLOB)) + length(CAST(payload_json AS BLOB))
     + ifnull(length(content), 0) + ifnull(length(CAST(actor AS BLOB)), 0))";
+/// The bytes one `journal_checkpoints` row stores, as SQL over its columns:
+/// its id, state and content references, its 32-byte hash, plus 64 bytes
+/// for the integer columns and the record header. `octet_length` counts
+/// bytes without reading the text.
+pub(crate) const JOURNAL_CHECKPOINT_ROW_BYTES_SQL: &str = "(96
+    + octet_length(checkpoint_id) + octet_length(state_json)
+    + octet_length(content_refs_json))";
 
 /// The `server-stats` `disk` section.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -113,6 +145,7 @@ pub struct DiskUsageSnapshot {
     /// `null` when the registry could not be read (see `error`).
     pub journal: Option<JournalDiskSnapshot>,
     pub segments: Option<SegmentDiskSnapshot>,
+    pub checkpoints: Option<CheckpointDiskSnapshot>,
     pub error: Option<String>,
 }
 
@@ -153,6 +186,18 @@ pub struct JournalKindDiskSnapshot {
     pub bytes_per_day: Option<u64>,
     /// [`journal_kind_budget`], and whether `bytes_per_day` is over it.
     pub budget_bytes_per_day: u64,
+    pub over_budget: bool,
+}
+
+/// The `journal_checkpoints` table: its rows, their bytes
+/// ([`JOURNAL_CHECKPOINT_ROW_BYTES_SQL`]) and [`JOURNAL_CHECKPOINT_BYTES_BUDGET`].
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct CheckpointDiskSnapshot {
+    pub checkpoints: u64,
+    pub bytes: u64,
+    /// The largest row's bytes, against [`JOURNAL_CHECKPOINT_BYTES_EACH`].
+    pub largest_bytes: u64,
+    pub budget_bytes: u64,
     pub over_budget: bool,
 }
 
@@ -200,6 +245,9 @@ struct SegmentTotals {
     kinds: BTreeMap<String, u64>,
 }
 
+/// The sections read from the registry database itself.
+type DiskSections = (JournalDiskSnapshot, SegmentDiskSnapshot, CheckpointDiskSnapshot);
+
 /// Reads the `disk` section of the registry at `database_path`.
 pub fn read_disk_usage(database_path: &Path, cache: &mut DiskUsageCache) -> DiskUsageSnapshot {
     let mut snapshot = DiskUsageSnapshot::default();
@@ -216,7 +264,7 @@ pub fn read_disk_usage(database_path: &Path, cache: &mut DiskUsageCache) -> Disk
     }
     let file = file_identity(database_path);
     let read = crate::workspace_registry::open_registry_database_read_only(database_path).and_then(
-        |connection| -> anyhow::Result<(JournalDiskSnapshot, SegmentDiskSnapshot)> {
+        |connection| -> anyhow::Result<DiskSections> {
             connection.busy_timeout(std::time::Duration::from_millis(250))?;
             connection.execute_batch("PRAGMA query_only=ON;")?;
             let pragma = |name: &str| -> rusqlite::Result<u64> {
@@ -229,13 +277,15 @@ pub fn read_disk_usage(database_path: &Path, cache: &mut DiskUsageCache) -> Disk
             snapshot.freelist_pages = pragma("freelist_count")?;
             let journal = read_journal_tail(&connection)?;
             let segments = read_segments(&connection, file, cache)?;
-            Ok((journal, segments))
+            let checkpoints = read_checkpoints(&connection)?;
+            Ok((journal, segments, checkpoints))
         },
     );
     match read {
-        Ok((journal, segments)) => {
+        Ok((journal, segments, checkpoints)) => {
             snapshot.journal = Some(journal);
             snapshot.segments = Some(segments);
+            snapshot.checkpoints = Some(checkpoints);
         }
         Err(error) => snapshot.error = Some(format!("{error:#}")),
     }
@@ -313,6 +363,27 @@ fn read_journal_tail(connection: &Connection) -> anyhow::Result<JournalDiskSnaps
         sample_span_ms,
         estimated_live_bytes,
         kinds,
+    })
+}
+
+/// The checkpoint table's rows and bytes. Pruning holds it to about
+/// [`JOURNAL_CHECKPOINT_SLOTS`] rows, so this reads a bounded table.
+fn read_checkpoints(connection: &Connection) -> anyhow::Result<CheckpointDiskSnapshot> {
+    let (checkpoints, bytes, largest): (i64, i64, i64) = connection.query_row(
+        &format!(
+            "SELECT COUNT(*), COALESCE(SUM(bytes), 0), COALESCE(MAX(bytes), 0)
+             FROM (SELECT {JOURNAL_CHECKPOINT_ROW_BYTES_SQL} AS bytes FROM journal_checkpoints)"
+        ),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    let bytes = u64::try_from(bytes).unwrap_or(0);
+    Ok(CheckpointDiskSnapshot {
+        checkpoints: u64::try_from(checkpoints).unwrap_or(0),
+        bytes,
+        largest_bytes: u64::try_from(largest).unwrap_or(0),
+        budget_bytes: JOURNAL_CHECKPOINT_BYTES_BUDGET,
+        over_budget: bytes > JOURNAL_CHECKPOINT_BYTES_BUDGET,
     })
 }
 

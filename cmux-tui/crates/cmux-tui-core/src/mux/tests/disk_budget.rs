@@ -8,7 +8,9 @@
 //! simulated day than `diagnostics::JOURNAL_KIND_BUDGETS` allows, or the
 //! registry grows more per session than
 //! `diagnostics::REGISTRY_BYTES_PER_SESSION_PER_DAY`. Bytes are counted, not
-//! timed, so the result does not depend on the machine.
+//! timed, so the result does not depend on the machine. Checkpoints are a
+//! table, not a journal kind: after many checkpoints and a prune it must hold
+//! the kept ones within `diagnostics::JOURNAL_CHECKPOINT_BYTES_BUDGET`.
 
 use std::collections::BTreeMap;
 
@@ -16,8 +18,10 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::diagnostics::{
+    JOURNAL_CHECKPOINT_BYTES_BUDGET, JOURNAL_CHECKPOINT_BYTES_EACH, JOURNAL_CHECKPOINT_SLOTS,
     REGISTRY_BYTES_PER_SESSION_PER_DAY, journal_bytes_by_kind, journal_kind_budget,
 };
+use crate::workspace_registry::JOURNAL_CHECKPOINTS_KEPT;
 
 /// The simulated span: every count below is per this many seconds.
 const SIMULATED_SECONDS: u64 = 120;
@@ -226,8 +230,76 @@ fn disk_budget_guard() {
             .collect::<BTreeMap<_, _>>()
     );
 
+    over.extend(checkpoints_within_budget(&mux, &sessions, &capabilities, &connection));
+
     drop(connection);
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
-    assert!(over.is_empty(), "over the disk budget (diagnostics::JOURNAL_KIND_BUDGETS): {over:#?}");
+    assert!(
+        over.is_empty(),
+        "over the disk budget (diagnostics::JOURNAL_KIND_BUDGETS, \
+         JOURNAL_CHECKPOINT_BYTES_BUDGET): {over:#?}"
+    );
+}
+
+/// Twice the kept checkpoints, each after a session put and sealed through,
+/// then a prune as the maintenance worker runs it: the disk section must
+/// count the kept checkpoints, and their bytes must stay within
+/// [`JOURNAL_CHECKPOINT_BYTES_BUDGET`] (each within
+/// [`JOURNAL_CHECKPOINT_BYTES_EACH`]). Returns what is over.
+fn checkpoints_within_budget(
+    mux: &Mux,
+    sessions: &[String],
+    capabilities: &Value,
+    connection: &rusqlite::Connection,
+) -> Vec<String> {
+    let rounds = JOURNAL_CHECKPOINTS_KEPT * 2;
+    for round in 0..rounds {
+        let transport = json!({"kind":"ssh","host":format!("checkpoint-box-{round}")});
+        put_session(mux, &sessions[round % sessions.len()], &transport, capabilities);
+        seal_all(mux, &format!("checkpoint-{round}"));
+    }
+    let disk = mux.disk_usage_stats().expect("an on-disk registry");
+    let unpruned = disk.checkpoints.expect("checkpoints read");
+    assert!(unpruned.checkpoints > rounds as u64, "{unpruned:?}");
+    loop {
+        let pruned = mux.workspace_registry.lock().unwrap().prune_journal_checkpoints().unwrap();
+        if pruned == 0 {
+            break;
+        }
+    }
+    let disk = mux.disk_usage_stats().expect("an on-disk registry");
+    let kept = disk.checkpoints.expect("checkpoints read");
+    let (rows, state_bytes): (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), SUM(octet_length(state_json)) FROM journal_checkpoints",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    println!(
+        "disk_budget_guard: checkpoints {} -> {} bytes {} -> {} largest={} \
+         budget={JOURNAL_CHECKPOINT_BYTES_BUDGET} ({JOURNAL_CHECKPOINT_SLOTS} of \
+         {JOURNAL_CHECKPOINT_BYTES_EACH})",
+        unpruned.checkpoints, kept.checkpoints, unpruned.bytes, kept.bytes, kept.largest_bytes
+    );
+    assert_eq!(kept.checkpoints, JOURNAL_CHECKPOINTS_KEPT as u64, "{kept:?}");
+    assert_eq!(kept.checkpoints, u64::try_from(rows).unwrap(), "{kept:?}");
+    assert!(kept.bytes > u64::try_from(state_bytes).unwrap(), "{kept:?}");
+    assert!(kept.bytes < unpruned.bytes, "pruning freed nothing: {unpruned:?} -> {kept:?}");
+    assert_eq!(kept.budget_bytes, JOURNAL_CHECKPOINT_BYTES_BUDGET);
+    let mut over = Vec::new();
+    if kept.bytes > JOURNAL_CHECKPOINT_BYTES_BUDGET || kept.over_budget {
+        over.push(format!(
+            "journal_checkpoints: {} bytes in {} rows, budget {JOURNAL_CHECKPOINT_BYTES_BUDGET}",
+            kept.bytes, kept.checkpoints
+        ));
+    }
+    if kept.largest_bytes > JOURNAL_CHECKPOINT_BYTES_EACH {
+        over.push(format!(
+            "journal_checkpoints: one row holds {} bytes, budget {JOURNAL_CHECKPOINT_BYTES_EACH} each",
+            kept.largest_bytes
+        ));
+    }
+    over
 }

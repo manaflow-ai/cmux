@@ -1570,6 +1570,7 @@ class ServerStatsConnections:
 @dataclass(frozen=True)
 class ServerStatsDisk:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDisk'
+    checkpoints: Union[ServerStatsDiskCheckpoints, None]
     error: Union[str, None]
     files: List[ServerStatsDiskFile]
     files_truncated: bool
@@ -1582,6 +1583,16 @@ class ServerStatsDisk:
     segments: Union[ServerStatsDiskSegments, None]
     shm_bytes: int
     wal_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskCheckpoints:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskCheckpoints'
+    budget_bytes: int
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    checkpoints: int
+    largest_bytes: int
+    over_budget: bool
 
 
 @dataclass(frozen=True)
@@ -6535,6 +6546,7 @@ __all__ = [
     'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsDisk',
+    'ServerStatsDiskCheckpoints',
     'ServerStatsDiskFile',
     'ServerStatsDiskJournal',
     'ServerStatsDiskJournalKind',

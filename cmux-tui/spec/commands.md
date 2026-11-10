@@ -653,6 +653,10 @@ object{
         compressed_bytes:uint64,uncompressed_bytes:uint64}>,
       kinds:array<object{kind:string,segments:uint64}>
     }|null,
+    checkpoints:object{
+      checkpoints:uint64, bytes:uint64, largest_bytes:uint64,
+      budget_bytes:uint64, over_budget:boolean
+    }|null,
     error:string|null
   }
 }
@@ -760,12 +764,18 @@ text and blob column plus 64 bytes a row), the rate they were written at
 (`bytes_per_day`), the kind's entry in the daemon's disk budget table and
 whether the rate is over it. `segments` sums the sealed segments by codec,
 compressed and uncompressed, and counts the segments holding each kind.
+`checkpoints` counts the journal checkpoints and their bytes (each row's id,
+state and content references plus 96 bytes; `largest_bytes` is the largest
+row) against the daemon's checkpoint budget, `budget_bytes`: the newest 16
+checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each.
+`over_budget` is true when `bytes` is over it.
 Cost: one directory listing (at most 20000 entries), a few header pragmas,
-two rowid seeks and the newest 1024 rows on a read-only connection with no
-registry lock, never a scan of the journal; segment sums are kept between
-requests and add only segments sealed since the last one. `journal` and
-`segments` are `null` and `error` says why when the registry cannot be
-read. It is present only for a registry on disk.
+two rowid seeks, the newest 1024 rows and the checkpoint rows (pruning keeps
+them few; their lengths read no overflow page) on a read-only connection
+with no registry lock, never a scan of the journal; segment sums are kept
+between requests and add only segments sealed since the last one.
+`journal`, `segments` and `checkpoints` are `null` and `error` says why when
+the registry cannot be read. It is present only for a registry on disk.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

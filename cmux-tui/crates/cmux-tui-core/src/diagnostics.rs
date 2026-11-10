@@ -28,8 +28,10 @@ pub use connection_leases::{ConnectionLease, PeerClosed};
 #[cfg(test)]
 pub(crate) use disk_usage::journal_bytes_by_kind;
 pub use disk_usage::{
-    DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
-    REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
+    CheckpointDiskSnapshot, DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot,
+    JOURNAL_CHECKPOINT_BYTES_BUDGET, JOURNAL_CHECKPOINT_BYTES_EACH, JOURNAL_CHECKPOINT_SLOTS,
+    JOURNAL_KIND_BUDGETS, REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget,
+    read_disk_usage,
 };
 mod hook_queue;
 mod write_path;

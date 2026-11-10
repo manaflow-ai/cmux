@@ -11,6 +11,7 @@ import java.util.Objects;
 
 
 public final class ServerStatsDisk implements WireValue {
+    private final ServerStatsDiskCheckpoints checkpoints;
     private final String error;
     private final List<ServerStatsDiskFile> files;
     private final boolean filesTruncated;
@@ -25,6 +26,8 @@ public final class ServerStatsDisk implements WireValue {
     private final UInt64 walBytes;
 
     private ServerStatsDisk(Builder builder) {
+        if (!builder.checkpointsSet) throw new IllegalArgumentException("checkpoints is required");
+        this.checkpoints = builder.checkpoints;
         if (!builder.errorSet) throw new IllegalArgumentException("error is required");
         this.error = builder.error;
         if (!builder.filesSet) throw new IllegalArgumentException("files is required");
@@ -53,6 +56,7 @@ public final class ServerStatsDisk implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public ServerStatsDiskCheckpoints checkpoints() { return checkpoints; }
     public String error() { return error; }
     public List<ServerStatsDiskFile> files() { return files; }
     public boolean filesTruncated() { return filesTruncated; }
@@ -69,6 +73,8 @@ public final class ServerStatsDisk implements WireValue {
     public static ServerStatsDisk fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ServerStatsDisk");
         Builder builder = builder();
+        Object rawCheckpoints = Wire.required(object, "checkpoints");
+        builder.checkpoints(rawCheckpoints == null ? null : ServerStatsDiskCheckpoints.fromWire(rawCheckpoints));
         Object rawError = Wire.required(object, "error");
         builder.error(rawError == null ? null : Wire.string(rawError, "ServerStatsDisk.error"));
         Object rawFiles = Wire.required(object, "files");
@@ -99,6 +105,7 @@ public final class ServerStatsDisk implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "checkpoints", checkpoints);
         Wire.put(object, "error", error);
         Wire.put(object, "files", files);
         Wire.put(object, "files_truncated", filesTruncated);
@@ -117,16 +124,18 @@ public final class ServerStatsDisk implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsDisk that)) return false;
-        return Objects.equals(error, that.error) && Objects.equals(files, that.files) && Objects.equals(filesTruncated, that.filesTruncated) && Objects.equals(filesUnlisted, that.filesUnlisted) && Objects.equals(freelistPages, that.freelistPages) && Objects.equals(journal, that.journal) && Objects.equals(pageCount, that.pageCount) && Objects.equals(pageSize, that.pageSize) && Objects.equals(registryBytes, that.registryBytes) && Objects.equals(segments, that.segments) && Objects.equals(shmBytes, that.shmBytes) && Objects.equals(walBytes, that.walBytes);
+        return Objects.equals(checkpoints, that.checkpoints) && Objects.equals(error, that.error) && Objects.equals(files, that.files) && Objects.equals(filesTruncated, that.filesTruncated) && Objects.equals(filesUnlisted, that.filesUnlisted) && Objects.equals(freelistPages, that.freelistPages) && Objects.equals(journal, that.journal) && Objects.equals(pageCount, that.pageCount) && Objects.equals(pageSize, that.pageSize) && Objects.equals(registryBytes, that.registryBytes) && Objects.equals(segments, that.segments) && Objects.equals(shmBytes, that.shmBytes) && Objects.equals(walBytes, that.walBytes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(error, files, filesTruncated, filesUnlisted, freelistPages, journal, pageCount, pageSize, registryBytes, segments, shmBytes, walBytes); }
+    public int hashCode() { return Objects.hash(checkpoints, error, files, filesTruncated, filesUnlisted, freelistPages, journal, pageCount, pageSize, registryBytes, segments, shmBytes, walBytes); }
 
     @Override
     public String toString() { return "ServerStatsDisk" + toWire(); }
 
     public static final class Builder {
+        private ServerStatsDiskCheckpoints checkpoints;
+        private boolean checkpointsSet;
         private String error;
         private boolean errorSet;
         private List<ServerStatsDiskFile> files;
@@ -152,6 +161,11 @@ public final class ServerStatsDisk implements WireValue {
         private UInt64 walBytes;
         private boolean walBytesSet;
 
+        public Builder checkpoints(ServerStatsDiskCheckpoints value) {
+            this.checkpoints = value;
+            this.checkpointsSet = true;
+            return this;
+        }
         public Builder error(String value) {
             this.error = value;
             this.errorSet = true;

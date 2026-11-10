@@ -7280,6 +7280,56 @@
     "Sealed journal segments by codec; kinds lists at most 16 kinds by the number of segments that hold them."
    ]
   },
+  "ServerStatsDiskCheckpoints": {
+   "kind": "object",
+   "fields": {
+    "checkpoints": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "largest_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "budget_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "over_budget": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "checkpoints counts the rows of the registry's journal_checkpoints table; bytes sums each row's id, state and content references plus 96 bytes, and largest_bytes is the largest row.",
+    "budget_bytes is the daemon's checkpoint disk budget: the newest 16 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each; over_budget is true when bytes exceeds it."
+   ]
+  },
   "ServerStatsDisk": {
    "kind": "object",
    "fields": {
@@ -7374,6 +7424,14 @@
      "presence": "required",
      "nullable": true
     },
+    "checkpoints": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDiskCheckpoints"
+     },
+     "presence": "required",
+     "nullable": true
+    },
     "error": {
      "type": {
       "kind": "scalar",
@@ -7387,7 +7445,7 @@
    "constraints": [
     "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-    "journal and segments are null when the registry could not be read, and error says why.",
+    "journal, segments and checkpoints are null when the registry could not be read, and error says why.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
    ]
   },
