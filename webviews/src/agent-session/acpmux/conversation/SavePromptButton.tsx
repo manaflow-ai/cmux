@@ -7,7 +7,7 @@ import { Button } from "../../../ui/Button";
 import { Popover } from "../../../ui/Popover";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { PROMPT_NAME_MAX, promptSlug, savePrompt, suggestedName } from "../savedPrompts";
+import { PROMPT_NAME_MAX, promptSlug, savePrompt, SavedPromptsUnavailable, suggestedName } from "../savedPrompts";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
 import "./savePrompt.css";
@@ -41,7 +41,14 @@ export function SavePromptButton({ text }: { text: string }) {
     savePrompt(name, text).then(
       () => setState({ kind: "saved" }),
       (error: unknown) =>
-        setState({ kind: "failed", message: error instanceof Error ? error.message : t("message.savePromptFailed") }),
+        setState({
+          kind: "failed",
+          // Before acpmux connects nothing is kept: the page's own words, not an internal reason.
+          message:
+            error instanceof Error && !(error instanceof SavedPromptsUnavailable)
+              ? error.message
+              : t("message.savePromptFailed"),
+        }),
     );
   };
   return (

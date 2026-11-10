@@ -99,35 +99,44 @@ export function refreshSavedPrompts(): Promise<void> {
 
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-/// Saves `text` under `name`, replacing a saved prompt of that name. Rejects with acpmux's reason.
+/// A save or delete asked before acpmux is connected: nothing was kept, so the page says it failed
+/// (a copy held only in memory would be gone when the connection's list arrives).
+export class SavedPromptsUnavailable extends Error {
+  constructor() {
+    super("acpmux is not connected yet");
+    this.name = "SavedPromptsUnavailable";
+  }
+}
+
+/// Saves `text` under `name`, replacing a saved prompt of that name. Rejects with acpmux's reason,
+/// or [`SavedPromptsUnavailable`] before acpmux is connected.
 export async function savePrompt(name: string, text: string): Promise<void> {
+  const via = transport;
+  if (!via) throw new SavedPromptsUnavailable();
   const trimmed = name.trim();
   const row: SavedPrompt = { name: trimmed, text, source: "saved", updatedAt: Date.now() };
-  if (transport) {
-    const via = transport;
+  changes += 1;
+  try {
+    const reply = await via.save(trimmed, text);
+    const saved = promptsFrom([(reply as { prompt?: unknown } | undefined)?.prompt])[0] ?? row;
+    if (via !== transport) return;
+    prompts = withPrompt(prompts, saved);
+  } finally {
     changes += 1;
-    try {
-      const reply = await via.save(trimmed, text);
-      const saved = promptsFrom([(reply as { prompt?: unknown } | undefined)?.prompt])[0] ?? row;
-      if (via !== transport) return;
-      prompts = withPrompt(prompts, saved);
-    } finally {
-      changes += 1;
-    }
-  } else prompts = withPrompt(prompts, row);
+  }
   emit();
 }
 
-/// Deletes the saved prompt `name`. Rejects with acpmux's reason (a cmux-next.json prompt is removed there).
+/// Deletes the saved prompt `name`. Rejects with acpmux's reason (a cmux-next.json prompt is removed
+/// there), or [`SavedPromptsUnavailable`] before acpmux is connected.
 export async function deletePrompt(name: string): Promise<void> {
   const via = transport;
-  if (via) {
+  if (!via) throw new SavedPromptsUnavailable();
+  changes += 1;
+  try {
+    await via.remove(name);
+  } finally {
     changes += 1;
-    try {
-      await via.remove(name);
-    } finally {
-      changes += 1;
-    }
   }
   if (via !== transport) return;
   prompts = prompts.filter((prompt) => !sameName(prompt.name, name));
