@@ -27,7 +27,7 @@ import Testing
         #expect(page.admits("cmux.apps.panels.scene"))
         #expect(!page.admits("cmux.apps.install"), "the pane page gets the panel ops only")
         #expect(!page.admits(PageNativeOp.actionRun))
-        #expect(page.dynamicPrefixes == [AppsPanelsPageProvider.bundlePrefix])
+        #expect(page.dynamicPrefixes == [AppsPanelsPageProvider.bundlePrefix, AppsPanelsPageProvider.symbolPrefix])
         #expect(!page.acceptsFirstMouse)
         #expect(FirstPartyPageSchemes.descriptors.contains(page))
     }

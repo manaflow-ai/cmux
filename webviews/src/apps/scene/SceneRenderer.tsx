@@ -13,7 +13,7 @@ import {
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
-import { SceneSymbol } from "./SceneSymbol";
+import { SceneSymbol, SymbolContext, type SceneSymbolResolver } from "./SceneSymbol";
 import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
@@ -445,19 +445,24 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  resolveSymbol,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** The host's drawing of an SF Symbol the pack has no icon for (`symbol_base`). */
+  resolveSymbol?: SceneSymbolResolver;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneNodeView id={root} store={store} dispatch={dispatch} />
-        </div>
-      ) : null}
+      <SymbolContext.Provider value={resolveSymbol}>
+        {root ? (
+          <div className="cmux-app-scene-root">
+            <SceneNodeView id={root} store={store} dispatch={dispatch} />
+          </div>
+        ) : null}
+      </SymbolContext.Provider>
     </AssetContext.Provider>
   );
 }

@@ -66,7 +66,7 @@ export function useAppPanelSections(
  * whose app's last save did not load keeps drawing and says so in the marker line under it. Reports
  * its drawn height to the host (`layout`) whenever it changes. */
 export function SceneMount({ mounted }: { mounted: MountedScene }) {
-  const { store, dispatch, reload, layout, resolveAsset } = mounted;
+  const { store, dispatch, reload, layout, resolveAsset, resolveSymbol } = mounted;
   const status = useSyncExternalStore(store.subscribeStatus, store.getStatus, store.getStatus);
   const reloadFailure = useSyncExternalStore(
     store.subscribeReloadFailure,
@@ -92,7 +92,7 @@ export function SceneMount({ mounted }: { mounted: MountedScene }) {
         <SceneFailure status={status} onReload={reload} />
       ) : (
         <>
-          <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} />
+          <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} resolveSymbol={resolveSymbol} />
           {status.state === "ready" && reloadFailure ? <SceneReloadMarker reason={reloadFailure} /> : null}
         </>
       )}

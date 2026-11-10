@@ -5,11 +5,11 @@ import Foundation
 public extension PageDescriptor {
     /// An app's pane (webviews/src/pages/app-scene): the one scene its route names
     /// (`#/?app=<id>`), mounted through ``AppsPanelsPageProvider`` with `surface: pane`, and the
-    /// mount's bundle images under `__appbundle/`. It reaches nothing else. A click that only brings
+    /// mount's bundle images under `__appbundle/` and its scene's SF Symbols under `__appsymbol/`. It reaches nothing else. A click that only brings
     /// the window forward must not reach the app's own buttons.
     static let appScene = PageDescriptor(
         id: "cmux.app-scene", resource: "app-scene", namespaces: [AppsPanelsPageProvider.namespace],
-        dynamicPrefixes: [AppsPanelsPageProvider.bundlePrefix], acceptsFirstMouse: false)
+        dynamicPrefixes: [AppsPanelsPageProvider.bundlePrefix, AppsPanelsPageProvider.symbolPrefix], acceptsFirstMouse: false)
 }
 
 /// Makes the pages app panes draw in (``PageDescriptor/appScene``) over the app supervisor's

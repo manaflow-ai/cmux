@@ -17,12 +17,15 @@ import UniformTypeIdentifiers
 /// and its kept view's refused save, `{mount_id, reload_failure: {reason}|null}`
 /// (``AppSceneModel/reloadFailure``: the app's last saved script did not load, so a ready view still
 /// draws the one before; null once a scene of a script that loaded replaces it), for every surface.
-/// The page's `__appbundle/<mount_id>/<path>` resources are the mount's bundle images.
+/// The page's `__appbundle/<mount_id>/<path>` resources are the mount's bundle images, and its
+/// `__appsymbol/<name>.png` any SF Symbol a scene names, drawn as the native renderer draws it.
 @MainActor
 public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSource {
     public static let namespace = "cmux.apps.panels."
     /// The dynamic prefix a page lists to show its mounts' bundle images (``resource(for:)``).
     public nonisolated static let bundlePrefix = "__appbundle"
+    /// The dynamic prefix a page lists to draw any SF Symbol its scenes name (``AppSceneSymbolImages``).
+    public nonisolated static let symbolPrefix = "__appsymbol"
     /// The largest bundle image served; a bigger file is a 404.
     nonisolated static let bundleImageLimit = 16 << 20
 
@@ -38,13 +41,14 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     private var reloadFailures: [String: String] = [:]
     /// Each mount's drawn height, as its page last reported it (`layout`).
     private var heights: [String: Double] = [:]
+    private let symbols = AppSceneSymbolImages()
     /// Each mount's status watch (``follow(_:)``).
     private var statusWatches: [String: Task<Void, Never>] = [:]
     /// Runs when a mount's reported height changes. No host reads it yet; the sidebar and hover
     /// card hosts size their page frames from it when they move to React.
     public var onLayout: (@MainActor (_ mountID: String, _ height: Double) -> Void)?
-    /// The page serves ``bundlePrefix`` from this provider (its dynamic source answers through
-    /// ``resource(for:)``): only then does a mount reply name an `asset_base`.
+    /// The page serves ``bundlePrefix`` and ``symbolPrefix`` from this provider (its dynamic source
+    /// answers through ``resource(for:)``): only then does a mount reply name an `asset_base` and a `symbol_base`.
     public var servesBundleImages = false
 
     /// The route a page that may mount Session Info sections (the App Store page) adds.
@@ -144,6 +148,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         follow(mount)
         var reply: [String: JSONValue] = ["mount_id": .string(mount.id)]
         if servesBundleImages, mount.bundleDirectory != nil { reply["asset_base"] = .string("/\(Self.bundlePrefix)/\(mount.id)/") }
+        if servesBundleImages { reply["symbol_base"] = .string("/\(Self.symbolPrefix)/") }
         return .object(reply)
     }
 
@@ -266,7 +271,14 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     /// page's own mounts only. Each component is decoded once and must be a plain name (no `.`,
     /// `..`, separator or empty part), and the resolved file, symlinks followed, must stay inside the
     /// bundle; only image types are served, up to ``bundleImageLimit``. Anything else is a 404.
+    /// `__appsymbol/<name>.png` is SF Symbol `name` as a black template PNG (``AppSceneSymbolImages``).
     public func resource(for request: PageResourceRequest) async -> PageResource? {
+        if request.prefix == Self.symbolPrefix {
+            guard request.path.count == 1, let file = request.path.first, file.hasSuffix(".png"),
+                  let name = String(file.dropLast(4)).removingPercentEncoding,
+                  let data = symbols.png(name) else { return nil }
+            return PageResource(data: data, mimeType: "image/png")
+        }
         guard request.prefix == Self.bundlePrefix, request.path.count >= 2,
               let mount = mounts[request.path[0]], let directory = mount.bundleDirectory,
               let file = Self.bundleFile(directory: directory, components: request.path.dropFirst()),

@@ -1,5 +1,6 @@
 import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import type { SceneAssetResolver } from "./SceneRenderer";
+import { symbolImageURL, type SceneSymbolResolver } from "./SceneSymbol";
 import { SceneStore, type SceneLimits, type SceneOp, type SceneViolation } from "./store";
 
 /** A page panel: a Session Info section, or a New Tab widget (`size` is a widget's cell). */
@@ -30,6 +31,8 @@ export type MountedScene = {
   layout: (height: number) => void;
   /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
   resolveAsset: SceneAssetResolver;
+  /** Any SF Symbol, drawn by the host as the native renderer draws it (`symbol_base` in the mount reply). */
+  resolveSymbol?: SceneSymbolResolver;
 };
 export type MountedPanel = MountedScene & { panel: AppPanel; problem?: PanelProblem };
 /** What `cmux.apps.panels.mount` takes: the surface, the app, the section of a sidebar, Session
@@ -122,6 +125,7 @@ export class AppSceneMount implements MountedScene {
   failed = false;
   private mountId?: string;
   private assetBase?: string;
+  private symbolBase?: string;
   /** The drawn height the page measured last, and the one the host last heard. */
   private height?: number;
   private sentHeight?: number;
@@ -162,21 +166,28 @@ export class AppSceneMount implements MountedScene {
 
   resolveAsset: SceneAssetResolver = (path) => (this.assetBase ? bundleAssetURL(this.assetBase, path) : undefined);
 
+  resolveSymbol: SceneSymbolResolver = (name) => symbolImageURL(this.symbolBase, name);
+
   async start(): Promise<void> {
     const client = this.client;
     try {
-      const result = await client.call<{ mount_id?: unknown; asset_base?: unknown }>("cmux.apps.panels.mount", {
-        surface: this.request.surface,
-        app: this.request.app,
-        ...(this.request.section !== undefined && { section: this.request.section }),
-        context: this.request.context,
-      });
+      const result = await client.call<{ mount_id?: unknown; asset_base?: unknown; symbol_base?: unknown }>(
+        "cmux.apps.panels.mount",
+        {
+          surface: this.request.surface,
+          app: this.request.app,
+          ...(this.request.section !== undefined && { section: this.request.section }),
+          context: this.request.context,
+        },
+      );
       if (typeof result?.mount_id !== "string" || !result.mount_id) {
         this.fail({ kind: "failed" });
         return;
       }
       this.mountId = result.mount_id;
       if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) this.assetBase = result.asset_base;
+      if (typeof result.symbol_base === "string" && result.symbol_base.endsWith("/"))
+        this.symbolBase = result.symbol_base;
       if (this.cancelled) {
         this.unmount();
         return;
@@ -438,6 +449,7 @@ export class AppPanelsClient {
         reload: mount.reload,
         layout: mount.layout,
         resolveAsset: mount.resolveAsset,
+        resolveSymbol: mount.resolveSymbol,
         ...(entry.problem && { problem: entry.problem }),
       };
     });

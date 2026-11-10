@@ -276,12 +276,14 @@ import Testing
         let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface(), bundleDirectory: bundle.path)
         let client = try await Self.listedClient(transport)
         let provider = AppsPanelsPageProvider(client: client)
-        // A page whose host does not serve the prefix gets no asset base.
-        #expect(try await Self.mount(provider, surface: "pane")["asset_base"] == nil)
+        // A page whose host does not serve the prefixes gets no asset or symbol base.
+        let unserved = try await Self.mount(provider, surface: "pane")
+        #expect(unserved["asset_base"] == nil && unserved["symbol_base"] == nil)
         provider.servesBundleImages = true
         let reply = try await Self.mount(provider, surface: "pane")
         let mountID = try #require(reply["mount_id"]?.stringValue)
         #expect(reply["asset_base"]?.stringValue == "/__appbundle/\(mountID)/")
+        #expect(reply["symbol_base"]?.stringValue == "/__appsymbol/")
         #expect(PageDescriptor.agent.dynamicPrefixes.contains(AppsPanelsPageProvider.bundlePrefix))
 
         func get(_ path: [String]) async -> PageResource? {
@@ -297,6 +299,17 @@ import Testing
         #expect(await get([mountID, "escape.png"]) == nil, "a symlink out of the bundle")
         #expect(await get([mountID, "notes.txt"]) == nil, "only images")
         #expect(await get(["mnt-someone-else", "assets", "logo%20one.png"]) == nil, "another page's mount")
+
+        // Any SF Symbol a scene names, as the native renderer draws it (AppSceneSymbolImages).
+        func symbol(_ path: [String]) async -> PageResource? {
+            await provider.resource(for: PageResourceRequest(prefix: AppsPanelsPageProvider.symbolPrefix, path: path,
+                                                             url: URL(fileURLWithPath: "/")))
+        }
+        let cup = await symbol(["cup.and.saucer.png"])
+        #expect(cup?.mimeType == "image/png" && cup?.data.isEmpty == false)
+        #expect(await symbol(["cup.and.saucer"]) == nil, "only .png")
+        #expect(await symbol(["%2E%2E%2Fsecret.png"]) == nil, "not a symbol name")
+        #expect(await symbol([mountID, "cup.and.saucer.png"]) == nil, "one component")
     }
 }
 

@@ -129,7 +129,8 @@
       "generator": "scripts/icons/build_pack.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Catalog.swift",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift"
+        "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift",
+        "webviews/src/agent-session/acpmux/icons/iconSymbols.json"
       ],
       "inputs": ["scripts/icons/**", "design/icons/**"],
       "status": "committed"
