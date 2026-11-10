@@ -93,15 +93,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     (scope == "completion").then(|| script(rest, global.output))
 }
 
-/// `app::failure`'s error, here because `app` is unix-only and completion is not.
-fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
-    super::wire::print_local_error(
-        &serde_json::json!({ "code": code, "message": message, "details": {}, "retryable": false }),
-        output,
-        exit_code,
-    )
-}
-
 fn script(rest: &[String], output: OutputMode) -> i32 {
     let words: Vec<&str> =
         rest.iter().map(String::as_str).filter(|word| *word != "--json").collect();
@@ -117,17 +108,26 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         [] => {
             let message =
                 "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
-            return failure("usage.invalid", message, output, 2);
+            return usage_error(message, output);
         }
         [other, ..] => {
             let message = format!(
                 "cmux: completion takes zsh, bash or fish, not {other:?}; run `cmux completion --help`"
             );
-            return failure("usage.invalid", &message, output, 2);
+            return usage_error(&message, output);
         }
     };
     print!("{text}");
     0
+}
+
+/// A usage error in the CLI's error shape. `cli/app.rs` has this too, but it is unix-only and
+/// this module builds on every target.
+fn usage_error(message: &str, output: OutputMode) -> i32 {
+    let error = serde_json::json!({
+        "code": "usage.invalid", "message": message, "details": {}, "retryable": false,
+    });
+    super::wire::print_local_error(&error, output, 2)
 }
 
 /// The completions of the last word of `words` (the word being typed, maybe empty), with `help`
