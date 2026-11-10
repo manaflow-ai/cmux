@@ -144,8 +144,9 @@ fn copy_hashed(from: &mut dyn Read, to: &mut dyn Write, hash: &mut Sha256) -> Re
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e.into()),
         };
-        hash.update(&buf[..n]);
-        to.write_all(&buf[..n])?;
+        let read = buf.get(..n).unwrap_or_default();
+        hash.update(read);
+        to.write_all(read)?;
         copied += n as u64;
     }
 }
