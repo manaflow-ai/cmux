@@ -2193,6 +2193,7 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+mod prompt_coach;
 mod plan_build;
 mod project_new;
 mod review_queue;

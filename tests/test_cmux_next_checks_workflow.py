@@ -2886,11 +2886,12 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift;
 
     def test_fast_check_hands_off_at_once_when_the_results_service_is_down(self):
         # Two edge 530s (the controller's origin is down): no blocking read, the Mac fallback runs now.
-        out, log, elapsed = self.run_fast_linux_read(["530", "530"], None)
+        # WAIT_SECONDS is 90 and the step runs under a 60 s timeout, so a step that waited on the
+        # service would time out here; the hand-off itself is the causal check, not its wall time.
+        out, log, _ = self.run_fast_linux_read(["530", "530"], None)
         self.assertIn("verdict=unavailable", out)
         self.assertIn("results service down (HTTP 530)", log)
         self.assertNotIn("--retry-all-errors", log)
-        self.assertLess(elapsed, 20)
         out, log, _ = self.run_fast_linux_read(["000", "000"], None)
         self.assertIn("verdict=unavailable", out)
         self.assertIn("results service down (HTTP 000)", log)

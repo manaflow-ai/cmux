@@ -39,6 +39,9 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     private var watches: [Task<Void, Never>] = []
     /// The Chief conversation the page opened by itself (a later Chief replaces it); nil once the person picked.
     private var followed: String?
+    /// The Chief controls of the conversation the page shows (its settings popover, Stop); remade
+    /// when the page opens another conversation.
+    private var chief: HomeChiefSurface?
     /// The list's pins and hidden conversations (``HomeListPage``): a source over the owner's stores.
     let sidebar: HomeSidebarSource
     /// The header band the traffic lights may lie over (the list's `HEADER.band`, list/layout.ts).
@@ -58,7 +61,9 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         page.autoresizingMask = [.width, .height]
         addSubview(page)
         addSubview(dragStrip)
+        host.toastAvoidance.attach(self, page: page)
         watch(services.home)
+        wireChief()
     }
 
     @available(*, unavailable)
@@ -89,11 +94,13 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         super.layout()
         dragStrip.frame = dragStrip.frame(in: bounds)
         updateWindowControls()
+        host.toastAvoidance.moved()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateWindowControls()
+        chief?.openPendingSettings()
     }
 
     /// The window's traffic lights over the page's top band, in its points from its top-left; nil
@@ -112,6 +119,11 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         followed = nil
         host.onShown = { [weak self] id, composing in
             guard let self else { return }
+            if chief?.conversation != id {
+                chief?.close()
+                chief = id.map { HomeChiefSurface(services: home.services, conversation: $0, owner: page) }
+                if let chief { host.follow(chief) }
+            }
             let next = HomeDefaultConversation.afterShown(id, composing: composing, followed: followed, rows: visibleRows(home), home: home)
             followed = next.followed
             if let open = next.open { show(HomeDockSelection(conversation: open.rawValue)) }
@@ -167,6 +179,21 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
                 self?.route.publishChrome()
             }
         })
+    }
+
+    /// The name pill's settings and the compose bar's Stop, for the conversation shown.
+    private func wireChief() {
+        host.chiefShown = { [weak self] id in self?.chief.flatMap { $0.conversation == id ? $0 : nil } }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow !== window { chief?.close() }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        chief?.close()
     }
 
     /// The listed rows without archived Chiefs' (``HomeArchivedChiefs``).
@@ -261,6 +288,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
 
     /// The dock tab closed: the page's document ends.
     func close() {
+        chief?.close()
         for watch in watches { watch.cancel() }
         watches = []
         page.close()
@@ -283,7 +311,24 @@ extension HomeMessagesPage: HomeListPage {
     }
 }
 
-/// The app's files reach the page's composer through ``HomeComposerIntake``.
-extension HomeMessagesPage: HomeComposerPage {
-    var intake: HomeMessagesIntake { host.intake }
+extension HomeMessagesPage: HomeComposerHosting {
+    var composerHandoff: HomeComposerHandoff { HomeComposerHandoff(page: page, files: host.composerFiles) }
+}
+
+extension HomeComposerHandoff {
+    /// The hand-off to `page`'s composer, each call bounded by the page-call deadline.
+    init(page: PageWebView, files: HomeComposerFiles) {
+        let router = page.router
+        self.init(files: files, window: { [weak page] in page?.window }) { op, params, deadline in
+            await PageAnswerDeadline(deadline).answer { try await router.callPage(op, params: .object(params)) }
+        }
+    }
+}
+
+extension HomeMessagesPage: CmuxToastAvoiding {  // toasts rest above the compose bar (HomePageToastAvoidance)
+    var toastAvoidanceRect: NSRect { host.toastAvoidance.rect(in: self) }
+}
+
+extension HomeMessagesPage: HomeChiefShowing {
+    var shownChief: HomeChiefSurface? { chief.flatMap { $0.showsChiefOnScreen ? $0 : nil } }
 }

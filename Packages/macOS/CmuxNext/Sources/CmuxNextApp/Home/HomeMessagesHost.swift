@@ -38,17 +38,25 @@ import MessagesLabHome
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
 /// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts); `approval.decide` (``HomeMessagesApprovals``).
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
+/// - Clicks: `chief.settings {conversation, anchor}` -> `{shown}` (the settings under the name pill, page points),
+///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.action` (the Feed page's `cmux.app.action.run`);
+///   ``HomePageAttachmentDrag``'s drag out; Stop, Stop all agents, Continue, Restart and Start now are ``HomeMessagesChiefTurn``'s.
 /// Streams: `appearance` (the bubble look, each chat's colours, the composer's spell checking),
 /// `group.follow {conversation}` and `requests.follow` (Group Info and Requests while they show,
 /// ``HomeMessagesFollow``), `headerPanels` (the toggles of
-/// the open conversation) and `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the
-/// list, each listed again by a message after its seq), each sent on subscribe and on every change.
+/// the open conversation), `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the
+/// list, each listed again by a message after its seq), `chiefFace` (`{conversation, picture?, text?}`),
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``needsYouState()``),
+/// `seeThrough` (``HomeMessagesSeeThrough``) and `dictation` (``HomePageDictation``; with its op), each sent on subscribe and on every change.
+/// Needs you is the Feed page's own view (webviews/src/pages/feed/NeedsYouView.tsx) drawn in this page: its `cmux.feed.*`
+/// calls and streams go on the Feed page's relay (``feedContext(_:)``) and its actions run as the Feed page's, only while the section shows.
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
-    static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", HomeMessagesBubbleOps.prefix].map { HomeMessagesPageRoute.prefix + $0 }
+    static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "composing", "chief.", "invite.", "teamInvite.", "start",
+                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation", HomePageAttachmentDrag.op, HomePageToastAvoidance.op,
+                           HomeMessagesBubbleOps.prefix, HomeMessagesSeeThrough.stream].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
@@ -58,11 +66,9 @@ final class HomeMessagesHostProvider: PageProvider {
     var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
     /// The `hidden` stream: the deleted conversations and the archived Chiefs' ones.
     let hidden = HomeMessagesHiddenFeed()
-    /// The files the app hands the page's composer (``HomeComposerIntake``).
-    let intake = HomeMessagesIntake()
     /// The `list` stream (tags, Cloud note, teammates, header sizes) and the list's width (``HomeMessagesListFeed``).
     let list: HomeMessagesListFeed
-    private var previewProvider: HomeLinkPreviewProvider?
+    private lazy var previews = HomeLinkPreviewProvider(services: services)
     private var keeping: HomeMessagesKept?
     private var bubbleOps: HomeMessagesBubbleOps?
     /// Stop, Stop all agents, Continue and Restart on the conversation's own Chief (``HomeMessagesChiefTurn``).
@@ -72,23 +78,34 @@ final class HomeMessagesHostProvider: PageProvider {
     } }
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
     var firstRun: HomeMessagesFirstRunProvider?
-    private var panelListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    /// The observation of what the streams read; runs only while one has a listener.
-    private var panelsWatch: Task<Void, Never>?
+    /// The `appearance` and `headerPanels` streams (``HomePageStream``: observed only while one has a listener).
+    private lazy var appearanceStream = HomePageStream(observing: { [weak self] in self?.appearance() ?? .null })
+    private lazy var panelsStream = HomePageStream(observing: { [weak self] in self?.panels() ?? .null })
+    private lazy var needsYouStream = HomePageStream(observing: { [weak self] in self?.needsYouState() ?? .null })
+    private let chiefFace = HomePageStream(initial: .null)
+    private lazy var chiefPlace = HomePageStream(observing: { [weak self] in self?.place() ?? .null })
+    /// The page's Chief controls for conversation `id` (its name pill's settings, the location chip's menu);
+    /// nil when the page does not show that Chief. Set by the view that holds the page.
+    var chiefShown: @MainActor (ConversationID) -> HomeChiefSurface? = { _ in nil }
+    /// Settings > Notifications > Feed > Pin Needs You in Chief (opt-in, off by default), and the Feed page's actions provider.
+    lazy var needsYouEnabled = HomeNeedsYouSetting.reader { [weak services] in services?.settings }
+    private lazy var feedActions = services.map { AppPageNativeProvider(services: $0, page: .feed) }
     /// The window the page is in (the header panels read it).
     var window: () -> NSWindow? = { nil }
+    /// The files the app hands the page's composer, by token, while it reads them (``HomeComposerHandoff``).
+    let composerFiles = HomeComposerFiles()
+    /// The mic, the compose bar's box toasts rest above, and the see-through Chief's switch and header height.
+    let dictation = HomePageDictation(), toastAvoidance = HomePageToastAvoidance(), seeThrough = HomeMessagesSeeThrough()
+    private lazy var attachmentDrag = HomePageAttachmentDrag(window: { [weak self] in self?.window() }, personOnly: RefusalStrings.personOnlyFromPage) { [weak self] in try? await self?.services?.home.homeStore.fetchAttachment($0, at: $1, variant: .original) }
 
     init(services: AppServices, widthKey: String) {
         self.services = services
         list = HomeMessagesListFeed(widthKey: { widthKey })
     }
 
-    nonisolated deinit {
-        panelsWatch?.cancel()
-    }
-
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let services else { throw PageError.unavailable("cmux is closing") }
+        if op.hasPrefix(Self.feedPrefix) { return try await DaemonPageRelay(services: services).call(op, params: params, context: try feedContext(context)) }
         let home = services.home
         let fields = params.objectValue ?? [:]
         let name = op.hasPrefix(HomeMessagesPageRoute.prefix) ? String(op.dropFirst(HomeMessagesPageRoute.prefix.count)) : op
@@ -96,7 +113,8 @@ final class HomeMessagesHostProvider: PageProvider {
         let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
         if let userOnly, HomeMessagesPageRoute.needsPerson(name, fields) { throw userOnly }
-        if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) { return answer }
+        let chiefAnswer = try await chiefTurn.call(name, fields, userGesture: context.userGesture)
+        if let answer = try chiefAnswer ?? toastAvoidance.call(name, fields) ?? seeThrough.call(name, fields) ?? attachmentDrag.call(name, fields, userGesture: context.userGesture) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
@@ -161,15 +179,23 @@ final class HomeMessagesHostProvider: PageProvider {
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1, select: false) },
                                                refusal: { home.composer.outcome(for: $0, naming: $1) }, select: { home.pendingSelection = $0 }).run(fields)
+        case "chief.settings", "chief.place":
+            let chief = chiefShown(try conversation(fields))
+            let anchor = HomeChiefSettingsAnchor.box(fields["anchor"])
+            if name == "chief.settings" { return .object(["shown": .bool(chief?.toggleSettings(under: anchor) ?? false)]) }
+            if let chief, let anchor { chief.openTeleportMenu(under: anchor) }
+            return .null
+        case "needsYou.action":
+            guard let feedActions else { throw PageError.unavailable("cmux is closing") }
+            return try await feedActions.call(PageNativeOp.actionRun, params: params, context: try feedContext(context))
+        case "dictation": return try dictation.call(params)
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
                 throw PageError.invalidParams("url and kind must name a link")
             }
-            let previews = previewProvider ?? HomeLinkPreviewProvider(services: services)
-            previewProvider = previews
             let quick = previews.preview(for: url, kind: kind)
-            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
+            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreview.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
             guard let text = fields["url"]?.stringValue,
@@ -189,9 +215,11 @@ final class HomeMessagesHostProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         let key = UUID()
+        if stream.hasPrefix(Self.feedPrefix), let services {
+            return try await DaemonPageRelay(services: services).subscribe(stream, filter: filter, context: try feedContext(context), onEvent: onEvent)
+        }
         switch stream {
-        case HomeMessagesPageRoute.prefix + "appearance":
-            return HomeMessagesFollow.start({ [weak self] in self?.appearance() ?? .null }, onEvent: onEvent)
+        case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "group.follow":
             guard let actions = services?.home.groupActions else { throw PageError.unavailable("cmux is closing") }
             let id = try conversation(filter.objectValue ?? [:])
@@ -203,25 +231,71 @@ final class HomeMessagesHostProvider: PageProvider {
         case HomeMessagesPageRoute.prefix + "hidden":
             hidden.subscribe(key, onEvent)
             return PageSubscription { [weak self] in self?.hidden.unsubscribe(key) }
-        case HomeMessagesPageRoute.prefix + "headerPanels":
-            panelListeners[key] = onEvent
-            onEvent(panels())
-            if panelsWatch == nil { restartPanels() }
-            return PageSubscription { [weak self] in
-                guard let self else { return }
-                panelListeners[key] = nil
-                if panelListeners.isEmpty { panelsWatch?.cancel(); panelsWatch = nil }
-            }
+        case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "dictation": return dictation.stream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + HomeMessagesSeeThrough.stream: return seeThrough.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "chiefPlace":
+            _ = services?.chiefTeleport.refresh()
+            return chiefPlace.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "needsYou": return needsYouStream.subscribe(onEvent)
         default:
             throw PageError.unknownOp(stream)
         }
+    }
+
+    /// Follows `chief`'s face for the `chiefFace` stream.
+    func follow(_ chief: HomeChiefSurface) {
+        let id = chief.conversation
+        chief.onFace = { [weak self] picture, text in
+            var face: [String: JSONValue] = ["conversation": .string(id.rawValue)]
+            if let picture { face["picture"] = .string(picture) }
+            if let text { face["text"] = .string(text) }
+            self?.chiefFace.publish(.object(face))
+        }
+    }
+
+    /// The header's location chip on the conversation that shows it (``HomeService/showsTeleport(conversation:)``).
+    private func place() -> JSONValue {
+        guard let services, let shown, services.home.showsTeleport(conversation: shown.rawValue),
+              let face = try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(services.chiefTeleport.chipFace(saysAway: true)))
+        else { return .null }
+        return .object(["conversation": .string(shown.rawValue), "chip": face])
+    }
+
+    /// The Needs you section: `{route}` (the Feed page's route the page draws) while the shown conversation is a
+    /// Chief's and the section is on, else null. Off, the page mounts no Feed view, so it reads no Feed state.
+    func needsYouState() -> JSONValue {
+        let store = services?.home.homeStore
+        return Self.needsYouState(isChief: shown.flatMap { id in store?.rows.first { $0.id == id } }?.kind == .chief, enabled: needsYouEnabled)
+    }
+
+    /// The section's state: `enabled` is read only for a Chief's chat, so another chat never observes the setting.
+    static func needsYouState(isChief: Bool, enabled: () -> Bool) -> JSONValue {
+        isChief && enabled() ? .object(["route": .string("#/needs-you")]) : .null
+    }
+
+    /// The Feed page's ops this page's Needs you sends (``PageFactory/feedWebPage(route:)``'s relay route).
+    static let feedPrefix = "cmux.feed."
+
+    /// `context` as the Feed page's (its relay, its actions), with the person's gesture and op id kept; refused while
+    /// Needs you does not show, so no other part of this page reads the Feed.
+    func feedContext(_ context: PageCallContext) throws -> PageCallContext {
+        guard needsYouState() != .null else { throw PageError.unavailable("Needs you is not shown") }
+        return Self.asFeedPage(context)
+    }
+
+    /// `context` as the Feed page's own call (``PageDescriptor/feed``), the gesture, origin and op id kept.
+    static func asFeedPage(_ context: PageCallContext) -> PageCallContext {
+        PageCallContext(page: PageDescriptor.feed.id, origin: context.origin, confirmed: context.confirmed, opid: context.opid,
+                        userGesture: context.userGesture, gestureEvent: context.gestureEvent)
     }
 
     /// The page says what it shows (`selected`).
     func reportShown(_ id: ConversationID?, composing: Bool) {
         guard let moved = page.report(id, composing: composing) else { return }
         onShown?(page.conversation, composing)
-        if moved { restartPanels(); firstRun?.restart() }
+        if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
     }
 
     // MARK: Streams
@@ -252,20 +326,6 @@ final class HomeMessagesHostProvider: PageProvider {
         return .object(["enabled": .bool(HomeTunables.headerPanelToggles.value), "panels": .array(states)])
     }
 
-    /// Follows the toggles while the page listens, for the conversation it shows now.
-    private func restartPanels() {
-        panelsWatch?.cancel()
-        panelsWatch = nil
-        guard !panelListeners.isEmpty else { return }
-        // task-owner: lives while the page listens to `headerPanels` (restarted on a new conversation, cancelled with its last listener); event-driven (Observation)
-        panelsWatch = Task { [weak self] in
-            guard let self else { return }
-            for await value in ObservationStream({ [weak self] in self?.panels() ?? .null }) {
-                for listener in panelListeners.values { listener(value) }
-            }
-        }
-    }
-
     /// The bubble menus' app rows (``HomeMessagesBubbleOps``): Retry Reply through the Chief's control, Forward… as Send To…, the file rows.
     private func bubbles(_ services: AppServices) -> HomeMessagesBubbleOps {
         if let bubbleOps { return bubbleOps }
@@ -282,7 +342,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The drafts, staged files and unsent sends kept in HomeStore (``HomeMessagesKept``).
     private func kept(_ home: HomeService) -> HomeMessagesKept {
         if let keeping { return keeping }
-        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }, approvals: services.map { ChiefApprovalDecider(home: home.chief.home, app: QuitAgents.environment($0), work: $0.work, environment: ChiefHomeAcpmux.environment) }, intake: intake)
+        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }, approvals: services.map { ChiefApprovalDecider(home: home.chief.home, app: QuitAgents.environment($0), work: $0.work, environment: ChiefHomeAcpmux.environment) })
         keeping = made
         return made
     }
