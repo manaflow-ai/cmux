@@ -39,6 +39,9 @@ function siblingRows(row: HTMLElement): { node: HTMLElement; index: number }[] {
 
 const indexOf = (row: HTMLElement) => Number(row.getAttribute("aria-posinset"));
 
+/// Whether `row` plays an animation of its own now (its subtree's are not its translate's).
+const animating = (row: HTMLElement) => row.getAnimations?.().some((each) => each.playState === "running") ?? false;
+
 export type FoldRideOptions = {
   /// The height the transcript placed `row` at (its drawn height in the last render), if any.
   placed: (row: HTMLElement) => number | undefined;
@@ -119,6 +122,9 @@ export class FoldRide {
     // the latest row are the transcript's to place.
     if (Number(last.node.getAttribute("aria-setsize")) === last.index && reach < view.bottom + view.height)
       return this.release();
+    // A row still playing its own animation (a live row's entry) may set its translate itself, over
+    // the one the ride would write: the transcript places the rows while it plays.
+    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node))) return this.release();
     // A folding row rides the folds above it too (its own change is not in its shift): two folds in
     // flight at once would otherwise overlap while the upper one plays.
     for (const { node, index } of rows) {

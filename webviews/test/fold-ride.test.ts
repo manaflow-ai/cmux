@@ -247,3 +247,28 @@ test("a reset forgets the hand-over as well as the ride", () => {
   expect(below.style.translate).toBe("");
   expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
 });
+
+// A row still playing its own animation (a live notice's entry) may hold its translate over the
+// ride's, staying still while the rows around it move (review of #39917 at fde040fe): the ride gives
+// way and the transcript places the rows while it plays.
+test("the ride gives way when a row it would move plays its own animation", () => {
+  const rows = transcript(4);
+  const [row, , notice, last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  let playing = true;
+  notice.getAnimations = () => (playing ? [{ playState: "running" } as Animation] : []);
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+  height.set(row, 140);
+  expect(ride.ride([row])).toBe(false);
+  expect(last.style.translate).toBe("");
+  playing = false;
+  expect(ride.ride([row])).toBe(true);
+  expect(notice.style.translate).toBe("0 40px");
+  ride.release();
+});
