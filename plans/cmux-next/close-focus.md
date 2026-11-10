@@ -240,6 +240,7 @@ P3: the pane's last tab closing closes the pane, and focus follows the pane rule
 R1 is the daemon's (`tab_close_like_chrome_r1_reopen_puts_the_tab_back_in_its_slot`); Chrome's reopen does
 not restore the opener, and neither does cmux.
 
-Rollout: the app links a pinned FFI build. `cmux_close_focus_tab` keeps 2026-11-08's rule
-(`close_focus::tab_before`) so the automatic re-pin changes nothing; the app moves to
-`cmux_close_focus_tab_chrome` (with its openers and groups) in the change after that re-pin.
+Rollout: the app links a pinned FFI build. `cmux_close_focus_tab` (the pinned symbol) keeps
+2026-11-08's rule (`close_focus::tab_before`), so the automatic re-pin changes nothing the app
+shows; the app then moves to `cmux_close_focus_tab_chrome` (openers and groups) together with
+its Swift tests in one change, with no red window between.

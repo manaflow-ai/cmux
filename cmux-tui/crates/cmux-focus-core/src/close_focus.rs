@@ -186,8 +186,74 @@ pub fn tab<T: Eq + Hash + Clone, G: Eq>(
     shown: &HashSet<T>,
     relations: &TabRelations<T, G>,
 ) -> Option<T> {
-    let _ = relations;
-    tab_before(selected, old, surviving, shown)
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(selected) = selected else {
+        return surviving
+            .iter()
+            .find(|id| shown.contains(*id))
+            .or_else(|| surviving.first())
+            .cloned();
+    };
+    if live.contains(selected) {
+        return Some(selected.clone());
+    }
+    let eligible = |id: &T| live.contains(id) && shown.contains(id);
+    if let Some(family) = chrome_relations(selected, old, &live, relations, eligible) {
+        return Some(family);
+    }
+    neighbor(selected, old, true, eligible)
+        .or_else(|| surviving.iter().find(|id| shown.contains(*id)))
+        .or_else(|| neighbor(selected, old, true, |id| live.contains(id)))
+        .or_else(|| surviving.first())
+        .cloned()
+}
+
+/// Steps 1 to 4 of [`tab`]: a child of `closed`, a sibling, its opener,
+/// then its group's neighbor. None when no step picks (or `closed` is not in
+/// `old`).
+fn chrome_relations<T: Eq + Hash + Clone, G: Eq>(
+    closed: &T,
+    old: &[T],
+    live: &HashSet<&T>,
+    relations: &TabRelations<T, G>,
+    eligible: impl Fn(&T) -> bool,
+) -> Option<T> {
+    if !old.contains(closed) {
+        return None;
+    }
+    if !relations.opener.is_empty() {
+        // The relations among the tabs left and the closed one, through tabs
+        // that left with it (`FixOpeners`).
+        let present: Vec<T> =
+            old.iter().filter(|id| *id == closed || live.contains(id)).cloned().collect();
+        let opener = live_openers(&relations.opener, &present);
+        // `GetIndexOfNextWebContentsOpenedBy`: the nearest after, else before.
+        let opened_by = |parent: &T| -> Option<T> {
+            let (mut after, mut before) = around(closed, old)?;
+            let child = |id: &&T| opener.get(*id) == Some(parent) && eligible(id);
+            after.find(child).or_else(|| before.find(child)).cloned()
+        };
+        if let Some(child) = opened_by(closed) {
+            return Some(child);
+        }
+        if let Some(parent) = opener.get(closed) {
+            if let Some(sibling) = opened_by(parent) {
+                return Some(sibling);
+            }
+            if eligible(parent) {
+                return Some(parent.clone());
+            }
+        }
+    }
+    // In its group: the surviving tab right after it, else right before it.
+    let group = relations.group.get(closed)?;
+    let (mut after, mut before) = around(closed, old)?;
+    let in_group = |id: &T| relations.group.get(id) == Some(group);
+    after
+        .find(|id| live.contains(id))
+        .filter(|id| in_group(id))
+        .or_else(|| before.find(|id| live.contains(id)).filter(|id| in_group(id)))
+        .cloned()
 }
 
 /// The rule of 2026-11-08 ("always the tab before it"): the shown tab before
