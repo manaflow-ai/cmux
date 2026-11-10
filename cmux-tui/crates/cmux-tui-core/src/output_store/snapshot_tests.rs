@@ -501,3 +501,22 @@ fn the_parked_trim_runs_once_a_day_with_any_pass() {
     assert!(take_trim(&mut state), "a day later any pass runs it");
     assert!(!take_trim(&mut state));
 }
+
+/// A reader's cached log handle reaches the store's log without the store's
+/// map. After the store forgets the terminal, the cache keeps nothing alive
+/// and the next chunk goes to a fresh log the store holds.
+#[test]
+fn a_cached_log_handle_follows_a_forget() {
+    let store = OutputStore::new(None);
+    let cache = super::super::OutputLogCache::default();
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000c4c").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append_cached(&cache, &id, &generation, b"before ", None);
+    store.append_cached(&cache, &id, &generation, b"again ", None);
+    assert_eq!(store.read_after(&id, 0, 1024).unwrap().bytes, b"before again ");
+    let first = Arc::downgrade(&store.logs.lock().unwrap().get(&id).cloned().unwrap());
+    store.forget(&id);
+    assert!(first.upgrade().is_none(), "the cache kept a forgotten log alive");
+    store.append_cached(&cache, &id, &generation, b"after", None);
+    assert_eq!(store.read_after(&id, 0, 1024).unwrap().bytes, b"after");
+}

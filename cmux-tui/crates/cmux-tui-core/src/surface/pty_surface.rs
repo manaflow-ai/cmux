@@ -23,7 +23,13 @@ impl PtySurface {
         bytes: &[u8],
         history: Option<crate::output_store::HistoryRows>,
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes, history);
+        mux.output_store.append_cached(
+            &self.output_log,
+            &terminal_id,
+            &self.journal_generation,
+            bytes,
+            history,
+        );
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {

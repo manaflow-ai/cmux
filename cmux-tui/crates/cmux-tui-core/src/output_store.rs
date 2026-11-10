@@ -488,6 +488,11 @@ impl LogState {
     }
 }
 
+/// A terminal reader's weak handle on its output log
+/// ([`OutputStore::append_cached`]).
+#[derive(Default)]
+pub(crate) struct OutputLogCache(Mutex<std::sync::Weak<TerminalLog>>);
+
 /// One terminal's output log.
 pub(crate) struct TerminalLog {
     terminal_id: TerminalPublicId,
@@ -702,6 +707,7 @@ impl OutputStore {
     /// no terminal). When the history grew by a step since the terminal's
     /// last measurement, the writer is asked to measure it
     /// (`memory_budget.rs`); this path never walks its pages.
+    #[cfg(test)]
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
@@ -713,7 +719,51 @@ impl OutputStore {
             return;
         }
         let log = self.log(terminal_id, generation);
-        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.append_locked(state, generation, bytes, history);
+    }
+
+    /// [`OutputStore::append`] for a terminal's output reader, through the
+    /// handle `cache` keeps on its log: the per-chunk path takes no lock the
+    /// readers of all terminals share. The handle is weak, and a log the
+    /// store forgot is looked up again, so the cache never keeps a log alive
+    /// or writes into one the store dropped.
+    pub(crate) fn append_cached(
+        &self,
+        cache: &OutputLogCache,
+        terminal_id: &TerminalPublicId,
+        generation: &Arc<str>,
+        bytes: &[u8],
+        history: Option<HistoryRows>,
+    ) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut cached = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let live = cached.upgrade().filter(|log| log.terminal_id == *terminal_id);
+        if let Some(log) = live {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if !state.forgotten {
+                drop(cached);
+                self.append_locked(state, generation, bytes, history);
+                return;
+            }
+        }
+        let log = self.log(terminal_id, generation);
+        *cached = Arc::downgrade(&log);
+        drop(cached);
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.append_locked(state, generation, bytes, history);
+    }
+
+    /// The body of [`OutputStore::append`] with the log's state locked.
+    fn append_locked(
+        &self,
+        mut state: std::sync::MutexGuard<'_, LogState>,
+        generation: &Arc<str>,
+        bytes: &[u8],
+        history: Option<HistoryRows>,
+    ) {
         if let Some(history) = history
             && !state.measure_due
             && history.moved_past_step(state.measured_rows)
