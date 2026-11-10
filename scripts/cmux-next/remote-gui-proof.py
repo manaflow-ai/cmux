@@ -46,7 +46,9 @@ OUT.mkdir(parents=True, exist_ok=True)
 APP = Path(args.app).resolve()
 CLI = APP / "Contents/Resources/bin/cmux"
 SOCK = f"/tmp/cmux-rgp-{args.tag}.sock"
-ENV = {**os.environ, "CMUX_NEXT_SOCKET_PATH": SOCK}
+# Both names, as cloud-chat-proof.py sets them: the bundled CLI reads CMUX_SOCKET_PATH (run 42870121112: `cmux app
+# identify` found no app with CMUX_NEXT_SOCKET_PATH alone).
+ENV = {**os.environ, "CMUX_NEXT_SOCKET_PATH": SOCK, "CMUX_SOCKET_PATH": SOCK}
 PROMPT = "Reply with exactly: PONG"
 REPLY = "PONG"
 T0 = time.monotonic()
@@ -245,8 +247,20 @@ def assistant_count() -> int:
     return len([t for t in chat_state().get("transcript") or [] if isinstance(t, dict) and t.get("kind") == "assistant"])
 
 
+def peer_connected() -> dict | None:
+    """The acpmux peer as the app's daemon has it (`cmux acp host ls`): connected or not."""
+    code, out, _ = cli("acp", "host", "ls", "--json", timeout=20)
+    try:
+        peers = json.loads(out).get("peers") or [] if code == 0 else []
+    except (ValueError, AttributeError):
+        peers = []
+    row = next((p for p in peers if isinstance(p, dict) and p.get("name") == args.alias), None)
+    return row if row and row.get("connected") else None
+
+
 def machine_row() -> dict | None:
     listed = rpc("remote.machines")
+    evidence["remote_machines_last"] = listed
     rows = listed.get("machines") if isinstance(listed.get("machines"), list) else listed.get("value")
     for row in rows or []:
         if isinstance(row, dict) and args.alias in json.dumps(row):
@@ -282,6 +296,13 @@ def app_pid() -> int | None:
             pid = json.loads(out).get("pid") if code == 0 else None
         except ValueError:
             pid = None
+        if not isinstance(pid, int):
+            # The app's own executable, by its full path in the bundle this proof launched (a read, never a signal).
+            exe = APP / "Contents/MacOS"
+            done = subprocess.run(["/usr/bin/pgrep", "-n", "-f", str(exe) + "/"], capture_output=True, text=True)
+            pid = int(done.stdout.split()[0]) if done.stdout.strip() else None
+            if pid is None:
+                snag(f"no app pid: cmux app identify exit {code}: {out.strip()[:300]}")
         if isinstance(pid, int):
             APP_PID.append(pid)
     return APP_PID[0] if APP_PID else None
@@ -389,11 +410,14 @@ def add_host() -> bool:
         snag("the GUI add did not start; falling back to `cmux setup machine e2ehost` for the later steps")
         code, out, err = cli("setup", "machine", args.alias, "--json", timeout=300)
         evidence["setup_machine_fallback"] = {"exit": code, "out": out[-2000:], "err": err[-2000:]}
-        row, ms = wait_until("link connected", lambda: (lambda r: r if r and r.get("link") == "connected" else None)(machine_row()), 120, 0.5)
+        row, ms = wait_until("link connected", lambda: (lambda r: r if r and r.get("link") == "connected" else None)(machine_row()), 60, 0.5)
         evidence["remote_machine"] = machine_row()
+        if not row:
+            snag(f"`cmux setup machine {args.alias}` connected the peer, but the app's machines (remote.machines) do not list it after {ms} ms",
+                 remote_machines=evidence.get("remote_machines_last"))
         shot("added-by-cli")
         step("add host (GUI)", False, error="GUI add did not start", cli_fallback_exit=code)
-        return bool(row)
+        return bool(row) or bool(peer_connected())
     outcome, ms = watch_add(pressed_at)
     card_shot(f"add-machine-{outcome or 'timeout'}")
     evidence["remote_machine"] = machine_row()
