@@ -96,6 +96,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]

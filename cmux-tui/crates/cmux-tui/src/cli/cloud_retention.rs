@@ -85,7 +85,7 @@ pub(super) fn parse(verb: &str, words: &[String]) -> Result<Parsed, String> {
         index += 1;
     }
     let target = target.ok_or("--target machine:MACHINE_ID is required")?;
-    let machine = target.strip_prefix("machine:").unwrap_or(&target).trim().to_owned();
+    let machine = super::vm_words::bare_id(&target).trim().to_owned();
     if machine.is_empty() {
         return Err("--target machine:MACHINE_ID".to_owned());
     }

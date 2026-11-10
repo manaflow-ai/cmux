@@ -404,9 +404,9 @@ pub(super) fn parse(
         }
         (Some(name), None) => Machine::Named(name.trim().to_owned()),
         (None, Some(target)) => {
-            let id = target.strip_prefix("machine:").unwrap_or(&target);
+            let id = super::vm_words::bare_id(&target);
             if id.is_empty() {
-                return Err(UsageError::new("--target machine:MACHINE_ID"));
+                return Err(UsageError::new("--target vm:VM_ID"));
             }
             Machine::Target(id.to_owned())
         }
@@ -461,7 +461,10 @@ impl Runner for SelfRunner {
                 return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
             }
         };
-        match cmux_process::Command::new(exe).args(&self.globals).args(args).output() {
+        // A step reads the app's own words (vm_words.rs), whatever the command prints.
+        let mut command = cmux_process::Command::new(exe);
+        command.env(super::vm_words::STEP_ENV, "1").args(&self.globals).args(args);
+        match command.output() {
             Ok(output) => Ran {
                 code: output.status.code().unwrap_or(1),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -1148,13 +1151,15 @@ fn steps(
             .reason
             .as_deref()
             .filter(|_| stage.is_final())
-            .and_then(|why| cap::cap_of("", why));
+            .and_then(|why| cap::cap_of("", why, None));
         if let Some(found) = capped {
-            let why = stage.reason.as_deref().unwrap_or_default();
-            let (message, details) = cap::at_cap(found, why, &listed, |id| {
+            let (message, mut details) = cap::at_cap(found, &listed, |id| {
                 again_command(request, &Machine::Target(id.to_owned()))
             });
-            return failed("cloud.machine_cap", message, details, 1);
+            if let Some(fields) = details.as_object_mut() {
+                fields.insert("reason".to_owned(), json!(stage.reason));
+            }
+            return failed(cap::code_of(found), message, details, 1);
         }
         if stage.is_final() {
             return failed(
@@ -1873,27 +1878,18 @@ fn app_failure(error: Value) -> Outcome {
 fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
     let code = at(&error, "code").as_str().unwrap_or_default();
     let message = at(&error, "message").as_str().unwrap_or_default();
-    match cap::cap_of(code, message) {
-        Some(found) if !signed_out(&error) => {
-            let message = message.to_owned();
-            cap_refusal(found, &message, listed, request, error)
-        }
+    let resource = at(&error, "details").get("resource").and_then(Value::as_str);
+    match cap::cap_of(code, message, resource) {
+        Some(found) if !signed_out(&error) => cap_refusal(found, listed, request, error),
         _ => app_failure(error),
     }
 }
 
-/// `cloud.machine_cap`: the cap `found` refused (`refusal`, its words), the account's machines in `listed`
-/// and the commands that free one; `app` is what the app answered.
-fn cap_refusal(
-    found: cap::Cap,
-    refusal: &str,
-    listed: &Value,
-    request: &Request,
-    app: Value,
-) -> Outcome {
-    let (mut text, mut details) = cap::at_cap(found, refusal, listed, |id| {
-        again_command(request, &Machine::Target(id.to_owned()))
-    });
+/// `cloud.machine_cap` or `cloud.spend_cap`: the stop `found` refused, the account's machines in `listed`
+/// and the commands that free one; `app` is what the app answered, its own words included.
+fn cap_refusal(found: cap::Cap, listed: &Value, request: &Request, app: Value) -> Outcome {
+    let (mut text, mut details) =
+        cap::at_cap(found, listed, |id| again_command(request, &Machine::Target(id.to_owned())));
     let room = cap::room(found, at(&app, "details"), listed);
     if let Some(room) = &room {
         let how = if room.archive { "archives and deletes" } else { "deletes" };
@@ -1907,7 +1903,7 @@ fn cap_refusal(
         fields.insert("make_room".to_owned(), room.as_ref().map_or(Value::Null, cap::Room::json));
         fields.insert("app".to_owned(), app);
     }
-    failed("cloud.machine_cap", text, details, 1)
+    failed(cap::code_of(found), text, details, 1)
 }
 
 /// A create that failed after the app answered it pending (its row under `creating`, or the machine it became
@@ -1920,9 +1916,11 @@ fn create_failed(request: &Request, created: &Value, row: &Value, now: &Value) -
         .and_then(Value::as_str)
         .or_else(|| at(row, "reason").as_str())
         .unwrap_or("no reason given");
+    let resource =
+        at(row, "error").get("details").and_then(|d| d.get("resource")).and_then(Value::as_str);
     let app = json!({"app": created, "creation": row});
-    match cap::cap_of(code, reason) {
-        Some(found) => cap_refusal(found, reason, now, request, app),
+    match cap::cap_of(code, reason, resource) {
+        Some(found) => cap_refusal(found, now, request, app),
         None => failed(
             "cloud.start_failed",
             format!("the new machine's create failed: {reason}"),
@@ -1954,8 +1952,8 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
                 None => {
                     let machine = at(answer, "machine_id").as_str().unwrap_or_default();
                     let on = match at(answer, "machine_name").as_str() {
-                        Some(name) => format!("{name} (machine:{machine})"),
-                        None => format!("machine:{machine}"),
+                        Some(name) => format!("{name} (vm:{machine})"),
+                        None => format!("vm:{machine}"),
                     };
                     println!(
                         "{} {} on {on}.",
@@ -1969,7 +1967,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
                 }
             }
             eprintln!(
-                "machine_id {}  session_id {}  tab_id {}",
+                "vm {}  session_id {}  tab_id {}",
                 at(answer, "machine_id").as_str().unwrap_or_default(),
                 at(answer, "session_id").as_str().unwrap_or_default(),
                 at(answer, "tab_id").as_str().unwrap_or_default()

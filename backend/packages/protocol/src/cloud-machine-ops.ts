@@ -90,6 +90,16 @@ export const CloudMachine = Schema.Struct({
    * (last_note_days before). Each comes once per deadline; a use, a keep or a new deadline clears it.
    */
   notice: Schema.optionalKey(Schema.NullOr(CloudRetentionNotice)),
+  /**
+   * The team's spending cap paused this machine (cmux-platform SpendCap.ts); pause_reason stays null for it. A start
+   * clears it. Absent otherwise, and from a server without the cap.
+   */
+  paused_by: Schema.optionalKey(Schema.Literal("spend_cap")),
+  /**
+   * The team reached its spending cap: this running machine pauses at this time unless an admin raises the cap first
+   * (the 15-minute warning). A pause, a start or a raised cap clears it.
+   */
+  spend_cap_pause_at: Schema.optionalKey(Millis),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 
@@ -161,7 +171,24 @@ export const CloudPlan = Schema.Struct({
    */
   usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.NullOr(Schema.Number), vm_hours_used_by_you: Schema.optionalKey(Schema.NullOr(Schema.Number)), period_end: Millis }),
   /** Automatic machine cleanup (cmux-platform Retention.ts); absent or null from a server without it. */
-  retention: Schema.optionalKey(Schema.NullOr(CloudRetention))
+  retention: Schema.optionalKey(Schema.NullOr(CloudRetention)),
+  /**
+   * The team's spending cap on Cloud machines (cmux-platform SpendCap.ts `capView`), absent where the cap is off. The
+   * last read of the team's spend (state under, near or at_cap; null before the first read; cap_usd null when the
+   * team has no cap), when running member machines pause if the team is still at its cap (pause_at, null when none is
+   * pending), and when the cap paused them (paused_at, null when it has not).
+   */
+  spend_cap: Schema.optionalKey(
+    Schema.Struct({
+      state: Schema.NullOr(Schema.Literals(["under", "near", "at_cap"])),
+      spent_usd: Schema.NullOr(Schema.Number),
+      cap_usd: Schema.NullOr(Schema.Number),
+      period_end: Schema.NullOr(Millis),
+      checked_at: Schema.NullOr(Millis),
+      pause_at: Schema.NullOr(Millis),
+      paused_at: Schema.NullOr(Millis)
+    })
+  )
 }).annotate({ identifier: "CloudPlan" })
 
 /**
@@ -210,6 +237,11 @@ const MUTATION = [...mutationErrors, ...GATES]
 export const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 /** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
 export const LIMITED = ["cloud.rate_limited"]
+/**
+ * A member's start at the team's spending cap (cloud.spend_cap.reached {spent_usd, cap_usd, period_end, pause_at}) or
+ * over their own monthly budget (cloud.member_budget.reached {spent_usd, limit_usd}); cmux-platform SpendCap.ts.
+ */
+export const SPEND_CAP = ["cloud.spend_cap.reached", "cloud.member_budget.reached"]
 export const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 /**
  * The G8 approval path (cx-wb5.65, domains/cloud.ts CLOUD_APPROVAL_OPS): a non-agent install
@@ -262,13 +294,13 @@ export const CloudMachineCreate = cloudMutation(
   "money",
   Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER, ...LIMITED, ...APPROVAL],
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...PROVIDER, ...LIMITED, ...APPROVAL],
   "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
 export const CloudMachineRename = cloudMutation("cloud.machine.rename", "mutate-shared", Schema.Struct({ machine: MachineId, name: MachineName }), MachineResult, ["cloud.machine.not_found"], "Rename a machine.", "cloud machine rename")
-export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.machine.not_bound", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER], "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
+export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.machine.not_bound", "cloud.quota.exceeded", "cloud.plan.required", ...SPEND_CAP, ...LIMITED, ...PROVIDER], "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
 export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_running", ...LIMITED, ...PROVIDER], "Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine pause", true)
 export const CloudMachineResize = cloudMutation(
   "cloud.machine.resize",
@@ -418,7 +450,7 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER, ...APPROVAL],
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...LIMITED, ...PROVIDER, ...APPROVAL],
   "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud snapshot restore",
   true

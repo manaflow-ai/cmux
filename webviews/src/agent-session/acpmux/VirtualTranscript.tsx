@@ -2340,22 +2340,42 @@ function TranscriptView({
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
   // padding. Read when it comes and as the view resizes, never per streamed token.
-  // Jump to new over the top reads the same scroller top (`view`): the stage also holds the pane's tab
-  // row as its own band above the scroller, so the stage's top is the tab strip, not the transcript's
-  // (https://github.com/manaflow-ai/cmux/issues/40021).
   const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
   const pinned = pinnedPill !== undefined;
-  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
-  const [pinAt, setPinAt] = useState({ top: 0, pad: 0, view: 0 });
+  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
   useLayoutEffect(() => {
     const scroller = ref.current;
-    if (!overTop || !scroller || !thread.current) return;
+    if (!pinned || !scroller || !thread.current) return;
     const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
     const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
-    const view = scroller.offsetTop;
-    const top = view + pad;
-    setPinAt((now) => (now.top === top && now.pad === pad && now.view === view ? now : { top, pad, view }));
-  }, [overTop, height]);
+    const top = scroller.offsetTop + pad;
+    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
+  }, [pinned, height]);
+  // What floats over the transcript's top (Jump to new, the pinned pill) starts at its clear line:
+  // the lower of where the transcript shows (the scroller's top in the stage, plus the part a one-tab
+  // pane's row floats over) and the header's bottom. The stage also holds the header (the pane's tab
+  // row) above the scroller, so the stage's own top is the tab strip, and nothing placed from the
+  // clear line can reach it, at any width or with any line under the header
+  // (https://github.com/manaflow-ai/cmux/issues/40021). Observed: a header that resizes, or a
+  // scroller that resizes (a line under the header pushes it down and shortens it, in a stage of
+  // fixed height), moves the line before the frame paints.
+  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  const [clearTop, setClearTop] = useState(topInset);
+  useLayoutEffect(() => {
+    const scroller = ref.current;
+    if (!overTop || !scroller) return;
+    const header = scroller.parentElement?.querySelector<HTMLElement>(":scope > .acpmux-header") ?? null;
+    const measure = () => {
+      const below = header ? header.offsetTop + header.offsetHeight : 0;
+      const line = Math.max(scroller.offsetTop + topInset, below);
+      setClearTop((now) => (now === line ? now : line));
+    };
+    const observer = new ResizeObserver(() => flushSync(measure));
+    observer.observe(scroller);
+    if (header) observer.observe(header);
+    measure();
+    return () => observer.disconnect();
+  }, [overTop, topInset]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -5037,7 +5057,7 @@ function TranscriptView({
         {sinceKey !== undefined && onJumpToSince && (
           <div
             className="acpmux-over-top"
-            style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : pinAt.view) }}
+            style={{ top: pinnedPill ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT : clearTop }}
           >
             <SinceJump mark={sinceKey} onJump={onJumpToSince} />
           </div>

@@ -313,7 +313,15 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "create-at-cap" | "get" | "ports-pending" | "ports-shared" | "cleanup-team";
+  action?:
+    | "select-machine"
+    | "create"
+    | "create-at-cap"
+    | "get"
+    | "ports-pending"
+    | "ports-shared"
+    | "cleanup-team"
+    | "resume";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -335,6 +343,10 @@ export type CloudPageVariant = VariantBase & {
   freeUp?: { machine: string; name: string | null; reason: string };
   /** The caller is not a team admin: saving the team's cleanup numbers is refused. */
   retentionForbidden?: boolean;
+  /** The team's spending cap as `cloud.plan.get` answers it; at the cap a start or create is refused. */
+  spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
+  /** The member's own monthly budget is spent: a start or create is refused. */
+  memberBudget?: { spent_usd: number; limit_usd: number };
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

@@ -30,6 +30,7 @@ import {
   type MachineRow,
 } from "./model";
 import { CloudOps, type CloudPlan, type MigrationStatus } from "./ops";
+import { machineCapNote } from "./spendCap";
 import type { CloudStore } from "./store";
 import { canArchive, canKeep } from "./retention";
 import { L } from "./strings";
@@ -82,6 +83,7 @@ export function MachineDetailView({
   };
   const now = useCostClock(costTicks(machine));
   const cost = costLine(machine, now, t, language);
+  const capNote = machineCapNote(machine, t, language);
   const memory = machine.size?.memory_mb ?? undefined;
   const choices = memoryChoices(plan);
   const idle = (row.idle !== undefined ? row.idle : machine.idle_policy?.idle_seconds) ?? 0;
@@ -111,6 +113,7 @@ export function MachineDetailView({
         {classic && <span className="cloud-badge cloud-classic-badge">{t(L.classic)}</span>}
         <span className="cloud-detail-status">
           {t(row.pending ? IntentLabel[row.pending] : StatusLabel[row.status])}
+          {!row.pending && capNote ? ` · ${capNote}` : ""}
         </span>
         <div className="cloud-detail-actions">
           {classic ? (

@@ -902,8 +902,28 @@ export class CloudStore {
     const archived =
       event.type === "removed" &&
       this.state.machines.some((machine) => machine.id === event.id && !!machine.delete_reason);
+    // The team's spending cap marks its machines (a pending pause, a pause) through these events alone
+    // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
+    const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
     this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
     if (archived) void this.readArchives(this.session);
+    if (capChanged) void this.readPlanForCap();
+  }
+
+  /** One plan read at a time for the cap's marks: a pause marks every running machine at once (N events). */
+  private capPlanRead: Promise<void> | undefined;
+  private capPlanDirty = false;
+  private async readPlanForCap(): Promise<void> {
+    if (this.capPlanRead) {
+      this.capPlanDirty = true;
+      return;
+    }
+    do {
+      this.capPlanDirty = false;
+      this.capPlanRead = this.account.readPlan(this.session);
+      await this.capPlanRead;
+      this.capPlanRead = undefined;
+    } while (this.capPlanDirty);
   }
 
   /**
@@ -1101,4 +1121,13 @@ export function failure(error: unknown, withMessage = true): Partial<CloudState>
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
+}
+
+/** Whether `next` carries other spending cap marks (`spend_cap_pause_at`, `paused_by`) than the mirror's copy. */
+function capMarksChanged(machines: readonly CloudMachine[], next: CloudMachine): boolean {
+  const before = machines.find((machine) => machine.id === next.id);
+  return (
+    (before?.spend_cap_pause_at ?? null) !== (next.spend_cap_pause_at ?? null) ||
+    (before?.paused_by ?? null) !== (next.paused_by ?? null)
+  );
 }

@@ -1,10 +1,10 @@
 // The machine list in two prototype layouts (Debug setting `cloud.machines.layout`): dense rows
 // (default) and cards. Both draw the same rows: status dot, title, a "Classic" badge for a machine
 // from cmux Cloud classic (read-only until upgraded: no inline actions), status or pending intent,
-// size (cards), the cost line the sidebar shows (cost.ts), and an inline Pause or Resume. Automatic
-// cleanup (retention.ts) adds a quiet "Deletes in N days" to the status line, a Keep pin, "Archive and
-// delete" on a paused machine, and the one-time notice inline under its row (Keep or Dismiss; no
-// banner, no modal). Plain Up/Down select, Return connects (not a classic machine); chords are ignored.
+// size (cards), the cost line the sidebar shows (cost.ts), the spending cap's pause (spendCap.ts), and an
+// inline Pause or Resume. Automatic cleanup (retention.ts) adds a quiet "Deletes in N days" to the status line
+// and the one-time notice inline under its row (Keep or Dismiss; no banner, no modal). Plain Up/Down select,
+// Return connects (not a classic machine); chords are ignored.
 import type { KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { costLine, costTicks, useCostClock } from "./cost";
@@ -22,6 +22,7 @@ import {
   type MachineRow,
 } from "./model";
 import { archiving, deleteDate, shownNotice, type DeleteDate } from "./retention";
+import { machineCapNote } from "./spendCap";
 import { format, L } from "./strings";
 
 /** The row's quiet delete line ("Deletes in 12 days"). */
@@ -85,7 +86,10 @@ export function MachineList({
         // A running machine's cost line says "Running 2h 14m" itself, so it stands in for the status.
         const cost = row.machine && !row.pending ? costLine(row.machine, now, t, language) : undefined;
         const label = row.pending ? t(IntentLabel[row.pending]) : t(StatusLabel[row.status]);
-        const status = cost && costTicks(row.machine) ? cost : cost ? `${label} · ${cost}` : label;
+        const base = cost && costTicks(row.machine) ? cost : cost ? `${label} · ${cost}` : label;
+        // The team's spending cap paused it, or pauses it soon (spendCap.ts): said on the row, beside its status.
+        const capNote = row.pending ? undefined : machineCapNote(row.machine, t, language);
+        const status = capNote ? `${base} · ${capNote}` : base;
         // Kept shows at once on a toggle (a quick intent); the platform's record follows.
         const machine = row.machine && row.keep !== undefined ? { ...row.machine, keep: row.keep } : row.machine;
         const date = row.pending ? undefined : deleteDate(machine, now);

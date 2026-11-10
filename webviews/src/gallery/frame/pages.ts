@@ -384,6 +384,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
   if (state.freeUp) provider.freeUp = state.freeUp;
   if (state.retentionForbidden) provider.retentionForbidden = true;
+  if (state.spendCap) provider.spendCap = { ...state.spendCap };
+  if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
@@ -429,6 +431,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
       if (team) team.open = true;
     }, 240);
   }
+  // The first row's Resume (a paused machine): a start the spending cap or the member's budget refuses.
+  if (state.action === "resume") clickLater(".cloud-machine-toggle");
   if (state.action === "ports-pending") {
     clickLater(".cloud-machine");
     setTimeout(() => {

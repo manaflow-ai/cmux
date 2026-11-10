@@ -149,6 +149,10 @@ export const CloudErrors = {
   planRequired: "cmux.cloud.plan_required",
   quotaExceeded: "cmux.cloud.quota_exceeded",
   sizeLocked: "cmux.cloud.size_locked",
+  /** The team reached its spending cap: `{spent_usd, cap_usd, period_end, pause_at}` (cmux-platform SpendCap.ts). */
+  spendCapReached: "cmux.cloud.spend_cap_reached",
+  /** The member spent their own monthly budget: `{spent_usd, limit_usd}`. */
+  memberBudgetReached: "cmux.cloud.member_budget_reached",
   /** No machine image is configured for this deployment yet (dev until the image lane has one). */
   noSnapshotConfigured: "cmux.cloud.no_snapshot_configured",
   fileOpsBusy: "cmux.cloud.file_ops_busy",
@@ -187,11 +191,18 @@ export function isGone(error: unknown): boolean {
   return codeOf(error) === CloudErrors.notFound;
 }
 
-/** A typed plan refusal (contract 1.5). The backend reads the plan; the page never computes one. */
+/**
+ * A typed plan refusal (contract 1.5), or a start the team's spending cap or the member's own budget refused
+ * (cmuxterm-hq#8205). The backend reads the plan and the spend; the page never computes one.
+ */
 export interface PlanRefusal {
-  kind: "plan_required" | "quota_exceeded" | "size_locked";
+  kind: "plan_required" | "quota_exceeded" | "size_locked" | "spend_cap" | "member_budget";
   limit?: number;
   used?: number;
+  /** Spend refusals: US dollars spent, the team's cap or the member's budget, and when the period resets. */
+  spentUsd?: number;
+  capUsd?: number;
+  periodEnd?: number;
   /**
    * The plan "See plans" checks out: the error's `details.plan`, else `CloudPlan.upgrade_plan`.
    * Absent when neither names one (null = no plan lifts the limit): the sentence shows alone.
@@ -203,7 +214,21 @@ const PLAN_KINDS: Record<string, PlanRefusal["kind"]> = {
   [CloudErrors.planRequired]: "plan_required",
   [CloudErrors.quotaExceeded]: "quota_exceeded",
   [CloudErrors.sizeLocked]: "size_locked",
+  [CloudErrors.spendCapReached]: "spend_cap",
+  [CloudErrors.memberBudgetReached]: "member_budget",
 };
+
+/**
+ * The backend's own spend codes, read from `upstream_code` too: an app server older than the cap answers them as
+ * `protocol_error` (an op that did not declare them yet) with the backend code kept.
+ */
+const UPSTREAM_SPEND_KINDS: Record<string, PlanRefusal["kind"]> = {
+  "cloud.spend_cap.reached": "spend_cap",
+  "cloud.member_budget.reached": "member_budget",
+};
+
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
 /**
  * The plan refusal of `error`, read from its code and `details` (`{limit, used}`, `{plan}`).
@@ -211,10 +236,25 @@ const PLAN_KINDS: Record<string, PlanRefusal["kind"]> = {
  */
 export function planRefusal(error: unknown, upgradePlan?: string | null): PlanRefusal | undefined {
   const code = codeOf(error);
-  const kind = typeof code === "string" ? PLAN_KINDS[code] : undefined;
+  const upstream = (error as { upstream_code?: unknown } | null)?.upstream_code;
+  const kind =
+    (typeof code === "string" ? PLAN_KINDS[code] : undefined) ??
+    (typeof upstream === "string" ? UPSTREAM_SPEND_KINDS[upstream] : undefined);
   if (!kind) return undefined;
   const details = (error as { details?: unknown }).details;
   const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  if (kind === "spend_cap" || kind === "member_budget") {
+    // No plan lifts a spend refusal: an admin raises the cap or the budget, or the period resets.
+    const spentUsd = finiteNumber(d.spent_usd);
+    const capUsd = finiteNumber(kind === "spend_cap" ? d.cap_usd : d.limit_usd);
+    const periodEnd = finiteNumber(d.period_end);
+    return {
+      kind,
+      ...(spentUsd !== undefined ? { spentUsd } : {}),
+      ...(capUsd !== undefined ? { capUsd } : {}),
+      ...(periodEnd !== undefined ? { periodEnd } : {}),
+    };
+  }
   const plan = typeof d.plan === "string" && d.plan ? d.plan : upgradePlan || undefined;
   return {
     kind,
