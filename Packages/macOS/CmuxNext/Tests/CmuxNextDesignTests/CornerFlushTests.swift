@@ -13,6 +13,17 @@ import Testing
         #expect(CornerFlush.flush.isOn && CornerFlush.tight.isOn)
     }
 
+    /// The app's default density (Default, the `cozy` preset) draws the folder tab; compact keeps the pill.
+    @Test func theDefaultDensityDrawsTheFolderTab() {
+        let design = DesignSettings.shared
+        let before = design.densityTokens
+        defer { design.densityTokens = before }
+        design.densityTokens = DensityPreset.cozy.tokens
+        #expect(CornerFlush.current == .goo)
+        design.densityTokens = .compact
+        #expect(CornerFlush.current == .off)
+    }
+
     @Test func tightHasNoGapOnTheSidebarSide() {
         #expect(CornerFlush.tight.sidebarGap == 0)
         #expect(CornerFlush.flush.sidebarGap == CornerFlush.flush.gap)

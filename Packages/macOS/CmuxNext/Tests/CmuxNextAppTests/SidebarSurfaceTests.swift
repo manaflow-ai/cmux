@@ -36,6 +36,8 @@ extension MainPaneGutterSuites {
             var look = members["appearance"]?.objectValue ?? [:]
             if look["chromeStyle"] == nil { look["chromeStyle"] = .string("default") }
             members["appearance"] = .object(look)
+            // The sidebar's edge line and the pane's shade: the flush corner draws neither.
+            CornerFlushTestPin.pin(.off)
             let snapshot = CmuxConfigSnapshot.parse(.object(members), validDensities: SettingsApplier.validDensities,
                                                     validMetrics: SettingsApplier.validMetrics)
             return SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)

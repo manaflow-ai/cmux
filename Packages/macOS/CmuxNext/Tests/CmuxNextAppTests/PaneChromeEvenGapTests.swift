@@ -31,6 +31,8 @@ import Testing
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
         _ = SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
+        // The gap below the pill: under the flush corner the selected tab runs down into the card.
+        CornerFlushTestPin.pin(.off)
     }
 
     private func window(_ size: CGSize) -> NSWindow {
