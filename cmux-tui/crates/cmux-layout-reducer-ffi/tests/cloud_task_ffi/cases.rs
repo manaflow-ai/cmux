@@ -31,7 +31,10 @@ fn record() -> Value {
 }
 
 fn step(state: &Value, event: Value) -> Value {
-    let (code, reply) = call(c"cloud_task_step", &json!({"source": "runs", "now": NOW, "state": state, "event": event}));
+    let (code, reply) = call(
+        c"cloud_task_step",
+        &json!({"source": "runs", "now": NOW, "state": state, "event": event}),
+    );
     assert_eq!(code, OK);
     reply
 }
@@ -48,7 +51,12 @@ fn a_run_followed_to_its_end_saves_answers_and_tells_once() {
     let ended = step(&poll["state"], json!({"on": "answer", "id": "r1", "body": body}));
     assert_eq!(ended["next"], "stop");
     assert_eq!(ended["heard"], true);
-    let kinds: Vec<&str> = ended["effects"].as_array().unwrap().iter().map(|effect| effect["do"].as_str().unwrap()).collect();
+    let kinds: Vec<&str> = ended["effects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|effect| effect["do"].as_str().unwrap())
+        .collect();
     assert_eq!(kinds, ["save", "clearPoll", "answer", "tell"]);
     assert_eq!(ended["effects"][3]["outcome"], "succeeded");
     assert_eq!(ended["effects"][3]["markTold"], true);
@@ -68,15 +76,25 @@ fn another_accounts_follow_is_refused_and_a_404_drops_the_run() {
     let refused = step(&signed_in["state"], json!({"on": "follow", "record": record()}));
     assert_eq!(refused["refused"], json!({"kind": "timedOut", "path": "cloud.runs/r1"}));
     let followed = step(&json!({}), json!({"on": "follow", "record": record()}));
-    let gone = step(&followed["state"], json!({"on": "answer", "id": "r1", "status": 404, "failed": true}));
-    assert_eq!(gone["effects"][1], json!({"do": "endPoll", "id": "r1", "error": {"kind": "timedOut", "path": "cloud.runs/r1"}}));
+    let gone = step(
+        &followed["state"],
+        json!({"on": "answer", "id": "r1", "status": 404, "failed": true}),
+    );
+    assert_eq!(
+        gone["effects"][1],
+        json!({"do": "endPoll", "id": "r1", "error": {"kind": "timedOut", "path": "cloud.runs/r1"}})
+    );
     assert_eq!(gone["state"]["records"], json!([]));
 }
 
 #[test]
 fn a_hand_offs_status_and_times() {
-    let (_, done) = call(c"cloud_task_handoff", &json!({"status": "done", "turn": 2, "state": "open"}));
-    assert_eq!(done, json!({"open": true, "running": false, "notice": {"key": "2:done", "outcome": "succeeded"}}));
+    let (_, done) =
+        call(c"cloud_task_handoff", &json!({"status": "done", "turn": 2, "state": "open"}));
+    assert_eq!(
+        done,
+        json!({"open": true, "running": false, "notice": {"key": "2:done", "outcome": "succeeded"}})
+    );
     let (_, statuses) = call(c"cloud_task_handoff_statuses", &json!({}));
     assert_eq!(statuses["turnRuns"], json!(["starting", "running"]));
     let (_, millis) = call(c"cloud_task_millis", &json!({"time": "2026-10-20T10:00:00.000Z"}));
@@ -91,6 +109,9 @@ fn a_hand_offs_status_and_times() {
 
 #[test]
 fn a_request_that_does_not_read_is_invalid() {
-    assert_eq!(call(c"cloud_task_step", &json!({"now": NOW, "event": {"on": "weird"}})).0, ERR_INVALID);
+    assert_eq!(
+        call(c"cloud_task_step", &json!({"now": NOW, "event": {"on": "weird"}})).0,
+        ERR_INVALID
+    );
     assert_eq!(call(c"cloud_task_nope", &json!({})).0, ERR_INVALID);
 }

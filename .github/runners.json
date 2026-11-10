@@ -294,7 +294,9 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cloud-chat-proof.yml#proof": {"class": "apple-app-build", "picker_followup": "builds and runs the tagged app while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, never a persistent owned Mac; an owned route needs the per-job secret isolation the signing pickers use"},
+    "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
+    "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
+    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -367,10 +369,6 @@
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "cmux-next-terminal.yml#swift-terminal": {
-      "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "cmux-next-tip-test-compile.yml#compile": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -389,10 +387,6 @@
     "cmux-next.yml#swift-canary": "apple-app-build",
     "cmux-next.yml#swift-canary-fleet": "apple-app-build",
     "cmux-next.yml#swift-test": "apple-swift-tests",
-    "cmux-terminal-client-xcframework.yml#build": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
     "cmux-tui-artifacts.yml#macos-cross-runtime-x86_64": {
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -495,7 +489,6 @@
       "picker_followup": "a main dispatch with no job before it to pick a runner; it takes the owned nightly slot, which admits the exclusive claim the release App key needs (the nightly-only minis refuse a signing-class job)"
     },
     "nightly.yml#publish-nightly": "apple-signing-release",
-    "nightly.yml#publish-nightly-next-github": "apple-signing-release",
     "nightly.yml#keep-published-dsyms": "apple-signing-release",
     "nightly.yml#republish-nightly-deltas": "apple-signing-release",
     "nightly.yml#promote-nightly-next-acked": {

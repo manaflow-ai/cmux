@@ -8,12 +8,18 @@
 //! 3. The app's signed-in account (`cloud diagnostics`' `email`) is a probe account, else
 //!    `carrier_fault.not_probe` (the same refusal, so it tells a person nothing more).
 //! 4. The fault leaves the turn another carrier to go on over, else
-//!    `carrier_fault.no_other_route`. A build whose only route is the relay (no ssh until plan
-//!    slice S6) always ends here for `kill-route=relay`.
+//!    `carrier_fault.no_other_route`. A device whose only route is the relay (ssh unavailable
+//!    in `carrier capabilities`: no tunnel hub, or no carrier key) always ends here for
+//!    `kill-route=relay`.
+//!
+//! 5. The build has an event source for the turn over its carriers, else
+//!    `carrier_fault.no_event_source` (every build until plan slice S1 gives the drill one).
 //!
 //! A refusal at step 4 or later carries the drill record in `error.details`: `capabilities`
 //! (`routes`, `faults`), `fault`, `kill`, `events` and `resumes`, the fields the probe's judge reads
-//! (cmuxterm-hq `cloud_carrier_failover_probe.py`). Exit 2 for every refusal.
+//! (cmuxterm-hq `cloud_carrier_failover_probe.py`). Exit 2 for every refusal. A drill that reached
+//! the turn's last event answers the same record under `drill` (exit 0): the judge, not this
+//! command, says whether it lost, repeated or resumed from the wrong seq.
 
 use serde_json::{Value, json};
 
@@ -21,9 +27,10 @@ use super::{
     GlobalArgs, Outcome, Parsed, Request, Runner, SelfRunner, TAKES_VALUE, UsageError, failed,
     forwarded_globals, lift_output_of, parse, report, step_result, words,
 };
-use crate::carrier::drill::Drill;
+use crate::carrier::drill::{Drill, EventRoutes, run_drill};
 use crate::carrier::fault::{
-    FaultPlan, FaultSpec, capabilities, parse_spec, probe_gate, probe_run, routes, this_build,
+    Carrier, FaultPlan, FaultSpec, capabilities, parse_spec, probe_gate, probe_run, routes,
+    this_device,
 };
 
 /// The flag.
@@ -60,9 +67,11 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
         }
         Err(error) => return Some(usage(error, global.output)),
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(&global) };
+    let mut runner = SelfRunner { globals: forwarded_globals(&global), global: global.clone() };
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
-    Some(report(&start(&mut runner, &request, spec, env.as_deref()), global.output))
+    let outcome =
+        start(&mut runner, &request, spec, env.as_deref(), || this_device(None), |_| None);
+    Some(report(&outcome, global.output))
 }
 
 /// `words` without `--carrier-fault SPEC` (or `--carrier-fault=SPEC`), and the spec. The flag is
@@ -114,12 +123,16 @@ fn account_email(runner: &mut dyn Runner) -> Option<String> {
     details.get("email").and_then(Value::as_str).map(str::to_owned)
 }
 
-/// The drill for `request` with `spec`; `env` is `CMUX_CARRIER_PROBE_FAULTS`' value.
+/// The drill for `request` with `spec`; `env` is `CMUX_CARRIER_PROBE_FAULTS`' value,
+/// `carriers` this device's ([`this_device`]), and `source` the turn's events over the plan's
+/// carriers (`None`: this build has none), both asked only once the gates passed.
 pub(super) fn start(
     runner: &mut dyn Runner,
     request: &Request,
     spec: FaultSpec,
     env: Option<&str>,
+    carriers: impl FnOnce() -> [Carrier; 2],
+    source: impl FnOnce(&FaultPlan) -> Option<Box<dyn EventRoutes>>,
 ) -> Outcome {
     let not_probe = || failed("carrier_fault.not_probe", NOT_PROBE, json!({}), 2);
     if !probe_run(env) {
@@ -137,18 +150,37 @@ pub(super) fn start(
     if probe_gate(env, email.as_deref()).is_err() {
         return not_probe();
     }
-    let carriers = this_build();
+    let carriers = carriers();
     let caps = capabilities(&carriers);
-    match FaultPlan::new(spec, routes(&carriers), &caps) {
-        Err(refused) => failed(refused.code, refused.message, refused.record, 2),
-        // No build has two carriers before plan slice S6, nor a turn's events over them before
-        // slice S1 (the Cloud dial on the route runner): say so rather than run half a drill.
-        Ok(plan) => failed(
+    let plan = match FaultPlan::new(spec, routes(&carriers), &caps) {
+        Ok(plan) => plan,
+        Err(refused) => return failed(refused.code, refused.message, refused.record, 2),
+    };
+    // No build follows a turn's events over its carriers before slice S1 (the drill's event
+    // source on the Cloud dial): say so rather than run half a drill.
+    let Some(mut events) = source(&plan) else {
+        return failed(
             "carrier_fault.no_event_source",
             "this build cannot follow a turn's events over its carriers yet",
             Drill::new(plan.spec, caps).json(),
             2,
-        ),
+        );
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        return failed(
+            "carrier_fault.runtime",
+            "the drill's runtime did not start",
+            Drill::new(plan.spec, caps).json(),
+            2,
+        );
+    };
+    let drilled = runtime.block_on(async {
+        let deadline = tokio::time::Instant::now() + request.timeout;
+        run_drill(&plan, events.as_mut(), caps, deadline).await
+    });
+    match drilled {
+        Ok(record) => Outcome::Done(json!({"drill": record})),
+        Err(error) => failed(error.code, error.message, error.record, 2),
     }
 }
 

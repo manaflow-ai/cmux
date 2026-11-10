@@ -11,15 +11,19 @@ public import Observation
 @MainActor
 @Observable
 public final class SidebarCustomizationService: SidebarCustomization {
-    static let hoverCardInterface = "cmux.hovercard/1"
+    // Nonisolated: ``AppMountSurface`` resolves the hover card by the same app and interface.
+    nonisolated static let hoverCardInterface = "cmux.hovercard/1"
     static let rowsInterface = "cmux.sidebar.rows/1"
-    static let userApp = "local/customize"
+    nonisolated static let userApp = "local/customize"
 
     @ObservationIgnored private let client: AppsClient
     @ObservationIgnored private let isPresented: (String) -> Bool
     /// Each decorated row's overrides; the sidebar bridge reads it inside its row observation.
     public private(set) var rowDecorations: [String: SidebarRowDecoration] = [:]
     @ObservationIgnored public var onRowDecorationsChange: (() -> Void)?
+    /// The Home chat's widget host (agents' widget parts, plans/cmux-next/chat-widgets-DESIGN.md), on
+    /// the same client and the same presence check.
+    @ObservationIgnored public private(set) lazy var chatWidgets = ChatWidgetHost(client: client, isPresented: isPresented)
     @ObservationIgnored private var rowsMount: AppMount?
     @ObservationIgnored private var rowsKey: String?
     @ObservationIgnored private var appsWatch: Task<Void, Never>?
@@ -42,7 +46,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// status): another installed app cannot.
     func implementation(_ interface: String) -> (app: String, implementation: AppImplementation)? {
         guard let app = client.app(Self.userApp), isPresented(app.id),
-              let found = app.manifest.implementations.first(where: { $0.interface == interface && $0.hasScene }) else { return nil }
+              let found = app.manifest.sceneImplementation(interface: interface) else { return nil }
         return (app.id, found)
     }
 
@@ -137,10 +141,15 @@ final class AppHoverCardContent: SidebarCustomContent {
 
     var isReady: Bool { mount.model.status == .ready }
 
+    /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
+    /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.
     var errorText: String? {
         switch mount.model.status {
-        case .failed(let reason), .disconnected(let reason): reason
-        case .loading, .ready: nil
+        case .failed(let reason):
+            let copy = AppFailureCopy(reason: reason)
+            return copy.location ?? copy.title
+        case .disconnected(let reason): return reason
+        case .loading, .ready: return nil
         }
     }
 

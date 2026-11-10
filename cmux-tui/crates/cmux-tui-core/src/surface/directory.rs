@@ -60,6 +60,28 @@ impl Surface {
             .last_command()
     }
 
+    /// When a client last wrote input: `extra.last_input`
+    /// (`terminal-activity-v1`, read-time only).
+    pub(crate) fn terminal_last_input(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_input()
+    }
+
+    /// Notes that a client wrote input to this terminal now.
+    pub(crate) fn note_terminal_input(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        pty.terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .note_input(now_ms);
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {

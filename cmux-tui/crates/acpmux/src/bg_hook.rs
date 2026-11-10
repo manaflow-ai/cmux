@@ -133,6 +133,36 @@ const QUICK: &[&str] = &[
 /// The comment that lets a known-slow command run in the foreground.
 pub const FOREGROUND_OK: &str = "# fg-ok";
 
+/// Claude Code's input names `agent_id` only for a subagent's call (a `case` pattern; a quoted
+/// `"agent_id"` in a command's own text is escaped in the JSON and does not match).
+pub const SUBAGENT_PATTERN: &str = "*'\"agent_id\"'*";
+
+/// The `Bash` calls [`main`] may answer, as shell `case` patterns on Claude Code's input
+/// (`agent_tools::hook_command`): a background shell, a subagent's call ([`subagent_mark`]), and
+/// for each [`SLOW`] entry its program and next word as written (`cargo test`), then the word it
+/// also needs. The plugin starts this binary only on a match, so the common call, the lead's quick
+/// foreground command, costs a shell and no process start. A false match only starts the binary,
+/// which answers as before; a slow command spelled another way (`cargo  test`) runs as asked, and
+/// `hub/auto_background.rs` moves it to the background after a minute, as for any long command.
+/// The 2026-11 context audit measured the unfiltered hook at about 20-40 ms on each of 84,542
+/// Bash calls.
+pub fn bash_patterns() -> Vec<String> {
+    let mut all: Vec<String> = ["\"run_in_background\":true", "\"run_in_background\": true"]
+        .iter()
+        .map(|w| format!("*'{w}'*"))
+        .chain([SUBAGENT_PATTERN.to_owned()])
+        .collect();
+    for (tool, next, needs, _) in SLOW {
+        let first = next.map_or_else(|| (*tool).to_owned(), |next| format!("{tool} {next}"));
+        let then = needs.map(|w| format!("*' {w}'")).unwrap_or_default();
+        let pattern = format!("*'{first}'{then}*");
+        if !all.contains(&pattern) {
+            all.push(pattern);
+        }
+    }
+    all
+}
+
 /// Why `command` would hold the turn for long, if one of its simple commands is known to
 /// ([`SLOW`]), or None. A command that puts itself in the background (a trailing `&`) or
 /// carries [`FOREGROUND_OK`] holds nothing; `nohup` or `setsid` alone still runs in the
@@ -437,6 +467,7 @@ pub const MCP_CALLS: &[&str] = &[
     "mcp__cmux__acpmux_bg_start",
     "mcp__cmux__acpmux_send",
     "mcp__cmux__cmux_exec",
+    "mcp__cmux__cmux_workflow",
 ];
 
 /// [`MCP_CALLS`] as one hooks.json matcher (a regex of alternatives).
@@ -829,5 +860,68 @@ mod tests {
         );
         assert_eq!(decide(&foreground("git status"), None), None);
         assert_eq!(decide(&foreground("git status"), Some(Route::Direct)), None);
+    }
+
+    /// The plugin's Bash hook starts this binary for every call [`main`] may answer (a
+    /// background shell, a subagent's call, each known-slow command, the forms agents write) and
+    /// for no quick foreground call of the lead, which then costs a shell and no process start.
+    #[cfg(unix)]
+    #[test]
+    fn the_bash_hook_starts_the_binary_only_for_a_call_it_may_answer() {
+        use std::io::Write;
+        let words = ["sh", "-c", "cat >/dev/null; echo started"].map(str::to_owned);
+        let hook = crate::agent_tools::hook_command(&words, &bash_patterns());
+        let starts = |input: &Value| {
+            let mut child = std::process::Command::new("sh")
+                .args(["-c", &hook])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+            let out = child.wait_with_output().unwrap();
+            assert!(out.status.success(), "{out:?}");
+            String::from_utf8_lossy(&out.stdout).trim() == "started"
+        };
+        let mut slow: Vec<String> = SLOW
+            .iter()
+            .map(|(tool, next, needs, _)| {
+                [Some(*tool), *next, *needs].into_iter().flatten().collect::<Vec<_>>().join(" ")
+            })
+            .collect();
+        slow.extend(
+            [
+                "cd cmux-tui && cargo test -p acpmux --lib 2>&1 | tail -40",
+                "/usr/bin/xcodebuild -scheme cmux -configuration Debug build",
+                "gh pr checks 12 --watch --interval 30",
+                "tail -n 50 -F /tmp/app.log",
+                "npm run dev -- --port 3000",
+                "set -e\nswift build -c release",
+            ]
+            .map(str::to_owned),
+        );
+        for command in &slow {
+            assert!(slow_reason(command).is_some(), "{command}");
+            assert!(
+                starts(&foreground(command)),
+                "a slow command did not start the hook: {command}"
+            );
+        }
+        let quick =
+            ["git status --short | head -20", "ls -la", "rg -n TODO src", "echo run_in_background"];
+        for command in quick {
+            assert!(slow_reason(command).is_none());
+            assert!(!starts(&foreground(command)), "a quick command started the hook: {command}");
+            let mut call = foreground(command);
+            call["tool_input"]["run_in_background"] = json!(false);
+            assert!(!starts(&call), "{command}");
+            call["tool_input"]["run_in_background"] = json!(true);
+            assert!(decide(&call, Some(Route::Direct)).is_some());
+            assert!(starts(&call), "a background shell did not start the hook: {command}");
+            let mut call = foreground(command);
+            call["agent_id"] = json!("a0");
+            call["agent_type"] = json!("Explore");
+            assert!(starts(&call), "a subagent's call did not start the hook: {command}");
+        }
     }
 }

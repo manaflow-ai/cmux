@@ -14,6 +14,8 @@ extension SettingsSchema {
         "agentPane.dictationShortcut": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
         "cloud.agentsStartWithoutAsking": .userOnly,
+        // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
+        "cloud.turnCheckpoints": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy, "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
@@ -126,7 +128,7 @@ extension SettingsSchema {
         // Privacy: whether banners show what agents said is the person's call.
         "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
-        "sessions.keepAwake": .userOnly,
+        "sessions.keepAwake": .userOnly, "sessions.keepAwakeForCommands": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.

@@ -436,6 +436,10 @@ pub struct MachineList {
     pub loaded: bool,
     pub team: bool,
     pub signed_in: bool,
+    /// The signed-in person and team the list is for: a sandboxed Run's account
+    /// (`cmux_cloud_api::sandbox::account_scope`) is read from them.
+    pub user_id: Option<String>,
+    pub team_id: Option<String>,
     pub machines: Vec<Listed>,
     pub creating: Vec<Creating>,
 }
@@ -475,7 +479,7 @@ pub fn machine_list(list: &MachineList) -> Fields {
         .collect();
     object(json!({
         "loaded": list.loaded, "count": machines.len(), "machines": machines, "creating": creating,
-        "account": {"signed_in": list.signed_in},
+        "account": {"signed_in": list.signed_in, "user_id": list.user_id, "team_id": list.team_id},
     }))
 }
 

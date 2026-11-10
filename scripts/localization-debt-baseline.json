@@ -239,10 +239,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/WorkspaceVerbs.xcstrings": {
       "needs_review": 108
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Resources/Localizable.xcstrings": {
-      "identical": 12,
-      "needs_review": 376
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings": {
       "identical": 38,
       "needs_review": 639
@@ -297,10 +293,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/Resources/DiffPage.xcstrings": {
       "identical": 2,
       "needs_review": 49
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Resources/Localizable.xcstrings": {
-      "identical": 10,
-      "needs_review": 328
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/Resources/Localizable.xcstrings": {
       "needs_review": 64

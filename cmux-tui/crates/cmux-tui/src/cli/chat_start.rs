@@ -24,8 +24,9 @@
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
 //! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
-//! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then, with a
-//! short deadline; no app (CI, a headless VM) is here. A refusal says what to run next. `cloud`,
+//! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then. No app (CI,
+//! a headless VM) is here at once; a live app that is only slow is waited for, since its answer
+//! decides where the chat runs ([`read_setting`]). A refusal says what to run next. `cloud`,
 //! `here`, `vm` and `vm:…` are selectors, never device names: a device called "cloud" is reached
 //! by its id.
 
@@ -35,8 +36,12 @@ use std::time::Duration;
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
 use serde_json::{Value, json};
 
+use super::agents::turn::{self, Begin};
 use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_cloud_start_core::machine_repo::Repo;
+
+mod local_repo;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &[
@@ -47,9 +52,12 @@ const TAKES_VALUE: &[&str] = &[
     "--harness",
     "--model",
     "--cwd",
+    "--from-folder",
+    "--repo",
     "--name",
     "--timeout",
     "--attach",
+    "--environment",
 ];
 
 /// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud start-chat` (unlike
@@ -65,8 +73,9 @@ pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     ours && matches!(flag, "--wait" | "--no-wait")
 }
 
-/// The `chat` verbs other modules own (chief/chat_scope.rs and the app's `chat …` actions).
-const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replies", "colors"];
+/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs and the app's `chat …` actions).
+pub(super) const OTHER_VERBS: &[&str] =
+    &["send", "cd", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
@@ -75,20 +84,24 @@ pub(super) const TARGET_ENV: &str = "CMUX_ON";
 /// (`cmux config set on TARGET` writes it; settings.rs reads `on` as this key).
 pub(super) const TARGET_SETTING: &str = "chat.on";
 
-/// How long the `chat.on` read may take: an app that does not answer by then is no setting.
-const SETTING_TIMEOUT: Duration = Duration::from_millis(1500);
+/// How long a live app is waited for in all while it answers the `chat.on` read with a passing
+/// refusal (`busy`, its own request deadline): the app bounds each request itself, so this counts
+/// only asks it refused. A loaded host (load 136 on 15 cores, 2026-11-04) passed the app's 2 s
+/// request deadline with both healthy.
+const SETTING_WAIT: Duration = Duration::from_secs(30);
 
 /// How long the catalog read may take.
+// timeout: a daemon that never answers the catalog read fails the start with an error.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.
 const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their ids";
-const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
+const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
-                 [--name NAME] [--attach FILE]... [--wait] [--timeout SECONDS] [--json]
-                 [[--prompt] TEXT]
+usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
+                 [--cwd DIR] [--from-folder DIR] [--repo URL] [--name NAME]
+                 [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -96,36 +109,62 @@ Starts an agent chat, right here unless --on names another target:
   --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
   --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
-  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
+  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm ls`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
   CMUX_ON=TARGET names the target when --on is absent.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
-  --agent AGENT      claude (default), codex, ...
+  --environment ENV  The Cloud environment (its env_ id or its name) a Cloud chat's
+                     new machine boots in, with --on cloud or --on vm:new; without
+                     it, Auto, as in the app's composer
+
+  --harness HARNESS  claude (default), codex, ... (--agent is its old name)
   --attach FILE      A file the first prompt carries; repeat for more (a chat here).
                      Any type and size: small files go inline, larger ones are uploaded
                      to the chat first. A missing or unreadable file starts nothing
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
   --model MODEL      The agent's model (a chat here)
-  --cwd DIR          The chat's folder (absolute)
+  --cwd DIR          The chat's folder (absolute); for a Cloud chat, a folder on the VM
+  --from-folder DIR  A Cloud chat in a copy of DIR, a folder on this Mac (`.` is this
+                     one): copied as New Cloud chat copies it, .env files, keys and
+                     credentials left out and named. Without it a Cloud chat starts in a
+                     new empty folder on the VM
+  --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
+                     git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
+                     with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd DIR;
+                     a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
-  --wait             Wait for a Cloud chat's turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900)
+  -w, --wait         Wait for the chat's turn to end and print the reply
+  --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
+                     default 15m, at most 4h)
 
 EXAMPLES
   cmux chat 'Summarize README.md'
+  cmux chat -w 'Summarize README.md'
+  cmux chat send -w 'Now the tests'          (the next prompt to that chat)
+  cmux chat --prompt 'Summarize README.md' --wait --json
+  cmux chat --repo https://gitlab.com/group/project --prompt 'Summarize README.md'
   cmux chat --on studio-mac 'Run the tests'
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:new --from-folder . --prompt 'Run the tests' --wait
+  cmux chat --on cloud --environment staging-db --prompt 'Run the migrations' --wait
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
-Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
+With --wait the answer has session_id, workspace_id, tab_id and reply, here
+and in Cloud. The chat goes on with cmux chat send TEXT --wait, cmux chat wait
+last and cmux chat read last: without a SESSION they mean the last chat this
+terminal started or sent to (`cmux chat send --help`).
+Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
+(`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
 ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
 signed_out, no_route).
-Exit codes: 0 ok, 1 refused, 2 bad arguments.
+Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent
+waits on a permission (chat.permission_waiting), 3 --timeout passed
+(chat.wait_timeout; its details.answer has timed_out: true).
 ";
 
 /// A parsed `cmux chat …` start.
@@ -136,14 +175,25 @@ pub(super) struct Start {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
+    /// `--from-folder DIR`: a Cloud chat in a copy of this Mac's DIR (`cloud start-chat
+    /// --from-folder`); a chat here refuses it.
+    pub from_folder: Option<String>,
+    /// `--repo`: the repository a chat here starts in a clone of (local_repo.rs).
+    pub repo: Option<Repo>,
     pub name: Option<String>,
     pub prompt: Option<String>,
     /// `--attach` files for the first prompt (a chat here; a Cloud chat refuses them).
     pub attach: Vec<String>,
+    /// `--environment ENV`: the Cloud environment a new machine boots in (`cloud start-chat
+    /// --environment`); None is Auto, as the composer's Environment chip defaults to.
+    pub environment: Option<String>,
     pub wait: bool,
     pub timeout: Option<String>,
 }
 
+// Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
+// box would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
@@ -170,7 +220,18 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let rest = start_words(rest)?;
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
     let env = std::env::var(TARGET_ENV).ok();
-    let start = match parse_with(&words, env, || setting_target(&global)) {
+    let mut unanswered = None;
+    let parsed = parse_with(&words, env, || {
+        setting_target(&global).unwrap_or_else(|error| {
+            unanswered = Some(error);
+            None
+        })
+    });
+    // A live app that never said where chats run: no start, so none runs where it was not meant to.
+    if let Some(error) = unanswered {
+        return Some(super::wire::print_local_error(&error, global.output, 3));
+    }
+    let start = match parsed {
         Ok(Parsed::Help) => {
             print!("{USAGE}");
             return Some(0);
@@ -211,9 +272,12 @@ pub(super) fn parse_with(
         agent: None,
         model: None,
         cwd: None,
+        from_folder: None,
+        repo: None,
         name: None,
         prompt: None,
         attach: Vec::new(),
+        environment: None,
         wait: false,
         timeout: None,
     };
@@ -269,10 +333,29 @@ pub(super) fn parse_with(
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
             "--cwd" => start.cwd = Some(value()?),
+            "--from-folder" => {
+                if start.from_folder.is_some() {
+                    return Err(UsageError::new("give --from-folder once"));
+                }
+                start.from_folder = Some(value()?);
+            }
+            "--repo" => {
+                if start.repo.is_some() {
+                    return Err(UsageError::new("give --repo once"));
+                }
+                start.repo = Some(local_repo::parse(value()?.trim()).map_err(UsageError::new)?);
+            }
             "--name" => start.name = Some(value()?),
             "--attach" => start.attach.push(value()?),
+            "--environment" => {
+                let environment = value()?.trim().to_owned();
+                if environment.is_empty() {
+                    return Err(UsageError::new("--environment needs an environment's id or name"));
+                }
+                start.environment = Some(environment);
+            }
             "--timeout" => start.timeout = Some(value()?),
-            "--wait" => start.wait = true,
+            "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
@@ -300,28 +383,71 @@ pub(super) fn pick_target(
 }
 
 /// The app's `chat.on` value (`settings.get`, as `cmux settings get chat.on` reads it), or None:
-/// no app, an app that does not answer within [`SETTING_TIMEOUT`], an unset key or a value that
-/// is not a string. The `--socket` kind probe and the read share that one deadline.
-fn setting_target(global: &GlobalArgs) -> Option<String> {
-    let deadline = std::time::Instant::now().checked_add(SETTING_TIMEOUT)?;
-    let left = || {
-        deadline.checked_duration_since(std::time::Instant::now()).filter(|left| !left.is_zero())
-    };
-    let mut stream = setting_stream(
-        || super::app::connect_command_within(global, Some(SETTING_TIMEOUT)),
+/// no app, an app that stopped answering, an unset key or a value that is not a string. The
+/// value decides where the chat runs (a Cloud VM, or here), so a live app that is only slow is
+/// waited for ([`read_setting`]); it used to have 1.5 s, and a busy app's Cloud setting started
+/// the chat here.
+fn setting_target(global: &GlobalArgs) -> Result<Option<String>, Value> {
+    let Some(mut stream) = setting_stream(
+        || super::app::connect_command(global),
         || super::app::socket_path(global).and_then(|path| super::app::connect(&path)),
-    )?;
-    let left = left()?;
-    stream.set_write_timeout(Some(left)).ok()?;
-    let answer = super::app::exchange_within(
-        &mut stream,
-        "settings.get",
-        json!({ "path": TARGET_SETTING }),
-        left,
-    )
-    .ok()?
-    .ok()?;
-    answer.get("value").and_then(Value::as_str).map(str::to_owned)
+    ) else {
+        return Ok(None);
+    };
+    read_setting(&mut stream, super::app::READ_TIMEOUT, SETTING_WAIT)
+}
+
+/// Reads `chat.on` from the app at `stream`. Each ask waits while the app answers its liveness
+/// ping (`window` is how often it is asked), the way every app request does
+/// ([`super::app::request`]), but never past `total` in all; an app that stops answering it, or
+/// closes, is no setting. An ask the app refuses before it ran (`busy`, `timeout`,
+/// `unavailable`) is asked again while less than `total` has passed; past it, or a pending ask
+/// past it, the answer is `app.setting_unanswered`, retryable.
+pub(super) fn read_setting(
+    stream: &mut UnixStream,
+    window: Duration,
+    total: Duration,
+) -> Result<Option<String>, Value> {
+    let began = std::time::Instant::now();
+    // The whole wait, a pending ask included: an app that answers pings but never this ask
+    // would otherwise hold the read forever.
+    let deadline = began + total;
+    loop {
+        let answer = super::app::request_by(
+            stream,
+            "settings.get",
+            json!({ "path": TARGET_SETTING }),
+            window,
+            Some(deadline),
+        );
+        let refusal = match answer {
+            Ok(Ok(answer)) => {
+                return Ok(answer.get("value").and_then(Value::as_str).map(str::to_owned));
+            }
+            Ok(Err(refusal)) => refusal,
+            Err(_) => return Ok(None),
+        };
+        let passing = matches!(
+            refusal.get("code").and_then(Value::as_str),
+            Some("busy" | "timeout" | "unavailable")
+        );
+        if !passing {
+            return Ok(None);
+        }
+        if began.elapsed() >= total {
+            return Err(json!({
+                "code": "app.setting_unanswered",
+                "message": format!(
+                    "the cmux app is running but did not say where chats start (the chat.on \
+                     setting) in {} s, so nothing started; run it again, or pass --on",
+                    total.as_secs()
+                ),
+                "details": {"setting": TARGET_SETTING, "refusal": refusal},
+                "retryable": true,
+            }));
+        }
+        std::thread::sleep(window.min(Duration::from_millis(250)));
+    }
 }
 
 /// The app to read `chat.on` from: the one `--app-socket`, `--socket` or the environment names
@@ -384,7 +510,7 @@ where
         if vm == "new" {
             return Ok(Route::Cloud(Machine::New));
         }
-        let vm = vm.strip_prefix("machine:").unwrap_or(vm);
+        let vm = super::vm_words::bare_id(vm);
         let listed = (reads.cloud_machines)()?;
         // Signed out, the app lists no VMs: say to sign in, not that the VM is unknown.
         if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
@@ -493,7 +619,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
             return Err(retryable(refusal(
                 "chat_target.vm_starting",
                 "your Cloud VM is still being made".to_owned(),
-                "run this command again once `cmux vm list-machines` lists it",
+                "run this command again once `cmux vm ls` lists it",
                 json!({}),
             )));
         }
@@ -511,7 +637,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     Err(refusal(
         "chat_target.which_vm",
         format!("you have {} Cloud VMs: {}", usable.len(), names.join(", ")),
-        "name one with --on vm:NAME (`cmux vm list-machines`), or use --on vm:new",
+        "name one with --on vm:NAME (`cmux vm ls`), or use --on vm:new",
         json!({"names": names}),
     ))
 }
@@ -593,13 +719,62 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
-    let route = match route(start.on.as_deref(), reads) {
+    // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
+    if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
+        return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+    }
+    let route = match route_start(&start, reads) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
+    let route = match in_environment(&start, route) {
+        Ok(route) => route,
+        Err(error) => return usage_failure(&error, global.output),
+    };
+    if route == Route::Here && start.from_folder.is_some() {
+        return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
+    }
+    if matches!(route, Route::Cloud(_))
+        && start.from_folder.is_none()
+        && start.cwd.is_none()
+        && global.output == OutputMode::Human
+    {
+        eprintln!("{EMPTY_CLOUD_FOLDER}");
+    }
+    let start = match route {
+        // Every other argument is checked before anything is cloned.
+        // So are the files `--attach` names: the start below refuses the same ones.
+        Route::Here
+            if start.repo.is_some()
+                && (here_preflight(&start).is_err()
+                    || super::agents::chat_control::checked_attachments(&start.attach)
+                        .is_err()) =>
+        {
+            start
+        }
+        Route::Here => match in_repo(start, global.output) {
+            Ok(start) => start,
+            Err(Failure::Usage(error)) => return usage_failure(&error, global.output),
+            Err(Failure::Repo(error)) => {
+                return super::wire::print_local_error(&error, global.output, 1);
+            }
+        },
+        Route::Cloud(_) if start.repo.is_some() => {
+            return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+        }
+        Route::Cloud(_) => start,
+    };
     match route {
-        Route::Here => match here_words(&global_words(global), &start) {
-            Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
+        Route::Here => match here_wait(&start) {
+            // `--wait`: start, wait for the turn and print the reply (agents/turn.rs).
+            Ok(Some(timeout)) => match new_args(&start) {
+                Ok(args) => turn::run(global, &Begin::New(args), timeout),
+                Err(error) => usage_failure(&error, global.output),
+            },
+            Ok(None) => match here_words(&global_words(global), &start) {
+                Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
+                Err(error) => usage_failure(&error, global.output),
+            },
             Err(error) => usage_failure(&error, global.output),
         },
         Route::Cloud(machine) => match cloud_words(&start, &machine) {
@@ -618,6 +793,95 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             }
             Err(error) => usage_failure(&error, global.output),
         },
+    }
+}
+
+/// Whether target `on` is a Cloud selector (`cloud`, `vm`, `vm:…`), never a chat here.
+pub(super) fn names_cloud(on: &str) -> bool {
+    on == "cloud" || on == "vm" || on.starts_with("vm:")
+}
+
+/// Why [`in_repo`] started nothing.
+enum Failure {
+    Usage(UsageError),
+    Repo(Value),
+}
+
+const FROM_FOLDER_CLOUD_ONLY: &str = "--from-folder copies a folder to a Cloud chat's VM; a chat \
+     here runs in its own folder: give --cwd DIR, or add --on vm:new";
+
+/// Said (human output only) when a Cloud chat starts with neither `--from-folder` nor `--cwd`:
+/// nothing on this Mac goes with it, and a person in a project folder would otherwise not know.
+const EMPTY_CLOUD_FOLDER: &str = "cmux: the Cloud chat starts in a new empty folder on the VM; \
+     add --from-folder . to take this folder with it";
+
+const REPO_HERE_ONLY: &str = "--repo starts a chat here in a clone; a Cloud chat goes to a \
+     repository with cmux chat cd SESSION --repo REPO once it has started";
+
+/// `start` with `--repo`'s clone made (or found) and its folder as the chat's `--cwd`; without
+/// `--repo`, `start` as it is. `--cwd` with `--repo` names where the clone goes.
+fn in_repo(mut start: Start, output: OutputMode) -> Result<Start, Failure> {
+    let Some(repo) = start.repo.clone() else { return Ok(start) };
+    let dir = match &start.cwd {
+        Some(cwd) if std::path::Path::new(cwd).is_absolute() => std::path::PathBuf::from(cwd),
+        Some(cwd) => {
+            return Err(Failure::Usage(UsageError::new(format!(
+                "--cwd {cwd}: give the clone's folder as an absolute path"
+            ))));
+        }
+        None => {
+            let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+                return Err(Failure::Usage(UsageError::new(
+                    "--repo clones into ~/cmux/repos, but HOME is not set; give --cwd DIR",
+                )));
+            };
+            local_repo::default_dir(std::path::Path::new(&home), &repo)
+        }
+    };
+    if output == OutputMode::Human {
+        eprintln!("cmux: {} in {}", repo.display(), dir.display());
+    }
+    local_repo::ensure(&repo.url(), repo.r#ref.as_deref(), &dir).map_err(Failure::Repo)?;
+    start.cwd = Some(dir.to_string_lossy().into_owned());
+    Ok(start)
+}
+
+/// Where `start` runs. An environment makes the chat's machine, so `--on cloud --environment`
+/// (cmux Cloud's choice of place) is a new machine in it, decided before any VM of yours is
+/// looked at: the VMs `--on cloud` would otherwise pick from (or refuse as several) are not its
+/// choice then. Only the sign-in is checked first. Anything else is [`route`]'s.
+pub(super) fn route_start<C, S, L>(start: &Start, reads: Reads<C, S, L>) -> Result<Route, Value>
+where
+    C: FnOnce() -> Result<Value, Value>,
+    S: FnOnce() -> bool,
+    L: FnOnce() -> Result<Value, Value>,
+{
+    if start.environment.is_some() && start.on.as_deref() == Some("cloud") {
+        if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
+        {
+            return Err(refused(&refusal));
+        }
+        return Ok(Route::Cloud(Machine::New));
+    }
+    route(start.on.as_deref(), reads)
+}
+
+/// The route once `--environment` is read: `--on cloud` and `--on vm:new` make the chat's machine
+/// in it ([`route_start`]). A chat here or on a machine that exists has no environment to pick:
+/// refused, never dropped. Without `--environment` the route is unchanged.
+pub(super) fn in_environment(start: &Start, route: Route) -> Result<Route, UsageError> {
+    if start.environment.is_none() {
+        return Ok(route);
+    }
+    match route {
+        Route::Cloud(Machine::New) => Ok(Route::Cloud(Machine::New)),
+        Route::Cloud(_) => Err(UsageError::new(
+            "--environment makes a new machine; with --on cloud or --on vm:new, not a VM that \
+             already has its environment",
+        )),
+        Route::Here => {
+            Err(UsageError::new("--environment picks a Cloud chat's environment; add --on cloud"))
+        }
     }
 }
 
@@ -670,15 +934,54 @@ pub(super) fn global_words(global: &GlobalArgs) -> Vec<String> {
     words
 }
 
+/// How long a chat here waits for its turn: None without `--wait`. `--timeout` is seconds, as
+/// a Cloud chat takes it (default 900, at most 4 h), and goes only with `--wait`.
+pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
+    if !start.wait {
+        return match start.timeout {
+            Some(_) => Err(UsageError::new("--timeout says how long --wait waits; add --wait")),
+            None => Ok(None),
+        };
+    }
+    let Some(text) = &start.timeout else { return Ok(Some(turn::DEFAULT_TIMEOUT)) };
+    Ok(Some(super::chat_send::timeout_value(text)?.min(turn::MAX_TIMEOUT)))
+}
+
+/// Every check a chat here makes of its arguments before it starts, run before `--repo` clones
+/// anything: the wait's, and `agents chat new`'s own (`parse_new`). The prompt is not read from
+/// stdin for it; the start reads it once.
+pub(super) fn here_preflight(start: &Start) -> Result<(), UsageError> {
+    here_wait(start)?;
+    let mut checked = start.clone();
+    if checked.cwd.is_none() && checked.repo.is_some() {
+        // The clone's folder, which is absolute: `--repo`'s own.
+        checked.cwd = Some("/".to_owned());
+    }
+    let words = new_words(&checked, checked.prompt.clone())?;
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    super::agents::chat_control::parse_new(&words).map(drop)
+}
+
 /// `agents chat new …` with this start's settings, after the same globals.
 pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>, UsageError> {
-    if start.wait || start.timeout.is_some() {
-        return Err(UsageError::new(
-            "--wait and --timeout wait for a Cloud chat; for a chat here, `cmux agents wait`",
-        ));
-    }
     let mut words = prefix.to_vec();
     words.extend(["agents", "chat", "new"].map(str::to_owned));
+    words.extend(new_args(start)?);
+    Ok(words)
+}
+
+/// The words after `agents chat new` for this start (`-` read from stdin now).
+pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
+    let prompt = match &start.prompt {
+        Some(prompt) if prompt == "-" => Some(read_stdin().map_err(UsageError::new)?),
+        prompt => prompt.clone(),
+    };
+    new_words(start, prompt)
+}
+
+/// [`new_args`] with `prompt` as the prompt's text.
+fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, UsageError> {
+    let mut words = Vec::new();
     for (flag, value) in [
         ("--harness", &start.agent),
         ("--model", &start.model),
@@ -691,9 +994,7 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
     }
     // Inline, so a path that starts with `-` stays a path.
     words.extend(start.attach.iter().map(|file| format!("--attach={file}")));
-    if let Some(prompt) = &start.prompt {
-        let prompt =
-            if prompt == "-" { read_stdin().map_err(UsageError::new)? } else { prompt.clone() };
+    if let Some(prompt) = prompt {
         words.extend(["--".to_owned(), prompt]);
     }
     Ok(words)
@@ -703,7 +1004,8 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
 pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String>, UsageError> {
     if start.model.is_some() || start.name.is_some() {
         return Err(UsageError::new(
-            "--model and --name name a chat here; a Cloud chat takes --agent, --cwd and --prompt",
+            "--model and --name name a chat here; a Cloud chat takes --agent, --cwd, --from-folder \
+             and --prompt",
         ));
     }
     // Refused, never dropped: a Cloud chat's first prompt is text only (`cloud start-chat`).
@@ -722,9 +1024,13 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
         Machine::Target(id) => words.extend(["--target".to_owned(), format!("machine:{id}")]),
         Machine::New => {}
     }
-    for (flag, value) in
-        [("--agent", &start.agent), ("--cwd", &start.cwd), ("--timeout", &start.timeout)]
-    {
+    for (flag, value) in [
+        ("--agent", &start.agent),
+        ("--cwd", &start.cwd),
+        ("--from-folder", &start.from_folder),
+        ("--environment", &start.environment),
+        ("--timeout", &start.timeout),
+    ] {
         if let Some(value) = value {
             words.extend([flag.to_owned(), value.clone()]);
         }

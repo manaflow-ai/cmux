@@ -144,12 +144,14 @@ public struct WindowTitlebar {
     ///   sidebar under the lights): the card starts `gutter` below their row
     ///   (the lights and the toolbar band's buttons on their line).
     public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat, clearsTrafficLights: Bool = false) -> CGFloat {
+        // The flush corner (`chrome.cornerFlush`): the top row's pills on the lights' line in every titlebar style.
+        if let inset = CornerFlushChrome.topInset(of: root) { return inset }
         guard minimal, let window = root.window else { return gutter }
         // Under a minimal titlebar the card meets the window's top edge: it stays under the window's lit rim.
         guard let lights = trafficLightsFrame(in: window) else { return Metrics.windowEdgeInset(gutter, in: window) }
         let local = root.convert(lights, from: nil)
         if clearsTrafficLights {
-            let row = max(local.height, TitlebarBandButton.side)
+            let row = max(local.height, TopRowSpacing.buttonSide)
             return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
         }
         // Floating panes keep the one even gap at the top too.

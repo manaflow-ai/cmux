@@ -12,6 +12,130 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Resize sync in the renderer replaces the embedder's present (ghostty-next, GI RENDERER SYNC)
+
+- Release branch `release/cmux-gi-renderer-sync-1` at `c31377f1a`, on `a0e665d4f` (`release/cmux-gi-present-cb-1`, the
+  present callback): red `4f79c9b23` (tests only), then `c31377f1a`. The pin is `0efdef967` on
+  `release/cmux-gi-land-2`: the merge `4b56609f1` of `c370b103a` (`release/cmux-gi-land-1`, the two sections below)
+  and `c31377f1a`, with no conflict, then the content-scale change of the next item. GhosttyNextKit
+  `xcframework-0efdef967bd28f1f3327eaaddc306ba29e693e97-apple-v6` (zip sha256 `4cc00bf8...75807`, run 42784626967).
+- Content scale (P12): red `74b8bb04f` (tests only), then `0efdef967`. `ghostty_surface_set_content_scale` on a
+  host-sized macOS surface no longer leaves the layer's `contentsScale` to the embedder. The renderer gives the new
+  scale to `IOSurfaceLayer.setContentScale`, which keeps it until the first frame at the host size is set as the
+  layer's contents and writes both in one Core Animation transaction on main (off-main presents go through main
+  while a scale waits). With no contents or no host size the scale is written at once; `ghostty_surface_set_host_sized`
+  off lands a scale that waits. So a frame drawn at the old scale is never stretched by the new one. cmux no longer
+  writes `contentsScale` in `TerminalSurfaceView.updateContentScale`. Tests: four "host present:" tests in
+  `metal/IOSurfaceLayer.zig`. Files: `include/ghostty.h`, `src/apprt/embedded.zig`, `src/renderer/Metal.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig`.
+- Known limit of `0efdef967` (review 2026-11-10), for the next fork pin: the pending scale lands with the first frame
+  that has the host's pixel size. The pixel size is an atomic that each draw reads; the new font grid goes through
+  the renderer's mailbox, which only the wakeup drains. A draw between the two (draw-now, a timer) gives one frame at
+  the new size with the old font, and the scale lands with it: text at the wrong size for one frame, then the frame
+  with the new font. The comment in `IOSurfaceLayer.zig` (`setContentScale`) and in `ghostty.h` says "in that order",
+  which is not true. Fix: stamp each `Target` with the scale it was drawn at (as `program_fresh`), land the scale only
+  with a frame of that stamp, and correct both comments. Also for that pin: a test of the scale landing through
+  `setSurfaceSync`, the same fixed-point rounding on both sides of the equality in `setContentScale`, and a clamp
+  that refuses a non-finite scale.
+- What: `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2` replaces `GHOSTTY_HOST_PRESENT_EMBEDDER` (value 1 removed). The
+  renderer times a new host size's frame itself: on the alternate screen a new-size frame that is not the program's
+  redraw at the new grid is held (the layer keeps its last frame, top-left, clipped) until the redraw or a bound of
+  3 refreshes at 120 Hz, restarted by `ghostty_surface_set_grid`. A new-size frame goes through main; same-size frames
+  (scroll, output) stay off main, also during a hold. `ghostty_surface_host_frame`, `_host_frame_committed`,
+  `ghostty_host_frame_e` and the present-host-frame path are gone. The main-pending flag is cleared by a one-shot
+  run-loop observer after Core Animation's commit (G1), so a dropped watch can no longer leave it set (S-P3).
+  Counters: `host_main_presents`, `host_size_presents`, `host_held_frames`. Files: `include/ghostty.h`,
+  `src/apprt/embedded.zig`, `src/apprt/structs.zig`, `src/renderer/Metal.zig`, `Thread.zig`, `generic.zig`,
+  `metal/IOSurfaceLayer.zig`, `metal/Target.zig`, `NEXT.md`.
+- Why: plans/cmux-next/ghostty-integration.md step 4 (P1-P8, P10-P12, F8, F47). cmux deletes its frame presenter,
+  frame owner, draw-ahead and screen-switch watch.
+- Supersedes: "The embedder presents a new host size with its bounds", "Host frames say whether the program drew at
+  their grid" and "An update draws at once while a host size's frame waits for the embedder's present" below.
+- Conflict notes: keep the hold in `Metal.holdsFrame` and the bound wake in `generic.zig` when upstream changes the
+  present or vsync path.
+
+### The embedder hears each frame the layer shows (ghostty-next)
+
+- Release branch `release/cmux-gi-present-cb-1` at `a0e665d4f` (red tests `3e874ce8c` and `6ef7ba722`), on
+  `b3a5ebfdf`. The pin is `c370b103a` on `release/cmux-gi-land-1`: the merge of `a0e665d4f` and `a0975fd8c` (the
+  section below), with no conflict. ghostty-integration step 3 (P23).
+- What: `ghostty_surface_set_present_callback(surface, cb, userdata)`. Each time a frame becomes the IOSurface layer's
+  contents (off main after the GPU thread's own transaction commits; on main for a new size, the first frame, a display
+  pass or an embedder present), `cb` gets `ghostty_surface_present_s`: the frame's pixel size, the reason
+  (`GHOSTTY_PRESENT_CONTENT` at the shown size, `GHOSTTY_PRESENT_RESIZE` for another size or the first frame), the
+  renderer's present sequence and `mach_absolute_time()`. Dropped and superseded frames are not reported. The layer
+  reads the callback under the CA lock and calls it after the unlock, so the callback may take its own locks.
+  `setSurfaceSync` now always takes the CA lock. The renderer's `prepareDeinit` removes the callback, so no frame is
+  reported after `ghostty_surface_free` returns (the embedder may free the userdata then). cmux's
+  `setContents:` swizzle (`TypingFrameProbe`) is deleted.
+- Conflict notes: `include/ghostty.h` (after `ghostty_surface_host_frame_committed`), `src/apprt/structs.zig`
+  (`PresentReason`, `Present`, `PresentCallback`), `src/apprt/embedded.zig`, `src/renderer/Metal.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig` (every contents setter, `presentReportLocked`).
+
+### Upstream scroll and resize fixes picked onto the pin (ghostty-next, GI PIN SYNC)
+
+- Release branch `release/cmux-gi-pin-sync-2` at `a0975fd8c`, on `b3a5ebfdf`: first `9ae6954e2`, the upstream tests of
+  the three resize fixes without their fixes (red), then `cherry-pick -x` of upstream ghostty-org/ghostty `5ce2325ec`,
+  `1b8b3f55b`, `321a32a42`, `96d379822` and `15a443234`. All five picked with no conflict. The test parts of the three
+  resize fixes fold into `9ae6954e2` (same bytes as upstream). The `endUpdate` fixes are byte-equal to upstream.
+- What: `src/terminal/render.zig` `RenderState.endUpdate` looks up a row's styles once per segment and walks the
+  pending runs as a shrinking slice (less work per row on every scroll frame). `src/terminal/PageList.zig` and
+  `Screen.zig`: a resize that grows rows and shrinks columns keeps the scrollback it pulled down; a shrink with no
+  scrollback clears the cursor pin's garbage flag (a Kitty image at the cursor drew nothing); the no-reflow column
+  backfill remaps tracked pins when it stops early (a viewport pin was left on a freed page). No C API change.
+- Why: plans/cmux-next/ghostty-integration.md step 2 (Lawrence m91).
+- Not done here, on purpose: the full merge of upstream main. Upstream's libghostty-vt ABI freeze after the base
+  (`657e82d1a`, `796f09a6f`, `12206bfb8`, `0b7f9c156`) replaces the formatter options struct with
+  `ghostty_formatter_set/get` and renames 28 symbols that `cmux-tui/crates/ghostty-vt` calls (formatter, cursor
+  style, Kitty image data, scroll viewport, encoder setopt). A merge with its conflicts resolved (not compiled) is
+  `17b8ed38b` on `release/cmux-gi-pin-sync-1`; it needs the cmux-tui binding migration in the same pin PR.
+- Conflict notes: the next upstream merge brings all five commits; they fold away (equal content).
+
+### One pin for the RESIZE hold and the upstream picks (ghostty-next)
+
+- Release branch `release/cmux-538a3e2e-resize-p0-22` at `b3a5ebfdf`: a `--no-ff` merge of
+  `release/cmux-538a3e2e-upstream-picks` (`8379ecc8a`) into `release/cmux-538a3e2e-resize-p0-16` (`7a372c740`). Both
+  branch from `538a3e2ef` (#86); the merge had no conflicts (the picks touch `render.zig` `RowBuilder.scan` and
+  `ref_counted_set.zig`; the hold touches `Terminal.zig`, `Termio.zig`, `stream_handler.zig`, the renderer's host frame).
+  The pin is this branch until #86, #87, #88, the P0 16 fix and #90 merge to fork `main`.
+
+### A clear does not draw the grid (ghostty-next)
+
+- Release branch `release/cmux-538a3e2e-resize-p0-16` at `7a372c740` (red test `b3cd3811c`, on `8e881185b`); the pin is
+  that branch until it and #86, #87 and #88 merge to fork `main`.
+- What: a full clear (ED 2, ED 0 from home) outside a synchronized update begins a picture and reaches only the last
+  column. The picture reaches the last row when the program prints on it or moves there, or at a read's end when the
+  grid's last two rows have text (`Terminal.programDrewBottomRows`). Other erases to the end reach both edges as before.
+  ncurses programs (htop) write their repaint after the clear in several reads; the first read's end no longer marks
+  the grid drawn.
+- Conflict notes: `src/terminal/Terminal.zig` (`eraseDisplay`, `programOutputEnd`, `ProgramRedraw.cleared`).
+
+### READY_PROGRAM means the program redrew the whole new grid (ghostty-next)
+
+- Fork PR #88 (`resize-p0-13-ready`, head `8e881185b`, stacked on #87 `2db2ea423`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-13` at `8e881185b` until #86, #87 and #88 merge to fork `main`.
+- What: `Terminal.program_redraw` replaces `output_since_grid_change`. A picture begins at BSU (mode 2026), a CUP home
+  (outside a synchronized update: when no picture is open, it went past the grid, or it scrolled), a full clear, or a
+  line feed with no picture open (a scrolled picture). It is whole at ESU, or at the end of a PTY read outside a
+  synchronized update, when it reached the last row and the last column (an erase to the end counts) and did not go
+  past the grid (a CUP past the grid, a print past the last column, or a line feed that scrolls the whole screen).
+  `drew_grid` then stamps `Target.program_fresh`, so `hostFrame(false)` returns `.ready_program` only for that frame.
+- Conflict notes: `src/terminal/Terminal.zig` (`program_redraw`, `programIndex` from `index()`), `src/termio/Termio.zig`
+  (end of read), `src/termio/stream_handler.zig` (BSU/ESU), `src/renderer/generic.zig`, `src/renderer/metal/Target.zig`.
+
+### Host frames say whether the program drew at their grid (ghostty-next)
+
+- Fork PR #87 (`resize-p0-12-hold`, head `2db2ea423`, stacked on #86 `538a3e2ef`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-12` at `2db2ea423` until #86 and #87 merge to fork `main`.
+- What: `Terminal.output_since_grid_change` (cleared by `Terminal.resize` when the grid changes, set by
+  `Termio.processOutputLocked` on parsed output); `generic.zig` stamps `Target.program_fresh` for cells built from the
+  live terminal at the frame's size after that output; `Metal.zig` `hostFrame(false)` returns `.ready_program` (C
+  `GHOSTTY_HOST_FRAME_READY_PROGRAM = 7`) for such a kept frame and `.ready` for a frame of the size only. While the
+  embedder presents host sizes, a program-fresh frame also goes through the main queue, so the embedder's pre-commit
+  observer presents it in that refresh. cmux uses it for the resize hold (`TerminalFramePresenter`, RESIZE P0 12).
+- Conflict notes: touches `src/renderer/Metal.zig` next to #86's `hostFrameWaits`, `src/apprt/structs.zig` `HostFrame`
+  and `include/ghostty.h` `ghostty_host_frame_e`.
+
 ### Upstream terminal performance picks: style-run scan and RefCountedSet dead-ID reuse (ghostty-next)
 
 - Fork PR #90 (`lane/upstream-refcount-rowscan`, on `1740c4452`): `cherry-pick -m 1 -x` of upstream ghostty-org/ghostty

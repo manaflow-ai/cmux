@@ -95,6 +95,8 @@ ALLOWED: dict[str, str] = {
         'uses the minted App token: its mint has no continue-on-error, so the github.token fallback never applies',
     'nightly.yml: Continue the newest accepted pending notarization':
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
+    'nightly.yml: Build the tip while its tree publishes':
+        "the scan reads every loop of a script the step runs; the step reads pin-cmux-tui.sh runs-state once per same-key candidate and active-publisher once, no polling; github_get sleeps only through a rate-limit refusal",
     'nightly.yml: Resolve cmux-tui client commit':
         "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
     'actions-artifact-prune.yml: Prune':

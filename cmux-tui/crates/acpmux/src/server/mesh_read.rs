@@ -16,6 +16,12 @@
 //! user. The receiver checks the hub-stamped sender against its own `meshRelay.controlFrom`
 //! (`sameUser`, the entry `host join` writes) before anything runs (`MeshControlHook::control`).
 //!
+//! An answer larger than one hub message (64 KiB) goes in parts (`mesh_read_parts.rs`): the
+//! receiver holds it and answers `{"_acpmuxParts": {"id", "count"}}`, and the sender reads each
+//! part with `_acpmux/readPart` and puts the answer together. A page always holds at least one
+//! record, so without this a chat with one record over 64 KiB would not open. A sender asks for
+//! parts in its body (`"parts": true`); an older sender gets `mesh.read_too_large` as before.
+//!
 //! The sending side is [`forward`]. An `_acpmux/info`, `_acpmux/events` or `_acpmux/attach` for
 //! `HOST/KEY` that
 //! nothing here and no ssh peer resolves (`Hub::mesh_may_route`, the send fallback's own test)
@@ -28,7 +34,11 @@ use super::*;
 use crate::mesh::{
     Ack, HubError, InMessage, Kind, MAX_READ_RESULT_BYTES, Mode, OutMessage, Sender, Target,
 };
+use base64::Engine;
 use std::time::Duration;
+
+#[path = "mesh_read_parts.rs"]
+pub(crate) mod parts;
 
 /// The methods a read may run: each answers a page of a session and changes nothing.
 const READ_METHODS: &[&str] = &[method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACH];
@@ -55,7 +65,18 @@ const MIN_READ_PAGE_BYTES: u64 = 4 * 1024;
 const READ_WAIT: Duration = Duration::from_secs(50);
 
 /// One wait on the receipt (the hub holds it at most 25 s).
+// timeout: one long-poll on the receipt (the hub holds it 25 s); READ_WAIT bounds the read.
 const ANSWER_WAIT: Duration = Duration::from_secs(25);
+
+/// The method that reads one part of an answer held in parts.
+const READ_PART: &str = "_acpmux/readPart";
+
+/// The key of an answer that goes in parts: `{"id", "count"}`.
+const PARTS: &str = "_acpmuxParts";
+
+/// The answer bytes one part carries: as base64 they are 60 KiB, so a part and the JSON around
+/// it are one hub message.
+const PART_BYTES: usize = 45 * 1024;
 
 /// The refusal prefix of a session the receiving daemon does not have.
 const NO_SESSION: &str = "mesh.read_no_session";
@@ -78,7 +99,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         return Err("unsupported read body version".into());
     }
     let m = body.get("method").and_then(Value::as_str).unwrap_or_default();
-    if !READ_METHODS.contains(&m) {
+    if !READ_METHODS.contains(&m) && m != READ_PART {
         return Err(format!("mesh.read_unsupported: {m:?} is not a read"));
     }
     // Only a session of this daemon, by its exact id or whole name, as a resume or stop does.
@@ -90,6 +111,17 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
     let session = hub.mesh_target(&target, None).map_err(|why| format!("{NO_SESSION}: {why}"))?;
     let mut params = json!({"sessionId": session.id});
     let asked = body.get("params").and_then(Value::as_object);
+    if m == READ_PART {
+        let id = asked.and_then(|p| p.get("id")).and_then(Value::as_str).unwrap_or_default();
+        let index = asked.and_then(|p| p.get("index")).and_then(Value::as_u64).unwrap_or(u64::MAX);
+        let index = usize::try_from(index).unwrap_or(usize::MAX);
+        return match hub.mesh_read_parts.part(id, &session.id, index, PART_BYTES) {
+            Some(part) => Ok(json!({"part": part}).to_string()),
+            None => Err("mesh.read_part_gone: this machine no longer holds that answer".into()),
+        };
+    }
+    // Whether the sender reads an answer in parts: only when a smallest page still does not fit.
+    let in_parts = body.get("parts").and_then(Value::as_bool) == Some(true);
     if pages(m) {
         for key in EVENT_PARAMS {
             if let Some(value) = asked.and_then(|p| p.get(*key)) {
@@ -122,10 +154,17 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         if text.len() <= MAX_READ_RESULT_BYTES {
             return Ok(text);
         }
-        if !pages(m) || budget <= MIN_READ_PAGE_BYTES {
+        if pages(m) && budget > MIN_READ_PAGE_BYTES {
+            budget = (budget / 2).max(MIN_READ_PAGE_BYTES);
+            continue;
+        }
+        // The smallest page (one record, or an answer that is no page) is still too large.
+        if !in_parts {
             break;
         }
-        budget = (budget / 2).max(MIN_READ_PAGE_BYTES);
+        let count = text.len().div_ceil(PART_BYTES);
+        let held = hub.mesh_read_parts.hold(&session.id, text);
+        return Ok(json!({PARTS: {"id": held, "count": count}}).to_string());
     }
     Err("mesh.read_too_large: the answer does not fit the hub's 64 KiB".into())
 }
@@ -233,7 +272,7 @@ fn body(m: &str, params: &Value) -> String {
             }
         }
     }
-    json!({"version": 1, "method": m, "params": picked}).to_string()
+    json!({"version": 1, "method": m, "params": picked, "parts": true}).to_string()
 }
 
 pub(crate) async fn read(
@@ -243,12 +282,60 @@ pub(crate) async fn read(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    let text = ask(mesh, host, key, body(m, params)).await?;
+    let mut reply: Value = serde_json::from_str(&text)
+        .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;
+    if let Some(held) = reply.get(PARTS).cloned() {
+        reply = gather(mesh, host, key, &held).await?;
+    }
+    if let Some(object) = reply.as_object_mut() {
+        object.insert("peer".into(), json!(host));
+        object.insert("via".into(), json!("hub"));
+    }
+    Ok(reply)
+}
+
+/// An answer the receiver holds in parts, read part by part and put together. A page's answer
+/// is at most `rpc::MAX_MESSAGE_BYTES`, so a count past that is malformed.
+async fn gather(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+    key: &str,
+    held: &Value,
+) -> Result<Value, RpcError> {
+    let malformed = || RpcError::internal(format!("{host}'s answer in parts is malformed"));
+    let id = held.get("id").and_then(Value::as_str).ok_or_else(malformed)?;
+    let most = crate::rpc::MAX_MESSAGE_BYTES.div_ceil(PART_BYTES) as u64;
+    let count = held.get("count").and_then(Value::as_u64).filter(|n| (1..=most).contains(n));
+    let count = count.ok_or_else(malformed)?;
+    let mut text = Vec::new();
+    for index in 0..count {
+        let body = json!({
+            "version": 1, "method": READ_PART, "params": {"id": id, "index": index}
+        });
+        let part: Value = serde_json::from_str(&ask(mesh, host, key, body.to_string()).await?)
+            .map_err(|_| malformed())?;
+        let part = part.get("part").and_then(Value::as_str).ok_or_else(malformed)?;
+        let part =
+            base64::engine::general_purpose::STANDARD.decode(part).map_err(|_| malformed())?;
+        text.extend_from_slice(&part);
+    }
+    serde_json::from_slice(&text).map_err(|_| malformed())
+}
+
+/// One read message to `HOST/KEY` through the hub, and the receiver's answer text.
+async fn ask(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+    key: &str,
+    body: String,
+) -> Result<String, RpcError> {
     let message = OutMessage {
         to: recipient(host, key),
         from: Sender { host: Some(crate::pairing::machine_name()), ..Sender::default() },
         kind: Kind::Control,
         op: Some("read".into()),
-        body: body(m, params),
+        body,
         mode: Mode::Now,
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
@@ -277,18 +364,11 @@ pub(crate) async fn read(
             .await
             .map_err(|e| hub_error(host, key, e))?;
     }
-    let text = receipt.result.ok_or_else(|| {
+    receipt.result.ok_or_else(|| {
         RpcError::internal(format!(
             "{host} answered the read with no result; is it on a build that reads?"
         ))
-    })?;
-    let mut reply: Value = serde_json::from_str(&text)
-        .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;
-    if let Some(object) = reply.as_object_mut() {
-        object.insert("peer".into(), json!(host));
-        object.insert("via".into(), json!("hub"));
-    }
-    Ok(reply)
+    })
 }
 
 fn unanswered(host: &str) -> RpcError {

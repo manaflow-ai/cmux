@@ -13,14 +13,15 @@ public extension PageDescriptor {
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern. It plays video
     /// and audio only from its own origin: the files the host granted (``AgentPaneMediaGrants``),
-    /// served in byte ranges under `__media/` (``AgentPageMediaResource``).
+    /// served in byte ranges under `__media/` (``AgentPageMediaResource``), and its app sections'
+    /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
-        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix],
+        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix, AppsPanelsPageProvider.bundlePrefix],
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
         acceptsFirstMouse: false)
@@ -41,7 +42,7 @@ public nonisolated struct AgentPageOps {
             "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.glass", "pane.toastAvoidance", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
-            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
+            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.watchMicrophone", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
@@ -53,7 +54,7 @@ public nonisolated struct AgentPageOps {
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods

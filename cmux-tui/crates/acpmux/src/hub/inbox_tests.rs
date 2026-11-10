@@ -17,6 +17,7 @@ fn item(
         thread: thread.to_owned(),
         from: from.to_owned(),
         from_session: None,
+        asker: None,
         sender: Value::Null,
         class,
         report: false,
@@ -27,6 +28,7 @@ fn item(
         noticed: false,
         read: false,
         answer: None,
+        reader: None,
     }
 }
 
@@ -257,6 +259,47 @@ fn a_long_notice_has_previews_and_says_how_to_read_a_thread_from_any_harness() {
     assert_eq!(parts[0]["fromSession"], "s-a");
     assert_eq!(parts[0]["preview"], "landed");
     assert!(parts[0].get("messages").is_none(), "previews only: {}", parts[0]);
+}
+
+/// Past `WHOLE_BYTES`, a thread's part still holds its newest message whole while it is
+/// `NEWEST_BYTES` or less, so the transcript draws it at once rather than a first line that grows
+/// into it once read (Leo, 2026-11-09: "we should keep going further into the whole messaging
+/// system type situation"); the agent's text keeps its preview, and the notice's newest messages
+/// stay within `NEWEST_TOTAL_BYTES`.
+#[test]
+fn a_long_notice_parts_hold_each_threads_newest_message_whole_under_a_bound() {
+    let newest = format!("landed\n{}", "y".repeat(WHOLE_BYTES));
+    let too_long = format!("huge\n{}", "z".repeat(NEWEST_BYTES));
+    let items = [
+        item("a1", "pr:9", "lane-a", PromptClass::Result, 1, "older, first"),
+        item("a2", "pr:9", "lane-a", PromptClass::Result, 2, &newest),
+        item("b1", "pr:7", "lane-b", PromptClass::Result, 3, &too_long),
+    ];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (text, parts) = render(&refs);
+    let thread =
+        |key: &str| parts.as_array().unwrap().iter().find(|p| p["threadId"] == key).unwrap();
+    assert_eq!(thread("pr:9")["newest"], newest.as_str(), "the newest of the thread, whole");
+    assert!(thread("pr:9").get("messages").is_none());
+    assert!(thread("pr:7").get("newest").is_none(), "past NEWEST_BYTES: the preview alone");
+    assert_eq!(thread("pr:7")["preview"], "huge");
+    assert!(!text.contains(&"y".repeat(100)), "the agent's text keeps previews: {text}");
+    // Many threads: their newest messages stop at the notice's bound.
+    let body = "w".repeat(NEWEST_BYTES);
+    let items: Vec<Item> = (0..8)
+        .map(|n| {
+            item(&format!("c{n}"), &format!("pr:{n}"), "lane-c", PromptClass::Result, n, &body)
+        })
+        .collect();
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let held: usize = parts
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p.get("newest")?.as_str().map(str::len))
+        .sum();
+    assert_eq!(held, NEWEST_TOTAL_BYTES, "{held}");
 }
 
 #[test]
@@ -798,6 +841,9 @@ mod agent_messaging {
         asked.sender = sender.clone();
         let (tx, _rx) = tokio::sync::watch::channel(None);
         asked.answer = Some(tx);
+        // Its caller reads the reply (`send --wait`) and is still connected.
+        let (_left, reader) = tokio::sync::watch::channel(false);
+        asked.reader = Some(reader);
         let hint = reply_hint(&[&asked]).expect("a hint");
         assert!(
             hint.starts_with("Reply with acpmux, not your harness's own messaging: "),

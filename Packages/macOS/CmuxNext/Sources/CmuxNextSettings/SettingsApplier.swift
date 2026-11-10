@@ -47,7 +47,6 @@ public final class SettingsApplier {
         if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
-        if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
         if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
         if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
@@ -74,6 +73,7 @@ public final class SettingsApplier {
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
+        if design.hoverCardDelayIsSet != snapshot.hoverCards.delayIsSet { design.hoverCardDelayIsSet = snapshot.hoverCards.delayIsSet }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
         if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
         let groupHoverCard = snapshot.hoverCards.groupCardOptions

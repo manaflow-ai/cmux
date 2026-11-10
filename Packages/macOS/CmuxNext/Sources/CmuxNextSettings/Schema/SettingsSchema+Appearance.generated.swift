@@ -127,7 +127,7 @@ extension AppearanceTuningSetting {
 extension DensitySetting {
     /// `appearance.density`.
     public nonisolated static let configPath = ["appearance", "density"]
-    public nonisolated static let fallback: DensityPreset = .compact
+    public nonisolated static let fallback: DensityPreset = .cozy
 }
 
 extension CustomDensitySelectionSetting {
@@ -226,9 +226,6 @@ extension AnimationKindsSetting {
     /// `ui.animations.newWorkspace`.
     public nonisolated static let newWorkspacePath = ["ui", "animations", "newWorkspace"]
     public nonisolated static let newWorkspaceDefault = true
-    /// `ui.animations.bounce`.
-    public nonisolated static let bouncePath = ["ui", "animations", "bounce"]
-    public nonisolated static let bounceDefault: MotionBounce = .none
 }
 
 extension PaneChromeConfigParser {

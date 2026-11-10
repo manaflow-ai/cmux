@@ -242,7 +242,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {})
         job = workflow["jobs"]["prune"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
-        self.assertEqual(job["environment"], "artifacts")
+        self.assertEqual(job["environment"]["name"], "artifacts")
         run_step = next(step for step in job["steps"] if "cmux_binaries_prune.py" in str(step.get("run", "")))
         self.assertIn("--delete", run_step["run"])
         condition = run_step["env"]["PRUNE_DELETE"]

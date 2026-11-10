@@ -6175,6 +6175,138 @@
         }
       }
     },
+    "sidebarToggleIcon.panel": {
+      "comment": "Sidebar toggle icon (Debug menu), the default: a rounded panel whose inner bar slides between a divider (sidebar shown) and a short bar at the left edge (hidden).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel with Sliding Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لوحة بشريط منزلق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel s kliznom trakom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel med glidende bjælke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereich mit gleitendem Balken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel con barra deslizante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panneau à barre coulissante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pannello con barra scorrevole"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スライドするバー付きパネル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលមានរបាររអិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "슬라이드 막대가 있는 패널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel med glidende stolpe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel z przesuwanym paskiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Painel com barra deslizante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель со скользящей полосой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงที่มีแถบเลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayan çubuklu panel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель із ковзною смугою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bảng có thanh trượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "带滑动条的面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "帶滑動條的面板"
+          }
+        }
+      }
+    },
     "sidebarToggleIcon.railFilled": {
       "comment": "Sidebar toggle icon candidate (Debug menu): a thin panel outline with a filled left rail.",
       "extractionState": "manual",
@@ -12627,138 +12759,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "來源：%1$@\n工作區：%2$@\n瀏覽器分頁：%3$@\n本機檔案頁面：%4$@\nSSH 工作區：%5$@\n代理程式聊天：%6$@\n略過的雲端 VM 工作區：%7$@\n匯入會載入已儲存的瀏覽器頁面、連線至已儲存的 SSH 主機，並繼續已儲存的代理程式聊天。"
-          }
-        }
-      }
-    },
-    "home.stop.toolTip": {
-      "comment": "Tooltip of Home's stop button while the Chief works: a click stops the Chief's turn, Option-click stops every agent.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إيقاف الـ Chief (النقر مع Option: إيقاف كل الوكلاء)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaustavi Chiefa (Option-klik: zaustavi sve agente)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop Chief (Option-klik: Stop alle agenter)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief stoppen (Wahltaste-Klick: Alle Agenten stoppen)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop the Chief (Option-click: Stop All Agents)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detener el Chief (Opción-clic: detener todos los agentes)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrêter le Chief (Option-clic : arrêter tous les agents)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Interrompi il Chief (Opzione-clic: interrompi tutti gli agenti)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief を停止（Option-クリック：すべてのエージェントを停止）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ឈប់ Chief (Option-ចុច៖ បញ្ឈប់ភ្នាក់ងារទាំងអស់)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 중지(Option-클릭: 모든 에이전트 중지)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stopp Chief (Tilvalg-klikk: Stopp alle agenter)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zatrzymaj Chiefa (Option-kliknięcie: zatrzymaj wszystkich agentów)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Parar o Chief (Option-clique: parar todos os agentes)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Остановить Chief (Option-щелчок: остановить всех агентов)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "หยุด Chief (Option-คลิก: หยุดเอเจนต์ทั้งหมด)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief’i durdur (Option-tıklama: tüm ajanları durdur)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зупинити Chief (Option-клацання: зупинити всіх агентів)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dừng Chief (Option-bấm: dừng tất cả agent)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止 Chief（按住 Option 点按：停止所有智能体）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止 Chief（按住 Option 點按：停止所有代理）"
           }
         }
       }

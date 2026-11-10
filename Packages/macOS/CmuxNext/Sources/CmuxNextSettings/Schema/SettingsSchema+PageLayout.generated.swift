@@ -56,6 +56,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case tailnet
         /// Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks.
         case sharedLinks
+        /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.
+        case worktreeSetup
     }
 
     /// A group card as the layout states it: rows claimed by key to lead it, the rows

@@ -29,12 +29,10 @@ extension TerminalHostView: PaneResizeGestureFollowing {
 /// scroller and overlays cover the whole pane and the window's shell never shows inside it. The surface follows too: it
 /// takes the area it shows in, in every frame
 /// (``followedSurfaceFrame(in:)``), and draws the grid that size fits (Ghostty's reflow preview re-wraps the text at it);
-/// the PTY gets the view's grid coalesced (``TerminalSurfaceView`` `updateSurfaceSize`), and the window's commit presents
-/// each size's frame. No key hold is left (m18), and no switch (m19).
+/// the PTY gets the view's grid coalesced (``TerminalSurfaceView`` `updateSurfaceSize`), and Ghostty times each size's
+/// frame (RESIZE SYNC). No key hold is left (m18), and no switch (m19).
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
-        // The end of a followed hold: its last size drawn ahead goes at the final placement unless that placement takes it.
-        if hold == nil, followedHold != nil { (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (true, true, nil) }
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
         needsLayout = true
     }
@@ -54,33 +52,6 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// through a key resize. The surface then holds no size (``TerminalSurfaceView`` `restAt`), and its reflow preview
     /// stays on, so each frame draws the grid its size fits with the cursor row in view.
     var surfaceFollowsArea: Bool { followedHold != nil }
-
-    /// Draw ahead (cmux-ad m26): its pane's spring gives the host `nextHostSize` at the next refresh. The surface asks
-    /// Ghostty for the size it will take then, after this refresh's commit, so that frame is drawn when it is needed.
-    public func drawAhead(nextHostSize: CGSize) { // perf-hot: 1ms motion-frame
-        guard surfaceFollowsArea, let current else { return }
-        current.drawAhead(surfaceSize(forHostSize: nextHostSize))
-    }
-
-    /// Draw ahead of the follow (T-KEYS 3): a key press's first refresh hands this host its pane's hold at `nextHostSize`.
-    /// The surface asks Ghostty for the size it takes then, in the key's turn (a key press: with its grid to the program,
-    /// ``aheadOfKeyResize``; a snap: render only), so the frame that shows the press has it drawn. A follow that does not
-    /// begin leaves it to the next placement at rest, which drops it unless it takes it (``dropsAheadAtRest``).
-    public func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {
-        guard !surfaceFollowsArea, !isHidden, let current else { return }
-        aheadOfKeyResize = keyPress
-        current.drawAhead(surfaceSize(forHostSize: nextHostSize))
-        dropsAheadAtRest = true
-        aheadRestBasis = bounds.size
-    }
-
-    /// The snap this host's size was drawn ahead for showed: a size its placement did not take (the snap showed this host
-    /// at its old size) goes at the next layout.
-    public func aheadOfFollowShown() {
-        guard dropsAheadAtRest, aheadRestBasis != nil else { return }
-        aheadRestBasis = nil
-        needsLayout = true
-    }
 
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
     /// layout pass (a parked tab shown mid-hold: its surface is shown, and joins, a pass before that).

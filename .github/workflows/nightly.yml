@@ -234,7 +234,9 @@ env:
 
 jobs:
   decide:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       actions: read
       checks: read # Read authenticated controller receipts; no App or secret expansion.
@@ -1291,6 +1293,21 @@ jobs:
         name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # One macOS SDK for the whole job: the SDK of the Xcode "Select Xcode" chose. A tool that runs cc
+      # or c++ with no SDK (a cargo build script, npm's node-gyp) otherwise takes xcrun's default SDK. On
+      # a macOS 27 Mac with Command Line Tools 27 that is MacOSX27.0.sdk, which the Xcode 26.6 linker
+      # cannot read ("unknown architecture arm64e.x1-macos", runs 42775849251 and 42804411758). The
+      # script is here, not in a file: a sign stage runs this workflow on an older build tree. Zig:
+      # scripts/build-ghostty-cli-helper.sh removes SDKROOT for its own zig build. The step runs
+      # right after the Xcode selection, with its `if:`; tests/test_nightly_job_sdkroot.py runs it.
+      - &select-xcode-sdk
+        name: Select the SDK of the selected Xcode
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
+
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
         run: |
@@ -1307,11 +1324,15 @@ jobs:
           restore-keys: |
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
+      # The default Zig (PATH, CMUX_ZIG) is the classic ghostty tree's; the
+      # acpmux build's libghostty-vt (ghostty-vt-sys, ghostty-next) takes
+      # CMUX_VT_ZIG, a local install beside it, as the helper job does.
       - name: Install compilation dependencies
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Build in-tree acpmux for the compilation cache
@@ -1424,6 +1445,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/refresh-test-admission-paths.sh
 
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
@@ -1615,6 +1637,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
+
+      # *select-xcode-sdk with the `if:` of this job's build steps (a resumed run builds nothing).
+      # Zig only: no Xcode is selected here, so this is the SDK of the host's default Xcode.
+      - &select-xcode-sdk-unless-resumed
+        name: Select the SDK of the selected Xcode
+        if: inputs.nightly_next_unsigned_run == ''
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
 
       # The helper and the classic ghostty tree take the default Zig (PATH,
       # CMUX_ZIG); the source archive's libghostty-vt tree (ghostty-next,
@@ -1880,7 +1913,9 @@ jobs:
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 133 || 13 }}
     permissions:
       actions: read
@@ -2237,6 +2272,22 @@ jobs:
           started=$SECONDS
           retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          # One runner can have the builder and the signing label, so the signer or a deltas job may
+          # have left this clone sparse; checkout and reset then keep its files out of the tree (run
+          # 42833135477: "Select Xcode", .xcode-version missing). Take the setting out of both config
+          # files (a full actions/checkout leaves .git/config's `true` in force) and the skip-worktree
+          # bits out of the index. Not `git sparse-checkout disable`: it first writes the old tree.
+          git_dir="${GITHUB_WORKSPACE:?}/.git"
+          for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
+            git config --local --unset-all "$key" || true
+            if [ -f "$git_dir/config.worktree" ]; then git config --file "$git_dir/config.worktree" --unset-all "$key" || true; fi
+          done
+          rm -f "${git_dir:?}/info/sparse-checkout"
+          hidden=$(git ls-files -t | grep -c '^S ' || true)
+          if [ "$hidden" -gt 0 ]; then
+            echo "the kept clone was sparse ($hidden files out of the tree): checking out the whole tree"
+            git ls-files -z | git update-index -z --no-skip-worktree --stdin
+          fi
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
@@ -2260,6 +2311,7 @@ jobs:
       - name: Select Xcode
         if: inputs.nightly_next_unsigned_run == ''
         run: ./scripts/select-ci-xcode.sh
+      - *select-xcode-sdk-unless-resumed
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
       # clean drops untracked output; remove the daemon handoff here too.
@@ -2348,6 +2400,8 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
+          # ghostty-next's Zig for an in-tree acpmux build (app-build-in-tree-acpmux.sh), as refresh-compilation-cache
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
@@ -3108,6 +3162,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
         env:
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-tree-pending.sh
 
       - name: Resolve cmux-tui client commit
@@ -3595,7 +3650,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # Room for every step budget in turn (the read token mint 1, the owned pick's token mints 1 + 1, the verify picker 2,
     # the signing picker 2 and the overtaken check 1) plus checkout, so the job is never cut off before its outputs.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 137 || 17 }}
@@ -3750,7 +3807,7 @@ jobs:
     # choose where signing secrets go (test_nightly_signing_on_cmux15.test_no_signing_job_ever_resolves_to_a_shared_label).
     # The pick comes first on every event: it names only runners that carry exactly that label (signing_runner.py
     # signer_only), and the literal is the fallback when it picked none.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -3882,6 +3939,7 @@ jobs:
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
       - *select-xcode
+      - *select-xcode-sdk
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -4651,6 +4709,7 @@ jobs:
       # nightly-next's license check reads ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4759,6 +4818,7 @@ jobs:
       # ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
       # A parallel-range read: one download-artifact stream took a p50 of 89 s
       # and up to 446 s here (run 41481821056, 7.4 of the job's 9 minutes). download-artifact takes over
       # when it fails.
@@ -4834,7 +4894,9 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-sign-runner does.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       actions: read
       contents: read
@@ -4900,7 +4962,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
@@ -4969,6 +5031,7 @@ jobs:
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
       - *select-xcode
+      - *select-xcode-sdk
       - *set-up-node
 
       - name: Install create-dmg
@@ -5048,6 +5111,7 @@ jobs:
 
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Download the recovered variant
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5190,7 +5254,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
     # GLAEDA_ROUTE_APP_KEY lives in the routing environment, like every other route job's.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       contents: read
       issues: read # the report week of the auto flip
@@ -5277,6 +5343,7 @@ jobs:
           submodules: recursive
 
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
@@ -5511,7 +5578,7 @@ jobs:
     # The release App key remains scoped to this protected environment. Publication uploads and writes feeds
     # at about one core (publish-nightly 64 s on 32 vCPU at 1.39 cores, .github/runners.json): with no owned
     # pool it takes the signing picker's Linux label, as keep-published-dsyms does, else the Linux 4 vCPU pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # 120 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 300 || 180 }}
     env:
@@ -6050,19 +6117,25 @@ jobs:
   # decide reads the body and tag (published_sha), so the dispatched tail (cross_run) never runs it. They were a job
   # of their own until run 42018687632: its second whole-Mac claim, set-up and variant download let the
   # deltas job take cmux15 first, and the names moved 40 min after the feed.
+  # It holds the release App key, so it runs on an ephemeral GitHub-hosted VM in release-next, as
+  # publish-release-notes already does with the same key, never on a mini a pull request job can reach. Leo,
+  # 2026-11-08, on moving it off the signer: "no. if this is still a good idea, we can still do it." (the override of
+  # Lawrence's owned-minis rule for this one job, tests/test_nightly_owned_minis_only.HOSTED_LOOP_JOBS). On cmux15
+  # it held the whole signing Mac 289-406 s a build after queueing 79-412 s behind keep-published-dsyms (runs
+  # 42547726872, 42552327203, 42555458535, 42563930397); hosted it starts beside keep-published-dsyms.
   publish-nightly-next-github:
-    needs: [published-build, pick-nightly-sign-runner]
+    needs: [published-build]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && needs.published-build.outputs.cross_run != 'true'"
     # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     permissions:
       contents: write
       actions: read # The published build's artifacts, from the run that published.
-    # An upload holds the release App key but signs nothing. As an exclusive publisher on the one signer's mini it
-    # holds the whole Mac while the next signs wait (run 41900945757); it still has nowhere safer to run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    # An upload holds the release App key but signs nothing: a fresh hosted VM per job, so no other job shares it and
+    # the signer stays free for the next sign (one-mini mode too: on the mini it would need the whole-Mac claim).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     # The two former jobs' limits added up: the uploads and the names each may wait out an hour of rate limits.
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 480 || 240 }}
+    timeout-minutes: 240
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
       asset_names: ${{ steps.publish_assets.outputs.asset_names }}
@@ -6075,10 +6148,6 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.published-build.outputs.publish_build }}
       PUBLISH_TOOLING: *pub-tooling
     steps:
-      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
-      - *hold-the-whole-mac
-      - *clean-owned-workdir
-
       # Only the source archive reads the build's tree; every other step runs .publish-tooling. The full
       # checkout took 2 min of the whole Mac on run 42018687632, whose archive step was off.
       - name: Checkout publish ref
@@ -6089,9 +6158,6 @@ jobs:
           ref: ${{ needs.published-build.outputs.publish_build_sha }}
 
       - *checkout-publication-tooling-a
-
-      # Before any release App secret: the claim again, and a keychain a killed job left is removed.
-      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -6278,8 +6344,6 @@ jobs:
         env: *github-names-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
-      - *wipe-owned-credentials
-
   # A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on
   # error, so it never delays a publication. The dSYMs come from the run that compiled the
   # published binary (its build number is that run's id and attempt). A rerun repairs a missing
@@ -6295,7 +6359,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # One-mini mode adds glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py).
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
     env:
@@ -6427,6 +6491,7 @@ jobs:
       # its own checkout (cone mode keeps the root files).
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
+      - *select-xcode-sdk
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6481,7 +6546,7 @@ jobs:
       actions: read
     # Never Blacksmith (Lawrence, 2026-10-30). A Sparkle key: placed and held whole as the legacy sign. Optional:
     # a failed or refused delta never fails the run or holds the feed. NIGHTLY_DELTAS=off skips them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -6546,6 +6611,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *select-xcode
+      - *select-xcode-sdk
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6626,7 +6692,7 @@ jobs:
     # uploads may wait out the rate limit for up to 6 h, which must not hold the signing Mac.
     # The tail is a workflow_dispatch of nightly.yml on nightly-next; the signing runner's hook admits a SIGNING_JOBS
     # job on that exact dispatch as on a push (its ONE_MINI_NIGHTLY rule), so this job is not refused at its claim gate.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # It holds the publish group, so a hang must not hold it for the default 6 h. nightly-next
     # makes no gh call here (deltas and feed go to R2) and took at most 1.3 minutes in 56 runs;
     # other tracks keep the default, as their release uploads may wait out the rate limit.
@@ -6915,20 +6981,29 @@ jobs:
   # (resume-unsigned-nightly.py, which reads this live run only as a sign stage) in the sign group, so this run
   # and the push group end here and the next build starts while this one signs. GitHub keeps one pending run in
   # the sign group and replaces it with a newer dispatch: nothing started is cancelled, and a build that waited
-  # behind a newer one is never signed. One try, no loop: a failed dispatch fails this job, retry-nightly-next
-  # retries the build and report-nightly-failure lists it.
+  # behind a newer one is never signed. A dispatch refused for the API rate limit waits for the reset and tries
+  # again (gh_budget_wait.sh; a refused request did nothing, so this never starts two runs): run 42726398544's
+  # dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other
+  # failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
   dispatch-nightly-next-sign:
     needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon]
     if: "!cancelled() && needs.decide.outputs.pipeline == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.build-nightly-app.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-remote-daemon.result == 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
+    # Room for gh_budget_wait.sh's wait through a rate limit (a reset is up to an hour away).
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
+      contents: read
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       RUN_ID: ${{ github.run_id }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - *wait-through-github-api-rate-l
       - name: Ask for this build's sign run
         run: |
           set -euo pipefail
@@ -6946,7 +7021,8 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly, published-build, publish-nightly-next-github]
     if: "!cancelled() && needs.publish-nightly.result == 'success' && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail != 'true'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
+    # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
       contents: read
       actions: write
@@ -6961,6 +7037,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      - *wait-through-github-api-rate-l
       - name: Record the published build
         env:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
@@ -6989,7 +7066,8 @@ jobs:
           overwrite: true
       - name: Ask for this build's post-publication run
         # One try, no loop (tests/test_ci_no_github_token_polling.py): a failed dispatch fails this job, which
-        # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail.
+        # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail. Only a
+        # refusal for the rate limit, which did nothing, waits and goes again (gh_budget_wait.sh).
         run: |
           set -euo pipefail
           gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
@@ -7250,7 +7328,8 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, publish-nightly, resolve-nightly-cmux-tui-client, dispatch-nightly-next-sign]
     if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '' || inputs.nightly_next_sign_stage != '') && needs.dispatch-nightly-next-sign.result != 'success' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result != 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
+    # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
       contents: read
       actions: write
@@ -7261,6 +7340,11 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       RETRY: ${{ inputs.nightly_next_loop_retry }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - *wait-through-github-api-rate-l
       - name: Ask the push group for the newest head
         run: |
           set -euo pipefail

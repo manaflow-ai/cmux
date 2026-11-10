@@ -482,9 +482,26 @@ body {
    rest unless more of it is past the edge (user 2026-10-31, on the older 2.5em fade of both
    edges: "why blur?"). A mask, so the fade takes the page under it in every theme; eased stops,
    so it never bands. */
-.md-prose .tableWrapper {
-  --md-table-fade-left: 0px;
-  --md-table-fade-right: 0px;
+/* The fades come and go, never in one frame (user 2026-11-08: "this table thing needs better
+   animation on appear/disappear"): each width is a registered length that transitions on the
+   page's motion tokens (0 when motion is off). The mask stays on while the table is wider than
+   its box (`data-cmux-sideways`, tables.ts), so a fade going out runs to 0 instead of being cut. */
+@property --md-table-fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --md-table-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .md-prose .tableWrapper {
+    transition:
+      --md-table-fade-left calc(var(--cmux-motion-micro, 120ms) * 4 / 3) var(--cmux-ease-out, ease-out),
+      --md-table-fade-right calc(var(--cmux-motion-micro, 120ms) * 4 / 3) var(--cmux-ease-out, ease-out);
+  }
 }
 .md-prose .tableWrapper[data-more-left] {
   --md-table-fade-left: var(--md-table-fade, 24px);
@@ -492,7 +509,7 @@ body {
 .md-prose .tableWrapper[data-more-right] {
   --md-table-fade-right: var(--md-table-fade, 24px);
 }
-.md-prose .tableWrapper:is([data-more-left], [data-more-right]) {
+.md-prose .tableWrapper[data-cmux-sideways] {
   --md-table-mask: linear-gradient(
     to right,
     rgb(0 0 0 / 0) 0,
@@ -696,6 +713,66 @@ body {
   font-size: var(--cmux-md-toolbar-font-size);
   color: var(--cmux-md-faint-color);
   user-select: none;
+}
+
+/* A shell block's Run controls (runButtons.ts) sit in the language row, on its left. They are placed
+   over the row, never in the flow, so mounting them as the block scrolls near and the destructive
+   question that replaces Run never move the code. */
+.md-run {
+  position: absolute;
+  top: 0.35em;
+  left: 0.8em;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100% - 6em);
+  line-height: 1.2;
+  font-size: var(--cmux-md-toolbar-font-size);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.md-run-button {
+  border: 0;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-md-faint-color);
+  font: inherit;
+  line-height: inherit;
+}
+
+.md-run-button::before {
+  content: "\25B6\FE0E";
+  margin-inline-end: 4px;
+  font-size: 0.75em;
+}
+
+/* The question's Run and Cancel, and the Sent state, are words only. */
+.md-run[data-state] .md-run-button::before {
+  content: none;
+}
+
+.md-run-button:hover,
+.md-run-button:focus-visible {
+  color: var(--cmux-md-text-color);
+  background: var(--cmux-md-accent-background);
+}
+
+.md-run[data-state="sent"] .md-run-button {
+  color: var(--cmux-md-text-color);
+}
+
+.md-run-ask {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cmux-md-text-color);
+}
+
+.md-run-confirm {
+  font-weight: 600;
+  color: var(--cmux-md-text-color);
 }
 
 .md-code [style*="--md-tok-light"] {
@@ -1140,7 +1217,7 @@ body {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
 }
 
-.md-width-field:focus-within {
+.md-width-field:is(:focus-visible, :has(:focus-visible)) {
   box-shadow: inset 0 0 0 1.5px var(--cmux-accent, var(--page-text-2));
 }
 

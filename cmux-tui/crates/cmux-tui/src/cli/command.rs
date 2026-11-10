@@ -13,6 +13,8 @@ use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
+#[cfg(unix)]
+mod agent_hook_status;
 mod agent_list;
 mod agent_message_cmd;
 mod browser;
@@ -28,11 +30,12 @@ mod list_filter;
 mod machine;
 mod name_flags;
 mod notification;
+mod pane_move;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod session_reset;
-pub(super) use session_reset::run_session_reset_state;
+pub(super) use session_reset::{end_stopped_terminal_state, run_session_reset_state};
 pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;
@@ -190,7 +193,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(words, &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags, surface)?,
         "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
         "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
@@ -231,7 +234,11 @@ fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageEr
     }
 }
 
-fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_server(
+    words: &[String],
+    flags: &mut Flags,
+    surface: super::Surface,
+) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
@@ -242,6 +249,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
         },
+        ["premigrate-registry"] => super::lifecycle::ServerAction::PremigrateRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+            max_duration: premigrate_max_duration(flags)?,
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -249,7 +260,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
+            let scope = if surface == super::Surface::Cmux { "daemon" } else { "server" };
             return Err(UsageError::new(messages.unknown_server_action(
+                scope,
                 action,
                 super::suggestion(
                     action,
@@ -262,6 +275,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                         "restart",
                         "reload-config",
                         "compact-registry",
+                        "premigrate-registry",
                     ],
                 ),
             )));
@@ -299,6 +313,23 @@ fn restart_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, U
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
     })
+}
+
+/// `server premigrate-registry --max-seconds <n>`: at most a day, 10 minutes
+/// by default (the app's update handoff waits for it; a partial fold still
+/// shortens the next start, and the next run resumes it).
+fn premigrate_max_duration(flags: &mut Flags) -> Result<Option<std::time::Duration>, UsageError> {
+    const DEFAULT_SECONDS: u64 = 600;
+    const MAX_SECONDS: u64 = 86_400;
+    match flags.take("max-seconds") {
+        None => Ok(Some(std::time::Duration::from_secs(DEFAULT_SECONDS))),
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_SECONDS) => Ok(Some(std::time::Duration::from_secs(seconds))),
+            _ => Err(UsageError::new(
+                crate::localization::catalog().local_server.registry_premigrate_max_seconds_invalid,
+            )),
+        },
+    }
 }
 
 fn restore_wait(flags: &mut Flags) -> Result<std::time::Duration, UsageError> {
@@ -836,6 +867,9 @@ fn parse_pane_strings(
             selectors.insert("pane", "pane", selector)?;
             request(ResourceOperation::PaneGet, selectors, flags, Map::new())
         }
+        // `pane move ...` is the caller's pane (`current`).
+        ["move"] => pane_move::parse("current", selectors, flags),
+        [selector, "move"] => pane_move::parse(selector, selectors, flags),
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
@@ -1155,19 +1189,22 @@ fn parse_agent(
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
+            validate_one_of(
+                "--state",
+                &state,
+                &["working", "blocked", "idle", "ended", "done", "unknown"],
+            )?;
+            // The CLI says `ended` for a session that ended; the daemon's
+            // word for it is `done` (`--state done` stays as an old alias).
+            let state = if state == "ended" { "done".to_owned() } else { state };
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
-            let mut params = json!({
-                "terminal_id": terminal,
-                "state": state,
-                "source": source,
-            })
-            .as_object()
-            .cloned()
-            .expect("literal object");
+            let mut params = Map::new();
+            params.insert("terminal_id".into(), json!(terminal));
+            params.insert("state".into(), json!(state));
+            params.insert("source".into(), json!(source));
             insert_optional_string(&mut params, flags, "source-session", "source_session");
-            request(ResourceOperation::AgentReport, &selectors, flags, params)
+            Ok(request(ResourceOperation::AgentReport, &selectors, flags, params)?.agent_report())
         }
         other => agent_focus::parse(other, flags),
     }
@@ -1869,7 +1906,13 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 }
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
-    let result = crate::agent_hook_install::run(&plan);
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut result = crate::agent_hook_install::run(&plan);
+    #[cfg(unix)]
+    if plan.action == crate::agent_hook_install::Action::Status {
+        result.value =
+            agent_hook_status::with_pane_helper(result.value, agent_hook_status::pane_helper());
+    }
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",

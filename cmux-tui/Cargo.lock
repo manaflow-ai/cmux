@@ -20,6 +20,7 @@ dependencies = [
  "clap",
  "cmux-agent-pane-policy",
  "cmux-chat-index",
+ "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -66,6 +67,7 @@ dependencies = [
  "regex",
  "reqwest",
  "ring",
+ "rusqlite",
  "rustls",
  "schemars 1.2.2",
  "serde",
@@ -82,6 +84,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
  "turmoil",
@@ -93,6 +96,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -1402,8 +1406,11 @@ dependencies = [
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "icu_normalizer",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1431,6 +1438,14 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "wait-timeout",
+]
+
+[[package]]
+name = "cmux-health-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1618,14 +1633,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-mux2"
-version = "0.1.0"
-dependencies = [
- "ghostty-vt",
- "libc",
-]
-
-[[package]]
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
@@ -1712,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2005,6 +2012,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-manifest",
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
@@ -2013,6 +2021,7 @@ dependencies = [
  "cmux-cloud-codex-holder",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
@@ -2026,6 +2035,8 @@ dependencies = [
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",
+ "cmux-rd-link",
+ "cmux-rd-proto",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -2053,6 +2064,7 @@ dependencies = [
  "ghostty-vt",
  "glob",
  "libc",
+ "notify",
  "parking_lot",
  "plist",
  "ratatui",
@@ -2186,6 +2198,7 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -2944,7 +2957,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 2.0.119",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -9682,3 +9695,31 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdb02c3132d251ab1606e9fc913a7da6c6ed08cc263df15edf082e1dc497d157"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c8ea04668f5de8d8d51051714ba560c9536519cadcdb8829bba4fe2ad159b03"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.2+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

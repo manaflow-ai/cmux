@@ -34,6 +34,19 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
+    /// The ground the area shows under its content: its pane's (the window's color where panes paint it), else none.
+    public var restingGround: CGColor? { didSet { paintGround() } }
+
+    /// The ground of content that comes next but is not made yet (SPLIT NEW PANE GROUND, m81: a split's stand-in terminal
+    /// waits for its surface until after its key's frame): it shows instead of ``restingGround`` until then, so the new
+    /// pane has its terminal's ground from the key's frame, never the window's color.
+    public var waitingGround: CGColor? { didSet { paintGround() } }
+
+    private func paintGround() {
+        let ground = waitingGround ?? restingGround
+        if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
+    }
+
     /// The area's size when the hold began: the size its subviews keep; nil at rest.
     private var heldSize: CGSize?
 
@@ -118,20 +131,13 @@ public final class PaneContentAreaView: NSView {
 
     /// Draw ahead of a key hold's first frame (T-KEYS 3): the area will be `sizeChange` larger (negative: smaller) at the
     /// first refresh of its pane's spring, whose layout begins the hold. Each follower that hold will hand hears its size
-    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's. `keyPress`: false for a
-    /// snapped structural change (``PaneMotionHoldFollowing/drawAheadOfFollow(nextHostSize:keyPress:)``).
-    public func drawAheadOfHold(sizeChange: CGSize, keyPress: Bool) {
+    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's.
+    public func drawAheadOfHold(sizeChange: CGSize) {
         guard hold == nil, sizeChange != .zero else { return }
         let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
         for case let follower as any PaneMotionHoldFollowing in subviews where follows(follower) {
-            follower.drawAheadOfFollow(nextHostSize: next, keyPress: keyPress)
+            follower.drawAheadOfFollow(nextHostSize: next)
         }
-    }
-
-    /// A snapped change that drew its followers' sizes ahead (``drawAheadOfHold(sizeChange:keyPress:)``) showed: each
-    /// follower lets a size its placement did not take go (``PaneMotionHoldFollowing/aheadOfFollowShown()``).
-    public func aheadOfHoldShown() {
-        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowShown() }
     }
 
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.

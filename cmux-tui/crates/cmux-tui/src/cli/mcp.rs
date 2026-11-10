@@ -466,10 +466,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
-        _ => {
-            eprintln!("cmux: {usage}");
-            2
-        }
+        _ => super::scope_usage_failure(
+            global.output,
+            "mcp",
+            &super::unknown_words("mcp", args),
+            usage.strip_prefix("usage: ").unwrap_or(usage),
+        ),
     }
 }
 
@@ -752,22 +754,15 @@ impl<B: Backend> Server<B> {
             "initialize" => {
                 chat_tools::remember_client(&params);
                 let code_mode = self.code_mode && self.allowed.is_none();
-                let wrap_up = code_mode
-                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
-                let offers =
-                    code_mode && self.upstreams.iter().any(|up| up.name == code_mode::OFFER_SERVER);
-                Ok(initialize(&params, self.list_changed, code_mode, wrap_up, offers))
+                Ok(initialize(&params, self.list_changed, code_mode))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
-                let tools = self.list();
-                let mut exposed = code_mode::descriptors(&tools);
-                if let Some(workflow) =
-                    tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
-                {
-                    exposed.push(workflow.clone());
-                }
-                Ok(json!({ "tools": exposed }))
+                // cmux_workflow is not listed on its own: no chat called it in 172 NEXT
+                // transcripts while its schema cost every Claude chat about 450 tokens of
+                // deferred listing (2026-11-09 audit). A script still reaches it as
+                // `cmux.cmux_workflow`, and `cmux workflow` calls it directly.
+                Ok(json!({ "tools": code_mode::descriptors(&self.list()) }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
@@ -909,7 +904,9 @@ impl<B: Backend> Server<B> {
             return Ok(workflow::internal_call(&self.backend, operation));
         }
         if name == workflow_tools::NAME {
-            return Ok(workflow_tools::call(&self.backend, &arguments));
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            let meta = upstream::passed_meta(params).or_else(|| self.call_meta.clone());
+            return Ok(workflow_tools::call(&self.backend, &arguments, meta));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -1366,7 +1363,15 @@ impl<B: Backend> Server<B> {
             })
             .flatten();
         let call_session = call.session.clone();
-        match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+        // A terminal wait that ran out of time says `timed_out`, as the CLI's does.
+        let wait = super::wire::wait_timeout::Wait::of(&call.plan);
+        let answer = self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes);
+        match answer.map(|mut value| {
+            if let Some(wait) = &wait {
+                wait.mark(&mut value);
+            }
+            value
+        }) {
             Ok(value) if typed.is_some() => success(
                 {
                     let mut value = value;
@@ -1508,26 +1513,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
-/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]). `offers`: the chat's cmux-sessions server is
-/// folded in, so suggesting a new chat is steered to here too ([`code_mode::OFFER_INSTRUCTION`]).
-fn initialize(
-    params: &Value,
-    list_changed: bool,
-    code_mode: bool,
-    wrap_up: bool,
-    offers: bool,
-) -> Value {
+/// In code mode the wrap-up and suggested-session steers are only in `cmux_exec`'s description,
+/// which Claude Code always loads (`anthropic/alwaysLoad`), so the instructions do not repeat
+/// them.
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}{}{}",
+            "{} {}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
             acpmux::agent_tools::ASKING_RULE,
-            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" },
-            if offers { code_mode::OFFER_INSTRUCTION } else { "" }
         ),
     })
 }

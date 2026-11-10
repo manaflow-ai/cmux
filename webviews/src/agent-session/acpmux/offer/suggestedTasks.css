@@ -115,7 +115,7 @@
 }
 .acpmux-task-action {
   flex: none;
-  height: 24px;
+  height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   font-weight: var(--weight-regular);
@@ -159,8 +159,7 @@
 }
 .acpmux-task-action:focus-visible,
 .acpmux-task-dismiss:focus-visible,
-.acpmux-task-row:focus-visible,
-.acpmux-task-received-line:focus-visible {
+.acpmux-task-row:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
@@ -382,12 +381,19 @@
   white-space: pre;
   letter-spacing: var(--text-control--letter-spacing);
 }
-.acpmux-task-received-line:hover {
-  background: var(--acpmux-composer-hover);
+/* Only its title chip opens the task's chat and lights (AgentTag.css); the line never does, and its
+   chevron lights with the chip (Leo, 2026-11-05: "subagents need to have their clickable bit be
+   highlighted instead of the whole line click"). */
+.acpmux-task-received-line:has(.cv-agent-tag.is-open:is(:hover, :focus-visible)) > :last-child {
   color: var(--agent-text);
 }
-/* The title as the sender's chip: the theme's text at a low strength over glass. */
-.acpmux-task-received-title {
+/* The title as the sender's chip: the theme's text at a low strength over glass. A title that opens
+   the chat is the shared link chip (AgentTag.css) and takes its look. */
+.acpmux-task-received-line > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
+}
+span.acpmux-task-received-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -403,8 +409,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-task-action,
   .acpmux-task-dismiss,
-  .acpmux-task-row,
-  .acpmux-task-received-line {
+  .acpmux-task-row {
     transition:
       background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),
       color var(--acpmux-motion-hover) var(--acpmux-motion-ease);

@@ -9,6 +9,8 @@
 pub mod acpmux;
 pub mod acpmux_daemon;
 pub mod acpmux_peer;
+pub mod acpmux_wrapper;
+pub mod action_lifetime;
 pub mod agent_chat;
 pub mod agent_keys;
 pub mod agent_memory;
@@ -47,6 +49,7 @@ pub mod link_preview;
 pub mod lock;
 pub mod log;
 pub mod mcp;
+pub mod mcp_hub;
 pub mod membership;
 pub mod memory_cli;
 pub mod memory_sync;

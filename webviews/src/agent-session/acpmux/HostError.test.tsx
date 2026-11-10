@@ -61,7 +61,9 @@ test("a refusal another binary's acpmux caused is one line whose one action is R
     );
   });
   expect(buttons(container)).toEqual(["Restart agent service"]);
-  expect(container.querySelectorAll("p")).toHaveLength(1);
+  expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe(
+    "acpmux belongs to cmux NIGHTLY, and this build may not use it.",
+  );
   expect(container.textContent).not.toContain("starts the one in this app");
   await act(async () => container.querySelector("button")!.click());
   expect(pressed).toEqual(["restart"]);
@@ -108,9 +110,12 @@ test("a late failure is its message and Retry, with no recovery steps", async ()
   });
   expect(buttons(container)).toEqual(["Retry"]);
   expect(container.querySelector('[role="alert"]')).not.toBeNull();
-  expect(container.querySelectorAll("p")).toHaveLength(1);
-  expect(container.textContent).toBe("acpmux did not answer in time.Retry");
-  expect(container.textContent).not.toContain("tries again on its own");
+  expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe("acpmux did not answer in time.");
+  // Under it, the answer to "has my app crashed? Should I be restarting it?" (ask-083a4c92bc).
+  expect(container.querySelector(".acpmux-host-line-note")!.textContent).toBe(
+    "cmux is still running, and your chats are kept. It keeps retrying on its own.",
+  );
+  expect(container.textContent).not.toMatch(/restart/i);
   expect(container.textContent).not.toContain("stays here until");
   expect(container.querySelector(".cv-spinner__arc")).toBeNull();
 });
@@ -212,6 +217,12 @@ test("a long wait for acpmux says how long and offers Restart agent service", as
   });
   expect(container.textContent).toContain("Waiting for the agent service (1:35)");
   expect(buttons(container)).toEqual(["Restart agent service"]);
+  // The restart is optional: quiet text, under which the line says cmux is running and retrying.
+  expect(container.querySelector("button.acpmux-host-line-quiet")!.textContent).toBe("Restart agent service");
+  const note = container.querySelector(".acpmux-host-line-reassure")!;
+  expect(note.textContent).toBe("cmux is still running, and your chats are kept. It keeps retrying on its own.");
+  // The note row holds no button in either line, so its height never changes between them.
+  expect(note.querySelector("button")).toBeNull();
   await act(async () => container.querySelector("button")!.click());
   expect(pressed).toEqual(["restart"]);
 });
@@ -264,4 +275,40 @@ test("a wait the host cannot restart keeps its time and shows no button", async 
   });
   expect(container.textContent).toContain("Waiting for the agent service (0:40)");
   expect(buttons(container)).toEqual([]);
+});
+
+// Leo, 2026-11-06 (ask-083a4c92bc): "has my app completely crashed? Should I be restarting it?"
+test("a failure asking again cannot clear says the app runs and the chats are kept, not that it retries", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<HostUnavailableLine message="refused" onRetry={() => undefined} selfRetrying={false} />);
+  });
+  expect(container.querySelector(".acpmux-host-line-note")!.textContent).toBe(
+    "cmux is still running, and your chats are kept.",
+  );
+});
+
+test("the waiting line and the failure line it turns into have the same rows", async () => {
+  const container = installDom();
+  const rows = () =>
+    [...container.querySelectorAll(".acpmux-host-line-group > .acpmux-host-line")].map((row) => row.className);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<HostWaitingLine since={0} now={30_000} onRestart={() => undefined} />);
+  });
+  const waiting = rows();
+  await act(async () => {
+    root!.render(
+      <HostUnavailableLine
+        message="acpmux did not answer in time."
+        detail="native.timed_out"
+        onRetry={() => undefined}
+      />,
+    );
+  });
+  expect(rows()).toEqual(waiting);
+  expect(waiting).toEqual(["acpmux-host-line", "acpmux-host-line acpmux-host-line-reassure"]);
+  // The raw error only behind Details.
+  expect(container.textContent).not.toContain("native.timed_out");
 });

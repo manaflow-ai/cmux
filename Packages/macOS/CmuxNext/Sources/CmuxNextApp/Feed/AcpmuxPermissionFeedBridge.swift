@@ -1,9 +1,9 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
-import CmuxNextFeed
 import CmuxNextWakeups
 import Foundation
 import os
+import CmuxNextFeedClient
 
 /// The feed bridge for agent permission prompts (cx-aocz, D11 on
 /// manaflow-ai/cmux#13742): the person answers an acpmux prompt on the phone,
@@ -341,12 +341,12 @@ final class AcpmuxPermissionFeedBridge {
         }
     }
 
-    /// The feed mirror changed: answer for every item this launch posted that
-    /// the person answered.
-    func itemsChanged(_ items: [FeedItem]) {
-        for item in items where item.state != .open {
+    /// The owner-confirmed state of items the feed changed (`feed.item.get {confirmed: true}`):
+    /// answer for every item this launch posted that the person answered.
+    func itemsChanged(_ items: [FeedDaemonItem]) {
+        for item in items where item.isClosed {
             guard let entry = posted.removeValue(forKey: item.id), !entry.notice else { continue }
-            guard let answer = item.answer, case .approve(let decision) = answer.value else {
+            guard let answer = item.answer, let decision = item.approveDecision else {
                 logger.info("feed bridge: \(item.id, privacy: .public) closed without an answer; nothing answered")
                 continue
             }
@@ -365,7 +365,7 @@ final class AcpmuxPermissionFeedBridge {
     }
 
     /// The acpmux option a decision maps to, from what the prompt offers now.
-    nonisolated static func option(for decision: FeedAnswerValue.Decision, offered: [[String: Any]]) -> Result<String, Refusal> {
+    nonisolated static func option(for decision: FeedApproveDecision, offered: [[String: Any]]) -> Result<String, Refusal> {
         if decision.outcome == .allow, let scope = decision.scope, scope != .once { return .failure(.scope) }
         return offered.acpmuxOption(allow: decision.outcome == .allow).map { .success($0) } ?? .failure(.notOffered)
     }
@@ -380,8 +380,8 @@ final class AcpmuxPermissionFeedBridge {
         return plain ? .success(()) : .failure(.byNotPlain)
     }
 
-    private func answer(item: String, entry: Posted, decision: FeedAnswerValue.Decision, record: FeedAnswerRecord) async {
-        let (by, device) = (record.by, record.device)
+    private func answer(item: String, entry: Posted, decision: FeedApproveDecision, record: FeedDaemonItem.Answer) async {
+        let (by, device) = (record.by ?? "", record.device ?? "")
         let own = await ownInstall()
         if case .failure(let refusal) = Self.admits(by: by, ownInstall: own) {
             return logger.error("feed bridge: \(item, privacy: .public) answered by \(by, privacy: .public) (\(device, privacy: .public)) refused: \(String(describing: refusal), privacy: .public)")

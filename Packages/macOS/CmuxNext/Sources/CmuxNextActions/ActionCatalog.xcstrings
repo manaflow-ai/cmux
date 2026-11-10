@@ -1,6 +1,11 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.feed.openItem": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "فتح عنصر الموجز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Otvori stavku feeda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Åbn feed-element"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Feed-Eintrag öffnen"}}, "en": {"stringUnit": {"state": "translated", "value": "Open Feed Item"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Abrir elemento del feed"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Ouvrir l’élément du flux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Apri elemento del feed"}}, "ja": {"stringUnit": {"state": "translated", "value": "フィードの項目を開く"}}, "km": {"stringUnit": {"state": "needs_review", "value": "បើក​ធាតុ​ព័ត៌មាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "피드 항목 열기"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Åpne feedelement"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Otwórz element kanału"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Abrir item do feed"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Открыть элемент ленты"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เปิดรายการฟีด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Akış Öğesini Aç"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкрити елемент стрічки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Mở mục bảng tin"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开动态项目"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "打開動態項目"}}}},
+    "action.feed.githubAction": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل إجراء GitHub لعنصر الموجز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Pokreni GitHub radnju stavke feeda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Kør feed-elementets GitHub-handling"}}, "de": {"stringUnit": {"state": "needs_review", "value": "GitHub-Aktion eines Feed-Eintrags ausführen"}}, "en": {"stringUnit": {"state": "translated", "value": "Run a Feed Item's GitHub Action"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ejecutar la acción de GitHub de un elemento del feed"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Exécuter l’action GitHub d’un élément du flux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Esegui l’azione GitHub di un elemento del feed"}}, "ja": {"stringUnit": {"state": "translated", "value": "フィードの項目の GitHub 操作を実行"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការ​សកម្មភាព GitHub របស់​ធាតុ​ព័ត៌មាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "피드 항목의 GitHub 작업 실행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Kjør feedelementets GitHub-handling"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchom akcję GitHub elementu kanału"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Executar a ação do GitHub de um item do feed"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Выполнить действие GitHub для элемента ленты"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เรียกใช้การทำงาน GitHub ของรายการฟีด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Akış Öğesinin GitHub Eylemini Çalıştır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Виконати дію GitHub для елемента стрічки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chạy thao tác GitHub của mục bảng tin"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "运行动态项目的 GitHub 操作"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "執行動態項目的 GitHub 操作"}}}},
+    "argument.feed.item": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "عنصر الموجز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Stavka feeda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Feed-element"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Feed-Eintrag"}}, "en": {"stringUnit": {"state": "translated", "value": "Feed Item"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Elemento del feed"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Élément du flux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Elemento del feed"}}, "ja": {"stringUnit": {"state": "translated", "value": "フィードの項目"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ធាតុ​ព័ត៌មាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "피드 항목"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Feedelement"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Element kanału"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Item do feed"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Элемент ленты"}}, "th": {"stringUnit": {"state": "needs_review", "value": "รายการฟีด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Akış Öğesi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Елемент стрічки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Mục bảng tin"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "动态项目"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "動態項目"}}}},
+    "argument.feed.githubAction": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "إجراء GitHub"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "GitHub radnja"}}, "da": {"stringUnit": {"state": "needs_review", "value": "GitHub-handling"}}, "de": {"stringUnit": {"state": "needs_review", "value": "GitHub-Aktion"}}, "en": {"stringUnit": {"state": "translated", "value": "GitHub Action"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Acción de GitHub"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Action GitHub"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Azione GitHub"}}, "ja": {"stringUnit": {"state": "translated", "value": "GitHub 操作"}}, "km": {"stringUnit": {"state": "needs_review", "value": "សកម្មភាព GitHub"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "GitHub 작업"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "GitHub-handling"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Akcja GitHub"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ação do GitHub"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Действие GitHub"}}, "th": {"stringUnit": {"state": "needs_review", "value": "การทำงาน GitHub"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "GitHub Eylemi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Дія GitHub"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Thao tác GitHub"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "GitHub 操作"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "GitHub 操作"}}}},
+    "argument.feed.comment": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "تعليق"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Komentar"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Kommentar"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Kommentar"}}, "en": {"stringUnit": {"state": "translated", "value": "Comment"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Comentario"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Commentaire"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Commento"}}, "ja": {"stringUnit": {"state": "translated", "value": "コメント"}}, "km": {"stringUnit": {"state": "needs_review", "value": "មតិ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "댓글"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Kommentar"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Komentarz"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Comentário"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Комментарий"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ความคิดเห็น"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Yorum"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Коментар"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Bình luận"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "评论"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "留言"}}}},
     "action.appearance.personalize": {
       "extractionState": "manual",
       "localizations": {
@@ -12004,127 +12009,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decrease Interface Size"
+            "value": "Decrease Text Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターフェイスのサイズを小さく"
+            "value": "文字サイズを小さく"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تصغير حجم الواجهة"
+            "state": "translated",
+            "value": "تصغير حجم النص"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Smanji veličinu sučelja"
+            "state": "translated",
+            "value": "Smanji veličinu teksta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Formindsk grænsefladestørrelse"
+            "state": "translated",
+            "value": "Formindsk tekststørrelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oberfläche verkleinern"
+            "state": "translated",
+            "value": "Textgröße verringern"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reducir tamaño de la interfaz"
+            "state": "translated",
+            "value": "Reducir tamaño del texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Réduire la taille de l’interface"
+            "state": "translated",
+            "value": "Réduire la taille du texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Riduci dimensione interfaccia"
+            "state": "translated",
+            "value": "Riduci dimensione testo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ថយទំហំចំណុចប្រទាក់"
+            "state": "translated",
+            "value": "បន្ថយទំហំអក្សរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "인터페이스 크기 줄이기"
+            "state": "translated",
+            "value": "텍스트 크기 줄이기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reduser grensesnittstørrelse"
+            "state": "translated",
+            "value": "Reduser tekststørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmniejsz rozmiar interfejsu"
+            "state": "translated",
+            "value": "Zmniejsz rozmiar tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diminuir Tamanho da Interface"
+            "state": "translated",
+            "value": "Diminuir tamanho do texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Уменьшить интерфейс"
+            "state": "translated",
+            "value": "Уменьшить размер текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ลดขนาดอินเทอร์เฟซ"
+            "state": "translated",
+            "value": "ลดขนาดข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arayüz Boyutunu Küçült"
+            "state": "translated",
+            "value": "Metin Boyutunu Küçült"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Зменшити інтерфейс"
+            "state": "translated",
+            "value": "Зменшити розмір тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Giảm kích thước giao diện"
+            "state": "translated",
+            "value": "Giảm cỡ chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "缩小界面"
+            "state": "translated",
+            "value": "减小文字"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "縮小介面"
+            "state": "translated",
+            "value": "縮小文字"
           }
         }
       }
@@ -12135,127 +12140,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Increase Interface Size"
+            "value": "Increase Text Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターフェイスのサイズを大きく"
+            "value": "文字サイズを大きく"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تكبير حجم الواجهة"
+            "state": "translated",
+            "value": "تكبير حجم النص"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Povećaj veličinu sučelja"
+            "state": "translated",
+            "value": "Povećaj veličinu teksta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Forøg grænsefladestørrelse"
+            "state": "translated",
+            "value": "Forøg tekststørrelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oberfläche vergrößern"
+            "state": "translated",
+            "value": "Textgröße erhöhen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aumentar tamaño de la interfaz"
+            "state": "translated",
+            "value": "Aumentar tamaño del texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agrandir la taille de l’interface"
+            "state": "translated",
+            "value": "Augmenter la taille du texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aumenta dimensione interfaccia"
+            "state": "translated",
+            "value": "Aumenta dimensione testo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្កើនទំហំចំណុចប្រទាក់"
+            "state": "translated",
+            "value": "បង្កើនទំហំអក្សរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "인터페이스 크기 늘리기"
+            "state": "translated",
+            "value": "텍스트 크기 늘리기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Øk grensesnittstørrelse"
+            "state": "translated",
+            "value": "Øk tekststørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zwiększ rozmiar interfejsu"
+            "state": "translated",
+            "value": "Zwiększ rozmiar tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aumentar Tamanho da Interface"
+            "state": "translated",
+            "value": "Aumentar tamanho do texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Увеличить интерфейс"
+            "state": "translated",
+            "value": "Увеличить размер текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เพิ่มขนาดอินเทอร์เฟซ"
+            "state": "translated",
+            "value": "เพิ่มขนาดข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arayüz Boyutunu Büyüt"
+            "state": "translated",
+            "value": "Metin Boyutunu Büyüt"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Збільшити інтерфейс"
+            "state": "translated",
+            "value": "Збільшити розмір тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tăng kích thước giao diện"
+            "state": "translated",
+            "value": "Tăng cỡ chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "放大界面"
+            "state": "translated",
+            "value": "增大文字"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "放大介面"
+            "state": "translated",
+            "value": "放大文字"
           }
         }
       }
@@ -12266,127 +12271,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset Interface Size"
+            "value": "Reset Text Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターフェイスのサイズをリセット"
+            "value": "文字サイズをリセット"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة تعيين حجم الواجهة"
+            "state": "translated",
+            "value": "إعادة تعيين حجم النص"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Resetuj veličinu sučelja"
+            "state": "translated",
+            "value": "Vrati veličinu teksta"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nulstil grænsefladestørrelse"
+            "state": "translated",
+            "value": "Nulstil tekststørrelse"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oberflächengröße zurücksetzen"
+            "state": "translated",
+            "value": "Textgröße zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Restablecer tamaño de la interfaz"
+            "state": "translated",
+            "value": "Restablecer tamaño del texto"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Réinitialiser la taille de l’interface"
+            "state": "translated",
+            "value": "Réinitialiser la taille du texte"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reimposta dimensione interfaccia"
+            "state": "translated",
+            "value": "Ripristina dimensione testo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កំណត់ទំហំចំណុចប្រទាក់ឡើងវិញ"
+            "state": "translated",
+            "value": "កំណត់ទំហំអក្សរឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "인터페이스 크기 재설정"
+            "state": "translated",
+            "value": "텍스트 크기 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilbakestill grensesnittstørrelse"
+            "state": "translated",
+            "value": "Tilbakestill tekststørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Przywróć rozmiar interfejsu"
+            "state": "translated",
+            "value": "Resetuj rozmiar tekstu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Redefinir Tamanho da Interface"
+            "state": "translated",
+            "value": "Redefinir tamanho do texto"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сбросить размер интерфейса"
+            "state": "translated",
+            "value": "Сбросить размер текста"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "รีเซ็ตขนาดอินเทอร์เฟซ"
+            "state": "translated",
+            "value": "รีเซ็ตขนาดข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arayüz Boyutunu Sıfırla"
+            "state": "translated",
+            "value": "Metin Boyutunu Sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Скинути розмір інтерфейсу"
+            "state": "translated",
+            "value": "Скинути розмір тексту"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đặt lại kích thước giao diện"
+            "state": "translated",
+            "value": "Đặt lại cỡ chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "重置界面大小"
+            "state": "translated",
+            "value": "重置文字大小"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "重置介面大小"
+            "state": "translated",
+            "value": "重設文字大小"
           }
         }
       }
@@ -81960,127 +81965,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Increase Interface Scale"
+            "value": "Increase App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "زيادة تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Povećaj zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Forøg appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom erhöhen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Aumentar zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Augmenter le zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Aumenta zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "アプリのズームを拡大"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "បង្កើនការពង្រីកកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "앱 확대"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Øk appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Zwiększ powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Aumentar zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Увеличить масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "เพิ่มการซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırmasını Artır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Збільшити масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "Tăng thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "放大应用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "state": "translated",
+            "value": "放大 App"
           }
         }
       }
@@ -82091,127 +82096,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decrease Interface Scale"
+            "value": "Decrease App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "تقليل تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Smanji zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Formindsk appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom verringern"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Reducir zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Réduire le zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Riduci zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "アプリのズームを縮小"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "បន្ថយការពង្រីកកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "앱 축소"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Reduser appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Zmniejsz powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Diminuir zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Уменьшить масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "ลดการซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırmasını Azalt"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Зменшити масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "Giảm thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "缩小应用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "state": "translated",
+            "value": "縮小 App"
           }
         }
       }
@@ -82222,127 +82227,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset Interface Scale"
+            "value": "Reset App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "إعادة تعيين تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Vrati zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Nulstil appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Restablecer zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Réinitialiser le zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Ripristina zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "アプリのズームをリセット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "កំណត់ការពង្រីកកម្មវិធីឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "앱 확대/축소 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Tilbakestill appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Resetuj powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Redefinir zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Сбросить масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "รีเซ็ตการซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırmasını Sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Скинути масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "Đặt lại thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "重置应用缩放"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "state": "translated",
+            "value": "重設 App 縮放"
           }
         }
       }
@@ -91216,268 +91221,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "新工作區動畫"
-          }
-        }
-      }
-    },
-    "action.appearance.animations.bounce.subtle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Bouncy Animations"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "弾むアニメーションを使用"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "استخدام حركة مرتدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koristi animacije s odskokom"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brug fjedrende animationer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Federnde Animationen verwenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar animaciones con rebote"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utiliser des animations avec rebond"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usa animazioni con rimbalzo"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រើចលនាលោត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "통통 튀는 애니메이션 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bruk fjærende animasjoner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Używaj animacji z odbiciem"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar animações com quique"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Использовать пружинистую анимацию"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ใช้ภาพเคลื่อนไหวแบบเด้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekmeli animasyonlar kullan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Використовувати пружну анімацію"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dùng hiệu ứng có độ nảy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用弹跳动画"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用彈跳動畫"
-          }
-        }
-      }
-    },
-    "action.appearance.animations.bounce.none": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Animations Without Bounce"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "弾まないアニメーションを使用"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "استخدام حركة بلا ارتداد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koristi animacije bez odskoka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brug animationer uden fjedring"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animationen ohne Federn verwenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar animaciones sin rebote"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utiliser des animations sans rebond"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usa animazioni senza rimbalzo"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រើចលនាគ្មានការលោត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "바운스 없는 애니메이션 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bruk animasjoner uten fjæring"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Używaj animacji bez odbicia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar animações sem quique"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Использовать анимацию без отскока"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ใช้ภาพเคลื่อนไหวแบบไม่เด้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekmesiz animasyonlar kullan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Використовувати анімацію без відскоку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dùng hiệu ứng không nảy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用无弹跳动画"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用無彈跳動畫"
           }
         }
       }
@@ -101324,6 +101067,137 @@
         }
       }
     },
+    "action.cloudMoveToMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Another Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقل إلى جهاز آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premjesti na drugu mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt til en anden maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf anderen Rechner verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover a otra máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer vers une autre machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta su un'altra macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のマシンに移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទីទៅម៉ាស៊ីនផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 머신으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt til en annen maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenieś na inną maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para outra máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенести на другую машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายไปยังเครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir makineye taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенести на іншу машину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển sang máy khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至其他机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至其他機器"
+          }
+        }
+      }
+    },
     "action.cloudNetworkList": {
       "extractionState": "manual",
       "localizations": {
@@ -105956,6 +105830,1194 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定裝置對這台 Mac 的取用權限…"
+          }
+        }
+      }
+    },
+    "action.git.worktree.create": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شجرة عمل Git جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo Git radno stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nyt Git-arbejdstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Git-Worktree"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Git Worktree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo worktree de Git"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveau worktree Git"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo worktree Git"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しい Git ワークツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git worktree ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 Git 워크트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nytt Git-arbeidstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe drzewo robocze Git"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova worktree do Git"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новое рабочее дерево Git"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git worktree ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Git Çalışma Ağacı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нове робоче дерево Git"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree Git mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建 Git 工作树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增 Git 工作樹"
+          }
+        }
+      }
+    },
+    "action.git.worktree.apply": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تطبيق شجرة العمل على النسخة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primijeni radno stablo na glavni checkout"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anvend arbejdstræ på hoved-checkout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree auf Haupt-Checkout anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Worktree to Main Checkout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplicar worktree al checkout principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appliquer le worktree au checkout principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Applica il worktree al checkout principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーをメインのチェックアウトに適用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុវត្ត worktree ទៅ checkout មេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리를 메인 체크아웃에 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk arbeidstre på hoved-checkout"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zastosuj drzewo robocze do głównej kopii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplicar worktree ao checkout principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Применить рабочее дерево к основной копии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำ worktree ไปใช้กับ checkout หลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Ağacını Ana Kopyaya Uygula"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Застосувати робоче дерево до основної копії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Áp dụng worktree vào bản checkout chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将工作树应用到主检出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將工作樹套用到主要檢出"
+          }
+        }
+      }
+    },
+    "action.git.worktree.remove": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة شجرة عمل Git"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni Git radno stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern Git-arbejdstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git-Worktree entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Git Worktree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitar worktree de Git"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer le worktree Git"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi worktree Git"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git ワークツリーを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប Git worktree"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git 워크트리 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern Git-arbeidstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń drzewo robocze Git"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover worktree do Git"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить рабочее дерево Git"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ Git worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git Çalışma Ağacını Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити робоче дерево Git"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa worktree Git"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除 Git 工作树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除 Git 工作樹"
+          }
+        }
+      }
+    },
+    "action.git.checkpoint.create": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنشاء نقطة تحقق Git"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napravi Git kontrolnu tačku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opret Git-checkpoint"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git-Checkpoint erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Git Checkpoint"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crear punto de control de Git"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Créer un point de contrôle Git"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Crea checkpoint Git"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git チェックポイントを作成"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កើត Git checkpoint"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git 체크포인트 만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opprett Git-sjekkpunkt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utwórz punkt kontrolny Git"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Criar checkpoint do Git"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Создать контрольную точку Git"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้าง Git checkpoint"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git Denetim Noktası Oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Створити контрольну точку Git"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo checkpoint Git"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "创建 Git 检查点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建立 Git 檢查點"
+          }
+        }
+      }
+    },
+    "argument.git.worktree.name": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسم شجرة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naziv radnog stabla"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navn på arbejdstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree Name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombre del worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nom du worktree"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome del worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリー名"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះ worktree"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navn på arbeidstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazwa drzewa roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome da worktree"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Имя рабочего дерева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชื่อ worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Ağacı Adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назва робочого дерева"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tên worktree"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作树名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作樹名稱"
+          }
+        }
+      }
+    },
+    "argument.git.worktree.base": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المراجعة الأساسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Osnovna revizija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Basisrevision"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Basisrevision"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base Revision"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revisión base"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Révision de base"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revisione di base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ベースリビジョン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែមូលដ្ឋាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기준 리비전"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grunnrevisjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rewizja bazowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revisão base"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Базовая ревизия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีวิชันฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Temel Revizyon"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Базова ревізія"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản sửa đổi gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "基准修订"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "基準修訂"
+          }
+        }
+      }
+    },
+    "argument.git.worktree.discard": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجاهل العمل غير المحفوظ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbaci nesačuvani rad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kassér ikke-gemt arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ungesicherte Arbeit verwerfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard Unsaved Work"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar trabajo sin guardar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abandonner le travail non enregistré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scarta il lavoro non salvato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未保存の作業を破棄"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បោះបង់ការងារដែលមិនបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장되지 않은 작업 버리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forkast ulagret arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odrzuć niezapisaną pracę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar trabalho não salvo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отбросить несохранённую работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทิ้งงานที่ยังไม่บันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaydedilmemiş İşi At"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкинути незбережену роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bỏ công việc chưa lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "丢弃未保存的工作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捨棄未儲存的工作"
+          }
+        }
+      }
+    },
+    "action.agent.harness.setIcon": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعيين أيقونة الوكيل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi ikonu agenta…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv agentikon…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentensymbol festlegen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Agent Icon…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definir icono del agente…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir l’icône de l’agent…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta icona agente…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのアイコンを設定…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់រូបតំណាងភ្នាក់ងារ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 아이콘 설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi agentikon…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw ikonę agenta…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Definir ícone do agente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать значок агента…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งไอคอนเอเจนต์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aracı Simgesini Ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задати значок агента…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt biểu tượng tác tử…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置智能体图标…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定代理圖示…"
+          }
+        }
+      }
+    },
+    "argument.agent.harness.icon": {
+      "comment": "Palette rows for cmux git worktree/checkpoint and cmux harness icon",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أيقونة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbol"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icône"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simge"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圖示"
           }
         }
       }

@@ -1450,6 +1450,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        #[cfg(test)]
+        if self.topology_snapshot_failures_remaining.get() > 0 {
+            self.topology_snapshot_failures_remaining
+                .set(self.topology_snapshot_failures_remaining.get() - 1);
+            anyhow::bail!("injected topology snapshot failure");
+        }
         load_resource_topology(
             &self.connection.get(),
             self.session_id.clone(),
@@ -1905,6 +1911,10 @@ pub enum RegistryLayoutNode {
         ratio: f32,
         first: Box<RegistryLayoutNode>,
         second: Box<RegistryLayoutNode>,
+        /// The split's divider is hidden (`split-divider-visibility-v1`).
+        /// Absent in layouts stored before it, which load as visible.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        divider_hidden: bool,
     },
     Stack {
         panes: Vec<PanePublicId>,
@@ -2100,6 +2110,8 @@ pub(crate) fn resource_patch_replay(
     let Some((stored_operation, stored_fingerprint, result, revision)) = stored else {
         return Ok(None);
     };
+    let ids = StoredIds::load(transaction)?;
+    let (stored_fingerprint, result) = (ids.fingerprint(stored_fingerprint)?, ids.text(result));
     if stored_operation != operation || stored_fingerprint != fingerprint {
         anyhow::bail!(
             "idempotency.conflict: key {} committed_operation {} from {} was reused with different input",
@@ -2229,7 +2241,7 @@ fn validate_layout_node<'a>(
                 anyhow::bail!("pane {pane} appears twice in one layout");
             }
         }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, .. } => {
             if !splits.insert(split) {
                 anyhow::bail!("duplicate split public id: {split}");
             }

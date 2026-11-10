@@ -844,7 +844,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(typo_help.contains("cmux remote connect"), "{typo_help}");
 
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
-    assert_eq!(unknown_remote_action.status.code(), Some(1));
+    assert_eq!(unknown_remote_action.status.code(), Some(2));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
     assert!(error.contains("unknown remote action \"frobnicate\""), "{error}");
 
@@ -3749,6 +3749,9 @@ mod browser_profiles;
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3837,6 +3840,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/tabless_terminals.rs"]
 mod tabless_terminals;
+#[cfg(unix)]
+#[path = "cli/terminal_copy_text.rs"]
+mod terminal_copy_text;
 #[cfg(unix)]
 #[path = "cli/terminal_paste.rs"]
 mod terminal_paste;

@@ -264,6 +264,10 @@ impl Hub {
         off: &OffLatch,
     ) -> Option<Arc<ChildAgent>> {
         session.floor.left_host_read.store(false, Ordering::SeqCst);
+        // An agent that cannot keep the chat's policy is stopped, not reached (`policy_mode.rs`).
+        if self.refuse_unheld(session).await {
+            return None;
+        }
         if !off.off() {
             let learning = child.clone();
             tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
@@ -456,7 +460,7 @@ impl Hub {
         }
     }
 
-    fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
+    pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
         self.sessions.lock().unwrap().get(id).cloned()
     }
 
@@ -639,6 +643,12 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
+        // while no daemon reached it) does not run on (`policy_mode.rs`).
+        if self.refuse_unheld(session).await {
+            hold.take();
+            return Ok(());
+        }
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
@@ -1263,6 +1273,7 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
+                        accepted: true,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
@@ -1841,13 +1852,14 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
             command_line,
             Some((&session.id, &meta.name)),
         )
+        .await
         .map_err(internal)?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
@@ -1860,6 +1872,8 @@ impl Hub {
         // The class it runs at once its start is over, from the harness's own env: its profile's
         // value as resolved (`cpu_class.rs`). It starts at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut spec = crate::agent_host::SpawnSpec {

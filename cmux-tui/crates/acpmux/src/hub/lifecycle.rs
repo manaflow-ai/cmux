@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::full_access_bound::FullAccessEnd;
+use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -111,6 +112,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -124,12 +126,28 @@ impl Hub {
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
-            Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest },
+            Resolved {
+                agent,
+                profile,
+                launch_digest,
+                defaults,
+                head,
+                preset_name,
+                folder_root,
+                preset_digest,
+            },
             preset_plain,
         ) = {
             let cfg = self.config.read().await;
             let r =
                 self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            // Held to asking: checked on this profile, under this read (`require_asking.rs`).
+            if require_asking {
+                let adopting = adopt.is_some();
+                super::require_asking::holds_at_start(
+                    &cfg, &r.agent, &r.profile, policy, adopting,
+                )?;
+            }
             let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
             (r, plain)
         };
@@ -166,11 +184,6 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
-        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
-        // `require_enforced`).
-        let must_hold = !inherits_policy
-            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -377,6 +390,8 @@ impl Hub {
         };
         let (session, created_stops) = session;
         self.update_live_session_index(&session);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.write_meta(&session) {
             // Leave the instance registered until CreationGuard finishes its purge;
@@ -411,13 +426,14 @@ impl Hub {
             creation_guard.disarm();
             return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
-        let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
-            Ok(spawn) => {
-                let checked = checked_cwd.as_ref();
-                self.ensure_checked_child(&session, &spawn, checked, created_stops).await
-            }
-            Err(e) => Err(e),
-        };
+        let spawned =
+            match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
+                Ok(spawn) => {
+                    let checked = checked_cwd.as_ref();
+                    self.ensure_checked_child(&session, &spawn, checked, created_stops).await
+                }
+                Err(e) => Err(e),
+            };
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -510,11 +526,11 @@ impl Hub {
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
-            let default = self.config.read().await.permission_policy;
-            if must_hold {
-                super::policy_mode::require_enforced(&session.meta(), default)?;
-            }
-            self.note_unenforced_policy(&session, default);
+            let cfg = self.config.read().await;
+            // Any policy narrower than approve-all, however the chat got it, holds or the chat is
+            // not created (`policy_mode.rs` `require_enforced`).
+            super::policy_mode::require_enforced(&session.meta(), &cfg)?;
+            self.note_unenforced_policy(&session, &cfg);
             Ok(())
         })
         .await;
@@ -797,6 +813,12 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
                 || m.launch_digest.as_ref() != Some(&profile.launch_digest);
+            // What another launch's agent said at `initialize` (a fork's or a failover's copy)
+            // is not this one's: an `asksBeforeTools` claim must come from the agent this start
+            // runs (`policy_mode.rs` `claim_distrust`), which `initialize` records again.
+            if m.launch_digest.as_ref() != Some(&profile.launch_digest) {
+                m.agent_capabilities = None;
+            }
             m.spawn_argv = Some(profile.argv.clone());
             m.launch_digest = Some(profile.launch_digest.clone());
             changed
@@ -815,7 +837,8 @@ impl Hub {
         // runs with the harness initialized and its session created.
         // The name its Claude Code was started under (`--name`), before the claim is taken.
         let pooled_name = self.pool_claimed_name(&session.id);
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &session.meta(), off)
+        {
             #[cfg(debug_assertions)]
             self.take_off_seam();
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
@@ -918,7 +941,12 @@ impl Hub {
             // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
-            if let Some(state) = harness.background().filter(|_| !retried) {
+            // A policy refusal is no start failure: the same agent would be refused again.
+            let refused = failed.as_ref().is_some_and(|e| {
+                e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                    == Some("policy_unenforceable")
+            });
+            if let Some(state) = harness.background().filter(|_| !retried && !refused) {
                 self.end_cold_start(session).await;
                 let why = match (&failed, hung) {
                     (Some(_), _) => "failed",
@@ -1287,6 +1315,8 @@ impl Hub {
         }
         // A new harness runs none of the background subagents of one it replaced.
         self.end_background_subagents(session);
+        // Nor has its sandbox refused anything yet (`harness_sandbox.rs`).
+        self.harness_sandbox_recovered(session, "respawn");
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
@@ -1318,6 +1348,8 @@ impl Hub {
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
         }
+        // What it says about asking before its tools, and whether acpmux believes it.
+        self.note_asks_claim(session).await;
 
         if is_claude {
             // MDM may have forced full access off since `ensure_child` checked the profile: the
@@ -1392,8 +1424,13 @@ impl Hub {
             )
             .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
-            self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
-                .await;
+            // An agent that cannot keep the chat's policy is stopped and the start fails.
+            let pinned = super::start_mode::profile_sets_mode(profile);
+            if let Err(e) = self.hold_policy_mode(session, &child, pinned).await {
+                let record = refusal_record(&e);
+                self.stop_started_agent(session, false, "policy_refused", record).await;
+                return Err(e);
+            }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
             self.save_meta(session);
@@ -1681,7 +1718,8 @@ impl Hub {
                     .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&agent))
         };
-        let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
+        let digest = profile.launch_digest();
+        let spawn = self.spawn_profile(session, &profile, digest, &defaults.env).await?;
         self.ensure_child(session, &spawn, stops).await
     }
 }

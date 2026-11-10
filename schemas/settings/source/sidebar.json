@@ -627,6 +627,35 @@
           }
         },
         {
+          "key": "sidebar.floatOnHover",
+          "title": {
+            "key": "settings.sidebar.floatOnHover",
+            "text": "Float Hidden Sidebar on Hover"
+          },
+          "help": {
+            "key": "settings.sidebar.floatOnHover.help",
+            "text": "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "float",
+            "floating",
+            "hover",
+            "peek",
+            "edge",
+            "overlay",
+            "reveal",
+            "hidden",
+            "auto hide"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.minimal",
           "title": {
             "key": "settings.sidebar.minimal",
@@ -1069,7 +1098,7 @@
           },
           "help": {
             "key": "settings.sidebar.groupHeader.background.help",
-            "text": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+            "text": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
           },
           "kind": "choice",
           "choices": [
@@ -1093,6 +1122,13 @@
                 "key": "settings.choice.groupBackgroundSolid",
                 "text": "Solid"
               }
+            },
+            {
+              "value": "sections",
+              "title": {
+                "key": "settings.choice.groupBackgroundSections",
+                "text": "Sections"
+              }
             }
           ],
           "default": "auto",
@@ -1107,7 +1143,11 @@
             "opaque",
             "translucent",
             "fill",
-            "header"
+            "header",
+            "sections",
+            "section",
+            "heading",
+            "plain"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",

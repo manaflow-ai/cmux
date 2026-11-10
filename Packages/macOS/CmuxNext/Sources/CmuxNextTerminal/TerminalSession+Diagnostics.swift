@@ -106,10 +106,10 @@ extension TerminalSession {
                                               fullFont: counters.full_font, fullOther: counters.full_other,
                                               fullSwap: counters.full_swap, fullResize: counters.full_resize,
                                               hostDisplayPasses: counters.host_display_passes,
-                                              hostPresentCalls: counters.host_present_calls,
+                                              hostMainPresents: counters.host_main_presents,
                                               hostMainDraws: counters.host_main_draws,
-                                              hostFreshPresents: counters.host_fresh_presents,
-                                              hostLatePresents: counters.host_late_presents)
+                                              hostSizePresents: counters.host_size_presents,
+                                              hostHeldFrames: counters.host_held_frames)
             },
             windowFraction: surface.window.flatMap { window in
                 let frame = window.frame
@@ -142,22 +142,20 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     /// preview starting or ending) or its grid size changed.
     public var fullSwap: UInt64
     public var fullResize: UInt64
-    /// Host-sized display passes of a new size (ghostty-integration-DESIGN.md G1): frames the main
-    /// thread drew itself (the first frame), frames the renderer thread drew at the new size with
-    /// reflowed text and the pass presented in its own commit, and passes that kept the last frame
-    /// because the new one was not ready within 4 ms (it lands at the next pass).
+    /// Host-sized surfaces (RESIZE SYNC, ghostty-integration step 4): display passes, frames that went to the layer
+    /// through the main thread, frames the main thread drew itself (the first frame), frames of a new host size the
+    /// renderer showed, and frames of a full-screen program it held for the program's redraw at a new grid.
     public var hostDisplayPasses: UInt64 = 0
-    /// `ghostty_surface_present_host_frame` calls (``TerminalHostFramePresenter``, before each commit).
-    public var hostPresentCalls: UInt64 = 0
+    public var hostMainPresents: UInt64 = 0
     public var hostMainDraws: UInt64 = 0
-    public var hostFreshPresents: UInt64 = 0
-    public var hostLatePresents: UInt64 = 0
+    public var hostSizePresents: UInt64 = 0
+    public var hostHeldFrames: UInt64 = 0
 
     /// Every counter by its `debug.surfaces` name.
     public var byName: [String: UInt64] {
         ["frames": frames, "cell_rebuilds": cellRebuilds, "blend_frames": blendFrames, "frame_updates": frameUpdates,
          "full_palette": fullPalette, "full_config": fullConfig, "full_font": fullFont, "full_other": fullOther,
-         "full_swap": fullSwap, "full_resize": fullResize, "host_display_passes": hostDisplayPasses, "host_present_calls": hostPresentCalls, "host_main_draws": hostMainDraws,
-         "host_fresh_presents": hostFreshPresents, "host_late_presents": hostLatePresents]
+         "full_swap": fullSwap, "full_resize": fullResize, "host_display_passes": hostDisplayPasses, "host_main_presents": hostMainPresents, "host_main_draws": hostMainDraws,
+         "host_size_presents": hostSizePresents, "host_held_frames": hostHeldFrames]
     }
 }

@@ -176,6 +176,7 @@ public struct CloudMachineIO: Sendable {
                 // while it is written, and the write blocks only that thread. It ends when the child has read it all
                 // or closed its stdin (EPIPE, never SIGPIPE), which a kill at the deadline or a cancel also does.
                 let feeder = Thread {
+                    // concurrency-allow: on its own feeder thread after launch; a kill at the deadline or a cancel ends it (EPIPE)
                     try? writer.write(contentsOf: stdin)
                     try? writer.close()
                 }

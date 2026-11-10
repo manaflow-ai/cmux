@@ -84,11 +84,15 @@ impl Hub {
                 ..Default::default()
             });
         }
+        // The entry's launch as it is written, before a remote start resolves its program
+        // (`admit_remote_profile`): what the session's start records (`Resolved::launch_digest`).
+        let launch_digest = profile.launch_digest();
         if remote {
             admit_remote_profile(cfg, &resolved, &mut profile, &d.env)?;
         }
         Ok(Resolved {
             agent: resolved,
+            launch_digest,
             profile,
             defaults: d,
             head,
@@ -262,6 +266,12 @@ fn folder_refusal(refusal: folder_profiles::FolderRefusal) -> RpcError {
 pub(super) struct Resolved {
     pub(super) agent: String,
     pub(super) profile: HarnessProfile,
+    /// `HarnessProfile::launch_digest` of the entry as the catalog or folder holds it, before a
+    /// remote start's admission resolves its program to a canonical path: the launch the
+    /// session's agent is recorded as starting from (`Spawn::launch_digest`), which a later
+    /// start, a profile reload (`profile_respawn.rs`) and an `asksBeforeTools` claim
+    /// (`policy_mode.rs` `claim_distrust`) compare with the entry.
+    pub(super) launch_digest: String,
     pub(super) defaults: crate::config::SessionDefaults,
     pub(super) head: String,
     pub(super) preset_name: Option<String>,
@@ -343,6 +353,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         cmux_context: None,
         cmux_preset_prompt: None,
         cmux_context_delivered: false,
+        cmux_rules_in_transcript: false,
+        cmux_rules_seq: None,
         usage_limits: None,
         available_commands: None,
         goal: None,
@@ -362,6 +374,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_turn: None,
         auth_change: None,
         harness_failures: Default::default(),
+        harness_sandbox: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,
         session_env: Default::default(),
@@ -393,5 +406,33 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_ms: None,
         turn_cap_noticed: None,
         delegator: None,
+        cold: None,
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::config::HarnessKind;
+    use crate::cpu_class::{CpuClass, DEFAULT, default_for};
+
+    /// A remote chain's `argv[0]` is the resolved file (`fix_remote_executable`), and the native
+    /// installer's `claude` resolves to `versions/<version>`: still Claude Code, not a launcher.
+    #[test]
+    fn cpu_class_of_a_resolved_remote_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let installed = dir.path().join(".local/share/claude/versions/2.1.34");
+        std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        std::fs::write(&installed, "").unwrap();
+        let claude = dir.path().join("claude");
+        std::os::unix::fs::symlink(&installed, &claude).unwrap();
+        let launcher = dir.path().join("sr2");
+        std::fs::write(&launcher, "").unwrap();
+        let class = |program: &Path| {
+            let resolved = remote_executable(program.to_str().unwrap()).map_err(|_| "refused");
+            default_for(HarnessKind::ClaudeStdio, &[resolved.unwrap()])
+        };
+        assert_eq!(class(&claude), DEFAULT);
+        assert_eq!(class(&launcher), CpuClass::Normal);
     }
 }

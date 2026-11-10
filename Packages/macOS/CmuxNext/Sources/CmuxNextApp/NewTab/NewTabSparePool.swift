@@ -20,17 +20,7 @@ import CmuxNextWakeups
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
-    /// One adoption, for `debug.new_tab` (timing test, section 2.3).
-    struct Opening {
-        var spare: Bool
-        /// The spare was parked in another window than the one it opened in.
-        var crossWindow: Bool
-        /// Main-thread time from the open action to the page in its pane.
-        var milliseconds: Double
-        /// The spare waited at another size than its pane's: the adoption resized it, and WebKit
-        /// showed it at the old size until it laid it out again (the hqacp-v2 flash).
-        var refit = false
-    }
+    typealias Opening = AgentPaneSpareOpening
 
     static let idleInput: Duration = .milliseconds(750)
     /// A focus or selected-tab change settles this long before the parked spare draws the context a Cmd-T there gives.
@@ -355,10 +345,7 @@ final class NewTabSparePool {
         }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double { AgentPaneSpareOpening.milliseconds(since: start) }
 
     // MARK: Warming
 
@@ -384,11 +371,13 @@ final class NewTabSparePool {
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
+    let shownChats = AgentPaneShownChatsWait()
 
     private func armWarmTimer() {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
+        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) }, then: { [weak self] in self?.armWarmTimer() }) { return }
         warmedOnce = warmedOnce || launch
         warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }

@@ -68,11 +68,12 @@ test("a read keeps whole items only and sorts them by score, then the oldest ask
     ],
   });
   expect(reply.items.map((each) => each.id)).toEqual([
-    "acpmux:c",
+    // Another machine's row and a pull request's are told apart by machine and chat.
+    "acpmux:c@studio/s3",
     // Equal scores: the one asked first (b at now - ageMs = 1_000) before a (5_000).
     "acpmux:b",
     "acpmux:a",
-    "pr:https://example.com/pull/1",
+    "pr:https://example.com/pull/1@/",
   ]);
   expect(reply.items[1]!.at).toBe(1_000);
   expect(reply.items[0]!.host).toBe("studio");
@@ -207,11 +208,11 @@ test("a pull request's verdict names the PR and its chat; other kinds and other 
     sessionId: "s1",
     verdict: "accepted",
   });
-  // No comment: acpmux records the verdict only, so the page sends none it would drop.
-  expect(verdictParams(pr, "changes")).toEqual({
+  expect(verdictParams(pr, "changes", "  Split the commit  ")).toEqual({
     prUrl: "https://example.com/pull/7",
     sessionId: "s1",
     verdict: "changes",
+    comment: "Split the commit",
   });
   expect(verdictParams(item(), "accept")).toBeUndefined();
   // acpmux records a verdict on this Mac only, for a chat it has.
@@ -278,6 +279,7 @@ test("History opens a chat in its own tab (`chat.select`); another machine's pul
   const verdicts: unknown[] = [];
   const client = {
     ledger: async () => ({}),
+    teamAudit: async () => ({}),
     reviewQueue: async () => ({}),
     reviewVerdict: async (params: Record<string, unknown>) => verdicts.push(params),
     audit: async () => ({ entries: [] }),
@@ -325,6 +327,7 @@ test("Export audit fails when neither clipboard path copies, rather than saying 
   const pages = historyPages({
     client: () => ({
       ledger: async () => ({}),
+      teamAudit: async () => ({}),
       reviewQueue: async () => ({}),
       reviewVerdict: async () => ({}),
       audit: async () => ({ entries: [{ seq: 1 }] }),
@@ -349,4 +352,208 @@ test("a row that entered late still collapses when answered: the entrance never 
   // A `forwards`/`both` fill would keep the entrance's last frame (1fr, opaque) over [data-leaving].
   expect(rule).toContain(":not([data-leaving])");
   expect(rule).not.toMatch(/\b(both|forwards)\b/);
+});
+
+test("an approval with only a lasting allow, or a near-match kind, takes no one-click answer", () => {
+  // The one-click answers are exactly allow once and reject once: anything else is the chat's.
+  expect(queueAnswers(item({ options: [{ optionId: "always", name: "Always allow", kind: "allow_always" }] }))).toEqual(
+    [],
+  );
+  expect(
+    queueAnswers(
+      item({
+        options: [
+          { optionId: "a", name: "Allow", kind: "allow" },
+          { optionId: "d", name: "Deny", kind: "reject_always" },
+        ],
+      }),
+    ),
+  ).toEqual([]);
+});
+
+test("the queue also reads again when what a chat waits on, its status or its pull request's title or checks change", () => {
+  const chat = { sessionId: "s4" };
+  const waiting = queueKey([], [{ ...chat, waitingOn: { on: "review" } } as never]);
+  expect(waiting).not.toBe(queueKey([], [chat]));
+  expect(queueKey([], [{ ...chat, waitingOn: { on: "input" } } as never])).not.toBe(waiting);
+  expect(queueKey([], [{ ...chat, status: "waiting" }])).not.toBe(queueKey([], [chat]));
+  const open = { number: 7, title: "Fix", state: "open" as const };
+  const withPr = queueKey([], [{ ...chat, pullRequest: open }]);
+  expect(queueKey([], [{ ...chat, pullRequest: { ...open, title: "Fix the upload" } }])).not.toBe(withPr);
+  expect(queueKey([], [{ ...chat, pullRequest: { ...open, checks: "failing" } } as never])).not.toBe(withPr);
+  const one = queueKey([], [{ ...chat, pullRequestUrls: ["https://example.com/pull/1"] }]);
+  expect(
+    queueKey([], [{ ...chat, pullRequestUrls: ["https://example.com/pull/1", "https://example.com/pull/2"] }]),
+  ).not.toBe(one);
+});
+
+test("the queue's total is acpmux's count before its limit, never fewer than the rows it sent", () => {
+  const raw = { items: [item()], now: 10 };
+  expect(readQueue({ ...raw, total: 250 }).total).toBe(250);
+  expect(readQueue(raw).total).toBe(1);
+  expect(readQueue({ ...raw, total: 0 }).total).toBe(1);
+  expect(readQueue({ ...raw, total: "many" }).total).toBe(1);
+});
+
+test("a Request changes comment an older acpmux dropped opens the chat to say it there", async () => {
+  const selected: string[] = [];
+  let reply: unknown = {};
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      teamAudit: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => reply,
+      audit: async () => ({ entries: [] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+    copy: async () => true,
+  });
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  await pages.queue.verdict(pr, "changes", "Split the commit");
+  expect(selected).toEqual(["s1"]);
+  // A daemon that delivered it leaves the page where it is; so does a verdict with no words.
+  reply = { commentDelivered: true };
+  await pages.queue.verdict(pr, "changes", "Split the commit");
+  reply = {};
+  await pages.queue.verdict(pr, "changes");
+  expect(selected).toEqual(["s1"]);
+});
+
+test("a dropped comment the clipboard also refused keeps the page open: its notice holds the words", async () => {
+  const selected: string[] = [];
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      teamAudit: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => ({}),
+      audit: async () => ({ entries: [] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+    copy: async () => false,
+  });
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  const reply = await pages.queue.verdict(pr, "changes", "Split the commit");
+  expect(reply).toMatchObject({ commentCopied: false });
+  expect(selected).toEqual([]);
+});
+
+test("the queue reads again when a listed chat is renamed", () => {
+  const chat = { sessionId: "s4", status: "waiting" as const, title: "Before" };
+  expect(queueKey([], [{ ...chat, title: "After" }])).not.toBe(queueKey([], [chat]));
+  expect(queueKey([], [{ ...chat, name: "worker" }])).not.toBe(queueKey([], [chat]));
+});
+
+test("one pull request listed in two chats is two rows, each answered on its own, with ids that never move", () => {
+  const pr = { id: "pr:https://example.com/pull/1", kind: "pr", prUrl: "https://example.com/pull/1", at: 1 };
+  const reply = readQueue({
+    items: [
+      { ...pr, sessionId: "s1" },
+      { ...pr, sessionId: "s2", host: "studio" },
+      { id: "acpmux:p1", kind: "approval", sessionId: "s3", at: 2 },
+    ],
+    now: 10,
+  });
+  const ids = reply.items.map((each) => each.id);
+  expect(new Set(ids).size).toBe(3);
+  expect(ids).toContain("pr:https://example.com/pull/1@/s1");
+  expect(ids).toContain("pr:https://example.com/pull/1@studio/s2");
+  // This Mac's ask keeps acpmux's id.
+  expect(ids).toContain("acpmux:p1");
+  // A row's id does not hang on the others: alone, the same pull request has the same id.
+  const alone = readQueue({ items: [{ ...pr, sessionId: "s1" }], now: 10 });
+  expect(alone.items[0]!.id).toBe("pr:https://example.com/pull/1@/s1");
+});
+
+test("a pull request's chat finishing its turn reads the queue again", () => {
+  // acpmux leaves a pull request out while its chat runs, so the end of the turn must read again.
+  const chat = { sessionId: "s5", pullRequest: { number: 3, title: "Fix", state: "open" as const } };
+  expect(queueKey([], [{ ...chat, status: "idle" }])).not.toBe(queueKey([], [{ ...chat, status: "running" }]));
+  const urls = { sessionId: "s6", pullRequestUrls: ["https://example.com/pull/3"] };
+  expect(queueKey([], [{ ...urls, status: "idle" }])).not.toBe(queueKey([], [{ ...urls, status: "running" }]));
+});
+
+test("a comment the chat did not get goes to the clipboard, and the chat opens to paste it", async () => {
+  const selected: string[] = [];
+  const copied: string[] = [];
+  let copies = true;
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      teamAudit: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => ({ recorded: true }),
+      audit: async () => ({ entries: [] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+    copy: async (text) => {
+      copied.push(text);
+      return copies;
+    },
+  });
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  expect(await pages.queue.verdict(pr, "changes", "Split the commit")).toMatchObject({ commentCopied: true });
+  expect(copied).toEqual(["Split the commit"]);
+  expect(selected).toEqual(["s1"]);
+  copies = false;
+  expect(await pages.queue.verdict(pr, "changes", "Split it")).toMatchObject({ commentCopied: false });
+});
+
+test("a refused comment comes back in its box, or beside a newer one being written, never over it", async () => {
+  const { createComments } = await import("../src/agent-session/acpmux/queue/comments");
+  const comments = createComments();
+  comments.restore({ id: "a", text: "Split the commit" });
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  // Another row's comment is being written when the first is refused: both stay.
+  comments.setDraft({ id: "b", text: "Rename it" });
+  comments.restore({ id: "a", text: "Split the commit" });
+  expect(comments.get().draft).toEqual({ id: "b", text: "Rename it" });
+  expect(comments.get().unsent).toBe("Split the commit");
+  // An empty box gives way.
+  comments.dismissUnsent();
+  comments.setDraft({ id: "b", text: "  " });
+  comments.restore({ id: "a", text: "Split the commit" });
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  expect(comments.get().unsent).toBeUndefined();
+  // Kept words add up and outlive any one page.
+  comments.keepUnsent("one");
+  comments.keepUnsent("two");
+  expect(comments.get().unsent).toBe("one\n\ntwo");
+});
+
+test("a read asked before the key moved does not count as current once it lands", async () => {
+  const { createQueueCache } = await import("../src/agent-session/acpmux/queue/useQueue");
+  const cache = createQueueCache();
+  cache.note("a");
+  const asked = cache.generation();
+  cache.note("b");
+  cache.note("a");
+  expect(cache.generation()).not.toBe(asked);
+});
+
+test("opening or answering one row never drops the words typed in another's comment box", async () => {
+  const { createComments } = await import("../src/agent-session/acpmux/queue/comments");
+  const comments = createComments();
+  comments.open("a");
+  comments.setDraft({ id: "a", text: "Split the commit" });
+  // Request changes again on the same row keeps what is typed.
+  comments.open("a");
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  // Accepting another row leaves this box alone.
+  comments.close("b");
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  // Opening another row's box keeps the words beside it.
+  comments.open("b");
+  expect(comments.get().draft).toEqual({ id: "b", text: "" });
+  expect(comments.get().unsent).toBe("Split the commit");
+  // Its own send closes it.
+  comments.close("b");
+  expect(comments.get().draft).toBeUndefined();
 });

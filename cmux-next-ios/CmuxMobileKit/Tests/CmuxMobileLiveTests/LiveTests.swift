@@ -136,6 +136,29 @@ import Testing
         #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
     }
 
+    /// The network came back while a retry dial was in flight on the dead
+    /// path (iOS reliability matrix, network_back_during_inflight_dial): the
+    /// dial starts again on the new path at once, instead of waiting out its
+    /// 25 s timeout and then a backoff step. A waiting machine dials now; a
+    /// live link is left to roam.
+    @Test func networkChangeRestartsADialInFlightAndEndsTheBackoff() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.networkChanged) == [], "a live link roams in place")
+        #expect(machine.handle(.linkDropped(generation: 1, reason: "network lost")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        // The redial is on the dead path; the network comes back.
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // The old dial's late failure is ignored.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "timeout")) == [])
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
+        _ = machine.handle(.dialFailed(generation: 4, reason: "x"))
+        guard case .waiting(_, let attempt, _, _) = machine.phase else { Issue.record("expected waiting"); return }
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 6, macID: "m1", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: attempt + 1))
+    }
+
     /// The link really died while presence says the Mac is offline: no dial
     /// until presence brings it back (then at once).
     @Test func aDeadLinkToAnOfflineMacWaitsForPresence() {

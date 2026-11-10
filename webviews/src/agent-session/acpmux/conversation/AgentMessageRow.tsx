@@ -16,6 +16,9 @@
 // name. The caller owns whether it is open, so each kind keeps that across the virtualized
 // transcript its own way; the line stays on its pixel while the card grows or shrinks under it
 // (useAnchoredCollapse.ts), and a caller that wants the fold to play says when (`animates`).
+// A row with a `peek` keeps its card shown while shut: the card holds the peek (an inbox thread's
+// newest message, whole, InboxNoticeCard.tsx), and opening swaps it for the body in place, the line
+// never carrying a first line of its own.
 import { useId, useRef, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 
@@ -56,6 +59,7 @@ export function AgentMessageRow({
   previewClassName,
   belowClassName,
   keepsPreviewOpen = false,
+  peek,
 }: {
   direction: "sent" | "received" | "report";
   /// The row's glyph, in the tool rows' icon column: the envelope for a send, the sender
@@ -111,6 +115,9 @@ export function AgentMessageRow({
   /// thread drew before did: the chevron after the words stays on its pixel instead of jumping back
   /// to the chip (gallery health's layout-shift row for agent-pane.inbox-notice#one-open is 0).
   keepsPreviewOpen?: boolean;
+  /// Shut, the card shows this instead of closing: the message's text readable without a click
+  /// (Leo, 2026-11-09). Open, the card shows `body`. The line then never draws the first line.
+  peek?: ReactNode;
 }) {
   const bodyId = useId();
   const [before = "", after = ""] = sentence.split("\u0000");
@@ -125,15 +132,15 @@ export function AgentMessageRow({
   // A click on the line (its words, its chevron) that closes the message hands focus to the toggle,
   // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const closeToToggle = () => {
-    if (open) toggleRef.current?.focus({ preventScroll: true });
-    collapse.toggle();
+  const closeToToggle = (event?: unknown) => {
+    // The click itself, so a drag across the line toggles nothing (useAnchoredCollapse `deliberateClick`).
+    if (collapse.toggle(event) && open) toggleRef.current?.focus({ preventScroll: true });
   };
   const marker = unverified && <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} />;
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
   // stacked gallery version puts it under the row, on its own line.
   const look = useMessageLineLook();
-  const shown = !open || keepsPreviewOpen;
+  const shown = peek === undefined && (!open || keepsPreviewOpen);
   const inline = look === "single" && shown ? preview : "";
   const below = look === "stacked" && shown ? preview : "";
   return (
@@ -195,7 +202,7 @@ export function AgentMessageRow({
             type="button"
             className="cv-agentmsg__toggle"
             aria-expanded={open}
-            aria-controls={open ? bodyId : undefined}
+            aria-controls={open || peek !== undefined ? bodyId : undefined}
             aria-label={label}
             onClick={collapse.toggle}
           >
@@ -236,17 +243,27 @@ export function AgentMessageRow({
           {below}
         </div>
       )}
-      {collapse.present && (
-        <div {...collapse.bodyProps}>
-          <div className="cv-agentmsg__open">
-            {/* The body opens whole from the line's own toggle, never cut, so it carries no Show
-                more of its own. TODO(#37610): swap to ExpandRow if a long body gets cut here. */}
-            <div id={bodyId} className="cv-agentmsg__card selectable">
-              {body}
-            </div>
-            {under}
+      {peek !== undefined ? (
+        // One card in both states: only what it holds changes, under a line that stays put.
+        <div className="cv-agentmsg__open">
+          <div id={bodyId} className="cv-agentmsg__card selectable">
+            {open ? body : peek}
           </div>
+          {open && under}
         </div>
+      ) : (
+        collapse.present && (
+          <div {...collapse.bodyProps}>
+            <div className="cv-agentmsg__open">
+              {/* The body opens whole from the line's own toggle, never cut, so it carries no Show
+                  more of its own. TODO(#37610): swap to ExpandRow if a long body gets cut here. */}
+              <div id={bodyId} className="cv-agentmsg__card selectable">
+                {body}
+              </div>
+              {under}
+            </div>
+          </div>
+        )
       )}
     </div>
   );

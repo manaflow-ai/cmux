@@ -494,6 +494,31 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 2);
 }
 
+/// A seed that answered at the chat's head is the send's copy: the chat opens in that
+/// folder while the machine fills the rest, so a retry never pushes a second seed over it.
+#[test]
+fn a_seed_answered_at_its_head_is_the_sends_copy_and_says_filling() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "app/web");
+    let count = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *count.borrow_mut() += 1;
+        Ok(super::pushed_fields(&json!({
+            "ok": true, "mode": "seed", "unchanged": false, "bundle_bytes": 10,
+            "head": null, "work": "w", "skipped_files": [], "filling": true,
+        })))
+    };
+    let first = copy.run(&path, &push);
+    assert_eq!(first["copied"], json!(true), "{first}");
+    assert_eq!(first["filling"], json!(true), "{first}");
+    assert_eq!(first["mode"], json!("seed"));
+    let retry = copy.run(&path, &push);
+    assert_eq!(*count.borrow(), 1, "a retry never seeds over a filling folder");
+    assert_eq!(retry["copied"], json!(false));
+    assert_eq!(retry["chat"], first["chat"]);
+}
+
 #[test]
 fn a_finished_copy_keeps_its_original_folder_when_retry_arguments_change() {
     let dir = scratch();
@@ -1472,7 +1497,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .expect("ensure");
     assert_eq!(
         ensure.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV, "projectKey": "git:github.com/manaflow-ai/cmux"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
     );
     let with_ref = Ensure::of(&flags(&[
         "--workspace",
@@ -1487,7 +1512,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .unwrap();
     assert_eq!(
         with_ref.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main", "projectKey": "git:github.com/a/b"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
     );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],
@@ -1588,7 +1613,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(
         asked.borrow().as_slice(),
         [(
-            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV, "projectKey": "git:github.com/me/paint"}),
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
             "token-1".to_string()
         )]
     );
@@ -1648,6 +1673,17 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
     assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+}
+
+/// The reserve's and the bind's plan refusal reach the App with its code (the pane's "This team has
+/// no Cloud plan"), not a generic `refused`.
+#[test]
+fn a_reservation_plan_refusal_keeps_its_code() {
+    use crate::cli::PlatformCallError as E;
+    let answer =
+        super::reservations::answer(Err(E::Status { status: 403, code: "cloud.plan.required" }));
+    assert_eq!(answer["error_code"], json!("cloud.plan.required"));
+    assert_eq!(answer["ok"], json!(false));
 }
 
 #[test]
@@ -1762,8 +1798,10 @@ fn project_folder_identity_survives_relaunch_and_distinguishes_installations() {
     );
 }
 
+/// One workspace per machine (Leo, 2026-11-06): two workspaces on one project each ensure their own machine,
+/// naming no project, and a machine one workspace holds never becomes the other's.
 #[test]
-fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
+fn each_workspace_on_a_project_ensures_its_own_machine() {
     let dir = scratch();
     let ledger = ledger_in(dir.path());
     let folder = dir.path().join("project");
@@ -1776,23 +1814,25 @@ fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
     let asked = RefCell::new(Vec::new());
     let ensure = |ensure: &Ensure, _: &str| {
         asked.borrow_mut().push(ensure.body());
-        Ok(json!({"machine": {"id": "project-machine"}, "created": false}))
+        let id = format!("machine-{}", asked.borrow().len());
+        Ok(json!({"machine": {"id": id}, "created": true}))
     };
-    for workspace in ["ws-a", "ws-b"] {
+    for (workspace, machine) in [("ws-a", "machine-1"), ("ws-b", "machine-2")] {
         let request = json!({"key": key(), "account": "user-leo/", "workspace": workspace,
             "local": folder, "credential_on_stdin": true});
         let answer = plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &ensure);
-        assert_eq!(answer["machine"], json!("project-machine"), "{answer}");
+        assert_eq!(answer["machine"], json!(machine), "{answer}");
+        assert_eq!(answer["project_key"], json!("git:gitlab.com/me/project"), "{answer}");
     }
     assert_eq!(asked.borrow().len(), 2);
     for body in asked.borrow().iter() {
-        assert_eq!(body["projectKey"], json!("git:gitlab.com/me/project"));
+        assert!(body.get("projectKey").is_none(), "{body}");
         assert!(body.get("repo").is_none());
     }
     Ledger::update(&ledger, |pins| {
-        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("project-machine"));
-        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("project-machine"));
-        assert!(!pick::claim_project(pins, "ws-b", "user-leo/", "racing-machine"));
+        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("machine-1"));
+        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("machine-2"));
+        assert!(!pick::claim(pins, "ws-c", "user-leo/", "machine-1"));
     })
     .unwrap();
 }
@@ -1805,7 +1845,7 @@ fn project_ensure_accepts_a_folder_without_a_remote() {
         "local": dir.path(), "credential_on_stdin": true});
     let answer =
         plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &|ensure, _| {
-            assert!(ensure.body()["projectKey"].as_str().unwrap().starts_with("folder:"));
+            assert!(ensure.body().get("projectKey").is_none());
             assert!(ensure.body().get("repo").is_none());
             Ok(json!({"machine": {"id": "folder-machine"}, "created": true}))
         });

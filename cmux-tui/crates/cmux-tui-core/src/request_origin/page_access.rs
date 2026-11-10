@@ -211,6 +211,7 @@ const fn access(operation: Op) -> Access {
         | Op::PaneFocusDirection
         | Op::PaneNeighborGet
         | Op::PaneSwap
+        | Op::PaneMove
         | Op::PaneZoom
         | Op::PaneSplitRatioSet
         | Op::PaneViewportWidthSet
@@ -438,6 +439,9 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerHandoffBeginTurn
         | Op::CloudOwnerHarnessLoginCopy
         | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerTurnCheckpoint
+        | Op::CloudOwnerTurnRewind
+        | Op::CloudOwnerTurns
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
