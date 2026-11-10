@@ -46,10 +46,14 @@ extension LargeSessionFixture {
 extension LargeSessionObservationTests {
     /// O9, the session transfer wait when its workspace has its chat tab ALREADY (the case
     /// `o9TransferWaitIsNotWokenByATabOfAnotherWorkspace` leaves out: it keys a workspace that has a terminal only).
-    /// Two ways to that state: the wait opens after the keyed workspace and its chat tab are listed (it must match at
-    /// its first read, with no later change to wake it), and a listed workspace that has a chat tab gets the key in
-    /// place (a `workspace-changed` event: the set of workspaces and every tab list stay the same, so only the key's
-    /// own cell, `StoreIndex.workspaceKeyWaits`, can wake the wait).
+    /// Two ways to that state: the workspace comes under the key with its chat tab in ONE `workspace-added` event (no
+    /// later tab change to wake the wait: only the key's own cell, `StoreIndex.workspaceKeyWaits`, can), and the wait
+    /// opens after the keyed workspace and its chat tab are listed (it must match at its first read).
+    ///
+    /// A third way does not exist: a listed workspace never gets its key in place. The key is the workspace's identity
+    /// (`WorkspaceModel.identity`, the model's constant `id`), and every workspace event finds its workspace by the
+    /// entity's identity (`DaemonStore+Events.swift`, `workspacesByID[WorkspaceModel.identity(delta.entity)]`), so a
+    /// `workspace-changed` event whose entity has another key names another workspace and changes none.
     @Test(.timeLimit(.minutes(2)))
     func o9TransferWaitMatchesAWorkspaceThatHasItsChatTabAlready() async throws {
         let fixture = LargeSessionFixture()
@@ -63,20 +67,25 @@ extension LargeSessionObservationTests {
             }
         }
 
-        // A listed workspace with a chat tab (workspace 7; the fixture gives it no key) gets its key in place.
+        // The workspace comes under the key with its chat tab, in one event (the way the daemon tells of a new workspace).
         let late = WaitHits()
         let lateWait = wait("o9-late-key", into: late)
         defer { lateWait.cancel() }
-        // The wait's own first value: it read (and tracks) the key's cell before the key is set.
+        // The wait's own first value: it read (and tracks) the key's cell before the workspace comes.
         await LargeSessionFixture.until { late.names.contains("not listed yet") }
-        try #require(late.names == ["not listed yet"], "fixture: the wait did not read once before the key came: \(late.names)")
-        var entity = LargeSessionFixture.tree().workspaces[6]
-        entity.key = WorkspaceKey(rawValue: "o9-late-key")
-        store.apply(.workspaceChanged(WorkspaceDelta(workspace: entity.id, index: nil, entity: entity,
-                                                     workspaceRevision: store.workspaceRevision + 1)))
-        try #require(store.workspace(key: WorkspaceKey(rawValue: "o9-late-key")) != nil, "fixture: the event did not key workspace 7")
+        try #require(late.names == ["not listed yet"], "fixture: the wait did not read once before the workspace came: \(late.names)")
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 9_999), tabResourceID: ResourceID(rawValue: "tab_o9"), kind: .conversation,
+                               title: "o9", browserRenderer: "frontend")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: LargeSessionFixture.host, session: "s-o9", harness: nil))
+        let pane = PaneSnapshot(id: PaneID(rawValue: 9_001), resourceID: ResourceID(rawValue: "pane_o9"), tabs: [chat])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 9_001), layout: .leaf(pane.id), panes: [pane])
+        let entity = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9_001), key: WorkspaceKey(rawValue: "o9-late-key"),
+                                       resourceID: ResourceID(rawValue: "ws_o9"), name: "o9", screens: [screen])
+        store.apply(.workspaceAdded(WorkspaceDelta(workspace: entity.id, index: nil, entity: entity,
+                                                   workspaceRevision: store.workspaceRevision + 1)))
+        try #require(store.workspace(key: WorkspaceKey(rawValue: "o9-late-key")) != nil, "fixture: the event did not list the workspace under its key")
         await LargeSessionFixture.until { late.names.contains("listed") }
-        #expect(late.names.contains("listed"), "the transfer wait did not hear a workspace with a chat tab keyed under its key")
+        #expect(late.names.contains("listed"), "the transfer wait did not hear its workspace come with its chat tab in one event")
 
         // The wait opens when the keyed workspace and its chat tab are listed already: its first read matches.
         let early = WaitHits()
