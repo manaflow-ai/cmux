@@ -33,11 +33,22 @@ struct NewTabSpareStaysInWindowTests {
         var samePage: Bool
         var inWindow: Bool
         var inParking: Bool
+        /// After the pool took the closed page: the window's first responder is in that page.
+        var keptKeyboard = false
+    }
+
+    /// A view that takes the keyboard, as a field of the page does.
+    private final class KeyTaker: NSView {
+        override var acceptsFirstResponder: Bool { true }
     }
 
     /// `pairs` times: the pane closes its untouched New Tab page (its strip update drops the page, then the tab's
     /// release gives the page to the pool), then a press takes the pool's spare and the pane shows it.
-    private static func presses(pairs: Int) async throws -> [Press] {
+    ///
+    /// `releasedWithTheKeyboard`: the other order of a close. The tab's release comes BEFORE its pane's strip update
+    /// (a tab that the CLI, an agent or another device closed: `releaseGoneTabs`), while the page shows and holds the
+    /// keyboard. The pool then moves the page out of its pane itself.
+    private static func presses(pairs: Int, releasedWithTheKeyboard: Bool = false) async throws -> [Press] {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -92,14 +103,28 @@ struct NewTabSpareStaysInWindowTests {
         var shown = first
         var presses: [Press] = []
         for pair in 1...pairs {
-            // Cmd-W: the strip update retires the page and drops it as closed; then the tab's release offers it to the pool.
-            pane.view.retire(shown)
-            pane.view.dropClosedParked { [] }
-            try #require(pool.recycle(shown), "fixture: pair \(pair): the pool refused the closed page (\(pool.lastRecycleRefusal ?? "no reason"))")
+            var keptKeyboard = false
+            if releasedWithTheKeyboard {
+                let taker = KeyTaker(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+                shown.addSubview(taker)
+                let took = window.makeFirstResponder(taker)
+                let holds = took && window.firstResponder === taker
+                try #require(holds, "fixture: pair \(pair): the page did not take the keyboard")
+                try #require(pool.recycle(shown), "fixture: pair \(pair): the pool refused the shown page (\(pool.lastRecycleRefusal ?? "no reason"))")
+                keptKeyboard = (window.firstResponder as? NSView)?.isDescendant(of: shown) ?? false
+                if window.firstResponder === taker { window.makeFirstResponder(nil) }
+                taker.removeFromSuperview()
+                pane.view.dropClosedParked { [] } // the strip update, after the release
+            } else {
+                // Cmd-W: the strip update retires the page and drops it as closed; then the tab's release offers it to the pool.
+                pane.view.retire(shown)
+                pane.view.dropClosedParked { [] }
+                try #require(pool.recycle(shown), "fixture: pair \(pair): the pool refused the closed page (\(pool.lastRecycleRefusal ?? "no reason"))")
+            }
             // Cmd-T: the pool hands out its oldest spare and the pane shows it.
             let taken = try #require(pool.take(for: window, size: NewTabSparePool.newTabContentSize(in: pane))?.view, "fixture: pair \(pair): the pool had no spare")
             presses.append(Press(samePage: taken === shown, inWindow: taken.window === window,
-                                 inParking: taken.superview != nil && taken.superview?.superview === window.contentView))
+                                 inParking: taken.superview != nil && taken.superview?.superview === window.contentView, keptKeyboard: keptKeyboard))
             pane.view.install(taken)
             try #require(taken.superview === pane.view.contentHost, "fixture: pair \(pair): the pane does not show the page")
             if !pages.contains(where: { $0 === taken }) { pages.append(taken) }
@@ -123,5 +148,19 @@ struct NewTabSpareStaysInWindowTests {
             """)
         let elsewhere = presses.filter { !$0.inParking }.count
         #expect(elsewhere == 0, "\(elsewhere) of \(pairs) presses took a spare that was not in the pool's parking view: the key's view insert depends on the spare's history")
+    }
+
+    /// A page that the pool moves out of its pane is out of sight (the parking view is off screen, the page is a
+    /// spare): it must not hold the keyboard, or the person's next keys go into a page nobody sees, and the next
+    /// Cmd-T shows that page with those keys in it. The removal from the window that the move replaces took the
+    /// keyboard away; the move must do the same.
+    @Test(.timeLimit(.minutes(2)), arguments: [1, 3])
+    func aPageThePoolMovesOutOfItsPaneGivesUpTheKeyboard(pairs: Int) async throws {
+        let presses = try await Self.presses(pairs: pairs, releasedWithTheKeyboard: true)
+        try #require(presses.count == pairs, "fixture: \(presses.count) presses, not \(pairs)")
+        let kept = presses.filter { $0.keptKeyboard }.count
+        #expect(kept == 0, "\(kept) of \(pairs) pages that the pool moved into its parking view kept the keyboard: keys go into a hidden spare page")
+        let outside = presses.filter { !$0.inWindow || !$0.inParking }.count
+        #expect(outside == 0, "\(outside) of \(pairs) presses took a spare that was not in the parking view of the window")
     }
 }
