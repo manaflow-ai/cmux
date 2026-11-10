@@ -591,7 +591,7 @@ fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
     // The Mac renames its incognito workspace: nothing the phone may see changed.
     let app_known = known_of(&listed_since(&mux, &app, json!({})));
     rename(private_id, "secret-plans");
-    let app_after = listed_since(&mux, &app, app_known.clone());
+    let app_after = listed_since(&mux, &app, app_known);
     assert!(app_after.get("unchanged").is_none(), "the app sees its own rename: {app_after}");
     let after = listed_since(&mux, &phone, known.clone());
     assert_eq!(after["unchanged"], true, "an incognito rename moved the phone's tree: {after}");
