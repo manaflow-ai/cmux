@@ -160,8 +160,7 @@ final class SidebarBridge {
         // And the New Tab pages (a chat lists as a chat) and the muted set.
         // The spaces and the current space come from the same observation
         // as the rows (cx-5k3r): a space switch reaches the sidebar as one
-        // change (new space and its rows together), so the sidebar runs
-        // one slide, not a slide of the old rows and then a row reload.
+        // change (new space and its rows together).
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
