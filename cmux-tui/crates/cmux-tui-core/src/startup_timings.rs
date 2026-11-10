@@ -46,6 +46,23 @@ pub fn process_mark(step: &'static str) {
         .push((step, Instant::now()));
 }
 
+/// A test's observer of the laps of its own thread.
+#[cfg(test)]
+pub(crate) type LapObserver = Box<dyn FnMut(&'static str)>;
+
+#[cfg(test)]
+thread_local! {
+    static LAP_OBSERVER: std::cell::RefCell<Option<LapObserver>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Calls `observer` with each lap's name as this thread ends it (a test
+/// reads what the step did); `None` stops it.
+#[cfg(test)]
+pub(crate) fn observe_laps_on_this_thread(observer: Option<LapObserver>) {
+    LAP_OBSERVER.with(|slot| *slot.borrow_mut() = observer);
+}
+
 /// The named, ordered laps of one startup.
 #[derive(Debug, Clone)]
 pub struct StartupTimings {
@@ -100,6 +117,12 @@ impl StartupTimings {
         let took = now.saturating_duration_since(self.mark);
         self.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
         self.mark = now;
+        #[cfg(test)]
+        LAP_OBSERVER.with(|slot| {
+            if let Some(observer) = slot.borrow_mut().as_mut() {
+                observer(step);
+            }
+        });
     }
 
     /// Records a step timed by its caller, named at run time, with the rows
