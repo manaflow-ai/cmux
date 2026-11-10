@@ -77,7 +77,7 @@ fn live_facts_reach_a_subscriber(mux: Arc<Mux>) {
     let (_, start) = prepare_session_event_stream(&mux, client, &writer, &request).unwrap();
     let stream_outbound = start.outbound.clone();
     let worker = {
-        let (mux, writer) = (mux.clone(), writer.clone());
+        let mux = mux.clone();
         std::thread::spawn(move || run_session_event_stream(&mux, client, &writer, start))
     };
     let snapshot = next_item(&outbound, "the initial snapshot");
@@ -152,7 +152,7 @@ fn live_facts_reach_a_subscriber(mux: Arc<Mux>) {
         prepare_session_event_stream(&mux, second_client, &second_writer, &request).unwrap();
     let second_stream_outbound = second.outbound.clone();
     let second_worker = {
-        let (mux, writer) = (mux.clone(), second_writer.clone());
+        let (mux, writer) = (mux.clone(), second_writer);
         std::thread::spawn(move || run_session_event_stream(&mux, second_client, &writer, second))
     };
     let snapshot = next_item(&second_outbound, "the second client's snapshot");
