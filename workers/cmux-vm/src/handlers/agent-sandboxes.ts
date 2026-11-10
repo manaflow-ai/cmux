@@ -97,8 +97,12 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
         }),
       );
     }
+    // Count again from the ownership table alone (no provider calls) right before reserving, so a create
+    // recorded while the priced listing above ran is counted, as tenantMayCreate counts just before its reserve.
+    const owned = yield* visitOwnedVms(caller, { limit: budget.maxVms + 1, after: null, labels: null }, () => Effect.succeed(1))
+      .pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
     const reserved = yield* (yield* TenantLimits)
-      .reserve(caller.value.tenantId, agentVmKind(caller.value), budget.maxVms, page.results.length)
+      .reserve(caller.value.tenantId, agentVmKind(caller.value), budget.maxVms, owned.results.length)
       .pipe(Effect.mapError(unavailable));
     if (!reserved.ok) {
       return yield* Effect.fail(
