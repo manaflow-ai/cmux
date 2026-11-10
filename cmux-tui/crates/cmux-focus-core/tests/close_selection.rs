@@ -130,7 +130,7 @@ impl Strip {
         match step {
             New(item) => {
                 let at = match (self.mode, &selected) {
-                    (Mode::AfterSelected, Some(selected)) => self.index(selected) + 1,
+                    (AfterSelected, Some(selected)) => self.index(selected) + 1,
                     _ => self.order.len(),
                 };
                 self.order.insert(at, item.to_owned());
