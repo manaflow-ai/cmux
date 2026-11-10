@@ -15,6 +15,13 @@ public extension UITestConfig {
             .onboardingConnectionFallbackEnabled
     }
 
+    /// Whether the onboarding preview stands in for the App Review
+    /// demonstration account.
+    static var onboardingDemonstrationAccountEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .onboardingDemonstrationAccountEnabled
+    }
+
     /// Whether the deterministic pairing-scanner preview is enabled.
     static var pairingScannerPreviewEnabled: Bool {
         UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
