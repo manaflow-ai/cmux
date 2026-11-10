@@ -71,12 +71,17 @@ function newestFirst(a: Summary, b: Summary): number {
 
 /**
  * Reads the session list a page at a time. Starting a list again (a reconnect, a lagged watch)
- * or `stop` ends the pages of the one before. Every `session_changed` since the list started is
+ * or `stop` ends the pages of the one before. Every `session_changed` while the list loads is
  * remembered: a page read before it carries the older state, so `settle` lays the changes over
  * the pages, and `rest` never adds a session the pane already holds or one purged meanwhile.
+ * Once the list is whole (`done`) the changes are forgotten and no more are kept: the pane's own
+ * list takes each one from then on. Kept for the client's life instead, every chat ever closed
+ * stayed in `purged` and the newest summary of every chat ever changed in `changed`, one entry
+ * per closed chat for as long as the pane lived (test/state-growth.test.ts, session-churn).
  */
 export class SessionPager<S extends Summary> {
   private run = 0;
+  private loading = false;
   private purged = new Set<string>();
   private changed = new Map<string, S>();
 
@@ -87,6 +92,7 @@ export class SessionPager<S extends Summary> {
     const run = ++this.run;
     this.purged.clear();
     this.changed.clear();
+    this.loading = true;
     const page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE }));
     return run === this.run ? { ...page, run } : undefined;
   }
@@ -116,14 +122,25 @@ export class SessionPager<S extends Summary> {
 
   /** A `session_changed` seen while the list loads. */
   changedSession(session: S): void {
+    if (!this.loading) return;
     this.purged.delete(session.sessionId);
     this.changed.set(session.sessionId, session);
   }
 
   /** A `session_changed` purge seen while the list loads. */
   purgedSession(sessionId: string): void {
+    if (!this.loading) return;
     this.changed.delete(sessionId);
     this.purged.add(sessionId);
+  }
+
+  /** The list `run` started is whole and settled into the pane's: its changes are forgotten. A newer
+   *  list (another `first` meanwhile) keeps its own. */
+  done(run: number | undefined): void {
+    if (run === undefined || run !== this.run) return;
+    this.loading = false;
+    this.purged.clear();
+    this.changed.clear();
   }
 
   /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */
