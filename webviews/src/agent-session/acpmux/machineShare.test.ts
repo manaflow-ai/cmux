@@ -32,7 +32,10 @@ describe("machineShareOutcome", () => {
       });
     }
     expect(
-      machineShareOutcome({ ok: false, error: { code: "machine.not_member", message: "share with a member of this team" } }),
+      machineShareOutcome({
+        ok: false,
+        error: { code: "machine.not_member", message: "share with a member of this team" },
+      }),
     ).toEqual({ kind: "failed", key: "switch.share.failed", reason: "share with a member of this team" });
   });
   test("the retired classic codes are no longer special", () => {
