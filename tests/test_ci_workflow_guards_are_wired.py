@@ -78,6 +78,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that generate-nightly-deltas checks out only scripts/ of the
     # build ref and that the reel's apt install retries; run it by hand after changing either.
     "tests/test_nightly_deltas_sparse_checkout.py",
+    # lane = "manual" for the same rule. It runs the deltas jobs' build checkout from nightly.yml in a temp clone
+    # that an earlier job left sparse, then the job's Select Xcode step; run it by hand after changing that
+    # checkout or a sparse checkout in a job that shares the signing runner's workspace.
+    "tests/test_nightly_deltas_kept_clone.py",
     # lane = "manual" for the same rule. It runs the warm nightly-next builder's checkout step from nightly.yml in
     # a temp workspace that a sparse checkout was left in, and needs the whole tree after it; run it by hand after
     # changing that step or a sparse checkout in a job that shares the builder's workspace.

@@ -51,6 +51,11 @@ path = "tests/test_nightly_delivery_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_deltas_kept_clone.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the deltas jobs' build checkout from nightly.yml, with the git commands of actions/checkout, in a temp clone that the signer, the publisher, a full checkout or an older deltas job left sparse, then the job's own Select Xcode step, which needs the root .xcode-version; run python3 tests/test_nightly_deltas_kept_clone.py yourself after changing that checkout or a sparse checkout of a job that can share its runner (about 5 s, git only, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_deltas_keyless_prebuild.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that build-nightly-deltas builds the deltas without the Sparkle key and the keyed job only signs them; run python3 tests/test_nightly_deltas_keyless_prebuild.py yourself after changing either job or the delta scripts (about 1 s, no Mac)."
