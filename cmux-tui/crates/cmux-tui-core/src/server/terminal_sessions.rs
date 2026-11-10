@@ -100,18 +100,14 @@ pub(super) fn hook_report_terminal(line: &str) -> Option<Option<String>> {
 
 /// The process session of the session's terminal `terminal` (a public id),
 /// the terminal lane's key for a fair share. Nil when the session has no such
-/// terminal, and when another thread holds the state lock: the lane then
-/// bounds the connection without a share, and nothing waits.
+/// terminal, when the terminal has no process, and when another thread holds
+/// the state lock: the lane then bounds the connection without a share, and
+/// nothing waits.
 pub(super) fn session_of_terminal(mux: &Mux, terminal: &str) -> Option<u32> {
-    mux.try_with_state(|state| {
-        state
-            .surfaces
-            .values()
-            .chain(state.terminal_catalog.values())
-            .find(|surface| surface.terminal_public_id().is_some_and(|id| id.as_str() == terminal))
-            .and_then(|surface| surface.process_id())
-    })
-    .flatten()
+    // One lookup by key: no walk of the session's terminals for a line a client wrote.
+    let terminal = crate::resource::TerminalPublicId::parse(terminal).ok()?;
+    mux.try_with_state(|state| state.terminal_catalog.get(&terminal).and_then(|s| s.process_id()))
+        .flatten()
 }
 
 const JOURNAL_APPEND: &str = "session.journal.append";
