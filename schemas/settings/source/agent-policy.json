@@ -387,6 +387,7 @@
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
         "sidebar.groupBy",
+        "sidebar.groupPinMark",
         "sidebar.priorityView.enabled",
         "sidebar.priorityView.shown",
         "browser.defaultEngine",

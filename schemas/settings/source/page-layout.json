@@ -165,7 +165,7 @@
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
-              "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupPinMark", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [

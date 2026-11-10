@@ -1034,6 +1034,72 @@
           }
         },
         {
+          "key": "sidebar.groupPinMark",
+          "title": {
+            "key": "settings.sidebar.groupPinMark",
+            "text": "Pinned in Group Mark"
+          },
+          "help": {
+            "key": "settings.sidebar.groupPinMark.help",
+            "text": "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "trailing",
+              "title": {
+                "key": "settings.choice.groupPinTrailing",
+                "text": "Pin After Name"
+              }
+            },
+            {
+              "value": "leading",
+              "title": {
+                "key": "settings.choice.groupPinLeading",
+                "text": "Pin Before Name"
+              }
+            },
+            {
+              "value": "shelf",
+              "title": {
+                "key": "settings.choice.groupPinShelf",
+                "text": "Tinted Rows"
+              }
+            }
+          ],
+          "default": "leading",
+          "keywords": [
+            "sidebar",
+            "group",
+            "groups",
+            "pin",
+            "pinned",
+            "pins",
+            "mark",
+            "indicator",
+            "badge",
+            "icon",
+            "tint",
+            "workspace"
+          ],
+          "swift_enum": {
+            "name": "SidebarGroupPinMark",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.groupHeader.memberCount",
           "name": "groupHeaderMemberCount",
           "title": {

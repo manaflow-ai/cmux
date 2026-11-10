@@ -101,6 +101,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.showLocalMachine`.
     public nonisolated static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public nonisolated static let showLocalMachineDefault = false
+    /// `sidebar.groupPinMark`.
+    public nonisolated static let groupPinMarkPath = ["sidebar", "groupPinMark"]
+    public nonisolated static let groupPinMarkDefault: SidebarGroupPinMark = .leading
     /// `sidebar.groupHeader.memberCount`.
     public nonisolated static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public nonisolated static let groupHeaderMemberCountDefault = false

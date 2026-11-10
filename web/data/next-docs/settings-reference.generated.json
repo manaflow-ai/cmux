@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 620,
   "sections": [
     {
       "id": "general",
@@ -3766,6 +3766,20 @@
             "vibrant",
             "gradient",
             "pictorial"
+          ]
+        },
+        {
+          "key": "sidebar.groupPinMark",
+          "title": "Pinned in Group Mark",
+          "help": "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.",
+          "kind": "choice",
+          "default": "leading",
+          "group": "Sidebar",
+          "values": [
+            "off",
+            "trailing",
+            "leading",
+            "shelf"
           ]
         },
         {

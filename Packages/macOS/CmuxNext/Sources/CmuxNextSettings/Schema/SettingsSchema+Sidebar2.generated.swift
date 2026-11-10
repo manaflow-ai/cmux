@@ -333,6 +333,21 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.groupPinMarkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupPinMark", "Pinned in Group Mark"),
+                help: SettingsText.keyed("settings.sidebar.groupPinMark.help", "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."),
+                kind: .choice([
+                    SettingChoice(SidebarGroupPinMark.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(SidebarGroupPinMark.trailing.rawValue, SettingsText.keyed("settings.choice.groupPinTrailing", "Pin After Name")),
+                    SettingChoice(SidebarGroupPinMark.leading.rawValue, SettingsText.keyed("settings.choice.groupPinLeading", "Pin Before Name")),
+                    SettingChoice(SidebarGroupPinMark.shelf.rawValue, SettingsText.keyed("settings.choice.groupPinShelf", "Tinted Rows")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupPinMarkDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "pin", "pinned", "pins", "mark", "indicator", "badge", "icon", "tint", "workspace"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.groupHeaderMemberCountPath,
                 section: .appearance,
                 group: group,
@@ -365,24 +380,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

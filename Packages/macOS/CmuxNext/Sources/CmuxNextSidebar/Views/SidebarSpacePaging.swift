@@ -220,6 +220,7 @@ import QuartzCore
         model.showsTimestamps = host.model.showsTimestamps
         (model.showsColors, model.colorIndicator) = (host.model.showsColors, host.model.colorIndicator)
         model.showsLocalMachine = host.model.showsLocalMachine
+        model.groupPinMark = host.model.groupPinMark
         model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID
         model.itemFavicon = host.model.itemFavicon // link rows draw the favicons the live list draws
