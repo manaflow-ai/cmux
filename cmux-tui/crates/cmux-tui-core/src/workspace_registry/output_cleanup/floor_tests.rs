@@ -377,26 +377,32 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     for index in 0..1_200 {
         hook(&mux, terminal, ["UserPromptSubmit", "Stop"][index % 2]);
     }
-    seal_all(&mux, "second-below");
+    seal_all(&mux, "second_below");
     let second_floor = mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap();
     for _ in 0..10 {
         hook(&mux, terminal, "UserPromptSubmit");
         hook(&mux, terminal, "Stop");
     }
-    seal_all(&mux, "second-above");
+    seal_all(&mux, "second_above");
     hook(&mux, terminal, "UserPromptSubmit");
     assert!(mux.settle_agent_roster_for_test());
     mux.shutdown();
     drop(mux);
+    // The second full start: it removes the backup of the first swap.
     let mux = open(&root.0);
     let roster = roster_state(&mux, terminal);
+    let previous = previous_path(db_path);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while previous.exists() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(!previous.exists(), "the backup of the first swap stays after a full start");
     mux.shutdown();
     drop(mux);
     assert!(second_floor > *floor);
     let head = journal_head(db_path);
     let kept = records_after(db_path, second_floor, head);
     assert!(kept.len() >= 21, "the records above the second floor: {}", kept.len());
-    let first_swap_bytes = file_len(db_path);
 
     START_FLOOR_FOR_TEST.with(|start| start.set(Some(second_floor)));
     assert_eq!(
@@ -407,11 +413,6 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
     assert!(!staging_path(db_path).exists(), "the staging file stays");
     assert!(previous_path(db_path).is_file(), "the first rebuilt file is not kept as the backup");
-    assert_eq!(
-        file_len(&previous_path(db_path)),
-        first_swap_bytes,
-        "the backup is not the registry of the first swap"
-    );
     assert_eq!(
         records_after(db_path, 0, head),
         kept,

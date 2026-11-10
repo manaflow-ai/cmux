@@ -153,7 +153,7 @@ impl OutputCleanupWorker {
 /// It then wakes the journal maintenance worker: a retention pass that gave
 /// way to this worker has settled, and a settled worker sleeps until the
 /// journal changes (an idle daemon: up to the hourly ledger scan).
-struct NoRebuildAfter(Arc<AtomicBool>, Arc<super::journal_maintenance::JournalMaintenanceControl>);
+struct NoRebuildAfter(Arc<AtomicBool>, Arc<journal_maintenance::JournalMaintenanceControl>);
 
 impl Drop for NoRebuildAfter {
     fn drop(&mut self) {
