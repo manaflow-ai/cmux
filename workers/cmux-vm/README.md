@@ -575,8 +575,11 @@ VM, its row and its billing are untouched. Only a service key holding the
 can be issued with it (400), and a stored API key that names it gets nothing from it. Grant it
 by adding it to a service key's entry in `CMUX_VM_SERVICE_KEYS` (or
 `service-key-grants.json`). The key's `teams` and `labels` still apply, and
-every import carries the key's labels. To let cmux-platform boot an import,
-give the scope to its key, or give the importing key the same labels.
+every import carries the key's labels. cmux-platform imports with its own Cloud
+driver key (`cloud-platform-<env>`, labels `role=cloud`), so the imports carry
+`role=cloud` and that key lists, reads and boots them (`POST /v1/vms` with
+`snapshotId`) like its own snapshots. The operator grant is `import:classic` added
+to that key's `scopes` in `CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM`.
 
 - `POST /v1/imports/classic-vm-snapshots` (`X-Cmux-Team-Id` names the tenant;
   optional `Idempotency-Key`), body

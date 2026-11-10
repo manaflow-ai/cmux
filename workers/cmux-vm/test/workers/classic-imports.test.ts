@@ -135,6 +135,43 @@ describe("import", () => {
   });
 });
 
+describe("booting an import", () => {
+  // cmux-platform's Cloud driver key (cloud-platform-<env>) is confined to role=cloud and creates VMs labelled role=cloud
+  // (cmux-platform src/server/cloud/vmapi/CloudProvider.ts). Granted import:classic, it must boot what it imported.
+  const CLOUD = { role: "cloud" };
+  const platformKey = () =>
+    h.addServiceKey({ id: "cloud-platform-dev", scopes: ["vm:read", "vm:write", "vm:exec", "snapshot:read", "snapshot:write", "import:classic"], labels: CLOUD });
+
+  it("the importing platform key creates a VM from the imported snapshot", async () => {
+    const key = await platformKey();
+    const source = h.upstream.addVm("running");
+    const imported = await (await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(source.id) })).json<ImportBody>();
+    expect(h.resources.find((row) => row.cmuxId === imported.id)?.labels).toMatchObject(CLOUD);
+
+    const listed = await h.request("/v1/snapshots", asTeam(key, TENANT_A));
+    expect((await listed.json<{ readonly items: ReadonlyArray<{ readonly id: string }> }>()).items.map((item) => item.id)).toContain(imported.id);
+    expect((await h.request(`/v1/snapshots/${imported.id}`, asTeam(key, TENANT_A))).status).toBe(200);
+
+    const created = await h.request("/v1/vms", asTeam(key, TENANT_A), {
+      method: "POST",
+      body: { labels: { ...CLOUD, cmux_next_team: "team-1" }, snapshotId: imported.id },
+    });
+    expect(created.status).toBe(201);
+    const boots = h.upstreamRequests.filter((call) => call.method === "POST" && call.path === "/v5/vms");
+    expect(boots.at(-1)?.json).toMatchObject({ snapshotId: imported.upstream_snapshot_id });
+  });
+
+  it("the tenant's own session sees the import as its creator's snapshot", async () => {
+    const key = await platformKey();
+    const source = h.upstream.addVm("running");
+    const imported = await (await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(source.id) })).json<ImportBody>();
+    h.addMember(TENANT_A, "stack-user-1");
+    const session = await h.sessionToken("stack-user-1");
+    const mine = await h.request("/v1/snapshots?createdBy=caller", asTeam(session, TENANT_A));
+    expect((await mine.json<{ readonly items: ReadonlyArray<{ readonly id: string }> }>()).items.map((item) => item.id)).toEqual([imported.id]);
+  });
+});
+
 describe("authorization", () => {
   it("refuses a session, an API key and a service key without the scope", async () => {
     const vm = h.upstream.addVm("running");
