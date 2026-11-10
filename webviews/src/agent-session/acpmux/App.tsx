@@ -597,7 +597,7 @@ import {
 } from "./hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
-import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { ShellRuns, composerShell, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import { type SubagentRows, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
@@ -11517,16 +11517,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       })
                   : undefined
             }
-            // The host runs commands on this Mac: a Cloud chat has no shell mode.
-            onShell={
-              composerSnapshot.summary?.hostKind === "cloud"
-                ? undefined
-                : (command) =>
-                    shellRuns.start(command, {
-                      ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
-                      ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
-                    })
-            }
+            // A Cloud or SSH chat's command runs on its machine, in its folder there (the host's routing).
+            onShell={composerShell(shellRuns, {
+              ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
+              ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
+            })}
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
             {...(sandboxOffered ? { runMode: composerModeRows } : {})}
