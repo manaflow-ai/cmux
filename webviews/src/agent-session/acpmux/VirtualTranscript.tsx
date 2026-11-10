@@ -2138,8 +2138,13 @@ function TranscriptView({
       }
     | undefined
   >(undefined);
+  /// The rows under a disclosure's height fold, moved by translate while only folding rows change
+  /// size, and placed by one render when the fold ends (conversation/foldRide.ts).
+  const foldRide = useRef<FoldRide | undefined>(undefined);
   const flushDrawn = useCallback(() => {
     if (!pendingDrawn.current.size) return;
+    // Rows placed at their new heights drop a ride's translate first, or they move by it twice.
+    foldRide.current?.release();
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
     // An equal report can correct a different height still queued at a lower priority.
@@ -2181,9 +2186,9 @@ function TranscriptView({
     },
     [reportRow, flushDrawn],
   );
-  /// The rows under a disclosure's height fold, moved by translate while only folding rows change
-  /// size, and placed by one render when the fold ends (conversation/foldRide.ts).
-  const foldRide = useRef<FoldRide | undefined>(undefined);
+  // The ride lives across renders; it reports through the current session's `reportRow`.
+  const reportRowRef = useRef(reportRow);
+  reportRowRef.current = reportRow;
   foldRide.current ??= new FoldRide({
     placed: (row) => {
       const id = row.dataset.rowId;
@@ -2191,12 +2196,13 @@ function TranscriptView({
     },
     height: drawnHeightOf,
     finish: (rows) => {
-      for (const row of rows) reportRow(row);
+      for (const row of rows) reportRowRef.current(row);
       if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
       else pendingDrawn.current = new Map();
     },
   });
-  useEffect(() => () => void foldRide.current?.release(), []);
+  // Another chat's rows ride nothing of this one's.
+  useEffect(() => () => void foldRide.current?.release(), [sessionId]);
   const observer = useMemo(
     () =>
       typeof ResizeObserver === "undefined"

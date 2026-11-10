@@ -99,8 +99,9 @@ export class FoldRide {
     // the latest row are the transcript's to place.
     if (Number(last.node.getAttribute("aria-setsize")) === last.index && reach < view.bottom + view.height)
       return this.release();
+    // A folding row rides the folds above it too (its own change is not in its shift): two folds in
+    // flight at once would otherwise overlap while the upper one plays.
     for (const { node, index } of rows) {
-      if (this.folds.has(node)) continue;
       const shift = shiftOf(index);
       if (Math.abs(shift) < 0.01) {
         if (this.moved.delete(node)) node.style.translate = "";
