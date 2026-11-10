@@ -5,6 +5,7 @@ import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
+import CmuxNextAppHealth
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
@@ -545,6 +546,7 @@ final class AppServices {
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
     let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
     let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.

@@ -140,8 +140,10 @@ pub(super) fn forward_mux_event(
     if !tx.accepts_mux_event(&event) {
         return ForwardMuxOutcome::Continue;
     }
-    if let MuxEvent::TitleChanged { surface, title } = &event {
-        if !mux_titles.push(*surface, title.clone()) {
+    // A tab shows the daemon's split of the title (D2): the raw title keeps
+    // a spinner frame the daemon does not announce.
+    if let MuxEvent::TitleChanged { surface, shown, .. } = &event {
+        if !mux_titles.push(*surface, shown.text.clone()) {
             return ForwardMuxOutcome::Continue;
         }
         return match tx.send(AppEvent::MuxTitlesReady) {

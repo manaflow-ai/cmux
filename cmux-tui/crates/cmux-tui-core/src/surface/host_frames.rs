@@ -22,12 +22,14 @@
 //!
 //! Every other frame (including `ClearHistoryAck`, whose replay must stay
 //! ordered with output, and resize and cell-pixel responses) goes to the
-//! surface's reader in stream order through a queue bounded by payload
-//! bytes. When the queue is full the thread stops reading, which keeps the
-//! host's backpressure. Once the surface's reader abandons the stream
-//! (`abandon`), the thread discards ordered frames instead of queueing them,
-//! so a backlog can never delay an acknowledgement it still owes; it still
-//! resolves `ClearHistoryAck` (status only, see `resolves_after_abandon`).
+//! surface's reader in stream order through a queue bounded by bytes: each
+//! frame counts its payload plus a fixed per-frame cost, so a flood of empty
+//! frames is bounded too. When the queue is full the thread stops reading,
+//! which keeps the host's backpressure. Once the surface's reader abandons
+//! the stream (`abandon`), the thread discards ordered frames instead of
+//! queueing them, so a backlog can never delay an acknowledgement it still
+//! owes; it still resolves `ClearHistoryAck` (status only, see
+//! `resolves_after_abandon`).
 //!
 //! A `ClipboardReadRequest` from a host that negotiated clipboard reads
 //! becomes the connection's pending read and a `ClipboardReadCancel`
@@ -50,9 +52,21 @@ use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_
 use crate::terminal_host_runtime::HostStream as UnixStream;
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 
-/// Output bytes the reader thread may queue ahead of the surface's reader.
-/// One frame is always admitted, however large.
-const QUEUED_PAYLOAD_BUDGET: usize = 8 * 1024 * 1024;
+/// Bytes the reader thread may queue ahead of the surface's reader, counted
+/// by [`queued_cost`]. One frame is always admitted, however large.
+const QUEUED_BYTES_BUDGET: usize = 8 * 1024 * 1024;
+
+/// What a queued frame costs besides its payload: the wire header it arrived
+/// with and its queue slot. Empty frames (Bell, metadata) cost this alone;
+/// counting only payload bytes let a flood of them grow the queue without
+/// bound.
+const QUEUED_FRAME_OVERHEAD: usize =
+    crate::terminal_host_protocol::HEADER_LEN + size_of::<HostFrame>();
+
+/// What `frame` costs against [`QUEUED_BYTES_BUDGET`] while it is queued.
+fn queued_cost(frame: &Frame) -> usize {
+    QUEUED_FRAME_OVERHEAD + frame.payload.len()
+}
 
 /// What the surface's reader receives.
 pub(super) enum HostFrame {
@@ -65,13 +79,17 @@ pub(super) enum HostFrame {
 #[derive(Default)]
 struct QueueState {
     frames: VecDeque<HostFrame>,
-    queued_payload: usize,
+    /// The [`queued_cost`] of the queued frames.
+    queued_bytes: usize,
     ended: bool,
     /// The surface's reader no longer reads this queue (`abandon` or drop).
     abandoned: bool,
     /// The demultiplexer was dropped with replies still owed: the thread
     /// ends once no waiter it resolves is left, or at this deadline.
     draining: Option<std::time::Instant>,
+    /// Tests: how many times the reader thread waited for room in the queue.
+    #[cfg(test)]
+    budget_waits: usize,
 }
 
 struct Queue {
@@ -151,7 +169,7 @@ impl HostFrames {
         loop {
             if let Some(frame) = state.frames.pop_front() {
                 if let HostFrame::Frame(frame) = &frame {
-                    state.queued_payload -= frame.payload.len();
+                    state.queued_bytes -= queued_cost(frame);
                 }
                 self.queue.changed.notify_all();
                 return frame;
@@ -174,7 +192,7 @@ impl HostFrames {
         let ended = {
             let mut state = self.queue.state.lock().unwrap();
             state.abandoned = true;
-            state.queued_payload = 0;
+            state.queued_bytes = 0;
             // A clear-history acknowledgement already queued behind the frame
             // that ended the read still answers its requester. It is resolved
             // under the queue lock, before the thread can see `abandoned` at
@@ -301,8 +319,13 @@ fn read_stream(
         let mut state = queue.state.lock().unwrap();
         while !state.abandoned
             && !state.frames.is_empty()
-            && state.queued_payload + frame.payload.len() > QUEUED_PAYLOAD_BUDGET
+            && state.queued_bytes + queued_cost(&frame) > QUEUED_BYTES_BUDGET
         {
+            #[cfg(test)]
+            {
+                state.budget_waits += 1;
+                queue.changed.notify_all();
+            }
             state = queue.changed.wait(state).unwrap();
         }
         if state.abandoned {
@@ -312,7 +335,7 @@ fn read_stream(
             }
             continue;
         }
-        state.queued_payload += frame.payload.len();
+        state.queued_bytes += queued_cost(&frame);
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
     }
@@ -502,7 +525,44 @@ mod tests {
         read_stream(stream_of(&frames), &responses, version, SMART, &queue);
         assert!(kitty.recv_timeout(Duration::from_secs(1)).is_ok());
         let state = queue.state.lock().unwrap();
-        assert!(state.frames.is_empty() && state.queued_payload == 0);
+        assert!(state.frames.is_empty() && state.queued_bytes == 0);
+    }
+
+    /// Empty frames (Bell, metadata) count against the queue budget too: a
+    /// host that floods them while the surface's reader is busy cannot grow
+    /// the queue without bound. The thread must stop reading at the budget,
+    /// as it does for output.
+    #[test]
+    fn empty_frames_count_against_the_queue_budget() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let mut bell = Frame::new(MessageKind::Bell, Vec::new());
+        bell.version = version;
+        // More empty frames than the budget admits at their wire size alone.
+        let admitted = QUEUED_BYTES_BUDGET / crate::terminal_host_protocol::HEADER_LEN;
+        let stream = stream_of(&vec![bell; admitted + 2]);
+        std::thread::scope(|scope| {
+            let reader = scope.spawn(|| read_stream(stream, &responses, version, SMART, &queue));
+            // The surface's reader drains nothing: the thread either stops
+            // at the budget or reads the whole stream.
+            let state = queue
+                .changed
+                .wait_while(queue.state.lock().unwrap(), |state| {
+                    !state.ended && state.budget_waits == 0
+                })
+                .unwrap();
+            let (ended, queued) = (state.ended, state.frames.len());
+            drop(state);
+            // Release a waiting thread, as the surface reader's abandon does.
+            queue.state.lock().unwrap().abandoned = true;
+            queue.changed.notify_all();
+            reader.join().unwrap();
+            assert!(
+                !ended && queued <= admitted,
+                "the reader thread queued {queued} empty frames without stopping at the budget"
+            );
+        });
     }
 
     /// A Kitty limits acknowledgement whose requester already gave up does

@@ -13,7 +13,7 @@ import MessagesLabHome
 /// target the app no longer has shows "Closed". It reads the models and never changes them.
 final class HomeLinkPreviewProvider: HomeLinkPreviewing {
     private weak var services: AppServices?
-    init(services: AppServices) {
+    init(services: AppServices?) {
         self.services = services
     }
 
