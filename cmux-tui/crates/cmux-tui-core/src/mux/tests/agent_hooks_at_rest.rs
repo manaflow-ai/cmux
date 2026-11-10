@@ -424,3 +424,40 @@ fn agents_at_rest_a_retried_report_has_no_second_effect() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A journal hook is delivered every row its filter matches. While one that
+/// matches `agent.state.changed` is installed, each report is a row again;
+/// a hook for other kinds changes nothing.
+#[test]
+fn agents_at_rest_a_journal_hook_for_the_kind_keeps_every_row() {
+    let (mux, agent, root) = one_agent("journal-hook");
+    let hook = |id: &str, kind: &str| crate::JournalHookManifest {
+        hook_id: id.into(),
+        manifest_version: 1,
+        filter: crate::JournalHookFilter { kinds: vec![kind.into()], ..Default::default() },
+        exec: crate::JournalHookExec {
+            argv: vec!["/usr/bin/true".into()],
+            timeout_ms: 1000,
+            max_parallel: 1,
+        },
+        delivery: crate::JournalHookDeliveryPolicy {
+            start: "tail".into(),
+            retry: crate::JournalHookRetry { max_attempts: 1, backoff_ms: 0 },
+        },
+        permissions: vec!["journal.read".into()],
+    };
+    let tool_call_rows = |mux: &Arc<Mux>| {
+        let head = mux.session_journal_head().unwrap();
+        for _ in 0..3 {
+            send(mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));
+        }
+        kinds_after(mux, head).get("agent.state.changed").copied().unwrap_or(0)
+    };
+    assert_eq!(tool_call_rows(&mux), 0, "no journal hook: no row");
+    mux.put_journal_hook(&hook("other_kinds", "terminal.*"), "test", "hook-1").unwrap();
+    assert_eq!(tool_call_rows(&mux), 0, "a hook for other kinds: no row");
+    mux.put_journal_hook(&hook("agent_kinds", "agent.*"), "test", "hook-2").unwrap();
+    assert_eq!(tool_call_rows(&mux), 3, "a hook for the kind is delivered every report");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

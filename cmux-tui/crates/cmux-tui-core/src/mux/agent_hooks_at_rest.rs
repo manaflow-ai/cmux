@@ -172,9 +172,14 @@ impl AgentHooksAtRest {
         self.terminals().remove(terminal);
     }
 
-    /// The installed journal hooks changed: read them again at the next hook.
-    pub(super) fn journal_hooks_changed(&self) {
-        *self.journal_hook_reads_rows.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    /// The installed journal hooks are about to change. Hold the guard
+    /// through the change: a hook report that comes meanwhile waits, then
+    /// reads the new hooks, so a hook installed now misses no row.
+    pub(super) fn journal_hooks_changing(&self) -> MutexGuard<'_, Option<bool>> {
+        let mut reads_rows =
+            self.journal_hook_reads_rows.lock().unwrap_or_else(PoisonError::into_inner);
+        *reads_rows = None;
+        reads_rows
     }
 }
 
