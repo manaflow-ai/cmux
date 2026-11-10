@@ -376,9 +376,25 @@ pub(super) fn run_pending_request(
     writer: &MessageWriter,
 ) -> bool {
     let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
-    #[cfg(test)]
-    panic_seam::check(mux, client, panic_seam::Site::Dispatch);
-    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    // A handler that panics is answered with an error and the dispatcher goes
+    // on: it is started once per connection, so unwinding out of it left every
+    // later request queued forever on a connection that still answered `ping`
+    // on its reader. The panic hook has logged the panic; whether the
+    // panicked request changed anything is unknown, and the reply says so.
+    let id = request.id.clone();
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(test)]
+        panic_seam::check(mux, client, panic_seam::Site::Dispatch);
+        handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    }));
+    ran.unwrap_or_else(|_| {
+        eprintln!("cmux-tui: a request on connection {client} panicked");
+        send_request_error(
+            writer,
+            id,
+            "internal error: the daemon failed while it ran this request; its outcome is unknown",
+        )
+    })
 }
 
 fn run_connection_surface_dispatcher(
