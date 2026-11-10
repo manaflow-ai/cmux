@@ -209,6 +209,9 @@ final class SidebarListView: NSView {
     /// The hover pill still follows the rows at once; only the forward waits.
     var scrollHoverSettle: Duration = .milliseconds(100)
     let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
+    /// The newest scheduled or cancelled scroll forward: a fire the timer already claimed when a later
+    /// scroll frame or a pointer move replaced it does nothing, so the rested row is forwarded once.
+    var scrollHoverGeneration: UInt64 = 0
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -430,13 +433,15 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        scrollHoverGeneration &+= 1
         guard hoverFollowsScroll else {
             scrollHoverForward.cancel()
             return forwardHover(key)
         }
         // A scroll moved this row under a still pointer: forward the row it rests on, once (`scrollHoverSettle`).
+        let generation = scrollHoverGeneration
         scrollHoverForward.schedule(after: scrollHoverSettle) { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, self.scrollHoverGeneration == generation else { return }
             self.forwardHover(self.hoveredKey)
         }
     }
