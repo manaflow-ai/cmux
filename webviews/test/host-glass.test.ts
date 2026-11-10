@@ -3,12 +3,15 @@
 // surface is reported with its box, level, radius and opacity, shows its content in the frame it
 // mounts (Leo, 2026-11-09: "it loads the placeholder, THEN the content... every single time"), keeps
 // the page's own glass past the deadline or when the App refuses, and its report is withdrawn in the
-// task it goes in.
+// task it goes in. Its box goes to the App only once its content has been on screen for the hold, so
+// the App's glass never shows before the content (Leo, 2026-11-09, on the empty glass box before menus).
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
+  HOST_GLASS_HOLD_FRAMES,
+  HOST_GLASS_MAX,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
   reportHostGlass,
@@ -50,7 +53,7 @@ function surface(doc: Document, level = "popover"): HTMLElement {
   return element;
 }
 
-const frames = (count = 2) =>
+const frames = (count = HOST_GLASS_HOLD_FRAMES + 2) =>
   new Promise<void>((resolve) => {
     const step = (left: number) => (left === 0 ? resolve() : dom!.window.requestAnimationFrame(() => step(left - 1)));
     step(count);
@@ -304,7 +307,7 @@ test("a surface whose report changes every frame is drawn on an answer to an ear
   const answers: (() => void)[] = [];
   stop = reportHostGlass(doc, () => new Promise<void>((resolve) => answers.push(resolve)));
   const element = surface(doc);
-  await frames(1);
+  await frames(HOST_GLASS_HOLD_FRAMES + 1);
   // The surface moves (a scroll, a fade) and a new report goes out before the first is answered.
   const window = dom!.window as unknown as Window & typeof globalThis;
   window.Element.prototype.getBoundingClientRect = function (this: Element) {
@@ -354,6 +357,37 @@ test("a deadline that ran late behind the page's own work leaves the queued answ
   answerInALaterTask(() => answer!());
   await pastDeadline();
   await pastDeadline();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a new surface's box goes to the App only after its content has been on screen for the hold", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), new Promise(() => undefined)));
+  const element = surface(doc);
+  // The frames that paint its content, on the page's in-place blur: the App has drawn nothing yet.
+  await frames(HOST_GLASS_HOLD_FRAMES);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  expect(reports.flat()).toEqual([]);
+  // The next frame: its content is on screen, and the App's glass goes under it.
+  await frames(1);
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1"]);
+});
+
+test("the deadline starts at a surface's first report, not while it is held", async () => {
+  const doc = page();
+  const window = dom!.window as unknown as Window;
+  // A slow display: the hold alone outlasts the deadline.
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 40);
+  let answer: (() => void) | undefined;
+  stop = reportHostGlass(doc, () => new Promise<void>((resolve) => (answer ??= resolve)));
+  const element = surface(doc);
+  // The mount's observer schedules the reporter's frames before the test counts its own.
+  await Promise.resolve();
+  await frames(HOST_GLASS_HOLD_FRAMES + 2);
+  expect(answer).toBeDefined();
+  answer!();
+  await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
 
@@ -435,6 +469,30 @@ test("no step of an open and close shows the App's glass or the blur without the
   expect(violations).toEqual([]);
 });
 
+test("a surface that closes and opens again during its hold gets its deadline at its first report", async () => {
+  const doc = page();
+  const window = dom!.window as unknown as Window;
+  // A slow display: the hold alone outlasts the deadline.
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 40);
+  let answer: (() => void) | undefined;
+  stop = reportHostGlass(doc, (surfaces) =>
+    surfaces.length > 0 ? new Promise<void>((resolve) => (answer ??= resolve)) : Promise.resolve(),
+  );
+  // Each step in its own task, so the reporter sees the mount, the close and the reopen in turn.
+  // fixed-wait: a zero-delay task, not a sleep; it only orders the steps after the observer.
+  const task = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const menu = surface(doc, "menu");
+  await task();
+  menu.setAttribute("data-ending-style", "");
+  await task();
+  menu.removeAttribute("data-ending-style");
+  await frames(HOST_GLASS_HOLD_FRAMES + 2);
+  expect(answer).toBeDefined();
+  answer!();
+  await settled();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
 test("a surface that opens again during its close fade goes back on the App's glass", async () => {
   const doc = page();
   const reports: HostGlassSurface[][] = [];
@@ -462,7 +520,8 @@ test("a surface that opens again during its fade before the App answered still f
   // The first deadline passes while it closes, then it opens again.
   await pastDeadline();
   menu.removeAttribute("data-ending-style");
-  await frames();
+  // Reported again at once (its content was on screen): two frames are inside its new deadline.
+  await frames(2);
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   await pastDeadline();
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
@@ -479,8 +538,23 @@ test("a surface the App had answered for, opened again during its fade, still fa
   menu.setAttribute("data-ending-style", "");
   await Promise.resolve();
   menu.removeAttribute("data-ending-style");
-  await frames();
+  // Reported again at once (its content was on screen): two frames are inside its new deadline.
+  await frames(2);
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   await pastDeadline();
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});
+
+test("a surface past what one report carries keeps the page's own glass", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const all = Array.from({ length: HOST_GLASS_MAX + 1 }, () => surface(doc));
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(HOST_GLASS_MAX);
+  const drawn = all.map((element) => element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE));
+  expect(drawn.slice(0, HOST_GLASS_MAX)).toEqual(Array(HOST_GLASS_MAX).fill("1"));
+  // The one past the cap is never reported, so it shows the page's glass at once, not content on no glass.
+  expect(drawn.at(-1)).toBe("0");
 });
