@@ -314,6 +314,7 @@ jobs:
             /scripts/ci/portable_job_placement.py
             /scripts/ci/pr_runner_pool.py
             /scripts/ci/github_spend.py
+            /scripts/ci/deadline_http.py
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
@@ -5280,6 +5281,7 @@ jobs:
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
             scripts/ci/nightly-steps/visual-gate-pick-runner.sh
           sparse-checkout-cone-mode: false
@@ -6570,6 +6572,22 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
+      # The kept clone remembers the last checkout's sparse mode. After the signer's pattern checkout
+      # (core.sparseCheckout=true, no cone setting) git reads the cone request below as the one pattern
+      # `scripts`, so the root .xcode-version stays out and Select Xcode fails here (runs 42819750253,
+      # 42829570644: no deltas). The warm checkout's manual sparse test runs this step.
+      - &forget-kept-sparse-mode
+        name: Forget the kept clone's sparse-checkout mode
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          [ -d "$ws/.git" ] || exit 0
+          for key in core.sparseCheckout core.sparseCheckoutCone index.sparse extensions.worktreeConfig; do
+            git -C "$ws" config --local --unset-all "$key" 2>/dev/null || true
+          done
+          rm -f "$ws/.git/config.worktree" "$ws/.git/info/sparse-checkout"
+
       # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
       # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
       - &legacy-route-shared-3
@@ -6713,6 +6731,7 @@ jobs:
       # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
       - *hold-the-whole-mac
       - *clean-owned-workdir
+      - *forget-kept-sparse-mode
       - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

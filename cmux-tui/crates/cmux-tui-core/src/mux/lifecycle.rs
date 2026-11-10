@@ -100,6 +100,9 @@ impl Mux {
 
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
+        // The agents' last report times, before anything stops: the journal
+        // writer still runs.
+        self.save_agent_activity(true);
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
@@ -107,6 +110,8 @@ impl Mux {
         self.shutdown_feed_client();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
+        #[cfg(unix)]
+        self.stop_project_chats();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
@@ -313,6 +318,8 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
         self.stop_agent_chat_notices();
+        #[cfg(unix)]
+        self.stop_project_chats();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();

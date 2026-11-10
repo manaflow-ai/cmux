@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-# REQUEST_TIMEOUT_S: one call's whole-request bound (urlopen_within); RequestTimeout: past it, the answer is
+# REQUEST_TIMEOUT_S: one call's whole-request bound (deadline_http.request); RequestTimeout: past it, the answer is
 # unknown, and a write may have been applied.
 from cmux_next_tree_notify import REQUEST_TIMEOUT_S, GitHub, RequestTimeout  # noqa: E402,F401
 
