@@ -110,7 +110,8 @@ public final class MainTaskBoard: Sendable {
         return Self.unpack(packed, start: startNanos, budget: budgetNanos, name: name(of:))
     }
 
-    private func name(of index: UInt32) -> String {
+    /// The name interned under `index` ("?" when none is); takes the owners lock, so never on a task's path.
+    func name(of index: UInt32) -> String {
         owners.withLock { owners in Int(index) < owners.names.count ? owners.names[Int(index)] : "?" }
     }
 
