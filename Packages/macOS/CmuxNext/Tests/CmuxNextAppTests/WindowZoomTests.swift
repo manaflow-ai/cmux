@@ -77,8 +77,9 @@ import Testing
     /// first, and Swift's exclusivity check stopped the app ("Simultaneous accesses ... ShellWindow.zoom(_:)",
     /// TitlebarDoubleClickTests on an idle Mac, 2026-11-10). Each zoom lands at once.
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aSnappedZoomLandsAtOnce() throws {
+        let savedSleep = DisplaySleep.asleepOverride
         DisplaySleep.asleepOverride = true
-        defer { DisplaySleep.asleepOverride = nil }
+        defer { DisplaySleep.asleepOverride = savedSleep }
         let (window, start) = try shownWindow()
         defer { window.close(); WindowOverlayHost.windowIsClosing(window) }
         try #require(!window.isZoomed)
