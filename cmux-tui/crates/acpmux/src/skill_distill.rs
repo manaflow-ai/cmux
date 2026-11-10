@@ -233,25 +233,31 @@ fn command_step(line: &str) -> String {
     }
 }
 
+/// Words that name a secret: a command with one is never kept, and the value given to one
+/// (`PASSWORD=x`, `password: x`) is cut from a prompt.
+const SECRET_NAMES: &[&str] = &[
+    "token",
+    "password",
+    "passwd",
+    "secret",
+    "bearer",
+    "api_key",
+    "api-key",
+    "apikey",
+    "authorization",
+    "credential",
+    "private_key",
+];
+
+/// Whether `name` (lowercase or not) names a secret ([`SECRET_NAMES`]).
+fn secret_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    SECRET_NAMES.iter().any(|w| lower.contains(w))
+}
+
 /// Whether a command looks like it carries a secret: never kept.
 fn secretish(command: &str) -> bool {
-    let lower = command.to_lowercase();
-    [
-        "token",
-        "password",
-        "passwd",
-        "secret",
-        "bearer",
-        "api_key",
-        "api-key",
-        "apikey",
-        "authorization",
-        "credential",
-        "private_key",
-    ]
-    .iter()
-    .any(|w| lower.contains(w))
-        || credential_words(command).next().is_some()
+    secret_name(command) || !credential_words(command).is_empty()
 }
 
 /// A word that looks like a key or token itself: a known prefix (`ghp_`, `sk-`, `xoxb-`) or a
@@ -289,25 +295,57 @@ fn credential_word(word: &str) -> bool {
     keyish(word) || userinfo || flagged
 }
 
-/// The indexes of the words of `text` that are credentials ([`credential_word`]), and of every
-/// word right after a [`CREDENTIAL_FLAGS`] flag that takes `name:pass` (`-u`, `--user`) or any
-/// value (`--password`).
-fn credential_words(text: &str) -> impl Iterator<Item = usize> + '_ {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    (0..words.len()).filter(move |&i| {
-        let word = words.get(i).copied().unwrap_or("");
-        let after = i.checked_sub(1).and_then(|p| words.get(p)).copied().unwrap_or("");
-        let value_of_flag = CREDENTIAL_FLAGS.contains(&after)
-            && !word.is_empty()
-            && !word.starts_with('-')
-            && (word.contains(':') || !matches!(after, "-u" | "-p"));
-        credential_word(word) || value_of_flag
-    })
+/// The credential value `word` holds, given the word `after` it: all of a credential word
+/// ([`credential_word`]), the value of a secret's name (`PASSWORD=x`, `token:x`), or the word
+/// after a [`CREDENTIAL_FLAGS`] flag that takes `name:pass` (`-u`, `--user`) or any value
+/// (`--password`), or after a secret's name that ends in `:` or `=` (`password: x`).
+fn credential_value<'a>(after: &str, word: &'a str) -> Option<&'a str> {
+    if credential_word(word) {
+        return Some(word.split_once('=').map_or(word, |(_, value)| value));
+    }
+    let named = word
+        .split_once('=')
+        .or_else(|| word.split_once(':'))
+        .filter(|(name, value)| secret_name(name) && !value.is_empty())
+        .map(|(_, value)| value);
+    if named.is_some() {
+        return named;
+    }
+    let value_of_flag = CREDENTIAL_FLAGS.contains(&after)
+        && !word.starts_with('-')
+        && (word.contains(':') || !matches!(after, "-u" | "-p"));
+    let value_of_name =
+        after.ends_with([':', '=']) && secret_name(after.trim_end_matches([':', '=']));
+    (value_of_flag || value_of_name).then_some(word)
+}
+
+/// The indexes of the words of `text` that are credentials ([`credential_value`]); a quoted
+/// value (`--password "two words"`) is cut to its closing quote.
+fn credential_words(text: &str) -> Vec<usize> {
+    let mut cut = Vec::new();
+    let mut after = "";
+    let mut quote: Option<char> = None;
+    for (i, word) in text.split_whitespace().enumerate() {
+        if let Some(q) = quote {
+            cut.push(i);
+            if word.ends_with(q) {
+                quote = None;
+            }
+        } else if let Some(value) = credential_value(after, word) {
+            cut.push(i);
+            let open = value.chars().next().filter(|c| matches!(c, '"' | '\''));
+            let mut rest = value.chars();
+            rest.next();
+            quote = open.filter(|&q| !rest.as_str().ends_with(q));
+        }
+        after = word;
+    }
+    cut
 }
 
 /// `text` with every credential ([`credential_words`]) cut out, its words joined by one space.
 fn redact(text: &str) -> String {
-    let cut: HashSet<usize> = credential_words(text).collect();
+    let cut: HashSet<usize> = credential_words(text).into_iter().collect();
     text.split_whitespace()
         .enumerate()
         .map(|(i, w)| if cut.contains(&i) { "…" } else { w })
@@ -823,19 +861,22 @@ pub fn write_skill(
         Err(e) => return Err(format!("cannot make {}: {e}", skill_dir.display())),
     }
     let path = skill_dir.join("SKILL.md");
-    let written = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).and_then(
-        |mut file| {
-            use std::io::Write as _;
-            file.write_all(skill_file(name, description.trim(), body).as_bytes())
-        },
-    );
-    if let Err(e) = written {
-        // The folder this made, and what part of the file got written, go: a retry starts clean.
-        let _ = std::fs::remove_file(&path);
+    if let Err(e) = write_new(&path, &skill_file(name, description.trim(), body)) {
+        // The folder this made goes when nothing else is in it: a retry starts clean.
         let _ = std::fs::remove_dir(&skill_dir);
         return Err(format!("cannot write {}: {e}", path.display()));
     }
     Ok(path)
+}
+
+/// Writes `text` to `path`, a file made new; what part of it got written goes on a failed write.
+/// A file already at `path` (another writer's) is never touched.
+fn write_new(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(text.as_bytes()).inspect_err(|_| {
+        let _ = std::fs::remove_file(path);
+    })
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);

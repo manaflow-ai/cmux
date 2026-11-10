@@ -192,6 +192,34 @@ fn keys_in_prompts_and_drafts_are_cut_out() {
 }
 
 #[test]
+fn named_and_quoted_secrets_are_cut_out() {
+    for text in [
+        "deploy with PASSWORD=TEST_ONLY now",
+        "deploy with password: TEST_ONLY now",
+        "deploy with token:TEST_ONLY now",
+        "deploy with --password \"TEST_ONLY TEST_ONLY too\" now",
+        "deploy with password: 'TEST_ONLY and TEST_ONLY' now",
+        "open https://example.invalid/?api_key=TEST_ONLY now",
+    ] {
+        let cut = redact(text);
+        assert!(!cut.contains("TEST_ONLY"), "{text} -> {cut}");
+        assert!(cut.starts_with("deploy with") || cut.starts_with("open"), "{cut}");
+        assert!(cut.ends_with(" now"), "{text} -> {cut}");
+    }
+    note_prompt("named", "release it, PASSWORD=swordfish");
+    assert!(!take("named").intent.iter().any(|w| w.contains("swordfish")));
+}
+
+#[test]
+fn a_failed_save_leaves_another_writers_skill() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("SKILL.md");
+    std::fs::write(&path, "theirs").unwrap();
+    assert!(write_new(&path, "ours").is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs");
+}
+
+#[test]
 fn a_backslash_in_a_description_keeps_the_skill_readable() {
     let dir = tempfile::tempdir().unwrap();
     write_skill(dir.path(), "paths", "Use for C:\\temp paths", "## Steps\n\n1. x\n").unwrap();
