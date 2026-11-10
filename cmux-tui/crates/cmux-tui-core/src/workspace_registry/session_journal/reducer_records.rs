@@ -17,8 +17,16 @@
 //! accepts from the segment's kind map has rows there; otherwise (a segment
 //! sealed by an older build, or before the backfill reached it) it decodes
 //! the segment as before. Segments sealed before the table existed are
-//! filled by the journal maintenance worker, a segment per step and never
+//! filled by the owner's index backfill worker, a segment per step and never
 //! at start ([`WorkspaceRegistry::plan_reducer_record_backfill`]).
+//!
+//! A segment sealed before kind maps too gets its kind map in the same
+//! step: the kind read takes kept rows only for a mapped segment, and
+//! decodes an unmapped one whole. Before, nothing on a persistent
+//! registry wrote those maps (the legacy kind backfill runs only inside a
+//! kind read on the writer's connection, and the roster's replays read on
+//! their own read-only one), so every later reducer bump decoded every
+//! legacy segment again: about 17.5 s at 3M records, 0.4 s with the maps.
 
 use serde_json::json;
 
@@ -36,8 +44,11 @@ pub(crate) const SEALED_REDUCER_KINDS: &[kind_read::JournalKinds] =
 const SEALED_REDUCER_KINDS_VERSION: u32 = 1;
 
 /// In the backfill cursor: the cursor was written by a build that does not
-/// trust a partly filled kind map to pass a segment over.
-const KIND_MAP_RULE: u64 = 1;
+/// trust a partly filled kind map to pass a segment over (1), and that
+/// writes the kind map of a segment sealed before kind maps (2). A cursor
+/// of rule 1 passed over segments with kept rows and no kind map, which
+/// the kind read still decodes whole: the backfill starts over to map them.
+const KIND_MAP_RULE: u64 = 2;
 
 /// The backfill's position: the last segment it finished.
 const BACKFILL_META_KEY: &str = "journal_segment_reducer_records_backfill";
@@ -126,6 +137,8 @@ pub(super) fn sealed_reducer_records(
 pub(crate) struct ReducerRecordBackfill {
     segment_id: String,
     end_sequence: u64,
+    /// It has no kind map (sealed before kind maps): the step writes one.
+    unmapped: bool,
 }
 
 /// What the backfill does next.
@@ -142,17 +155,34 @@ pub(crate) enum ReducerRecordBackfillStep {
 pub(crate) struct PreparedReducerRecordBackfill {
     segment: ReducerRecordBackfill,
     rows: Vec<ReducerRecordRow>,
+    /// Every kind the segment holds, for an unmapped segment's kind map.
+    kinds: BTreeSet<String>,
+}
+
+/// The records a backfill decode keeps and validates: all but terminal
+/// output, which only needs its kind named (a base64 decode and a SHA-256
+/// each skipped; the segment digest still covers its bytes), as the legacy
+/// kind backfill reads them.
+fn backfill_keeps(kind: &str) -> bool {
+    kind != "terminal.output" || kept_for_reducers(kind)
 }
 
 impl ReducerRecordBackfill {
     /// Decode the segment on `reader` (no registry lock) and keep its
-    /// records of the reducers' kinds.
+    /// records of the reducers' kinds, and the kinds it holds.
     pub(crate) fn prepare(
         self,
         reader: &SessionJournalReader,
     ) -> anyhow::Result<PreparedReducerRecordBackfill> {
         let segment = load_journal_segment(&reader.connection, &self.segment_id)?;
-        let decoded = decode_journal_segment(&reader.connection, segment)?;
+        let inflated = inflate_journal_segment(segment, Some(backfill_keeps))?;
+        let dropped_output = inflated.records.len() < inflated.sequences.len();
+        let decoded = check_segment_gaps(&reader.connection, inflated)?;
+        let mut kinds =
+            decoded.records.iter().map(|record| record.kind.clone()).collect::<BTreeSet<_>>();
+        if dropped_output {
+            kinds.insert("terminal.output".to_owned());
+        }
         let rows = decoded
             .records
             .iter()
@@ -162,7 +192,7 @@ impl ReducerRecordBackfill {
                 Ok((record.sequence, record.kind.clone(), serde_json::to_string(&archived)?))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(PreparedReducerRecordBackfill { segment: self, rows })
+        Ok(PreparedReducerRecordBackfill { segment: self, rows, kinds })
     }
 }
 
@@ -191,10 +221,11 @@ impl WorkspaceRegistry {
                 return Ok(ReducerRecordBackfillStep::Done);
             };
             let (start, end) = (u64::try_from(start)?, u64::try_from(end)?);
-            if segment_needs_reducer_records(&db, &segment_id, start, end)? {
+            if let Some(unmapped) = segment_needs_reducer_records(&db, &segment_id, start, end)? {
                 return Ok(ReducerRecordBackfillStep::Decode(ReducerRecordBackfill {
                     segment_id,
                     end_sequence: end,
+                    unmapped,
                 }));
             }
             write_backfill_cursor(&db, end, &segment_id)?;
@@ -203,14 +234,15 @@ impl WorkspaceRegistry {
         Ok(ReducerRecordBackfillStep::Passed)
     }
 
-    /// Commit one backfilled segment's kept records and move the cursor past
-    /// it. False when the segment is gone (an output cleanup replaced it):
-    /// the next plan starts again from the first segment.
+    /// Commit one backfilled segment's kept records, and the kind map of a
+    /// segment that has none (whole, in the same transaction), and move the
+    /// cursor past it. False when the segment is gone (an output cleanup
+    /// replaced it): the next plan starts again from the first segment.
     pub(crate) fn commit_reducer_record_backfill(
         &self,
         prepared: PreparedReducerRecordBackfill,
     ) -> anyhow::Result<bool> {
-        let PreparedReducerRecordBackfill { segment, rows } = prepared;
+        let PreparedReducerRecordBackfill { segment, rows, kinds } = prepared;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let exists = tx
@@ -225,6 +257,26 @@ impl WorkspaceRegistry {
             return Ok(false);
         }
         insert_reducer_records(&tx, &segment.segment_id, &rows)?;
+        // Only a segment still unmapped: a map is written whole, by its seal
+        // or here, or one kind at a time by the legacy kind backfill, whose
+        // marker then keeps readers from trusting it until it finishes.
+        let unmapped = segment.unmapped
+            && tx
+                .query_row(
+                    "SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1 LIMIT 1",
+                    [&segment.segment_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_none();
+        if unmapped {
+            let mut insert = tx.prepare(
+                "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+            )?;
+            for kind in &kinds {
+                insert.execute(params![segment.segment_id, kind])?;
+            }
+        }
         write_backfill_cursor(&tx, segment.end_sequence, &segment.segment_id)?;
         tx.commit()?;
         Ok(true)
@@ -247,25 +299,26 @@ fn kind_maps_complete(connection: &Connection) -> anyhow::Result<bool> {
     Ok(marker.as_deref() != Some("0"))
 }
 
-/// Whether `segment_id` has a kind a reducer folds with no kept rows. A
-/// segment with no kind map yet (sealed before kind maps) is decoded, and
-/// so is one with no kept rows while kind maps may be partly filled: its
-/// map could lack the folded kinds it holds. Kept rows come from a whole
-/// segment (its seal or a backfill decode), so a segment that has any has
-/// every folded kind's.
+/// Whether the backfill decodes `segment_id`: `Some(true)` when it has no
+/// kind map yet (sealed before kind maps; the step writes the map),
+/// `Some(false)` when it has a kind a reducer folds with no kept rows, or
+/// no kept rows while kind maps may be partly filled (its map could lack
+/// the folded kinds it holds). Kept rows come from a whole segment (its
+/// seal or a backfill decode), so a segment that has any has every folded
+/// kind's.
 fn segment_needs_reducer_records(
     connection: &Connection,
     segment_id: &str,
     start: u64,
     end: u64,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<bool>> {
     let mut mapped =
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
     let mapped = mapped
         .query_map([segment_id], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
     if mapped.is_empty() {
-        return Ok(true);
+        return Ok(Some(true));
     }
     let mut kept = connection.prepare(
         "SELECT DISTINCT kind FROM journal_segment_reducer_records
@@ -277,9 +330,9 @@ fn segment_needs_reducer_records(
         })?
         .collect::<Result<BTreeSet<_>, _>>()?;
     if kept.is_empty() && !kind_maps_complete(connection)? {
-        return Ok(true);
+        return Ok(Some(false));
     }
-    Ok(mapped.iter().any(|kind| kept_for_reducers(kind) && !kept.contains(kind)))
+    Ok(mapped.iter().any(|kind| kept_for_reducers(kind) && !kept.contains(kind)).then_some(false))
 }
 
 /// The output cleanup's done marker (`output_cleanup::DONE_META_KEY`), which

@@ -13,11 +13,26 @@ const OUTPUT_CLEANUP_SEAL_HOLD_RECORDS: u64 = 65_536;
 /// tick stalls the app's requests (a 12-15 s stall on 2026-10-21 left no
 /// trace of its cause).
 const SLOW_MAINTENANCE_TICK: Duration = Duration::from_millis(500);
-/// How long one tick spends filling the kept reducer records of segments
-/// sealed before sealing kept them. A segment decodes in tens of
-/// milliseconds on this thread, with no registry lock; only its commit
-/// takes the lock.
+/// How long one slice of the index backfill worker spends filling the kept
+/// reducer records (and kind maps) of segments sealed before sealing wrote
+/// them. A segment decodes in tens of milliseconds on that thread, with no
+/// registry lock; only its commit takes the lock.
 const REDUCER_RECORD_BACKFILL_BUDGET: Duration = Duration::from_millis(200);
+/// How long the index backfill worker waits after the owner starts, so it
+/// never competes with the start's restore.
+const INDEX_BACKFILL_START_DELAY: Duration = Duration::from_secs(30);
+/// The worker's rest between slices: a fifth of a core at most. It keeps
+/// its normal priority because a slice takes the registry lock (a commit,
+/// or a legacy kind backfill slice), and a throttled thread holding it
+/// would stall requests. In the 30 s maintenance tick the backfill took one
+/// 200 ms slice per tick, and a 12M-record registry would have needed most
+/// of a day of uptime; at this pace it takes minutes.
+const INDEX_BACKFILL_PAUSE: Duration = Duration::from_millis(800);
+/// After a failed slice the worker waits this long; after
+/// [`INDEX_BACKFILL_ATTEMPTS`] failures in a row it stops until the next
+/// start.
+const INDEX_BACKFILL_RETRY: Duration = Duration::from_secs(30);
+const INDEX_BACKFILL_ATTEMPTS: u32 = 5;
 /// Segments that need no kept records one backfill plan passes over.
 const REDUCER_RECORD_BACKFILL_SKIP: usize = 256;
 
@@ -61,6 +76,21 @@ impl MaintenanceSteps {
 /// ignore it.
 #[cfg(debug_assertions)]
 const JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV: &str = "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS";
+
+/// Debug builds only: overrides [`INDEX_BACKFILL_START_DELAY`].
+#[cfg(debug_assertions)]
+const INDEX_BACKFILL_DELAY_TEST_ENV: &str = "CMUX_TUI_TEST_INDEX_BACKFILL_DELAY_MS";
+
+fn index_backfill_start_delay() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(INDEX_BACKFILL_DELAY_TEST_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    INDEX_BACKFILL_START_DELAY
+}
 
 fn journal_maintenance_interval() -> Duration {
     #[cfg(debug_assertions)]
@@ -116,6 +146,18 @@ impl JournalMaintenanceControl {
         self.changed.notify_all();
     }
 
+    /// Waits `timeout` unless stopped first; false once stopped.
+    fn rest(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.lock();
+        while !state.stopped {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            state =
+                self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        !state.stopped
+    }
+
     /// Blocks until the journal changed since the last tick started, or
     /// until `fallback`. False once stopped.
     fn wait_for_change(&self, fallback: Duration) -> bool {
@@ -168,6 +210,8 @@ enum TickOutcome {
 pub(super) struct JournalMaintenance {
     control: Arc<JournalMaintenanceControl>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// The index backfill worker ([`run_index_backfill`]).
+    backfill: Option<std::thread::JoinHandle<()>>,
 }
 
 impl JournalMaintenance {
@@ -194,17 +238,60 @@ impl JournalMaintenance {
                 }
             },
         )?;
-        Ok(Self { control, thread: Some(thread) })
+        let backfill_control = control.clone();
+        let weak_mux = Arc::downgrade(mux);
+        let backfill = std::thread::Builder::new()
+            .name("cmux-journal-index-backfill".into())
+            .spawn(move || run_index_backfill(&weak_mux, &backfill_control))?;
+        Ok(Self { control, thread: Some(thread), backfill: Some(backfill) })
     }
 
     pub(super) fn stop(mut self) {
         self.control.stop();
-        if let Some(thread) = self.thread.take() {
-            // The last `Arc<Mux>` can drop on the worker itself; it must not
+        for thread in [self.thread.take(), self.backfill.take()].into_iter().flatten() {
+            // The last `Arc<Mux>` can drop on a worker itself; it must not
             // join its own thread.
             if thread.thread().id() != std::thread::current().id() {
                 let _ = thread.join();
             }
+        }
+    }
+}
+
+/// The owner's index backfill: the seal-time indexes (kind maps and kept
+/// reducer records) of segments sealed before a build wrote them, filled a
+/// segment at a time while the owner serves, at most a fifth of a core, from
+/// a durable cursor, so a stopped daemon resumes where it was. Without
+/// them every reducer version bump decodes every such segment again
+/// (17.5 s at 3M records; the kind read with them takes 0.4 s). It ends
+/// when nothing is left, and starts again at the next owner start.
+fn run_index_backfill(weak_mux: &std::sync::Weak<Mux>, control: &JournalMaintenanceControl) {
+    if !control.rest(index_backfill_start_delay()) {
+        return;
+    }
+    let mut failures = 0;
+    loop {
+        let outcome = {
+            let Some(mux) = weak_mux.upgrade() else { return };
+            if mux.journal_maintenance_paused() { Ok(true) } else { mux.run_index_backfill_slice() }
+        };
+        let rest = match outcome {
+            Ok(false) => return,
+            Ok(true) => {
+                failures = 0;
+                INDEX_BACKFILL_PAUSE
+            }
+            Err(error) => {
+                failures += 1;
+                eprintln!("cmux-tui: journal index backfill deferred: {error:#}");
+                if failures >= INDEX_BACKFILL_ATTEMPTS {
+                    return;
+                }
+                INDEX_BACKFILL_RETRY
+            }
+        };
+        if !control.rest(rest) {
+            return;
         }
     }
 }
@@ -281,12 +368,6 @@ impl Mux {
         // settled worker wakes on every journal change, so the head never
         // moves without a tick that catches the roster up.
         steps.time("agent_roster", || self.catch_up_agent_roster());
-        let backfill_remains = steps
-            .time("reducer_record_backfill", || self.backfill_sealed_reducer_records())
-            .unwrap_or_else(|error| {
-                eprintln!("cmux-tui: sealed reducer record backfill deferred: {error:#}");
-                true
-            });
         let result = (|| -> anyhow::Result<TickOutcome> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry
@@ -397,9 +478,7 @@ impl Mux {
             self.report_internal_diagnostic(report);
         }
         match result {
-            Ok(TickOutcome::Settled) if !ledgers_remain && !backfill_remains => {
-                TickOutcome::Settled
-            }
+            Ok(TickOutcome::Settled) if !ledgers_remain => TickOutcome::Settled,
             Ok(_) => TickOutcome::WorkRemains,
             Err(error) => {
                 eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
@@ -413,6 +492,21 @@ impl Mux {
 }
 
 impl Mux {
+    /// One slice of the index backfill ([`run_index_backfill`]): a slice of
+    /// a legacy kind backfill that started and never finished (until it
+    /// does, kind reads trust no map it may have left partial), then one of
+    /// the kept reducer records, which also maps segments sealed before
+    /// kind maps. True while either has work left.
+    pub(super) fn run_index_backfill_slice(&self) -> anyhow::Result<bool> {
+        let legacy = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .continue_legacy_kind_backfill()?;
+        let records = self.backfill_sealed_reducer_records()?;
+        Ok(legacy || records)
+    }
+
     /// One bounded slice of the backfill of kept reducer records
     /// (`session_journal::reducer_records`): segments sealed before sealing
     /// kept them are decoded off the registry lock, a segment at a time,
