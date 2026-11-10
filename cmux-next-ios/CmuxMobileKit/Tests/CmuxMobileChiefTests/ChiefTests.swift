@@ -123,13 +123,17 @@ import Testing
             "Run `a | b` then pick yes | no.",
             "Heading\n---\nbody",
             "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```",
-            "See [#1](https://github.com/o/r/pull/1) and **bold**.",
+            "See [#1](https://github.com/o/r/pull/1) and more.",
         ] {
             let read = try chiefSays(text)
             #expect(read.tables.isEmpty, "\(text)")
             #expect(read.textRuns.isEmpty, "\(text)")
             #expect(read.text == text.replacingOccurrences(of: "[#1](https://github.com/o/r/pull/1)", with: "#1"), "\(text)")
         }
+        // Bold (CMUX-20) inside a table cell stays bold once the table is rewritten.
+        let bold = try chiefSays("| Agent | State |\n| - | - |\n| a1 | **done** |")
+        #expect(bold.text == "Agent\tState\na1\tdone")
+        #expect(bold.textRuns.map { (bold.text as NSString).substring(with: $0.range) } == ["Agent", "State", "done"])
         let mine = try #require(wire.message([
             "id": "msg_m", "conversation": "conv_1", "seq": 6, "client_msg_id": "m", "author": "user_local",
             "parts": [["type": "text", "text": "| a | b |\n| - | - |\n| 1 | 2 |"]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
