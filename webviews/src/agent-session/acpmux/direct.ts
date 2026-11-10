@@ -1248,14 +1248,26 @@ export function firstHeldFrom(events: readonly EventRecord[], seq: number): numb
 /// they fit `REBUILD_WINDOW`; else the turn start at or before both the newest `REBUILD_WINDOW`
 /// records and `changedFrom`, the oldest record that changed, and before `openSince` (when a
 /// subagent still running started). A turn is folded whole, so the rows above the cut are the same
-/// as before it. 0 when no turn starts there (one turn held whole).
+/// as before it, and the turn before it ended first (`endsTurnBefore`). 0 when no turn starts there.
 export function rebuildCut(events: readonly EventRecord[], changedFrom: number, openSince = Infinity): number {
   if (events.length <= REBUILD_WINDOW) return 0;
   let at = Math.min(events.length - REBUILD_WINDOW, firstHeldFrom(events, changedFrom));
   // Back to the turn a subagent still running started in (`openSince`, its start time).
   while (at > 0 && events[at]!.at >= openSince) at -= 1;
-  while (at > 0 && !startsTurn(events[at]!)) at -= 1;
+  while (at > 0 && !(startsTurn(events[at]!) && endsTurnBefore(events, at))) at -= 1;
   return at;
+}
+
+/// Whether the turn before `events[at]` ended before it: its `turn_result` comes after the agent's
+/// last update before `at`. A prompt into a running turn (no result between) goes on drawing that
+/// turn's reply in the same row, so a refold that started at it would draw the reply's rest again.
+function endsTurnBefore(events: readonly EventRecord[], at: number): boolean {
+  for (let index = at - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (event.dir === "mux" && event.kind === "turn_result") return true;
+    if (event.dir !== "mux" || startsTurn(event)) return false;
+  }
+  return true;
 }
 
 /// Merges `added` into the held `events` (oldest first) in place: records past the newest held one
@@ -3713,6 +3725,7 @@ export class AcpmuxDirectClient {
     this.publishedProgress = undefined;
     this.compactionHeardAt.clear();
     this.subagentStops = subagentStops();
+    this.frozenSubagentViews = undefined;
     this.subagents = new SubagentFold(this.subagentStops);
     this.pendingPermission = undefined;
     this.waitingPermissions.clear();
@@ -6901,14 +6914,21 @@ export class AcpmuxDirectClient {
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;
     this.streamingActivity = undefined;
-    this.supersededMessageIds.clear();
-    this.messageRows.clear();
-    this.offerRows.clear();
-    this.receivedOffers.clear();
-    this.presetApprovals.clear();
-    this.presetApprovalRemoved.clear();
-    if (frozenBefore === undefined) this.compactionHeardAt.clear();
-    this.toolRows.clear();
+    if (frozenBefore === undefined) {
+      this.supersededMessageIds.clear();
+      this.messageRows.clear();
+      this.offerRows.clear();
+      this.receivedOffers.clear();
+      this.presetApprovals.clear();
+      this.presetApprovalRemoved.clear();
+      this.compactionHeardAt.clear();
+      this.toolRows.clear();
+    } else {
+      // Past a cut, the rows above it keep what finds them: a message's rows, a call's row, an
+      // offer's row, and a preset approval's requests, which a decision the refold reads settles.
+      // The refold sets each again for its own records.
+      this.presetApprovals.forgetFrom(frozenBefore);
+    }
     if (frozenBefore === undefined) {
       this.reactions.clear();
       this.reactionOrigins.clear();
@@ -6917,6 +6937,11 @@ export class AcpmuxDirectClient {
       this.sourceLines.clear();
     }
     this.planCalls.clear();
+    // Past a cut, the subagents' views drawn from the records above it stay (`publishedSubagentViews`):
+    // a group row above the cut opens its subagent's view, and the refold reads none of its records.
+    // No subagent above it still runs (`rebuildCut`'s `openSince`); the refold's views win.
+    this.frozenSubagentViews =
+      frozenBefore === undefined ? undefined : { ...this.frozenSubagentViews, ...this.subagents.views() };
     this.subagents = new SubagentFold(this.subagentStops);
     // Replay knows the native harness ids from the session summary, the earlier ones a restart
     // retired too. Seed them before any persisted acpmux records so an echoed root thread cannot
@@ -9304,7 +9329,7 @@ export class AcpmuxDirectClient {
         : {}),
       rows: publishedRows,
       ...(progress ? { progress } : {}),
-      subagentViews: this.subagents.views(),
+      subagentViews: this.publishedSubagentViews(),
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
       subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
@@ -12093,6 +12118,23 @@ export class AcpmuxDirectClient {
   }
   /// The chat's preset approval cards, folded from their records (conversation/presetApproval.ts).
   private readonly presetApprovals = new PresetApprovalFold();
+  /// The subagents' views as a rebuild past a cut left them (`rebuild`), under the live fold's.
+  private frozenSubagentViews: Record<string, AcpmuxRow[]> | undefined;
+  private subagentViewsOf:
+    | { frozen: Record<string, AcpmuxRow[]>; live: Record<string, AcpmuxRow[]>; merged: Record<string, AcpmuxRow[]> }
+    | undefined;
+  /// The snapshot's `subagentViews`: the live fold's, over those kept past a cut. The same record
+  /// while neither changes, as `SubagentFold.views` keeps its own.
+  private publishedSubagentViews(): Record<string, AcpmuxRow[]> {
+    const live = this.subagents.views();
+    const frozen = this.frozenSubagentViews;
+    if (!frozen) return live;
+    const kept = this.subagentViewsOf;
+    if (kept?.frozen === frozen && kept.live === live) return kept.merged;
+    const merged = { ...frozen, ...live };
+    this.subagentViewsOf = { frozen, live, merged };
+    return merged;
+  }
   /// Preset approval rows the fold took away (merged into an older card) since an older page's fold
   /// began: that fold does not put them back from the rows it held (`foldOlder`).
   private readonly presetApprovalRemoved = new Set<string>();
