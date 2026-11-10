@@ -280,40 +280,54 @@ pub(in crate::link) fn relay(
         }
     })
     .and_then(|()| {
-        for (relative, text) in links {
-            let path = join(to_root, &relative);
-            // Replaced only when it is what the last relay left there: the link it made or a
-            // file it wrote that nothing changed since. Anything else is the target's work.
-            let ours =
-                record.links.get(&relative).is_some_and(|was| link_is(&mut target, &path, was))
-                    || unchanged_there(&record, &relative);
-            match target.kind(&path)? {
-                None => {}
-                Some(_) if ours => target.delete(std::slice::from_ref(&path))?,
-                Some(_) => {
-                    skipped.add(
-                        &relative,
-                        "symlink",
-                        "the target machine changed it since the last copy",
-                    );
-                    continue;
+        // A link to a link waits for that one: rounds go on while any lands (a → b → c).
+        let mut pending = links;
+        loop {
+            let mut waiting = Vec::new();
+            let tried = pending.len();
+            for (relative, text) in pending {
+                let path = join(to_root, &relative);
+                // Replaced only when it is what the last relay left there: the link it made or a
+                // file it wrote that nothing changed since. Anything else is the target's work.
+                let ours =
+                    record.links.get(&relative).is_some_and(|was| link_is(&mut target, &path, was))
+                        || unchanged_there(&record, &relative);
+                match target.kind(&path)? {
+                    None => {}
+                    Some(_) if ours => target.delete(std::slice::from_ref(&path))?,
+                    Some(_) => {
+                        skipped.add(
+                            &relative,
+                            "symlink",
+                            "the target machine changed it since the last copy",
+                        );
+                        continue;
+                    }
+                }
+                match target.symlink(&path, &text) {
+                    Ok(()) => {
+                        record.links.insert(relative, text);
+                    }
+                    Err(error) if remote::lacks_symlinks(&error) => {
+                        skipped.add(&relative, "symlink", "the target machine takes no symlinks");
+                    }
+                    Err(error)
+                        if format!("{error:#}").contains("symlink's target is not there") =>
+                    {
+                        waiting.push((relative, text));
+                    }
+                    Err(error) => return Err(error),
                 }
             }
-            match target.symlink(&path, &text) {
-                Ok(()) => {
-                    record.links.insert(relative, text);
-                }
-                Err(error) if remote::lacks_symlinks(&error) => {
-                    skipped.add(&relative, "symlink", "the target machine takes no symlinks");
-                }
-                // It points at something the copy left out (a dependency folder, say).
-                Err(error) if format!("{error:#}").contains("symlink's target is not there") => {
+            if waiting.is_empty() || waiting.len() == tried {
+                // What still waits points at something the copy left out (a dependency folder, say).
+                for (relative, _) in waiting {
                     skipped.add(&relative, "symlink", "it points at something left out");
                 }
-                Err(error) => return Err(error),
+                return Ok(());
             }
+            pending = waiting;
         }
-        Ok(())
     });
     if let Some(path) = &record_path {
         // A cut relay keeps what landed, so the next one skips it.

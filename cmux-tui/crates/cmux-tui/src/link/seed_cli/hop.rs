@@ -34,6 +34,12 @@ pub(in crate::link) fn hop(
     local: &Path,
 ) -> anyhow::Result<()> {
     let local = std::fs::canonicalize(local)?;
+    let side = side_key(to_root);
+    let waiting = record::load(&local, &side)?;
+    // Refused before anything moves, this Mac's folder included.
+    if waiting.is_none() {
+        refuse_theirs(to, to_root)?;
+    }
     match bring_back(from, &local, from_root) {
         Back::Done(_) => {}
         Back::Conflict(conflicts, _) => {
@@ -45,18 +51,18 @@ pub(in crate::link) fn hop(
         }
         Back::Failed { code, error } => return Err(SeedError::new(code, error).into()),
     }
-    let side = side_key(to_root);
     let from_record = record::load(&local, from_root)?;
-    let waiting = record::load(&local, &side)?;
     let pushed = match &waiting {
         // A retry to another machine than the waiting record's seeds that one whole.
         Some(kept) => record::save(&local, to_root, kept)
             .and_then(|()| push_since_last(to, &local, to_root).map(|_| ()))
             .or_else(|error| match super::failure_code(&error).as_str() {
-                "seed.no_previous" => push(to, &local, to_root, None).map(|_| ()),
+                "seed.no_previous" => {
+                    refuse_theirs(to, to_root).and_then(|()| seed_whole(to, &local, to_root))
+                }
                 _ => Err(error),
             }),
-        None => push(to, &local, to_root, None).map(|_| ()),
+        None => seed_whole(to, &local, to_root),
     };
     // The second machine's record waits aside; the first machine's is the one a pull merges against.
     let to_record = record::load(&local, to_root)?;
@@ -69,6 +75,24 @@ pub(in crate::link) fn hop(
         record::save(&local, from_root, kept)?;
     }
     pushed
+}
+
+/// A full seed of `to_root`, into a folder the second machine does not have ([`refuse_theirs`]).
+fn seed_whole(to: &Path, local: &Path, to_root: &str) -> anyhow::Result<()> {
+    push(to, local, to_root, None).map(|_| ())
+}
+
+/// A full seed into a checkout the second machine has would reset its work (a forced checkout
+/// and a clean), so one that is there is refused as a relay refuses it (`relay.target_exists`).
+fn refuse_theirs(to: &Path, to_root: &str) -> anyhow::Result<()> {
+    if super::sync_cli::remote_kind(to, to_root)?.is_some() {
+        return Err(SeedError::new(
+            "relay.target_exists",
+            format!("{to_root} is already on the machine"),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// Whether a hop's bulk pass already ran for `to_root`: its frozen pass hops too.

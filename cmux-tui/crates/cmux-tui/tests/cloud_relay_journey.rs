@@ -130,6 +130,10 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     fs::set_permissions(first.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
     std::os::unix::fs::symlink("src/lib.txt", first.join("lib-link")).unwrap();
     std::os::unix::fs::symlink("/etc/hostname", first.join("outside-link")).unwrap();
+    // A chain whose links come in name order before what they point at.
+    std::os::unix::fs::symlink("chain-b", first.join("chain-a")).unwrap();
+    std::os::unix::fs::symlink("chain-c", first.join("chain-b")).unwrap();
+    std::os::unix::fs::symlink("src/lib.txt", first.join("chain-c")).unwrap();
     fs::create_dir_all(first.join("target/debug")).unwrap();
     fs::write(first.join("target/debug/big.o"), vec![7u8; 1 << 20]).unwrap();
     // A file big enough to be streamed part by part.
@@ -168,6 +172,11 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert_eq!(mode & 0o111, 0o111, "run.sh lost its executable bit: {mode:o}");
     assert_eq!(fs::read_link(second.join("lib-link")).unwrap(), PathBuf::from("src/lib.txt"));
     assert!(!second.join("outside-link").exists(), "a symlink out of the folder was kept");
+    assert_eq!(fs::read_link(second.join("chain-a")).unwrap(), PathBuf::from("chain-b"));
+    assert_eq!(
+        fs::read(second.join("chain-a")).unwrap(),
+        fs::read(first.join("src/lib.txt")).unwrap()
+    );
     assert!(!second.join("target").exists(), "the Cargo target went too");
     let skipped = bulk["skipped_files"].as_array().unwrap();
     assert!(skipped.iter().any(|s| s["path"] == "target"), "{bulk}");
@@ -214,8 +223,10 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     // 2. The chat moves mid-turn, and what its turn wrote after the bulk goes along. VM one's
     // folder came from this Mac's seed, so the move hops through the Mac's copy (seed_cli::hop)
     // into a folder VM two does not have yet. Symlinks made on a machine stop a hop (Bring Back
-    // Local's rule), so VM one's last one goes first (lib-link went above).
-    fs::remove_file(first.join("outside-link")).unwrap();
+    // Local's rule), so VM one's go first (lib-link went above).
+    for link in ["outside-link", "chain-a", "chain-b", "chain-c"] {
+        fs::remove_file(first.join(link)).unwrap();
+    }
     let moved_to = two.home().join("work/moved");
     let mut one_acpmux = one.acpmux();
     let created = one_acpmux.call("session/new", json!({"cwd": first, "mcpServers": []}));
@@ -234,31 +245,40 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     fs::write(first.join("src/turn.txt"), "written by the running turn\n").unwrap();
     fs::remove_file(first.join("notes.txt")).unwrap();
 
-    let (ok, moved) = run_json(
-        Command::new(bin())
-            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .args(["link", "agent", "move", "--from-socket"])
-            .arg(&one.socket)
-            .args(["--surface", &surface.to_string(), "--to-socket"])
-            .arg(&two.socket)
-            .arg("--cwd")
-            .arg(&moved_to)
-            .arg("--interrupt")
-            .args(["--vm-kind", "owner"])
-            .args(["--sync", "relay", "--sync-from-socket"])
-            .arg(&one.socket)
-            .arg("--sync-socket")
-            .arg(&two.socket)
-            .arg("--sync-local")
-            .arg(&first)
-            .arg("--sync-remote")
-            .arg(&moved_to)
-            .arg("--sync-seed-local")
-            .arg(&repo)
-            .arg("--state-dir")
-            .arg(root.join("pump")),
-    );
+    let move_to = |to: &PathBuf, pump: &str| {
+        run_json(
+            Command::new(bin())
+                .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .args(["link", "agent", "move", "--from-socket"])
+                .arg(&one.socket)
+                .args(["--surface", &surface.to_string(), "--to-socket"])
+                .arg(&two.socket)
+                .arg("--cwd")
+                .arg(to)
+                .arg("--interrupt")
+                .args(["--vm-kind", "owner"])
+                .args(["--sync", "relay", "--sync-from-socket"])
+                .arg(&one.socket)
+                .arg("--sync-socket")
+                .arg(&two.socket)
+                .arg("--sync-local")
+                .arg(&first)
+                .arg("--sync-remote")
+                .arg(to)
+                .arg("--sync-seed-local")
+                .arg(&repo)
+                .arg("--state-dir")
+                .arg(root.join(pump)),
+        )
+    };
+    // A move into a folder VM two already has is refused before the chat freezes, and the
+    // folder keeps its work: the hop never seeds over it, and the relay it falls back to refuses.
+    let (ok, refused) = move_to(&theirs, "pump-refused");
+    assert!(!ok, "a move into VM two's own folder: {refused}");
+    assert_eq!(fs::read_to_string(theirs.join("keep.txt")).unwrap(), "not ours\n");
+    assert!(one_acpmux.summary(&session).is_some_and(|s| s["status"] != "closed"), "chat left");
+    let (ok, moved) = move_to(&moved_to, "pump");
     assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
     assert_eq!(moved["session_id"], json!(session), "{moved}");
     assert_eq!(
