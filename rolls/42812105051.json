@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42812105051",
+  "recorded_at": "2026-11-10T12:12:49Z",
+  "reason": "cmux-tui 250b6f0e7fa9 changes the image's cmux-tui (pinned 9906f3f5397d)",
+  "dry_run": false,
+  "cmux_tui": "250b6f0e7fa96c0cd49c12cfa918ce918e90f2e9",
+  "fixes": [
+    {
+      "sha": "250b6f0e7fa96c0cd49c12cfa918ce918e90f2e9",
+      "mergedAt": "2026-11-10T11:44:55Z",
+      "subject": "chore(next): base autofix at 685dd5b06660"
+    },
+    {
+      "sha": "d8f169077ae27dcfd4644d45e47c67f68fbd6052",
+      "mergedAt": "2026-11-10T03:42:17-08:00",
+      "subject": "cmux chat --from-folder DIR: a Cloud chat in a copy of a folder on this Mac (#40412)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T12:12:49Z",
+    "snapshot_id": "sh-3312e4479e124629a01c2cde1a777d5e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42812105051): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "07003ca553861b02bd2870bcebce293d8658be98",
+    "image": "cloud-native-auto-250b6f0e-42812105051-1",
+    "revision": "ci-42812105051-1",
+    "at": "2026-11-10T12:12:49Z"
+  },
+  "rolled_back": false
+}
