@@ -1049,7 +1049,7 @@ impl Engine {
                 let app = self.target_of(window, &names);
                 match &check {
                     Check::Authorize => {
-                        self.authorize(config, ctx, Access::Observe, Some(&app), false)?
+                        self.authorize(config, ctx, Access::Observe, Some(&app), false)?;
                     }
                     Check::StillAllowed(acted_on) => {
                         self.still_allowed(config, ctx, id, acted_on)?;
@@ -1065,7 +1065,7 @@ impl Engine {
             None => {
                 match &check {
                     Check::Authorize => {
-                        self.authorize(config, ctx, Access::Observe, None, false)?
+                        self.authorize(config, ctx, Access::Observe, None, false)?;
                     }
                     // The state after an action is always of its window.
                     Check::StillAllowed(_) => {
