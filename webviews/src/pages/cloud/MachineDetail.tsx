@@ -31,6 +31,7 @@ import {
 } from "./model";
 import { CloudOps, type CloudPlan, type MigrationStatus } from "./ops";
 import type { CloudStore } from "./store";
+import { canArchive } from "./retention";
 import { L } from "./strings";
 import type { FileTransfer } from "./transfers";
 
@@ -153,6 +154,16 @@ export function MachineDetailView({
               {canResume(row) && (
                 <button type="button" className="cloud-button" onClick={() => void store.resume(machine.id)}>
                   {t(L.resume)}
+                </button>
+              )}
+              {canArchive(machine) && (
+                <button
+                  type="button"
+                  className="cloud-button cloud-machine-archive-delete"
+                  disabled={busy}
+                  onClick={() => void store.archiveDelete(machine.id)}
+                >
+                  {t(L.archiveDelete)}
                 </button>
               )}
               <button
