@@ -195,6 +195,32 @@ import Testing
         #expect(p.field.string == "an old ask")
     }
 
+    /// A Chief on a paired server: this Mac cannot read its folders, so its host names the skills
+    /// (`chief.engine.get` offered.skills, 2026-11-09). Until the answer lands the menu says it is
+    /// loading, never "no skills match"; then it lists the host's skills and a pick fills the box.
+    @Test func aRemoteChiefsMenuSaysLoadingThenListsTheHostsSkills() async throws {
+        let p = await pane(skills: nil)
+        let (answered, answer) = AsyncStream<Void>.makeStream()
+        let source = SlashSkillSource(remote: RemoteSlashSkills(id: "server/default") {
+            for await _ in answered { break }
+            return [SlashSkill(name: "triage", summary: "Sort the inbox.", source: SlashSkill.source(wire: "chief")),
+                    SlashSkill(name: "vercel:ai-sdk", summary: "The AI SDK.", source: SlashSkill.source(wire: "plugin:vercel"))]
+        })
+        p.controller.slashSkills = source
+        type("/", in: p)
+        let loading = try #require(p.menuView?.state, "/ opens the menu before the host answers")
+        #expect(loading.isLoading && loading.matches.isEmpty)
+        answer.yield()
+        await source.settled()
+        let listed = try #require(p.menuView?.state)
+        #expect(!listed.isLoading)
+        #expect(listed.matches.map(\.name) == ["triage", "vercel:ai-sdk"])
+        #expect(SlashSkillMenuView.sourceLabel(listed.matches[1].source) == "vercel")
+        type("tri", in: p)
+        tab(p)
+        #expect(p.field.string == "/triage ")
+    }
+
     @Test func theMenuIsSolidInLightAndDark() async throws {
         let folders = try Folders()
         let p = await pane(skills: folders.catalog)

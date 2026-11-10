@@ -79,7 +79,7 @@ final class SlashSkillMenuView: NSView {
         let para = NSMutableParagraphStyle()
         para.lineBreakMode = .byTruncatingTail
         guard !menu.matches.isEmpty else {
-            let text = CmuxStrings.slashSkillsNoMatch(menu.query) as NSString
+            let text = (menu.isLoading ? CmuxStrings.slashSkillsLoading : CmuxStrings.slashSkillsNoMatch(menu.query)) as NSString
             let r = rowRect(0).insetBy(dx: 10, dy: 0)
             text.draw(in: CGRect(x: r.minX, y: r.midY - 8, width: r.width, height: 18),
                       withAttributes: [.font: HomeFonts.system(ofSize: 13), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para])

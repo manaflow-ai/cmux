@@ -23,6 +23,7 @@ extension ChatController {
             if slashMenu != nil { slashMenu = nil }
             return
         }
+        menu.isLoading = menu.matches.isEmpty && !source.hasLoaded
         // The same command keeps its row (a list refresh); a new one starts at the best match.
         if let old = slashMenu, old.query == menu.query, let choice = old.choice, let i = menu.matches.firstIndex(of: choice) {
             menu.select(i)

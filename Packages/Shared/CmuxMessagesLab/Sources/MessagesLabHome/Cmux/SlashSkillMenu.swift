@@ -16,6 +16,8 @@ struct SlashSkillMenu: Equatable {
     let matches: [SlashSkill]
     /// The selected row of `matches`.
     private(set) var selected = 0
+    /// The list has not loaded yet: the empty menu says it is loading, not that nothing matches.
+    var isLoading = false
 
     /// The menu of `text` with the caret at UTF-16 offset `caret`, nil when the field holds no
     /// command there (no leading slash, a path, or the caret past the command).

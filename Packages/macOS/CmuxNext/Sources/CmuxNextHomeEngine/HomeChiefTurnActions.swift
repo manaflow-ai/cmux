@@ -54,6 +54,16 @@ public final class HomeChiefTurnActions {
         transcript?.onChiefRetry = self.control == nil ? nil : { [weak self] message in self?.retry(message) }
         // `/` lists this Chief's skills when its host runs here: it reads the same folders (slash_skills.rs).
         transcript?.slashSkillsHome = self.control?.brainHome
+        // A Chief on a paired server: its host names the skills (`chief.engine.get` offered.skills).
+        if let control = self.control, control.brainHome == nil, let connection = control.connection {
+            let named = control.named
+            transcript?.setRemoteSlashSkills(id: "\(ObjectIdentifier(connection))/\(named ?? "")") {
+                let report = try? await ChiefControlClient(connection).chiefEngine(chief: named)
+                return (report?.offered.skills ?? []).map { (name: $0.name, description: $0.description, source: $0.source) }
+            }
+        } else {
+            transcript?.setRemoteSlashSkills(id: nil, load: nil)
+        }
         // Start now on a queued agent's pill card: this chat's own Chief starts it past the cap.
         transcript?.onStartAgent = self.control.map { control in { peer in await control.startNow(peer) == nil } }
         // Its menu's Start now is the registered action's row, on this chat's Chief.

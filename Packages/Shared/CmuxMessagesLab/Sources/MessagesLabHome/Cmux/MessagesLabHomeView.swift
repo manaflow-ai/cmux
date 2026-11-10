@@ -191,6 +191,18 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// The `/` list of a Chief whose host runs elsewhere (``RemoteSlashSkills``); a Chief whose
+    /// host runs here sets ``slashSkillCatalog`` instead. Nil clears a remote list (a folder list
+    /// stays). The same id keeps the list it has.
+    public func setRemoteSlashSkills(_ remote: RemoteSlashSkills?) {
+        guard remote?.id != controller.slashSkills?.remoteID else { return }
+        if let remote {
+            controller.slashSkills = SlashSkillSource(remote: remote)
+        } else if controller.slashSkills?.remoteID != nil {
+            controller.slashSkills = nil
+        }
+    }
+
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
