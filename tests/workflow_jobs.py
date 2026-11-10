@@ -17,6 +17,7 @@ PyYAML reads the `on:` key as the boolean True; a guard that needs the triggers 
 from __future__ import annotations
 
 import itertools
+import json
 import re
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -64,14 +65,36 @@ _UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
 
 
 class Job(dict):
-    """A job's own mapping, as written, plus the workflow-level `env:` it inherits (`inherited_env`). GitHub hands a
+    """A job's own mapping, as written, plus the workflow-level `env:` it inherits (`inherited_env`) and the workflow
+    it sits in (`document`, for what a job reads from a sibling: `fromJSON(needs.x.outputs.y)`). GitHub hands a
     workflow's env to every job, so a secret there is in every job's reach: secret_names() and holds_secret() read
     it with the job's own env, steps and `with:`/`secrets:`. The mapping itself stays the job's own keys, so a guard
-    that compares or prints a job sees what the file says. copy.deepcopy keeps the inherited env."""
+    that compares or prints a job sees what the file says. Copy a job with copy_job (or job.copy(), or
+    copy.deepcopy): `{**job}` and `dict(job)` drop what it inherits, and the detector test refuses them."""
 
-    def __init__(self, job: Mapping[str, Any], inherited_env: Any = None) -> None:
+    def __init__(self, job: Mapping[str, Any], inherited_env: Any = None, document: Any = None) -> None:
         super().__init__(job)
         self.inherited_env = inherited_env or {}
+        self.document = document
+
+    def copy(self) -> Job:  # dict.copy() would return a plain dict
+        return copy_job(self)
+
+
+DROP = object()
+
+
+def copy_job(job: Mapping[str, Any], changes: Mapping[str, Any] | None = None) -> Job:
+    """A shallow copy of `job` with `changes` applied (a DROP value removes the key), keeping the workflow env and
+    document it inherits. The one way a guard or fixture copies a job: `{**job}` and `dict(job)` drop them, so a
+    workflow-env secret or a sibling's matrix output would fall out of the copy."""
+    out = Job(job, getattr(job, "inherited_env", None), getattr(job, "document", None))
+    for key, value in (changes or {}).items():
+        if value is DROP:
+            out.pop(key, None)
+        else:
+            out[key] = value
+    return out
 
 
 # A Job dumps as the mapping it is (yaml.safe_dump(job), as guards print or search a job).
@@ -86,7 +109,7 @@ def inheriting(document: Mapping[str, Any]) -> dict[str, Any]:
     found = out.get("jobs")
     if isinstance(found, dict):
         env = out.get("env") or {}
-        out["jobs"] = {name: Job(job, env) if isinstance(job, dict) else job for name, job in found.items()}
+        out["jobs"] = {name: Job(job, env, out) if isinstance(job, dict) else job for name, job in found.items()}
     return out
 
 
@@ -110,12 +133,17 @@ def jobs(source: str | Path | Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     for name, job in found.items():
         if not isinstance(job, dict):
             raise ValueError(f"job {name!r} is not a mapping")
-    # A document loaded elsewhere (or a job a fixture added) still inherits the workflow env's secrets. Only then
-    # is a job re-wrapped, so a guard that edits a job it got back edits the document's own job otherwise.
+    # A document loaded elsewhere (or a job a fixture added) still inherits the workflow env and sits in the
+    # workflow: a plain job is wrapped in place, so a guard that edits a job it got back edits the document's job.
     env = loaded.get("env") or {}
-    if not secret_names(env):
+    wrapped = {name: job if isinstance(job, Job) else Job(job, env, loaded) for name, job in found.items()}
+    if all(wrapped[name] is job for name, job in found.items()):
         return found
-    return {name: job if isinstance(job, Job) else Job(job, env) for name, job in found.items()}
+    try:
+        found.update(wrapped)
+    except (AttributeError, TypeError):  # a read-only mapping: hand back the wrapped copy
+        return wrapped
+    return found
 
 
 def strings(value: Any) -> Iterator[str]:
@@ -161,7 +189,7 @@ def reads_secret(value: Any, *names: str) -> bool:
 def holds_secret(job: Mapping[str, Any]) -> bool:
     """A job holds secrets if it reads any secret in any form, passes them all on with
     `secrets: inherit`, or runs under a deployment environment, which carries its own secrets."""
-    return bool(secret_names(job)) or bool(job.get("environment"))
+    return bool(secret_names(job)) or environment_spec(job) is not None
 
 
 def runs_on(job: Mapping[str, Any]) -> str:
@@ -170,10 +198,77 @@ def runs_on(job: Mapping[str, Any]) -> str:
     return value if isinstance(value, str) else yaml.safe_dump(value, default_flow_style=True).strip()
 
 
+_FROM_JSON = re.compile(r"^\$\{\{\s*fromJSON\s*\(\s*(.*?)\s*\)\s*\}\}$", re.IGNORECASE | re.DOTALL)
+_NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)", re.IGNORECASE)
+_STEP_OUTPUT = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\s*\}\}", re.IGNORECASE)
+
+
+def _needs_output_literal(job: Mapping[str, Any], producer: str, key: str) -> str | None:
+    """The literal text a sibling job's output holds, when it is one: the output written as a literal, or a step
+    output its one `echo 'KEY=<literal>' >> "$GITHUB_OUTPUT"` line writes with nothing the shell expands. None
+    for anything computed (a script, a variable), which leaves the matrix unresolved."""
+    document = getattr(job, "document", None)
+    producer_job = ((document or {}).get("jobs") or {}).get(producer) if isinstance(document, Mapping) else None
+    outputs = producer_job.get("outputs") if isinstance(producer_job, Mapping) else None
+    if not isinstance(outputs, Mapping):
+        return None
+    value = next((v for k, v in outputs.items() if str(k).lower() == key.lower()), None)
+    if not isinstance(value, str):
+        return None
+    value = dotted(value).strip()
+    if "${{" not in value:
+        return value
+    step_ref = _STEP_OUTPUT.fullmatch(value)
+    if step_ref is None:
+        return None
+    step = next((s for s in producer_job.get("steps") or [] if isinstance(s, Mapping) and s.get("id") == step_ref.group(1)), None)
+    run = step.get("run") if isinstance(step, Mapping) else None
+    if not isinstance(run, str):
+        return None
+    name = re.escape(step_ref.group(2))
+    writes = [line for line in run.splitlines() if re.search(rf"\b{name}=", line) or "GITHUB_OUTPUT" in line]
+    write = re.compile(rf"""\s*echo\s+(?:'{name}=([^']*)'|"{name}=([^"$`\\]*)")\s*>>\s*(?:"\$GITHUB_OUTPUT"|\$GITHUB_OUTPUT|"\$\{{GITHUB_OUTPUT\}}")\s*""")
+    if len(writes) != 1:
+        return None
+    found = write.fullmatch(writes[0])
+    if found is None:
+        return None
+    literal = found.group(1) if found.group(1) is not None else found.group(2)
+    return None if "${{" in literal else literal
+
+
+def _matrix(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The job's matrix as a mapping: as written, or a `${{ fromJSON(...) }}` of a literal JSON object (in the
+    expression, or a sibling's output that holds one). None for a matrix nothing here can read."""
+    strategy = job.get("strategy")
+    matrix = strategy.get("matrix") if isinstance(strategy, Mapping) else None
+    if isinstance(matrix, Mapping):
+        return matrix
+    if not isinstance(matrix, str):
+        return None
+    called = _FROM_JSON.match(matrix.strip())
+    if called is None:
+        return None
+    argument = dotted("${{ " + called.group(1) + " }}")[3:-2].strip()
+    quoted = _QUOTED.match(argument)
+    if quoted:
+        payload = quoted.group(1).replace("''", "'")
+    else:
+        needs = _NEEDS_OUTPUT.fullmatch(argument)
+        payload = _needs_output_literal(job, needs.group(1), needs.group(2)) if needs else None
+    if payload is None:
+        return None
+    try:
+        loaded = json.loads(payload)
+    except ValueError:
+        return None
+    return loaded if isinstance(loaded, Mapping) else None
+
+
 def matrix_values(job: Mapping[str, Any], key: str) -> list[Any] | None:
     """Every value `matrix.<key>` takes in a job, from the axis and its include entries, or None
-    when the matrix is an expression or the key is nowhere in it (the value is unknown)."""
-    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), Mapping) else None
+    when the matrix is an expression nothing reads (_matrix) or the key is nowhere in it (the value is unknown)."""
+    matrix = _matrix(job)
     if not isinstance(matrix, Mapping):
         return None
     found: list[Any] = []
@@ -449,17 +544,25 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
     return values, unresolved
 
 
+def environment_spec(job: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The job's `environment:` in one shape: None when it has none, else a mapping with `name` (as written; compare
+    names through environment_values, which casefolds) and any `url` or `deployment` the file gives."""
+    raw = job.get("environment")
+    if raw is None or raw == "":
+        return None
+    return dict(raw) if isinstance(raw, Mapping) else {"name": raw}
+
+
 def environment_values(job: Mapping[str, Any], workflow: str | None = None,
                        workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
     """Every environment name a job's `environment:` can resolve to (matrix values expanded,
     literal branches of an expression read), casefolded because GitHub matches environment names
     without case (`Release` is `release`), and every part it could not resolve. A guard counts a
     job with an unresolved part as unclassified, never as outside the environment."""
-    env = job.get("environment")
-    if isinstance(env, Mapping):
-        env = env.get("name")
+    spec = environment_spec(job)
+    env = spec.get("name") if spec is not None else None
     if env is None or env == "":
-        return set(), set()
+        return (set(), set()) if spec is None else (set(), {repr(spec)})
     if not isinstance(env, str):
         return set(), {repr(env)}
     values, unresolved = _resolve(job, env, _tracer(workflow, workflows))
@@ -478,11 +581,13 @@ def name_values(job: Mapping[str, Any], job_id: str, workflow: str | None = None
     return _resolve(job, name, _tracer(workflow, workflows))
 
 
-def effective_env(document: Mapping[str, Any], job: Mapping[str, Any],
+def effective_env(document: Mapping[str, Any] | None, job: Mapping[str, Any],
                   step: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The env a step sees: the workflow's, then the job's, then the step's, the inner one winning a key, as
     GitHub merges them. Values stay as written; read a path value with repo_path."""
     env: dict[str, Any] = {}
+    if document is None:  # a Job knows the workflow env it inherits
+        document = {"env": getattr(job, "inherited_env", None) or {}}
     for scope in (document, job, step or {}):
         layer = scope.get("env") if isinstance(scope, Mapping) else None
         if isinstance(layer, Mapping):
@@ -509,12 +614,69 @@ def repo_path(value: str) -> str | None:
     return text or "."
 
 
+def _local_callee(uses: Any) -> str | None:
+    if isinstance(uses, str) and uses.startswith("./.github/workflows/"):
+        return uses.split("@", 1)[0].rsplit("/", 1)[-1]
+    return None
+
+
+def effective_secrets(job: Mapping[str, Any], workflows: Workflows | None = None,
+                      _seen: frozenset = frozenset()) -> tuple[set[str], set[str]]:
+    """The secrets a job reads (secret_names), and for a call with `secrets: inherit` also every secret the called
+    workflow reads, followed through its own inherited calls at any depth. ALL_SECRETS stays in for the inherit
+    itself. The second set names each call nothing here can follow (another repository's workflow, a file the
+    documents lack, no Workflows given, a cycle): a guard fails on it."""
+    names = secret_names(job)
+    unresolved: set[str] = set()
+    if str(job.get("secrets", "")).strip().lower() != "inherit":
+        return names, unresolved
+    callee = _local_callee(job.get("uses"))
+    document = workflows.documents.get(callee) if workflows is not None and callee else None
+    if not isinstance(document, Mapping) or callee in _seen:
+        unresolved.add(str(job.get("uses") or "secrets: inherit"))
+        return names, unresolved
+    names |= secret_names(document.get("env") or {})
+    for called_job in (document.get("jobs") or {}).values():
+        if isinstance(called_job, Mapping):
+            found, open_calls = effective_secrets(called_job, workflows, _seen | {callee})
+            names |= found
+            unresolved |= open_calls
+    return names, unresolved
+
+
+# Jobs whose matrix nothing here can read, each with why and what checks it instead. A guard that meets one of
+# these skips it by name (audited_matrix); any other unresolved matrix fails. The detector test fails an entry
+# whose job is gone or now resolves.
+UNRESOLVED_MATRICES: dict[tuple[str, str], str] = {
+    ("cmux-tui-build-package.yml", "build"):
+        "plan-build's python step computes the target list from runner env at run time; "
+        "tests/test_ci_linux_compile_runners.py checks the targets it writes",
+    ("cmux-tui-build-package.yml", "verify-linux-packages"):
+        "plan-build's python step computes linux_package_matrix at run time; "
+        "tests/test_ci_linux_compile_runners.py checks the packages it writes",
+    ("cmux-next-fast-tier-seed.yml", "seed"):
+        "due's step runs scripts/cmux-next/fast-tier-seed-due.py, which keeps the pools of the job env's literal "
+        "SEED_POOLS list whose seed is old; tests/test_cmux_next_checks_workflow.py (SEED_DUE_SCRIPT) checks it",
+    ("seed-derived-data.yml", "seed"):
+        "decide's shell step computes the pool and root lanes from repository variables at run time; "
+        "tests/test_seed_derived_data.py runs that step and checks every lane it writes",
+}
+
+
+def audited_matrix(workflow: str, job_id: str) -> str | None:
+    """Why `job_id` in `workflow` (a file name) may have a matrix nothing resolves, or None when it may not."""
+    return UNRESOLVED_MATRICES.get((Path(workflow).name, job_id))
+
+
 class Resolved:
     """Every field a guard compares, read once and normalized: runs-on per matrix cell
-    (runs_on_cells, runs_on_values), environment names casefolded (environment_values), the check
-    name with literal expressions read (name_values), and the job's effective secrets (the workflow
-    env it inherits, then its env, steps, `with:` and `secrets:`; secret_names). Each `*_unresolved`
-    set, and `runs_on_cells is None`, is what nothing here could read: a guard fails closed on it."""
+    (runs_on_cells, runs_on_values), environment names casefolded (environment_values) and the
+    environment in one shape (environment_spec), the check name with literal expressions read
+    (name_values), the env the job's steps start from (the workflow's, then the job's: env), and the
+    job's effective secrets (the workflow env it inherits, then its env, steps, `with:` and `secrets:`,
+    and what a `secrets: inherit` call's workflow reads: effective_secrets). Each `*_unresolved` set,
+    and `runs_on_cells is None`, is what nothing here could read: a guard fails closed on it, unless
+    `matrix_audit` names why that job's matrix is read elsewhere (UNRESOLVED_MATRICES)."""
 
     def __init__(self, job: Mapping[str, Any], job_id: str = "", workflow: str | None = None,
                  workflows: Workflows | None = None) -> None:
@@ -523,7 +685,19 @@ class Resolved:
         self.runs_on, self.runs_on_unresolved = runs_on_values(job, workflow, workflows)
         self.environments, self.environments_unresolved = environment_values(job, workflow, workflows)
         self.names, self.names_unresolved = name_values(job, job_id, workflow, workflows)
-        self.secrets = secret_names(job)
+        self.environment = environment_spec(job)
+        self.env = effective_env(None, job)
+        self.secrets, self.secrets_unresolved = effective_secrets(job, workflows)
+        self.inherits_secrets = str(job.get("secrets", "")).strip().lower() == "inherit"
+        passed = job.get("secrets")
+        self.passed_secrets = dict(passed) if isinstance(passed, Mapping) else {}
+        self.matrix_audit = audited_matrix(workflow, job_id) if workflow and job_id else None
+
+    @property
+    def unresolved(self) -> bool:
+        """Whether any field is one nothing here could read (a guard counts the job as unclassified)."""
+        return (self.runs_on_cells is None or bool(self.runs_on_unresolved or self.environments_unresolved
+                                                   or self.names_unresolved or self.secrets_unresolved))
 
 
 def resolve(job: Mapping[str, Any], job_id: str = "", workflow: str | None = None,

@@ -32,10 +32,11 @@ a feat-cmux-next push and for other refs, and walks its `needs`.
 import os
 import re
 import sys
-
-import yaml
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
 DAEMON = "cmux-next-daemon-tests"
 KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
@@ -49,8 +50,7 @@ def _check(ok, message):
 
 
 def jobs():
-    with open(WORKFLOW, encoding="utf-8") as handle:
-        return yaml.safe_load(handle)["jobs"]
+    return workflow_jobs.jobs(Path(WORKFLOW))
 
 
 def needs(job):
@@ -130,7 +130,7 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
 
 
 def windows_pass(job):
-    return (job.get("env") or {}).get("CMUX_TUI_PUBLISH_PASS") == "windows"
+    return workflow_jobs.resolve(job).env.get("CMUX_TUI_PUBLISH_PASS") == "windows"
 
 
 def publishers(all_jobs, windows=False):

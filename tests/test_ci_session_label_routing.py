@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 PR_XCODE = "/Applications/Xcode_26.6.app"
 GUI = "glaeda-gui-std-xcode-26.6"
@@ -86,7 +87,10 @@ class AutofixActionExports(unittest.TestCase):
 
     def runs_on(self, name: str) -> str:
         workflow = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
-        return workflow["jobs"]["action-exports"]["runs-on"]
+        cells = workflow_jobs.runs_on_cells(workflow["jobs"]["action-exports"])
+        self.assertIsNotNone(cells, f"{name}: a runs-on matrix nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        return cells[0]
 
     def context(self, **variables) -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", **{"CI_PR_POOL_OWNED": "1", **variables})

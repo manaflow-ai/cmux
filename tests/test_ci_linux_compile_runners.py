@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import label as size_label, table  # noqa: E402
 from runs_on_labels import holds_signing_material, unwrap_fork_pool_reads  # noqa: E402
+import workflow_jobs  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 BIG = "blacksmith-32vcpu-ubuntu-2404"
@@ -269,7 +270,10 @@ def load(name: str) -> dict:
 
 def selector(job: dict, where: str) -> str:
     if where == "runs-on":
-        return str(job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None or len(cells) != 1:
+            raise AssertionError(f"expected one runs-on, read {cells!r}")
+        return cells[0]
     kind, _, rest = where.partition(":")
     if kind == "matrix":
         match, field = rest.rsplit(":", 1)

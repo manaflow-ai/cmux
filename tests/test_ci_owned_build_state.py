@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_build_state as state  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 OWNED = "startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
@@ -1106,7 +1108,7 @@ class Wiring(unittest.TestCase):
     """Only an owned runner keeps state, and it never uploads it."""
 
     def setUp(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
+        workflow = workflow_jobs.document(ROOT / ".github/workflows/ci-macos.yml")
         self.job = workflow["jobs"]["macos-compile-admission"]
         self.steps = self.job["steps"]
         self.names = [step.get("name") for step in self.steps]
@@ -1130,7 +1132,7 @@ class Wiring(unittest.TestCase):
                      self.step("Keep this owned Mac's DerivedData"), self.step("Keep this owned Mac's build state")):
             self.assertIs(step.get("continue-on-error"), True, step["name"])
             self.assertNotIn("uses", step, step["name"])
-        self.assertEqual(self.job["env"]["CMUX_OWNED_STATE_ROOT"], "/Users/Shared/cmux-build-fleet/ci")
+        self.assertEqual(workflow_jobs.resolve(self.job).env["CMUX_OWNED_STATE_ROOT"], "/Users/Shared/cmux-build-fleet/ci")
 
     def test_a_warm_mac_skips_the_seed_and_the_package_cache(self):
         self.assertIn("steps.owned-state.outputs.warm != 'true'", self.by_id["seed-derived-data"]["if"])

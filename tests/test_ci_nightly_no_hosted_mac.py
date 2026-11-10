@@ -60,13 +60,18 @@ def hosted_mentions(path: Path, *, comment: str) -> list[str]:
     return hits
 
 
-def runs_on_text(job: dict) -> str:
-    """The job's runs-on as written and as each matrix cell writes it; with a matrix value nothing resolves
-    (a fromJSON matrix), the matrix as written too, so a picker that feeds it is still read."""
+def runs_on_text(job: dict, workflow: str, job_id: str) -> str:
+    """The job's runs-on as each matrix cell writes it. A matrix value nothing resolves (a fromJSON matrix) fails,
+    unless workflow_jobs.audited_matrix names why; then the matrix as written is read, so a picker that feeds it
+    is still read."""
     cells = workflow_jobs.runs_on_cells(job)
+    if cells is not None:
+        return "\n".join(cells)
+    if not workflow_jobs.audited_matrix(workflow, job_id):
+        raise AssertionError(f"{workflow} job {job_id}: its runs-on matrix resolves to no runner, so its picker "
+                             "cannot be read; resolve the matrix or audit it in workflow_jobs.UNRESOLVED_MATRICES")
     strategy = job.get("strategy")
-    extra = cells if cells is not None else [str(strategy.get("matrix", "") if isinstance(strategy, dict) else strategy)]
-    return "\n".join([str(job.get("runs-on", "")), *extra])
+    return str(strategy.get("matrix", "") if isinstance(strategy, dict) else strategy)
 
 
 def picker_scripts() -> set[Path]:
@@ -74,8 +79,8 @@ def picker_scripts() -> set[Path]:
     scripts = set()
     for path in scoped_workflows():
         jobs = (yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}).get("jobs") or {}
-        for job in jobs.values():
-            for picker in NEEDS_OUTPUT.findall(runs_on_text(job)):
+        for job_id, job in jobs.items():
+            for picker in NEEDS_OUTPUT.findall(runs_on_text(job, path.name, job_id)):
                 for script in SCRIPT.findall(str(jobs.get(picker, {}).get("steps", ""))):
                     if (ROOT / script).is_file():
                         scripts.add(ROOT / script)

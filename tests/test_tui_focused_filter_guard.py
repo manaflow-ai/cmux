@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+import workflow_jobs
 from runs_on_labels import disallowed_labels, linux_runner_values
 
 
@@ -155,7 +156,7 @@ def _run_gate(**env_overrides: str) -> tuple[int, str]:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     gate = workflow["jobs"]["hosted-verification"]
     step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
-    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env = {key: "success" for key, value in workflow_jobs.effective_env(workflow, gate).items() if key.endswith("_RESULT")}
     env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "gate.sh"
@@ -180,7 +181,7 @@ def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() ->
     assert code == 0, output
 
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    gate_env = workflow["jobs"]["hosted-verification"]["env"]
+    gate_env = workflow_jobs.effective_env(workflow, workflow["jobs"]["hosted-verification"])
     for job_name, variable in (("test", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
         job = workflow["jobs"][job_name]
         step = _focused_count_step(job)
@@ -364,8 +365,9 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
     assert "lint" in gate["needs"]
     assert "macos" in gate["needs"]
-    assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
-    assert gate["env"]["MACOS_RESULT"] == "${{ needs.macos.result }}"
+    gate_env = workflow_jobs.effective_env(workflow, gate)
+    assert gate_env["LINT_RESULT"] == "${{ needs.lint.result }}"
+    assert gate_env["MACOS_RESULT"] == "${{ needs.macos.result }}"
     assert 'require_success "lint" "$LINT_RESULT"' in gate_commands
     assert 'require_success "macOS lint and tests" "$MACOS_RESULT"' in gate_commands
 
@@ -490,7 +492,7 @@ def test_hosted_verification_gate_reports_every_selected_job_before_failing() ->
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     gate = workflow["jobs"]["hosted-verification"]
     step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
-    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env = {key: "success" for key, value in workflow_jobs.effective_env(workflow, gate).items() if key.endswith("_RESULT")}
     env.update({"MODE": "focused", "TEST_FILTER": "some_test", "LINT_RESULT": "failure",
                 "MACOS_RESULT": "failure", "PATH": "/usr/bin:/bin"})
     with tempfile.TemporaryDirectory() as tmp:

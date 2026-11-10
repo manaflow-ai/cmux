@@ -301,9 +301,11 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("needs.decide.outputs.no_publish != 'true'", condition, name)
         self.assertIn("needs.find-nightly-next-recovery.outputs.found == 'true'", jobs["recover-nightly-next-notarization"]["if"])
         # The Sparkle and notary secrets come from release-next on nightly-next.
-        self.assertEqual(jobs["recover-nightly-next-notarization"]["environment"], "${{ needs.decide.outputs.environment }}")
+        self.assertEqual(workflow_jobs.resolve(jobs["recover-nightly-next-notarization"]).environment,
+                         {"name": "${{ needs.decide.outputs.environment }}"})
         # The finder only reads the routing App key for its owned pick (ci-routing-agent), no release secret.
-        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.resolve(jobs["find-nightly-next-recovery"]).environment,
+                         {"name": "ci-routing-agent", "deployment": False})
         self.assertEqual(workflow_jobs.secret_names(jobs["find-nightly-next-recovery"]), {"GLAEDA_ROUTE_APP_KEY"})
         recover_text = json.dumps(jobs["recover-nightly-next-notarization"])
         self.assertNotIn("CF_R2_", recover_text)
@@ -339,7 +341,7 @@ class WorkflowTests(unittest.TestCase):
         ):
             occurrences = [line for line in text.splitlines() if stale in line and "OWN_" not in line]
             self.assertEqual(occurrences, [], stale)
-        self.assertNotIn("NIGHTLY_BUILD", job["env"])
+        self.assertNotIn("NIGHTLY_BUILD", workflow_jobs.resolve(job).env)
         self.assertIn("NOTES_HEAD: ${{ steps.source.outputs.build_sha }}", text)
         # A recovered build can predate this workflow's script arguments (run
         # 38855116561), so the tooling comes from the workflow's own commit.

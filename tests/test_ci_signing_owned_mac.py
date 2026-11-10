@@ -213,12 +213,20 @@ def dotted(value: Any) -> Any:
     if isinstance(value, str):
         return LITERAL_INDEX.sub(lambda m: "." + (m.group(1) or m.group(2)), value)
     if isinstance(value, workflow_jobs.Job):
-        return workflow_jobs.Job({dotted(key): dotted(item) for key, item in value.items()}, dotted(value.inherited_env))
+        return workflow_jobs.Job({dotted(key): dotted(item) for key, item in value.items()}, dotted(value.inherited_env),
+                                 value.document)
     if isinstance(value, dict):
         return {dotted(key): dotted(item) for key, item in value.items()}
     if isinstance(value, list):
         return [dotted(item) for item in value]
     return value
+
+
+def runs_on_text(job: dict) -> str | None:
+    """The job's runs-on as written, one line per matrix cell (workflow_jobs.runs_on_cells; "" when it has none), with
+    literal indexes in dot form. None when a matrix value nothing resolves names the runner: the caller fails on it."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return None if cells is None else dotted("\n".join(cells))
 
 
 def workflows() -> dict[str, dict]:
@@ -329,7 +337,10 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str =
     for key in ("steps", "env", "outputs", "permissions", "environment", "concurrency", "continue-on-error"):
         if twin.get(key) != job.get(key):
             failures.append(f"{twin_name} must have the same {key} as {name} (a YAML alias of it)")
-    runs_on = str(twin.get("runs-on", ""))
+    runs_on = runs_on_text(twin)
+    if runs_on is None:
+        failures.append(f"{twin_name} runs-on has a matrix value nothing resolves; it must take Blacksmith only")
+        runs_on = ""
     if any(read.split(".outputs.")[0] + ".outputs." + read.split(".outputs.")[1] in runs_on for read in owned_reads):
         failures.append(f"{twin_name} runs-on reads the owned pick; it must take Blacksmith only")
     needs = twin.get("needs") or []
@@ -339,7 +350,7 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str =
     if own != ([first] if isinstance(first, str) else list(first)):
         failures.append(f"{twin_name} needs must be {name}'s needs, then {name}")
     condition = re.sub(r"\s+", " ", str(twin.get("if", "")))
-    runs_on_job = str(job.get("runs-on", ""))
+    runs_on_job = runs_on_text(job) or ""  # check() fails a job whose matrix runner nothing resolves before this
     for read in owned_reads:
         refused = f"needs.{name}.outputs.claim != 'owned'"
         # The twin's attempt clause is the one the signing job's runs-on uses (the first form, if it uses none).
@@ -384,7 +395,11 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if not isinstance(job, dict) or not signing_job(job):
                 continue
             label = f"{workflow} {name}"
-            runs_on = str(job.get("runs-on", ""))
+            runs_on = runs_on_text(job)
+            if runs_on is None:
+                if workflow_jobs.audited_matrix(workflow, name) is None:
+                    failures.append(f"{label}: runs-on has a matrix value nothing resolves")
+                continue
             owned_reads = []
             for needed, output in dict.fromkeys(NEEDS_OUTPUT.findall(runs_on)):
                 if str(((jobs.get(needed) or {}).get("outputs") or {}).get(output, "")).strip() == ATTEMPT_OUTPUT:
@@ -455,7 +470,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     if reads_any_secret(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
-            if reads_any_secret(job.get("env") or {}):
+            # The job's own env layer (effective_env with no workflow layer); the workflow's is the next check.
+            if reads_any_secret(workflow_jobs.effective_env({}, job)):
                 failures.append(f"{label}: job-level env names a secret, which every step (the claim's too) holds")
             if reads_any_secret(document.get("env") or {}):
                 failures.append(f"{label}: workflow-level env names a secret, which every step (the claim's too) holds")
@@ -513,7 +529,9 @@ def owned_pick_reads(jobs: dict, runs_on: str) -> list[str]:
 def owned_route(jobs: dict, job: dict) -> bool:
     """runs-on can put the job on an owned Mac: an owned pick, an owned pool variable that gives the label
     (keychain_guard.OWNED_ROUTE_VARIABLES), a literal glaeda-* label, or no ephemeral route at all (owned_only())."""
-    runs_on = str(job.get("runs-on", ""))
+    runs_on = runs_on_text(job)
+    if runs_on is None:  # a matrix runner nothing resolves may be an owned Mac
+        return True
     if owned_pick_reads(jobs, runs_on) or owned_only(runs_on):
         return True
     text = keychain_guard.strip_literal_selectors(FORK_ROUTE.sub("", runs_on))
@@ -536,6 +554,11 @@ def exclusive_trait(jobs: dict, job: dict) -> str:
     return ""
 
 
+def workflow_needs(job: dict) -> list[str]:
+    needs = job.get("needs") or []
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
 def classification_failures(documents: dict[str, dict]) -> tuple[list[str], int, int]:
     """Every job with exclusive_trait() is in GLAEDA_EXCLUSIVE_JOBS or EXCLUSIVE_EXEMPT, and every job that reads
     the owned pick is in SIGNING_JOBS (signing_runner's cap) or OWNED_PICK_EXEMPT; each exempt entry is a job that
@@ -550,8 +573,18 @@ def classification_failures(documents: dict[str, dict]) -> tuple[list[str], int,
             if not isinstance(job, dict):
                 continue
             key, label = (workflow, name), f"{workflow} {name}"
+            runs_on = runs_on_text(job)
+            if runs_on is None:
+                if workflow_jobs.audited_matrix(workflow, name) is not None:
+                    continue
+                # A runner nothing resolves may be an owned Mac (owned_route() counts it so, so a trait job must be
+                # listed) and may be an owned pick: a job that needs an owned picker is named.
+                if any(OWNED_PICKER in str(step.get("run", "")) for needed in workflow_needs(job)
+                       for step in (jobs.get(needed) or {}).get("steps") or [] if isinstance(step, dict)):
+                    failures.append(f"{label}: runs-on has a matrix value nothing resolves, and it needs "
+                                    f"{OWNED_PICKER}'s job, so it may read the owned pick")
             trait = exclusive_trait(jobs, job)
-            reads = owned_pick_reads(jobs, str(job.get("runs-on", "")))
+            reads = owned_pick_reads(jobs, runs_on or "")
             exclusive += bool(trait)
             picked += bool(reads)
             if key in EXCLUSIVE_EXEMPT:
@@ -581,9 +614,10 @@ def classification_failures(documents: dict[str, dict]) -> tuple[list[str], int,
 
 def paired(picker: dict, name: str, job: dict) -> dict:
     """The jobs of a workflow with picker `pick`, the owned-routed signing job `name` and its Blacksmith twin."""
-    twin = {**job, "runs-on": "blacksmith-6vcpu-macos-26", "needs": [*job.get("needs", []), name],
-            "if": f"!cancelled() && github.run_attempt == 1 && needs.pick.outputs.owned != '' && needs.{name}.result != "
-                  f"'skipped' && needs.{name}.result != 'cancelled' && needs.{name}.outputs.claim != 'owned'"}
+    twin = workflow_jobs.copy_job(job, {
+        "runs-on": "blacksmith-6vcpu-macos-26", "needs": [*job.get("needs", []), name],
+        "if": f"!cancelled() && github.run_attempt == 1 && needs.pick.outputs.owned != '' && needs.{name}.result != "
+              f"'skipped' && needs.{name}.result != 'cancelled' && needs.{name}.outputs.claim != 'owned'"})
     return {"pick": picker, name: job, name + TWIN_SUFFIX: twin}
 
 
@@ -677,11 +711,11 @@ class SigningOwnedMacTests(unittest.TestCase):
             "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": good["runs-on"]}},
             "if must be exactly": {**both, twin_name: {**both[twin_name], "if": "always()"}},
             "needs must be": {**both, twin_name: {**both[twin_name], "needs": ["pick"]}},
-            "but not build-sign-notarize-blacksmith": {**both, "publish": {**reader, "needs": ["build-sign-notarize"]}},
-            "without the twin first": {**both, "publish": {**reader, "if": "!cancelled() && "
-                                                           "needs.build-sign-notarize.outputs.claim != ''"}},
-            "has no status check": {**both, "publish": {**reader, "if": "(needs.build-sign-notarize-blacksmith.outputs."
-                                                        "claim || needs.build-sign-notarize.outputs.claim) != ''"}},
+            "but not build-sign-notarize-blacksmith": {**both, "publish": workflow_jobs.copy_job(reader, {"needs": ["build-sign-notarize"]})},
+            "without the twin first": {**both, "publish": workflow_jobs.copy_job(reader, {"if": "!cancelled() && "
+                                                           "needs.build-sign-notarize.outputs.claim != ''"})},
+            "has no status check": {**both, "publish": workflow_jobs.copy_job(reader, {"if": "(needs.build-sign-notarize-blacksmith.outputs."
+                                                        "claim || needs.build-sign-notarize.outputs.claim) != ''"})},
         }
         for needle, jobs in twin_cases.items():
             with self.subTest(needle):
@@ -948,7 +982,8 @@ class SigningOwnedMacTests(unittest.TestCase):
                 self.assertEqual(step["env"]["OWNED_LABELS"], route)
         for name in signing_runner.SIGNING_JOBS["nightly.yml"]:
             with self.subTest(job=name):
-                runs_on = str(jobs[name]["runs-on"])
+                runs_on = runs_on_text(jobs[name])
+                self.assertIsNotNone(runs_on, "runs-on has a matrix value nothing resolves")
                 self.assertTrue(runs_on.rstrip(" }").endswith("'glaeda-trusted-next-signing'"),
                                 runs_on)
                 for shared in ("CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGNING_POOL",
@@ -1206,7 +1241,9 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
                 # OWNED_ROUTE_VARIABLES, and its claim carries the `if` that skips its whole body with no
                 # source artifact (the unconditional first-step gate is what fails it); so it is held only to
                 # the rules above, as check() above already holds it.
-                runs_on = keychain_guard.strip_literal_selectors(str(job.get("runs-on", "")))
+                runs_on = runs_on_text(job)
+                self.assertIsNotNone(runs_on, f"{label}: runs-on has a matrix value nothing resolves")
+                runs_on = keychain_guard.strip_literal_selectors(runs_on)
                 owned = any((m.group(1) or m.group(2)).upper() in keychain_guard.OWNED_ROUTE_VARIABLES
                             for m in keychain_guard.RUNNER_VARIABLE.finditer(runs_on))
                 if owned:
@@ -1313,7 +1350,7 @@ class ClassificationTests(unittest.TestCase):
     def test_an_exempt_twin_that_can_reach_an_owned_mac_is_named(self) -> None:
         documents = workflows()
         twin = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize-blacksmith"])
-        twin["runs-on"] = documents["release.yml"]["jobs"]["build-sign-notarize"]["runs-on"]
+        [twin["runs-on"]] = workflow_jobs.runs_on_cells(documents["release.yml"]["jobs"]["build-sign-notarize"])
         found, _, _ = classification_failures(self._with(documents, "release.yml", "build-sign-notarize-blacksmith", twin))
         self.assertTrue(any(why.startswith("release.yml build-sign-notarize-blacksmith: in EXCLUSIVE_EXEMPT")
                             and "can reach an owned Mac" in why for why in found), found)
@@ -1561,7 +1598,8 @@ class PresenceConditionTests(unittest.TestCase):
         for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
             if workflow != "nightly.yml":
                 continue
-            runs_on = str(jobs[job_id].get("runs-on", ""))
+            runs_on = runs_on_text(jobs[job_id])
+            self.assertIsNotNone(runs_on, f"{job_id}: runs-on has a matrix value nothing resolves")
             if "CI_NIGHTLY_MINI" not in runs_on:
                 continue
             seen += 1
@@ -1686,7 +1724,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
                     {"defaults": {"run": {"working-directory": "evil"}},
                      "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}):
             with self.subTest(job=job):
-                found = self.failures("nightly.yml generate-nightly-deltas", dict(job, **{"runs-on": self.RUNS_ON}))
+                found = self.failures("nightly.yml generate-nightly-deltas", workflow_jobs.copy_job(job, {"runs-on": self.RUNS_ON}))
                 self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
 
     def test_a_secret_in_the_claim_steps_own_env_is_before_the_claim(self) -> None:

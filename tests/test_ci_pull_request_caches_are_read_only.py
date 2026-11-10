@@ -89,7 +89,8 @@ def main() -> int:
                 failures.append(f"{path.name} {job_name}: '{step.get('name')}' must read the R2 store nightly.yml seeds: ./.github/actions/cache-restore with an r2 backend")
             else:
                 # r2-cache.sh treats a missing public URL as a miss, silently.
-                scopes = (step.get("env"), workflow["jobs"][job_name].get("env"), workflow.get("env"))
+                # The step's env, then the env the job's steps start from (the workflow's, then the job's).
+                scopes = (step.get("env"), workflow_jobs.effective_env(workflow, workflow["jobs"][job_name]))
                 if not any("CI_CACHE_R2_PUBLIC_URL" in (scope or {}) for scope in scopes):
                     failures.append(f"{path.name} {job_name}: '{step.get('name')}' has no CI_CACHE_R2_PUBLIC_URL, so its R2 restore always misses")
 
@@ -192,17 +193,18 @@ def main() -> int:
             if not reads_secret_prefix(job, "CI_CACHE_R2_"):
                 continue
             writers += 1
-            if job.get("environment") == writer:
+            environment = workflow_jobs.resolve(job).environment  # a string environment is {"name": it}
+            if environment == {"name": writer}:
                 continue
             # Only a named signing secret exempts the job: reading every secret at once is no signing exemption.
-            if job.get("environment") == signing_writer and any(
+            if environment == {"name": signing_writer} and any(
                     name.startswith(signing_secret) for name in workflow_jobs.secret_names(job)):
                 continue
             # cmux NEXT writes its own bucket through its own environment, whose
             # deployment branches are feat-cmux-next only; it never names main's
             # bucket (cmux-next-fast-tier-seed.yml).
-            if job.get("environment") == next_writer:
-                bucket = (job.get("env") or {}).get("CI_CACHE_R2_BUCKET") or (document.get("env") or {}).get("CI_CACHE_R2_BUCKET")
+            if environment == {"name": next_writer}:
+                bucket = workflow_jobs.effective_env(document, job).get("CI_CACHE_R2_BUCKET")
                 if bucket == "cmux-ci-cache-next" and "vars.CI_CACHE_R2_BUCKET" not in path.read_text(encoding="utf-8"):
                     continue
                 failures.append(f"{path.name} {job_name}: a next-cache-writer job must write only the cmux-ci-cache-next bucket")

@@ -104,9 +104,8 @@ def referenced_secrets(node: object) -> tuple[set[str], bool]:
 
 def environment_values(document: dict, job: dict) -> set[str] | None:
     """The environment names a job can enter, or None when it cannot be resolved."""
-    environment = job.get("environment")
-    if isinstance(environment, dict):
-        environment = environment.get("name")
+    spec = workflow_jobs.resolve(job).environment  # None, or {"name": ..., ...} however it is written
+    environment = spec.get("name") if spec is not None else None
     if environment is None:
         return {""}
     environment = str(environment).strip()
@@ -198,7 +197,7 @@ def main() -> int:
                 continue
             values = environment_values(document, job)
             if values is None:
-                failures.append(f"{where}: environment {job.get('environment')!r} cannot be resolved to literal names")
+                failures.append(f"{where}: environment {workflow_jobs.resolve(job).environment!r} cannot be resolved to literal names")
                 continue
             entered = values - {""}
             for secret in sorted(secrets):

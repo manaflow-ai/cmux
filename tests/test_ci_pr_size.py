@@ -231,9 +231,13 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(self.workflow["permissions"], {})
         job = self.job
         self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
-        self.assertNotIn("environment", job)
-        self.assertNotIn("macos", str(job["runs-on"]).lower())
-        self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
+        resolved = workflow_jobs.resolve(job, JOB)
+        self.assertIsNone(resolved.environment)
+        self.assertIsNotNone(resolved.runs_on_cells, "a runs-on matrix nothing resolves")
+        self.assertTrue(resolved.runs_on_cells, "the job has no runs-on")
+        for cell in resolved.runs_on_cells:
+            self.assertNotIn("macos", cell.lower())
+            self.assertNotIn("self-hosted", cell.lower())
         self.assertEqual(workflow_jobs.secret_names(self.text), set())
         for name, each in workflow_jobs.jobs(self.workflow).items():
             self.assertEqual(workflow_jobs.secret_names(each), set(), name)

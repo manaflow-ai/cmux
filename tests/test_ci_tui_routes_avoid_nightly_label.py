@@ -197,7 +197,9 @@ def test_daemon_tests_never_take_a_mac() -> None:
     # promotion gate runs on Blacksmith Linux on every attempt, so no re-run
     # reaches the nightly label, the side lane or the promote pool
     # (tests/test_cmux_tui_daemon_tests_gate.py).
-    runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
+    cells = workflow_jobs.runs_on_cells(load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"])
+    assert cells is not None and len(cells) == 1, cells
+    runs_on = cells[0]
     for owned in ("1", ""):
         for context in contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=DAEMON_LABEL):
             label = route(runs_on, context)

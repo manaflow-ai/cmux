@@ -16,10 +16,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "gallery-health.yml"
 
 
@@ -111,12 +115,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        job_env = workflow["jobs"]["health"].get("env") or {}
-        runs = [entry for entry in steps() if "bun health.ts" in str(entry.get("run", ""))]
+        workflow = workflow_jobs.document(WORKFLOW)
+        job = workflow["jobs"]["health"]
+        runs = [entry for entry in job["steps"] if "bun health.ts" in str(entry.get("run", ""))]
         self.assertEqual(len(runs), 2)
         for entry in runs:
-            env = {**job_env, **(entry.get("env") or {})}
+            env = workflow_jobs.effective_env(workflow, job, entry)
             self.assertEqual(str(env.get("CMUX_GALLERY_IN_VM")), "1", entry.get("name"))
 
     def test_a_base_replay_with_no_verdict_fails_loudly(self) -> None:

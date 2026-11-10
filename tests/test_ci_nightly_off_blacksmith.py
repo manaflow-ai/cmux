@@ -70,6 +70,14 @@ TUI_NIGHTLY_RUNNER_INPUTS = (
 )
 
 
+def runs_on_text(job: dict, where: str) -> str:
+    """The job's runs-on as its one cell; a matrix nothing resolves, or more than one cell, fails."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"{where}: runs-on does not resolve to one value: {cells!r}")
+    return cells[0]
+
+
 def nightly_workflows() -> list[Path]:
     paths = set(WORKFLOWS.glob("*nightly*.yml")) | set(WORKFLOWS.glob("*notarization*.yml"))
     return sorted(paths)
@@ -88,7 +96,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         from test_nightly_trusted_routing import evaluate, parse_expression
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
         for name in ("resolve-nightly-cmux-tui-client", "find-nightly-next-recovery"):
-            expression = parse_expression(jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
+            expression = parse_expression(runs_on_text(jobs[name], name).removeprefix("${{").removesuffix("}}"))
             for attempt in (1, 2, 3):
                 for placement_attempt in ("", str(attempt - 1), str(attempt)):
                     context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
@@ -235,7 +243,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                         + one_mini + light.replace("{job}", name) + owned)
             with self.subTest(job=name):
-                self.assertEqual(jobs[name]["runs-on"], expected)
+                self.assertEqual(workflow_jobs.runs_on_cells(jobs[name]), [expected])
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
@@ -280,7 +288,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         one_mini = {"glaeda-nightly-mini"}
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
-                runs_on = jobs[name]["runs-on"]
+                runs_on = runs_on_text(jobs[name], name)
                 expected_tail = "|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
                 self.assertTrue(runs_on.endswith(expected_tail), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
@@ -350,8 +358,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 # On the nightly-only minis now, so never a hosted light job.
                 self.assertNotIn(f"nightly.yml#{name}", declared)
                 self.assertNotIn("pick-nightly-build-runner", jobs[name]["needs"])
-                self.assertNotIn("needs.pick-nightly-build-runner.outputs.", jobs[name]["runs-on"])
-                self.assertNotIn("environment", jobs[name])
+                self.assertNotIn("needs.pick-nightly-build-runner.outputs.", runs_on_text(jobs[name], name))
+                self.assertIsNone(workflow_jobs.resolve(jobs[name]).environment)
 
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
         """The overflow switch never sends a job to a macOS label it would not take otherwise.
@@ -369,10 +377,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 key = f"{path.name}#{name}"
                 # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
                 cells = workflow_jobs.runs_on_cells(job)
+                # A matrix nothing resolves may route through the switch: it fails unless audited by name.
                 if cells is None:
-                    strategy = job.get("strategy")
-                    written = str(job.get("runs-on")) + str(strategy.get("matrix") if isinstance(strategy, dict) else strategy)
-                    if "CI_CLOUD_OVERFLOW_SAVED" in written:
+                    if workflow_jobs.audited_matrix(path.name, name) is None:
                         self.fail(f"{key}: runs-on has a matrix value nothing resolves")
                     continue
                 cells = [runs_on for runs_on in cells if "CI_CLOUD_OVERFLOW_SAVED" in runs_on]
@@ -405,10 +412,10 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
         self.assertIn("vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", jobs["canary"]["runs-on"])
+                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on_text(jobs["canary"], "canary"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
-                self.assertRegex(jobs[name]["runs-on"], r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
+                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.

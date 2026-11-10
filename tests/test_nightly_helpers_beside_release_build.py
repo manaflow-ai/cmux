@@ -81,12 +81,15 @@ class WorkflowStructureTests(unittest.TestCase):
         job = self.jobs[INPUTS_JOB]
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"])
         self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
-        self.assertNotIn("environment", job)
+        resolved = workflow_jobs.resolve(job)
+        self.assertIsNone(resolved.environment)
         self.assertEqual(job["permissions"], {"contents": "read"})
         # Our nightly-only Macs, never Blacksmith (nightlies run only on our runners).
-        self.assertIn("'glaeda-nightly-only-m4pro'", job["runs-on"])
-        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
-        self.assertNotIn("macos-", job["runs-on"])
+        self.assertIsNotNone(resolved.runs_on_cells, f"{INPUTS_JOB}: runs-on has a matrix value nothing resolves")
+        runs_on = "\n".join(resolved.runs_on_cells)
+        self.assertIn("'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertNotIn("macos-", runs_on)
         self.assertEqual(workflow_jobs.secret_names(job), set())
         # Each upload has a retry step for the same artifact (tests/test_nightly_artifact_uploads_retry.py).
         uploads = list(dict.fromkeys(step["with"]["name"] for step in job["steps"] if "upload-artifact" in step.get("uses", "")))

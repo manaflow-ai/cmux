@@ -37,6 +37,7 @@ sys.path.insert(0, str(TOOL.parent))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import nightly_sign_admit  # noqa: E402
+import workflow_jobs  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
 
 SHADOW_GATE = "vars.NIGHTLY_SIGN == 'shadow' && ("
@@ -125,13 +126,15 @@ def check_workflow() -> None:
         check(gate_is_shadow_conjunct(gate),
               f"{where}: `if` must be `{SHADOW_GATE}...)` so an unset NIGHTLY_SIGN runs nothing (got {gate!r}); "
               "a job for another mode needs this test changed on purpose")
-        check("environment" not in job, f"{where}: a shadow job must not use an environment")
-        check("secrets" not in job, f"{where}: a shadow job must not take secrets")
+        resolved = workflow_jobs.resolve(job, job_id)
+        check(resolved.environment is None, f"{where}: a shadow job must not use an environment")
+        check(not (resolved.inherits_secrets or resolved.passed_secrets or resolved.secrets),
+              f"{where}: a shadow job must not take secrets")
         permissions = job.get("permissions")
         check(isinstance(permissions, dict) and set(permissions) <= READ_PERMISSIONS
               and set(permissions.values()) == {"read"},
               f"{where}: permissions must be read-only actions/checks/contents (got {permissions!r})")
-        check(job.get("runs-on") == LINUX_RUNNER, f"{where}: a shadow job runs on literal Linux labels ({LINUX_RUNNER})")
+        check(resolved.runs_on_cells == [LINUX_RUNNER], f"{where}: a shadow job runs on literal Linux labels ({LINUX_RUNNER})")
         for name in contexts(yaml.safe_dump(job)) | contexts("${{ " + gate + " }}"):
             check(bool(ALLOWED_CONTEXTS.match(name)), f"{where}: reads {name}, which a shadow job must not use")
         steps = job.get("steps") or []

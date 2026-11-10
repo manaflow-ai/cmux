@@ -1033,7 +1033,7 @@ class FeatWorkflowTests(unittest.TestCase):
                     continue
                 found.setdefault(workflow, set()).add(job_id)
                 with self.subTest(workflow=workflow, job=job_id):
-                    self.assertEqual(job.get("environment"), "pr-media",
+                    self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "pr-media"},
                                      "a pr-media writer runs in the pr-media environment (the terms list lives there)")
                     for step in job.get("steps") or []:
                         self.assertFalse(self.runs_a_writer(str(step.get("run", ""))),
@@ -1084,8 +1084,8 @@ class FeatWorkflowTests(unittest.TestCase):
 
     @staticmethod
     def environment(job: dict) -> str:
-        env = job.get("environment")
-        return str((env.get("name") if isinstance(env, dict) else env) or "")
+        spec = workflow_jobs.environment_spec(job)
+        return str((spec or {}).get("name") or "")
 
     @staticmethod
     def split_top(text: str, op: str) -> list[str]:
@@ -1194,7 +1194,7 @@ class FeatWorkflowTests(unittest.TestCase):
                 if not workflow_jobs.reads_secret(job, "PR_MEDIA_PRIVATE_TERMS"):
                     continue
                 with self.subTest(workflow=workflow, job=job_id):
-                    self.assertEqual(job.get("environment"), "pr-media")
+                    self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "pr-media"})
                     for step in job.get("steps") or []:
                         if workflow_jobs.reads_secret(step, "PR_MEDIA_PRIVATE_TERMS"):
                             self.assertEqual(step.get("uses"), self.ACTION_USE)

@@ -189,7 +189,9 @@ class EveryJobOnOurMinis(unittest.TestCase):
     def test_the_hosted_signing_switch_is_only_on_the_signing_jobs(self) -> None:
         for name in JOBS:
             with self.subTest(job=name):
-                route = str(JOBS[name].get("runs-on", ""))
+                cells = workflow_jobs.runs_on_cells(JOBS[name])
+                self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")
+                route = "\n".join(cells)
                 switches = route.count("CI_NIGHTLY_MINI_SIGNER") + route.count("CI_NIGHTLY_MINI_PUBLISHER")
                 self.assertEqual(switches, 1 if name in HOSTED_SIGNING_SWITCHES else 0)
                 if name in HOSTED_SIGNING_SWITCHES:
@@ -210,11 +212,13 @@ class EveryJobOnOurMinis(unittest.TestCase):
         self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
+            resolved = workflow_jobs.resolve(job, name)
             with self.subTest(job=name):
-                self.assertEqual(str(job.get("runs-on")),
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+                self.assertEqual(resolved.runs_on_cells,
+                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
-                self.assertIn("release-next", str(job.get("environment")))
+                self.assertIn("release-next", resolved.environments)
+                self.assertEqual(resolved.environments_unresolved, set())
                 self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
                 # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
                 self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))

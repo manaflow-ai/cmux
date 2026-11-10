@@ -71,6 +71,14 @@ def job(doc: dict, key: str = "fast-gates") -> dict:
     return doc["jobs"][key]
 
 
+def runner_text(job_body: dict) -> str:
+    """The job's runs-on, every matrix cell on its own line; a matrix nothing resolves fails."""
+    cells = workflow_jobs.runs_on_cells(job_body)
+    if cells is None:
+        raise AssertionError("runs-on reads a matrix value nothing resolves")
+    return "\n".join(cells)
+
+
 def step_named(steps: list[dict], fragment: str) -> dict:
     found = [s for s in steps if fragment in s.get("name", "")]
     if len(found) != 1:
@@ -87,10 +95,10 @@ class WorkflowShape(unittest.TestCase):
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
         # accept bounded overflow explicitly.
-        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["own-change-checks"]["runs-on"]
-        self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
-        self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
-        fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
+        guards_runner = runner_text(workflow_jobs.jobs(GUARDS)["own-change-checks"])
+        self.assertNotEqual(runner_text(doc["jobs"]["resolve"]), guards_runner)
+        self.assertNotEqual(runner_text(doc["jobs"]["post"]), guards_runner)
+        fast_runner = runner_text(doc["jobs"]["fast-gates"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
@@ -101,7 +109,7 @@ class WorkflowShape(unittest.TestCase):
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for key in light:
             with self.subTest(light=key):
-                runner = str(doc["jobs"][key]["runs-on"])
+                runner = runner_text(doc["jobs"][key])
                 self.assertIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 self.assertTrue(runner.endswith(
                     "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)

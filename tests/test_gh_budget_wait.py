@@ -13,9 +13,13 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
@@ -430,11 +434,15 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["attest-nightly-remote-daemon"]
         # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
         # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
-        self.assertNotIn("macos", job["runs-on"])
-        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", job["runs-on"])
-        self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
-        self.assertNotIn("blacksmith", job["runs-on"])
-        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "attest-nightly-remote-daemon: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
+        self.assertNotIn("macos", runs_on)
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
+        self.assertNotIn("blacksmith", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
         # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run.
         self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)

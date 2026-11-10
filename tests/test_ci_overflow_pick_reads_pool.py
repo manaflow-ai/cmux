@@ -190,11 +190,17 @@ def picks_one_size(runs_on: object) -> bool:
     return pick is not None and EPHEMERAL_MIRROR.search(runs_on[: pick.start()]) is None
 
 
-def job_picks_one_size(job: dict) -> bool:
+def job_picks_one_size(job: dict, workflow: str, job_id: str) -> bool:
     """picks_one_size over every matrix cell of the job's runs-on (a `${{ matrix.runner }}` leg is read as its
-    values). A matrix value nothing resolves (a fromJSON matrix) leaves only the runs-on as written to read."""
+    values). A matrix value nothing resolves (a fromJSON matrix) fails, unless workflow_jobs.audited_matrix names
+    why that job's matrix is read elsewhere; such a job is skipped by name."""
     cells = workflow_jobs.runs_on_cells(job)
-    return any(picks_one_size(cell) for cell in (cells if cells is not None else [job.get("runs-on")]))
+    if cells is None:
+        if workflow_jobs.audited_matrix(workflow, job_id):
+            return False
+        raise AssertionError(f"{workflow} job {job_id}: its runs-on matrix resolves to no runner, so its size "
+                             "cannot be read; resolve the matrix or audit it in workflow_jobs.UNRESOLVED_MATRICES")
+    return any(picks_one_size(cell) for cell in cells)
 
 
 def counts() -> dict[str, int]:
@@ -202,8 +208,8 @@ def counts() -> dict[str, int]:
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         if OUT_OF_SCOPE.search(path.name):
             continue
-        for job in ((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}).values():
-            if isinstance(job, dict) and job_picks_one_size(job):
+        for job_id, job in ((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}).items():
+            if isinstance(job, dict) and job_picks_one_size(job, path.name, job_id):
                 found[path.name] = found.get(path.name, 0) + 1
     return found
 
@@ -236,10 +242,13 @@ class WorkflowTests(unittest.TestCase):
         # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Its other
         # waiting jobs (acpmux-tests, acpmux-protocol-ir, clippy) are measured 8 vCPU compile jobs and keep
         # their size and outage switch (tests/test_ci_linux_compile_runners.py).
-        jobs = yaml.safe_load((WORKFLOWS / "cmux-tui-spec.yml").read_text(encoding="utf-8"))["jobs"]
+        jobs = workflow_jobs.jobs(WORKFLOWS / "cmux-tui-spec.yml")
         for name in ("inventory", "rustfmt"):
             with self.subTest(job=name):
-                runs_on = jobs[name]["runs-on"]
+                cells = workflow_jobs.runs_on_cells(jobs[name])
+                self.assertIsNotNone(cells, name)
+                self.assertEqual(len(cells), 1, cells)
+                runs_on = cells[0]
                 self.assertFalse(picks_one_size(runs_on), runs_on)
                 self.assertTrue(runs_on.rstrip().endswith("|| " + POOL + " }}"), runs_on)
 

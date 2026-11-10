@@ -69,6 +69,7 @@ SELECTIONS_KEPT_LITERAL = {
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import holds_signing_material  # noqa: E402
+import workflow_jobs  # noqa: E402
 # A fork branch whose operand reads any repository variable, directly or through fromJSON.
 VARS_READ = re.compile(r"\bvars\.")
 FORK_READS_POOLS = re.compile(FORK.pattern.rstrip("$") + r"(?:fromJSON\()?vars\.")
@@ -196,7 +197,10 @@ class NoSingleSizePins(unittest.TestCase):
         document = yaml.load((WORKFLOWS / "release.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
         job = document["jobs"]["build-sign-notarize"]
         self.assertTrue(holds_signing_material(job))
-        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            self.assertNotIn("RUNNER_POOLS", cell)
 
     def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","

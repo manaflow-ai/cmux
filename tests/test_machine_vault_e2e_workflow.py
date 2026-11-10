@@ -64,7 +64,7 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
-        self.assertEqual(job["environment"], {"name": "cmux-next-vm-image-dev", "deployment": "false"})
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
@@ -96,7 +96,7 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertEqual(workflow_jobs.secret_names(text),
                          {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
         for name, job in load()["jobs"].items():
-            outside_steps = {k: v for k, v in job.items() if k != "steps"} if name == "e2e" else job
+            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
             self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
         holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
@@ -141,16 +141,17 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             self.assertNotRegex(s.get("run", ""), r"set -[a-z]*x|set -o xtrace|bash -x")
 
     def test_development_origin_only(self) -> None:
-        job = load()["jobs"]["e2e"]
-        self.assertEqual(job["env"]["HUB_ORIGIN"], DEV)
+        document = load()
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["HUB_ORIGIN"], DEV)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
     def test_ephemeral_macos_runner(self) -> None:
         job = load()["jobs"]["e2e"]
-        self.assertEqual(job["runs-on"], RUNS_ON)
-        self.assertNotRegex(job["runs-on"], r"vars\.(?!RUNNER_POOLS)")
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertEqual(cells, [RUNS_ON])
+        self.assertNotRegex("\n".join(cells), r"vars\.(?!RUNNER_POOLS)")
         self.assertIn("timeout-minutes", job)
 
     def test_channel_must_carry_the_vault_before_secrets(self) -> None:

@@ -26,7 +26,7 @@ reads the owned pick with the same dotted() and NEEDS_OUTPUT it had before; what
 itself. Its pre-fix is that guard switched off (PRE_FIX_GUARDS: owned_pick_reads finds nothing), and its fixture must
 go red with it, so the fixture is shown to need the guard.
 
-The 22 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
+The first 22 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
 tests/test_nightly_sign_runner.py, tests/test_seed_derived_data.py, tests/test_ci_signing_owned_mac.py,
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py's GATED_SECRET_JOBS,
 tests/test_ci_fork_runner_routing.py, tests/test_publish_app_token_workflow.py) and the four keychain lists
@@ -35,11 +35,24 @@ tests/test_ci_fork_runner_routing.py, tests/test_publish_app_token_workflow.py) 
 env), environment (a release environment in another case, for the release and App-token lists) and name (a required
 check named by an expression, and a runner passed to a reusable workflow's input from the caller's matrix, in
 bracket form). Secrets are the bracket, case and toJSON fixtures above. This branch merges the three list branches, so every module is importable here.
+
+Six more (ResolverGaps) close the fail-opens review found after that: a guard that read runs-on raw (the keychain
+rule on a signing matrix's Linux leg), a fromJSON matrix (a literal one read cell by cell, in the expression or in
+the output a sibling step echoes; a computed one fails unless workflow_jobs.UNRESOLVED_MATRICES names why, where
+guards used to fall back to the raw string), a job copy that dropped the workflow env (copy_job), and a
+`secrets: inherit` call followed into the workflow it calls (or named when it cannot be). Where the fix is one new
+reader, PRE_FIX_ONLY swaps back only that reader, so the fixture is shown to need exactly that fix: 28 fixtures.
+
+The SIGNING_JOBS cap fixture has no pre-fix reader to swap in: its fix added the classification and changed no
+reader (the owned pick is read with the same dotted() and NEEDS_OUTPUT as before), so its only pre-fix is the guard
+switched off. tests/test_ci_guards_read_through_workflow_jobs.py keeps every guard on these readers.
 """
 
 from __future__ import annotations
 
+import copy
 import importlib
+import json
 import re
 import sys
 import unittest
@@ -180,7 +193,7 @@ class ReusableInputTracing(unittest.TestCase):
         cls.documents = _documents()
 
     def _tree(self, caller_job: dict, callee: dict | None = None, **more: dict) -> workflow_jobs.Workflows:
-        caller = {"on": "push", "jobs": {"call": {"uses": "./.github/workflows/callee-fixture.yml", **caller_job}}}
+        caller = {"on": "push", "jobs": {"call": workflow_jobs.copy_job({"uses": "./.github/workflows/callee-fixture.yml"}, caller_job)}}
         return workflow_jobs.Workflows({**self.documents, "caller-fixture.yml": caller,
                                         "callee-fixture.yml": callee or self.CALLEE, **more})
 
@@ -240,10 +253,144 @@ class EffectiveEnv(unittest.TestCase):
             self.assertIsNone(workflow_jobs.repo_path(value), value)
 
 
+class ResolverGaps(unittest.TestCase):
+    """The four fail-opens the resolve step closed after review, one guard fixture each (rows in FIXTURES):
+    a raw runs-on read (the keychain guard read `${{ matrix.runner }}` as one string), a fromJSON matrix (read as the
+    raw string, or skipped), a job copy that dropped the workflow env, and a `secrets: inherit` nothing followed."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.documents = _documents()
+        cls.keychain = importlib.import_module(KEYCHAIN)
+        cls.routing = importlib.import_module("test_nightly_trusted_routing")
+        cls.overflow = importlib.import_module("test_ci_overflow_pick_reads_pool")
+
+    def test_a_signing_job_whose_matrix_linux_leg_reads_a_runner_variable_first_is_named(self) -> None:
+        """Rule 4 per matrix cell: the Linux leg of a signing matrix may not pick its runner from vars.LINUX_RUNNER
+        before an ephemeral label. Read as the raw `${{ matrix.runner }}`, the leg had no variable to check."""
+        job = {"runs-on": "${{ matrix.runner }}",
+               "strategy": {"matrix": {"runner": [
+                   "macos-26", "${{ vars.LINUX_RUNNER && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"]}},
+               "steps": [{"run": "sign", "env": {"K": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}]}
+        failures: list[str] = []
+        self.keychain.check_job("matrix-fixture.yml sign", job, failures)
+        self.assertIn("matrix-fixture.yml sign: holds a signing secret and reads vars.LINUX_RUNNER other than as the "
+                      "expression's last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`", failures)
+
+    def _control_doc(self, matrix: str, producer: dict | None = None) -> dict:
+        doc = copy.deepcopy(self.routing.DOC)
+        if producer is not None:
+            doc["jobs"]["json-plan-fixture"] = producer
+        doc["jobs"]["json-control-fixture-nightly"] = {
+            "runs-on": "${{ matrix.runner }}", "strategy": {"matrix": matrix},
+            "needs": ["json-plan-fixture"] if producer is not None else [],
+            "permissions": {"issues": "write"}, "steps": [{"run": "true"}]}
+        return doc
+
+    @staticmethod
+    def _literal(runners: list[str]) -> str:
+        return "${{ fromJSON('" + json.dumps({"runner": runners}).replace("'", "''") + "') }}"
+
+    @staticmethod
+    def _producer(runners: list[str]) -> dict:
+        text = json.dumps({"runner": runners})
+        return {"runs-on": "macos-26", "outputs": {"matrix": "${{ steps.plan.outputs.matrix }}"},
+                "steps": [{"id": "plan", "run": f"echo 'matrix={text}' >> \"$GITHUB_OUTPUT\""}]}
+
+    def test_a_control_whose_matrix_is_literal_json_is_checked_per_cell(self) -> None:
+        """A `fromJSON` matrix of a literal, in the expression or in the output a sibling step echoes, is read cell
+        by cell: a Blacksmith leg of a credentialed control fails on its route, not as a matrix nothing resolves."""
+        for form, doc in (
+                ("literal", self._control_doc(self._literal(["blacksmith-4vcpu-ubuntu-2404"]))),
+                ("needs output", self._control_doc("${{ fromJSON(needs.json-plan-fixture.outputs.matrix) }}",
+                                                   self._producer(["blacksmith-4vcpu-ubuntu-2404"])))):
+            with self.subTest(form=form):
+                self.assertEqual(self.routing.control_route_failures(doc).get("json-control-fixture-nightly"),
+                                 "runs-on reads blacksmith")
+
+    def test_a_literal_json_matrix_control_on_the_nightly_pool_stays_green(self) -> None:
+        pool = self.routing.runs_on_text(self.routing.DOC["jobs"]["published-in"], "published-in")
+        doc = self._control_doc(self._literal([pool]))
+        self.assertIn("json-control-fixture-nightly", self.routing.credentialed_control_jobs(doc))
+        self.assertEqual(self.routing.control_route_failures(doc), {})
+
+    def test_an_unaudited_matrix_nothing_resolves_fails_the_size_guard(self) -> None:
+        """A computed fromJSON matrix fails an all-workflow guard unless UNRESOLVED_MATRICES names why; the guard
+        read the runs-on as written before, where `${{ matrix.runner }}` picks no size and passed."""
+        job = {"runs-on": "${{ matrix.runner }}", "needs": "plan",
+               "strategy": {"matrix": "${{ fromJSON(needs.plan.outputs.matrix) }}"}, "steps": [{"run": "true"}]}
+        with self.assertRaisesRegex(AssertionError, "UNRESOLVED_MATRICES"):
+            self.overflow.job_picks_one_size(job, "matrix-fixture.yml", "build")
+        self.assertFalse(self.overflow.job_picks_one_size(job, "seed-derived-data.yml", "seed"))
+
+    def test_a_copied_job_keeps_its_workflow_env_secret(self) -> None:
+        """Rule 6 reads each job through inline_step_scripts, a copy: the copy keeps the workflow env the job
+        inherits (copy_job), so a release secret set there still makes the job's bundle code a failure."""
+        workflow = workflow_jobs.inheriting({
+            "on": "push", "env": {"CERT": "${{ secrets.APPLE_CERTIFICATE_BASE64 }}"},
+            "jobs": {"copy-env-fixture": {"runs-on": "ubuntu-24.04",
+                                          "steps": [{"name": "Smoke", "run": "scripts/ci/smoke-dmg.sh build/x.dmg"}]}}})
+        found = self.keychain.step_level_classification({**self.documents, "copy-env-fixture.yml": workflow})
+        named = [why for why in found if why.startswith("copy-env-fixture.yml copy-env-fixture:")]
+        self.assertTrue(named and all("runs bundle code in a job that holds secrets" in why for why in named), found)
+
+    def test_a_nested_secrets_inherit_is_followed_or_unresolved(self) -> None:
+        """`secrets: inherit` hands a called workflow every secret; the resolve step follows the call (and the
+        called workflow's own inherited calls) to what is read there, and names a call it cannot follow."""
+        callee = {"on": {"workflow_call": {}}, "jobs": {"sign": {"runs-on": "macos-26", "steps": [
+            {"run": "sign", "env": {"K": "${{ secrets['NIGHTLY_SPARKLE_PRIVATE_KEY'] }}"}}]}}}
+        middle = {"on": {"workflow_call": {}}, "jobs": {"call": {"uses": "./.github/workflows/callee.yml",
+                                                                 "secrets": "inherit"}}}
+        cycle = {"on": {"workflow_call": {}}, "jobs": {"again": {"uses": "./.github/workflows/cycle.yml",
+                                                                 "secrets": "inherit"}}}
+        tree = workflow_jobs.Workflows({"middle.yml": middle, "callee.yml": callee, "cycle.yml": cycle})
+        top = {"uses": "./.github/workflows/middle.yml", "secrets": "inherit"}
+        resolved = workflow_jobs.resolve(top, "call", "top.yml", tree)
+        self.assertEqual(resolved.secrets, {workflow_jobs.ALL_SECRETS, "NIGHTLY_SPARKLE_PRIVATE_KEY"})
+        self.assertEqual(resolved.secrets_unresolved, set())
+        for job, unresolved in (({"uses": "other/repo/.github/workflows/x.yml@v1", "secrets": "inherit"},
+                                 {"other/repo/.github/workflows/x.yml@v1"}),
+                                ({"uses": "./.github/workflows/cycle.yml", "secrets": "inherit"},
+                                 {"./.github/workflows/cycle.yml"})):
+            with self.subTest(uses=job["uses"]):
+                found = workflow_jobs.resolve(job, "call", "top.yml", tree)
+                self.assertEqual(found.secrets_unresolved, unresolved)
+                self.assertTrue(found.unresolved)
+
+
 HERE = __name__
 # Fixtures whose fix added a guard rather than changed a reader: the guard as it was before (absent), per list.
 PRE_FIX_GUARDS = {
     "SIGNING_JOBS (signing_runner)": (("test_ci_signing_owned_mac", "owned_pick_reads", lambda jobs, runs_on: []),),
+}
+
+
+def _matrix_as_written(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The matrix reader before fromJSON literals were read: a mapping as written, else nothing."""
+    strategy = job.get("strategy")
+    matrix = strategy.get("matrix") if isinstance(strategy, Mapping) else None
+    return matrix if isinstance(matrix, Mapping) else None
+
+
+def _plain_copy(job: Mapping[str, Any], changes: Mapping[str, Any] | None = None) -> dict:
+    """A job copy before copy_job: `{**job, **changes}`, a plain dict without the workflow env the job inherits."""
+    out = {**job}
+    for key, value in (changes or {}).items():
+        if value is workflow_jobs.DROP:
+            out.pop(key, None)
+        else:
+            out[key] = value
+    return out
+
+
+# Fixtures whose fix is one reader among the new ones: only that reader is swapped back (the rest stay current), so
+# the fixture is shown to need exactly that fix.
+PRE_FIX_ONLY = {
+    "copy_job (a copied job keeps the workflow env)": (("workflow_jobs", "copy_job", _plain_copy),),
+    "fromJSON literal matrix (a control on the nightly pool)": (("workflow_jobs", "_matrix", _matrix_as_written),),
+    "secrets: inherit (followed into the called workflow)": (
+        ("workflow_jobs", "effective_secrets", lambda job, workflows=None, _seen=frozenset(): (
+            workflow_jobs.secret_names(job), set())),),
 }
 # (list, module, class, the fixture that must name an unlisted job, its listed-and-green twin or None). Where a list
 # has a dot-form fixture too (test_a_new_job_with_the_trait_and_no_entry_is_named), the one here is its bracket,
@@ -300,6 +447,18 @@ FIXTURES = (
     ("INLINE_DEVELOPER_ID_KEYCHAINS", HERE, "KeychainListFixtures", "test_inline_developer_id_keychains", None),
     ("SCRIPT_MADE_KEYCHAINS (derived)", HERE, "KeychainListFixtures", "test_script_made_keychains", None),
     ("RELEASE_POOL_SIGNERS (derived)", HERE, "KeychainListFixtures", "test_release_pool_signers", None),
+    ("runs-on per matrix cell (keychain rule 4)", HERE, "ResolverGaps",
+     "test_a_signing_job_whose_matrix_linux_leg_reads_a_runner_variable_first_is_named", None),
+    ("fromJSON literal matrix (a credentialed control)", HERE, "ResolverGaps",
+     "test_a_control_whose_matrix_is_literal_json_is_checked_per_cell", None),
+    ("fromJSON literal matrix (a control on the nightly pool)", HERE, "ResolverGaps",
+     "test_a_literal_json_matrix_control_on_the_nightly_pool_stays_green", None),
+    ("fromJSON matrix nothing resolves (no raw fallback)", HERE, "ResolverGaps",
+     "test_an_unaudited_matrix_nothing_resolves_fails_the_size_guard", None),
+    ("copy_job (a copied job keeps the workflow env)", HERE, "ResolverGaps",
+     "test_a_copied_job_keeps_its_workflow_env_secret", None),
+    ("secrets: inherit (followed into the called workflow)", HERE, "ResolverGaps",
+     "test_a_nested_secrets_inherit_is_followed_or_unresolved", None),
 )
 
 
@@ -318,8 +477,9 @@ def outcome(result: unittest.TestResult) -> str:
 
 
 class PreFixMutation(unittest.TestCase):
-    def test_there_are_twenty_two_fixtures(self) -> None:
-        self.assertEqual(len({row[3] for row in FIXTURES}), 22)
+    def test_there_are_twenty_eight_fixtures(self) -> None:
+        self.assertEqual(len({row[3] for row in FIXTURES}), 28)
+        self.assertLessEqual(set(PRE_FIX_ONLY), {row[0] for row in FIXTURES})
 
     def test_each_fixture_is_green_with_the_shared_reader(self) -> None:
         for label, module, cls, red, green in FIXTURES:
@@ -330,8 +490,8 @@ class PreFixMutation(unittest.TestCase):
     def test_each_fixture_is_red_with_the_pre_fix_reader(self) -> None:
         for label, module, cls, red, _ in FIXTURES:
             with self.subTest(list=label, fixture=red):
-                with PreFixReader.patched() as stack:
-                    for owner, name, old in PRE_FIX_GUARDS.get(label, ()):
+                with (ExitStack() if label in PRE_FIX_ONLY else PreFixReader.patched()) as stack:
+                    for owner, name, old in (*PRE_FIX_GUARDS.get(label, ()), *PRE_FIX_ONLY.get(label, ())):
                         stack.enter_context(mock.patch.object(importlib.import_module(owner), name, old))
                     found = outcome(run_fixture(module, cls, red))
                 print(f"pre-fix reader: {label}: {red}: {found}", file=sys.stderr)

@@ -1406,7 +1406,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
     def test_a_listed_release_job_in_another_case_stays_green(self) -> None:
         jobs = workflow_jobs.jobs(NIGHTLY)
-        listed = {**jobs["publish-release-notes"], "environment": "Release-Next"}
+        listed = workflow_jobs.copy_job(jobs["publish-release-notes"], {"environment": "Release-Next"})
         fixture = {**jobs, "publish-release-notes": listed}
         self.assertEqual(unclassified_release_jobs(fixture), set())
         self.assertEqual(stale_release_classifications(fixture), set())
@@ -1474,8 +1474,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
     def test_a_listed_release_job_with_a_matrix_environment_stays_green(self) -> None:
         jobs = workflow_jobs.jobs(NIGHTLY)
-        listed = {**jobs["publish-release-notes"], "environment": "${{ matrix.environment }}",
-                  "strategy": {"matrix": {"environment": ["release", "release-next"]}}}
+        listed = workflow_jobs.copy_job(jobs["publish-release-notes"], {
+            "environment": "${{ matrix.environment }}", "strategy": {"matrix": {"environment": ["release", "release-next"]}}})
         fixture = {**jobs, "publish-release-notes": listed}
         self.assertEqual(unclassified_release_jobs(fixture), set())
         self.assertEqual(stale_release_classifications(fixture), set())

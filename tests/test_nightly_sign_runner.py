@@ -61,6 +61,15 @@ def is_mac(job: dict) -> bool:
     return cells is None or any("macos" in cell or "xcode" in cell for cell in cells)
 
 
+def runs_on_text(job: dict, name: str = "") -> str:
+    """A job's runs-on as written, one line per matrix cell (workflow_jobs.runs_on_cells; "" when it has none). A
+    matrix runner nothing resolves fails the caller: it is never read as the raw string."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        raise AssertionError(f"{name or job}: runs-on has a matrix value nothing resolves")
+    return "\n".join(cells)
+
+
 def signing_jobs(jobs: dict) -> dict[str, str]:
     """Every Mac job a sign picker places (it needs one), and the Blacksmith output it must never read.
 
@@ -94,17 +103,24 @@ def owned_route_failures(jobs: dict) -> dict[str, str]:
     """Each signing-phase Mac job whose route can take Blacksmith or misses its owned ending, with the reason."""
     failures = {}
     for name, picked in sorted(signing_jobs(jobs).items()):
-        runs_on = str(jobs[name]["runs-on"])
+        # Every matrix cell's runs-on (workflow_jobs.runs_on_cells); a runner nothing resolves is a failure.
+        cells = workflow_jobs.runs_on_cells(jobs[name])
+        if not cells:
+            failures[name] = "runs-on has a matrix value nothing resolves" if cells is None else "no runs-on"
+            continue
         ending = owned_fallback(name, jobs)
-        for needle in (picked, ALTERNATES[picked], "blacksmith", "RUNNER_POOLS", "MACOS_RUNNER", "sign_runner",
-                       "sign_alternate"):
-            if needle in runs_on:
-                failures[name] = f"runs-on reads {needle}"
+        for runs_on in cells:
+            for needle in (picked, ALTERNATES[picked], "blacksmith", "RUNNER_POOLS", "MACOS_RUNNER", "sign_runner",
+                           "sign_alternate"):
+                if needle in runs_on:
+                    failures[name] = f"runs-on reads {needle}"
+                    break
+            else:
+                if not runs_on.endswith(ending):
+                    failures[name] = f"runs-on does not end {ending!r}" + (
+                        " (it holds a secret: the signer's label alone)" if ending == SIGNING_FALLBACK else "")
+            if name in failures:
                 break
-        else:
-            if not runs_on.endswith(ending):
-                failures[name] = f"runs-on does not end {ending!r}" + (
-                    " (it holds a secret: the signer's label alone)" if ending == SIGNING_FALLBACK else "")
     return failures
 
 
@@ -537,7 +553,7 @@ class Workflow(unittest.TestCase):
         jobs = WORKFLOW["jobs"]
         for name in OWNED_ONLY_JOBS:
             with self.subTest(job=name):
-                runs_on = str(jobs[name]["runs-on"])
+                runs_on = runs_on_text(jobs[name], name)
                 self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
@@ -551,7 +567,7 @@ class Workflow(unittest.TestCase):
         jobs = WORKFLOW["jobs"]
         for name in SECRET_JOBS:
             with self.subTest(job=name):
-                self.assertTrue(str(jobs[name]["runs-on"]).endswith(SIGNING_FALLBACK))
+                self.assertTrue(runs_on_text(jobs[name], name).endswith(SIGNING_FALLBACK))
 
     def test_every_mac_job_with_signing_material_is_placed_by_a_sign_picker_or_named(self) -> None:
         jobs = WORKFLOW["jobs"]
@@ -643,13 +659,13 @@ class Workflow(unittest.TestCase):
         self.assertEqual(unpicked_signing_mac_jobs(jobs), set())
 
     def test_no_other_macos_job_resolves_to_the_variable_alone(self) -> None:
-        reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in str(job.get("runs-on", ""))}
+        reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in runs_on_text(job, name)}
         self.assertEqual(reads - set(SIGNING_JOBS) - BUILD_JOBS, set(),
                          "a new macOS job reads vars.MACOS_RUNNER_26 for its route: give it a picked label "
                          "(scripts/ci/nightly_sign_runner.py) or add it to BUILD_JOBS if it signs nothing")
         for name in BUILD_JOBS & reads:
             with self.subTest(job=name):
-                self.assertNotIn("environment", WORKFLOW["jobs"][name].get("environment", "") or "")
+                self.assertNotIn("environment", (workflow_jobs.resolve(WORKFLOW["jobs"][name]).environment or {}).get("name") or "")
 
 
 
@@ -675,12 +691,13 @@ class OwnedVerify(unittest.TestCase):
                 self.assertEqual(workflow_jobs.secret_names(job), set())
                 # The owned pick for this attempt, then the owned nightly route; never Blacksmith.
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              + OWNED_FALLBACK, str(job["runs-on"]))
+                              + OWNED_FALLBACK, runs_on_text(job, name))
                 # The launch smoke selects no Xcode: it mounts a DMG and runs the app in it.
+                env = workflow_jobs.resolve(job).env
                 if name == "launch-smoke-nightly":
-                    self.assertNotIn("CMUX_CI_XCODE_APP", job["env"])
+                    self.assertNotIn("CMUX_CI_XCODE_APP", env)
                     continue
-                xcode = job["env"]["CMUX_CI_XCODE_APP"]
+                xcode = env["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
                               "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
@@ -728,18 +745,19 @@ class OwnedVerify(unittest.TestCase):
                     context = {**base, **changes}
                     def resolve(source):
                         return evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")), context)
-                    self.assertEqual(resolve(job["runs-on"]), runner)
-                    if context["github.repository_owner"] == "manaflow-ai" and "CMUX_CI_XCODE_APP" in job["env"]:
-                        self.assertEqual(resolve(job["env"]["CMUX_CI_XCODE_APP"]),
+                    env = workflow_jobs.resolve(job).env
+                    self.assertEqual(resolve(runs_on_text(job, name)), runner)
+                    if context["github.repository_owner"] == "manaflow-ai" and "CMUX_CI_XCODE_APP" in env:
+                        self.assertEqual(resolve(env["CMUX_CI_XCODE_APP"]),
                                          f"/Applications/Xcode-{xcode}.app")
 
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
         for name, job in WORKFLOW["jobs"].items():
-            if self.OWNED not in str(job.get("runs-on", "")):
+            if self.OWNED not in runs_on_text(job, name):
                 continue
             with self.subTest(job=name):
                 self.assertIn(name, self.OWNED_JOBS)
-                self.assertFalse(job.get("environment"))
+                self.assertIsNone(workflow_jobs.resolve(job).environment)
                 self.assertEqual(workflow_jobs.secret_names(job), set())
 
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
@@ -752,7 +770,7 @@ class OwnedVerify(unittest.TestCase):
         self.assertIn("steps.owned.outputs.owned", owned_output)
         self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
         # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
-        self.assertEqual(job.get("environment"), {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ci-routing-agent", "deployment": False})
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
         self.assertNotIn("github.run_attempt == 1", step["if"])
@@ -840,7 +858,7 @@ class SnapshotReadToken(unittest.TestCase):
                 self.assertEqual(mint["if"], route["if"])
                 # No widening: the job keeps actions: read and contents: read, in the routing environment.
                 self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
-                self.assertEqual(job["environment"], {"name": "ci-routing-agent", "deployment": False})
+                self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ci-routing-agent", "deployment": False})
                 budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
                 self.assertGreaterEqual(job_limit(job), budget)
 

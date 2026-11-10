@@ -104,11 +104,11 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
 
     def test_a_listed_release_app_job_in_another_case_stays_green(self) -> None:
-        listed = {**self.jobs["publish-release-notes"], "environment": "Release"}
+        listed = workflow_jobs.copy_job(self.jobs["publish-release-notes"], {"environment": "Release"})
         self.assertEqual(unclassified_app_jobs({**self.jobs, "publish-release-notes": listed}), set())
 
     def test_a_listed_release_app_job_reading_the_key_by_bracket_stays_green(self) -> None:
-        listed = {**self.jobs["publish-release-notes"]}
+        listed = workflow_jobs.copy_job(self.jobs["publish-release-notes"])
         listed["steps"] = [*listed["steps"], {"with": {"private-key": "${{ secrets['cmux_release_app_key'] }}"}}]
         fixture = {**self.jobs, "publish-release-notes": listed}
         self.assertEqual(unclassified_app_jobs(fixture), set())
@@ -116,9 +116,11 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_jobs_mint_the_app_token_and_install_before_the_budget_wait(self) -> None:
         for name, contents in APP_JOBS.items():
             job, steps = self.jobs[name], self.jobs[name]["steps"]
-            self.assertIn(job.get("environment"), ("release-next", "${{ needs.decide.outputs.environment }}",
-                                                   # Tail jobs: decide is in another run on nightly-next.
-                                                   "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"), name)
+            # workflow_jobs.environment_spec's one shape: a string environment is {"name": it}.
+            self.assertIn(workflow_jobs.resolve(job).environment, tuple({"name": environment} for environment in (
+                "release-next", "${{ needs.decide.outputs.environment }}",
+                # Tail jobs: decide is in another run on nightly-next.
+                "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}")), name)
             mint = [i for i, s in enumerate(steps) if s.get("id") == "gh-app-token"]
             app = [i for i, s in enumerate(steps) if APP_INSTALL.search(str(s.get("run", "")))]
             budget = [i for i, s in enumerate(steps) if BUDGET_INSTALL.search(str(s.get("run", "")))]

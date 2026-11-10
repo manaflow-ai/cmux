@@ -26,14 +26,18 @@ ON = {"vars.CI_NIGHTLY_MINI": "glaeda-nightly-mini", "vars.CI_NIGHTLY_MINI_BUILD
 OFF = {"vars.CI_NIGHTLY_MINI": "", "vars.CI_NIGHTLY_MINI_BUILDER": ""}
 
 
-def on_the_mini(job: dict) -> bool:
-    """The job's runs-on can read the one-mini switch: as written, in any matrix cell (`${{ matrix.KEY }}` read as
-    its values), or through a matrix value nothing resolves (then it may, so it needs the room too)."""
+def on_the_mini(job: dict, name: str) -> bool:
+    """The job's runs-on can read the one-mini switch: in any matrix cell (`${{ matrix.KEY }}` read as its values)
+    or its matrix pool. A matrix value nothing resolves fails, unless workflow_jobs.audited_matrix names why; such a
+    job may read the switch, so it needs the room too."""
     cells = workflow_jobs.runs_on_cells(job)
     if cells is None:
-        return True
-    text = str(job.get("runs-on", "")) + str((job.get("strategy") or {}).get("matrix", {}).get("pool", ""))
-    return any("vars.CI_NIGHTLY_MINI" in runs_on for runs_on in [text, *cells])
+        if workflow_jobs.audited_matrix("nightly.yml", name):
+            return True
+        raise AssertionError(f"nightly.yml job {name}: its runs-on matrix resolves to no runner; resolve the matrix "
+                             "or audit it in workflow_jobs.UNRESOLVED_MATRICES")
+    pool = str((job.get("strategy") or {}).get("matrix", {}).get("pool", ""))
+    return any("vars.CI_NIGHTLY_MINI" in runs_on for runs_on in [pool, *cells])
 
 
 def timeout(value: object, context: dict, rng: random.Random, base: dict | None = None) -> object:
@@ -56,7 +60,7 @@ class MiniGateTimeouts(unittest.TestCase):
         rng = random.Random(41955554573)
         short = {}
         for name, job in JOBS.items():
-            if job.get("uses") or not on_the_mini(job) or "timeout-minutes" not in job:
+            if job.get("uses") or not on_the_mini(job, name) or "timeout-minutes" not in job:
                 continue
             raw = job["timeout-minutes"]
             for _ in range(50):

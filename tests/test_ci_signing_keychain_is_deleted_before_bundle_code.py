@@ -389,7 +389,7 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
                 label = step.get("name") or step.get("id") or "<step>"
                 failures.append(f"{name}: step {index} {label!r} names a signing secret and runs after a "
                                 f"failed claim (if: {step.get('if')})")
-    if signing_secret(job.get("env") or {}):
+    if signing_secret(workflow_jobs.resolve(job).env):
         failures.append(f"{name}: job-level env names a signing secret, which every step (the gate's too) holds")
     return failures
 
@@ -402,11 +402,14 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
     variable, value = gate
     problems = []
     mode = re.fullmatch(r"\$\{\{\s*(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'\s*\}\}",
-                        str((job.get("env") or {}).get(variable, "")).strip())
+                        str(workflow_jobs.resolve(job).env.get(variable, "")).strip())
     if not mode:
         return [f"{name}: env {variable} is not `${{{{ <condition> && '{value}' || '<other>' }}}}`"]
     condition = mode.group(1)
-    runs_on = str(job.get("runs-on", ""))
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        return [f"{name}: runs-on has a matrix value nothing resolves, so no condition is shown to pick its label"]
+    runs_on = "\n".join(cells)
     picked = re.search(re.escape(condition) + r"\s*&&\s*'([^']*)'", runs_on)
     picked_pool = re.search(re.escape(condition) + r"\s*&&\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on)
     picked_ok = (picked and EPHEMERAL_LABEL.match(picked.group(1))) or (picked_pool and picked_pool.group(1) in EPHEMERAL_POOL_KEYS)
@@ -425,7 +428,7 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
         if signing_secret({k: v for k, v in step.items() if k != "env"}) or not env_ok:
             label = step.get("name") or step.get("id") or "<step>"
             problems.append(f"{name}: step {label!r} reads a signing secret outside `{gated_if}`")
-    if signing_secret(job.get("env") or {}):
+    if signing_secret(workflow_jobs.resolve(job).env):
         problems.append(f"{name}: job-level env reads a signing secret")
     return problems
 
@@ -434,7 +437,7 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
 def mode_gated_secret(job: dict) -> tuple[str, str] | None:
     """Rule 7b's shape: (VAR, value) when the job env sets VAR from a condition (MODE_ENV_VALUE) and a step reads a
     signing secret under `env.VAR == 'value'` (its `if:` or the value itself); None otherwise."""
-    modes = {str(name): match.group(2) for name, raw in (job.get("env") or {}).items()
+    modes = {str(name): match.group(2) for name, raw in workflow_jobs.resolve(job).env.items()
              if (match := MODE_ENV_VALUE.fullmatch(str(raw).strip()))}
     for step in job.get("steps") or []:
         if not isinstance(step, dict) or not signing_secret(step):
@@ -491,7 +494,9 @@ def bracketed(value: object) -> object:
     if isinstance(value, str):
         return re.sub(r"\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)", r"secrets['\1']", value)
     if isinstance(value, workflow_jobs.Job):
-        return workflow_jobs.Job({key: bracketed(item) for key, item in value.items()}, bracketed(value.inherited_env))
+        out = workflow_jobs.copy_job(value, {key: bracketed(item) for key, item in value.items()})
+        out.inherited_env = bracketed(value.inherited_env)
+        return out
     if isinstance(value, dict):
         return {key: bracketed(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -567,9 +572,8 @@ def inline_step_scripts(job: dict, missing: list[str] | None = None) -> dict:
                         missing.append(script)
             step = {**step, "run": "\n".join(lines)}
         steps.append(step)
-    expanded = {**job, "steps": steps}
-    # A Job keeps the workflow env it inherits (tests/workflow_jobs.py).
-    return workflow_jobs.Job(expanded, job.inherited_env) if isinstance(job, workflow_jobs.Job) else expanded
+    # A copy keeps the workflow env it inherits (tests/workflow_jobs.py).
+    return workflow_jobs.copy_job(job, {"steps": steps})
 
 
 def holds_release_material(job: dict) -> bool:
@@ -691,8 +695,7 @@ def step_level_fixture_failures(documents: dict[str, dict]) -> list[str]:
     """STEP_LEVEL_ONLY (a waiver, guarded): a copy of a listed job under a new id."""
     problems = []
     workflow, job_name = sorted(STEP_LEVEL_ONLY)[0].split(" ", 1)
-    base = {key: value for key, value in bracketed(documents[workflow]["jobs"][job_name]).items()
-            if key != "environment"}
+    base = workflow_jobs.copy_job(bracketed(documents[workflow]["jobs"][job_name]), {"environment": workflow_jobs.DROP})
     fixture = with_job(documents, workflow, "step-level-fixture", base)
     label = f"{workflow} step-level-fixture"
     found = [why for why in step_level_classification(fixture) if why.startswith(label + ":")]
@@ -713,8 +716,7 @@ def inline_keychain_fixture_failures(documents: dict[str, dict]) -> list[str]:
     """INLINE_DEVELOPER_ID_KEYCHAINS (an exemption, guarded): a copy of the listed job under a new id."""
     problems = []
     workflow, job_name = sorted(INLINE_DEVELOPER_ID_KEYCHAINS)[0]
-    base = {key: value for key, value in bracketed(documents[workflow]["jobs"][job_name]).items()
-            if key != "environment"}
+    base = workflow_jobs.copy_job(bracketed(documents[workflow]["jobs"][job_name]), {"environment": workflow_jobs.DROP})
     fixture = with_job(documents, workflow, "inline-keychain-fixture", base)
     label = f"{workflow} inline-keychain-fixture"
     found = inline_keychain_classification(fixture)
@@ -824,46 +826,57 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     if name not in STEP_LEVEL_ONLY:
         failures.extend(bundle_code_with_secrets(name, job))
     if signing_secret(job):
-        runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
-        pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
-        trusted_ephemeral_pool = bool(pool_keys & EPHEMERAL_POOL_KEYS)
+        # Every matrix cell's runs-on (workflow_jobs.runs_on_cells), each checked as its own route. A runner nothing
+        # resolves fails, unless its matrix is audited (workflow_jobs.audited_matrix), which skips it by name.
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None:
+            if workflow_jobs.audited_matrix(*name.partition(" ")[::2]) is None:
+                failures.append(f"{name}: holds a signing secret and runs-on has a matrix value nothing resolves")
+            cells = []
         gated = secret_gate_failures(name, job)
         if gated is not None:
             failures.extend(gated)
             # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
-            runs_on = ""
+            cells = []
         owned_route = claim_gated(name, job)
-        if owned_route and any(owned_label(runs_on, m) for m in RUNNER_VARIABLE.finditer(runs_on)):
-            failures.extend(owned_route_failures(name, job))
-        if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
-            failures.append(
-                f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
-                "guard cannot check; write vars.NAME"
-            )
-        for match in RUNNER_VARIABLE.finditer(runs_on):
-            dotted, bracketed, fallback = match.groups()
-            variable = (dotted or bracketed).upper()
-            if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
-                continue
-            if owned_route and owned_label(runs_on, match):
-                continue
-            if variable not in EPHEMERAL_RUNNER_VARIABLES:
+        owned_route_checked = False
+        for runs_on in cells:
+            runs_on = strip_literal_selectors(runs_on)
+            pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
+            trusted_ephemeral_pool = bool(pool_keys & EPHEMERAL_POOL_KEYS)
+            if (owned_route and not owned_route_checked
+                    and any(owned_label(runs_on, m) for m in RUNNER_VARIABLE.finditer(runs_on))):
+                owned_route_checked = True
+                failures.extend(owned_route_failures(name, job))
+            if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
                 failures.append(
-                    f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
-                    f"ephemeral label or one of {', '.join(EPHEMERAL_RUNNER_VARIABLES)}"
+                    f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
+                    "guard cannot check; write vars.NAME"
                 )
-            # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
-            # so nothing after them (an `&&`, another selector) can replace the label they give.
-            elif (trusted_ephemeral_pool and re.search(
-                    r"(?:\|\||&&)\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
-                    runs_on[match.end():]) and
-                  re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
-                continue
-            elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
-                failures.append(
-                    f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
-                    "last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`"
-                )
+            for match in RUNNER_VARIABLE.finditer(runs_on):
+                dotted, bracketed, fallback = match.groups()
+                variable = (dotted or bracketed).upper()
+                if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
+                    continue
+                if owned_route and owned_label(runs_on, match):
+                    continue
+                if variable not in EPHEMERAL_RUNNER_VARIABLES:
+                    failures.append(
+                        f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
+                        f"ephemeral label or one of {', '.join(EPHEMERAL_RUNNER_VARIABLES)}"
+                    )
+                # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
+                # so nothing after them (an `&&`, another selector) can replace the label they give.
+                elif (trusted_ephemeral_pool and re.search(
+                        r"(?:\|\||&&)\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
+                        runs_on[match.end():]) and
+                      re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
+                    continue
+                elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
+                    failures.append(
+                        f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
+                        "last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`"
+                    )
 
     text = json.dumps(job)
     pool_signer = release_pool_signer(job)
@@ -876,7 +889,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         certificate_steps = [step for step in steps if isinstance(step, dict) and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")]
         if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):
             failures.append(f"{name}: only the step that runs {pool_signer} may hold the Developer ID certificate")
-        if secret_or_token(job.get("env") or {}):
+        if secret_or_token(workflow_jobs.resolve(job).env):
             failures.append(f"{name}: job-level env holds a secret or the job token; set it on the steps that use it")
     elif workflow_jobs.reads_secret(job, "APPLE_CERTIFICATE_BASE64") and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
@@ -885,7 +898,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
             failures.append(f"{name}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create")
         if "security import" in text:
             failures.append(f"{name}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
-        if secret_or_token(job.get("env") or {}):
+        if secret_or_token(workflow_jobs.resolve(job).env):
             failures.append(f"{name}: job-level env holds a secret or the job token; set it on the steps that use it")
 
     # GitHub's default job timeout is 360 minutes.
@@ -1000,7 +1013,10 @@ def check_live_runner_variables(failures: list[str]) -> None:
     # variable it may read is the overflow record as a switch between two literal
     # Blacksmith labels (tests/test_ci_blacksmith_linux_failover.py requires it):
     # the record holds no label, so both outcomes stay literal ephemeral runners.
-    runs_on = OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
+    cells = workflow_jobs.runs_on_cells(job)
+    runs_on = OVERFLOW_FAILOVER.sub("", "\n".join(cells or []))
+    if cells is None:
+        failures.append(f"{path} {job_name}: runs-on has a matrix value nothing resolves")
     if ANY_VARS.search(runs_on) or LIVE_VALUE_RUNNER not in runs_on:
         failures.append(f"{path} {job_name}: runs on the literal {LIVE_VALUE_RUNNER}, never a repository variable")
     steps = job.get("steps") or []
