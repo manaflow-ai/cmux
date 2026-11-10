@@ -1551,8 +1551,35 @@ export function textFromContent(content: any): string {
   if (content?.type === "text") return String(content.text ?? "");
   // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
   if (content?.type === "content") return textFromContent(content.content);
-  if (Array.isArray(content)) return content.map(textFromContent).join("");
+  if (Array.isArray(content)) {
+    const texts = content.map(textFromContent);
+    // One text among empty ones (a read's or a shell's result) is that text itself, not a joined
+    // copy: the row's output and the held record share one string (a joined copy held every tool
+    // output twice, megabytes in a long chat).
+    const filled = texts.filter(Boolean);
+    return filled.length === 1 ? filled[0]! : texts.join("");
+  }
   return "";
+}
+
+/// Whether a tool call update's content is text alone (a streamed shell's output so far).
+function textOnlyContent(update: any): boolean {
+  const content = update?.content;
+  return (
+    Array.isArray(content) &&
+    content.length > 0 &&
+    content.every(
+      (block: any) => block?.type === "text" || (block?.type === "content" && block.content?.type === "text"),
+    )
+  );
+}
+
+/// `event` without its update's content, for a held tool call update whose call's next update
+/// carried the call's whole content again (ACP: an update's content replaces the call's).
+export function withoutSupersededContent(event: EventRecord): EventRecord {
+  const params = event.msg.params;
+  const { content: _superseded, ...update } = params.update;
+  return { ...event, msg: { ...event.msg, params: { ...params, update } } };
 }
 
 /// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
@@ -2641,6 +2668,9 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Each running call's first held record and newest held text-only update after it, by call id:
+  /// their seqs (`holdLive`).
+  private streamedOutputs = new Map<string, { first: number; last?: number }>();
   /// The reaction on each call a background task's end went onto (`attachReaction`), and the call
   /// each background turn's went onto.
   private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
@@ -2957,7 +2987,7 @@ export class AcpmuxDirectClient {
     }
     for (const event of own) {
       if (event.seq <= this.lastSeq) continue;
-      this.events.push(event);
+      this.holdLive(event);
       this.lastSeq = event.seq;
       this.firstSeq ??= event.seq;
       this.reduce(event);
@@ -6404,6 +6434,39 @@ export class AcpmuxDirectClient {
     this.clockOffset = this.clockOffset === undefined ? offset : Math.min(this.clockOffset, offset);
   }
 
+  /// Holds a live record. acpmux sends a streaming call's whole output with each update, so a
+  /// call's text-only update makes the one held before it moot: that one keeps its other fields
+  /// and drops its content, and a streamed output is held once instead of once per update (the
+  /// held records grew with the square of its length). A folding again from the start (`rebuild`)
+  /// ends on the same row: the newest update's content replaces the call's output, images and
+  /// diffs, and the call's first record keeps its own. A replay, which can seek between updates,
+  /// keeps every one.
+  private holdLive(event: EventRecord): void {
+    this.events.push(event);
+    if ((event.kind !== "tool_call" && event.kind !== "tool_call_update") || this.replayThrough !== undefined) return;
+    const update = sessionUpdate(event);
+    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    if (!callId) return;
+    let call = this.streamedOutputs.get(callId);
+    // A call's first record is never thinned: on a fold from the start it makes the call's row.
+    if (!call || event.kind === "tool_call") this.streamedOutputs.set(callId, (call = { first: event.seq }));
+    else if (textOnlyContent(update)) {
+      const before = call.last;
+      // Looked for from the end: a call's updates come close together.
+      for (let index = this.events.length - 2; before !== undefined && index >= 0; index -= 1) {
+        const held = this.events[index]!;
+        if (held.seq < before) break;
+        if (held.seq !== before) continue;
+        const heldUpdate = sessionUpdate(held);
+        if (held.kind === "tool_call_update" && heldUpdate?.toolCallId === callId && textOnlyContent(heldUpdate))
+          this.events[index] = withoutSupersededContent(held);
+        break;
+      }
+      call.last = event.seq;
+    }
+    if (update.status === "completed" || update.status === "failed") this.streamedOutputs.delete(callId);
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
     // The chat's records reach the page: the quiet watch starts over from here.
@@ -6423,7 +6486,7 @@ export class AcpmuxDirectClient {
     const copy = this.peerCopy;
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
     if (event.seq <= this.lastSeq) return;
-    this.events.push(event);
+    this.holdLive(event);
     this.sawPrompt(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
