@@ -180,10 +180,50 @@ struct ClosingPanes {
     private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>) -> [ClosingPanesRules.FrameFact] {
         frames.compactMap { pane, frame in
             guard let number = paneNumbers[pane] else { return nil }
-            let moving = frame.rect != frame.targetRect || [frame.x, frame.y, frame.width, frame.height].contains { $0.velocity != 0 }
+            let moving = Self.hasTravel(frame)
             return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect), moving: moving,
                                                vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity,
                                                scrolls: !fixed.contains(pane))
+        }
+    }
+
+    /// The least way to go the rules count as a travel (`ClosingPanesRules.collapse`, `settle`): half a point.
+    private static let leastTravel: CGFloat = 0.5
+
+    /// Whether a live pane moves over a closing pane beside it: a side of it has half a point or more to go. Less is no
+    /// travel for the rules (the last part of a point of an earlier motion, as when two last columns close in a row): a
+    /// closing pane a pane like that "moves over" got no travel and kept its whole place until the landing took it away in
+    /// one frame (352 pt, `PaneCloseCameraGroundTests`), so it goes at once, as a pane beside panes at rest does. A
+    /// velocity alone is no travel: a spring on its target does not leave it (`SpringParameters.admitted`).
+    private static func hasTravel(_ frame: AnimatedFrame) -> Bool {
+        let now = frame.rect, rest = frame.targetRect
+        return abs(rest.minX - now.minX) >= leastTravel || abs(rest.maxX - now.maxX) >= leastTravel
+            || abs(rest.minY - now.minY) >= leastTravel || abs(rest.maxY - now.maxY) >= leastTravel
+    }
+
+    /// The land rule's question for the closing panes (`ScreenContentView.advancePaneAndDividerSprings`): with the live
+    /// frames where this frame's step put them (`frames`; not shown yet), does a closing pane still collapse, more than
+    /// `snap` from its end? Its free side follows its rider's share of the rider's travel (`ClosingPanesRules.collapse`),
+    /// so the part of a point a live pane has left when it lands is, on the closing pane, that part times the pane's size
+    /// over the rider's travel: 22 pt of a 352 pt pane on a rider with 4 pt to go. A landing then takes that ground away in
+    /// one frame. Only a side the rules move in this frame counts (one with no travel stays where it showed, and never
+    /// holds the landing), so the answer turns false as the live frames come to rest: the side's way left falls with
+    /// theirs. The rules run on a copy; the frame's own pass (`rects`) places the panes.
+    func landingLeavesGround(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, row: (ColumnID) -> Travel?, strip: CGFloat,
+                             restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
+        guard !entries.isEmpty else { return false }
+        var next = rules
+        _ = next.rects(frames: frameFacts(frames, fixed: fixed), rows: rowTravels(row), strip: strip, restStrip: restStrip)
+        typealias Side = KeyPath<ClosingPanesRules.Entry, ClosingPanesRules.Side>
+        return next.entries.contains { number, entry in
+            guard let shown = rules.entries[number] else { return false }
+            func collapses(_ side: Side, toward opposite: Side) -> Bool {
+                let free = entry[keyPath: side]
+                guard free.neighbours.isEmpty, !entry[keyPath: opposite].neighbours.isEmpty, let end = free.end else { return false }
+                return free.fixed != shown[keyPath: side].fixed && abs(end - free.fixed) > snap
+            }
+            return collapses(\.maxX, toward: \.minX) || collapses(\.minX, toward: \.maxX)
+                || collapses(\.maxY, toward: \.minY) || collapses(\.minY, toward: \.maxY)
         }
     }
 

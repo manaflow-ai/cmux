@@ -100,10 +100,8 @@ struct PaneCloseCameraGroundTests {
     /// MOTION TOKENS CLEANUP, the ground rule for any time between two last-column closes (the layout of
     /// `twoLastColumnClosesInARowLeaveNoGroundPastTheStrip`, which closes six frames apart only). The second close finds its
     /// neighbour, the second column, at the end of the first close's travel: a part of a point from its place to more than
-    /// twenty points. The third pane closes over that travel, however short it is, and the frame before the landing must
-    /// show under a point of its ground. Arithmetic of #40288's review, not measured there: 1.5 pt at 58 ms to 21.7 pt at
-    /// 100 ms; a neighbour less than half a point from its place gives the pane no travel at all, so it keeps its whole
-    /// width for the landing.
+    /// twenty points. The third pane closes over that travel, however short it is, or goes at once when there is none, and
+    /// the frame before the landing shows under a point of its ground.
     @Test(arguments: gaps) func twoLastColumnClosesAnyTimeApartLeaveNoGroundPastTheStrip(every: Int) throws {
         let rig = Rig(ColumnCloseScrollMotionTests.columns(4, width: 0.3), focused: "p4")
         defer { rig.close() }
@@ -199,16 +197,16 @@ struct PaneCloseCameraGroundTests {
         let open = widths.filter { $0.width > max(atRest, rest) + 1 }
         #expect(frames > 3, "the close did not spring (\(frames) frames)")
         #expect(open.isEmpty, "\(open.count) frames show the shell in the window (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
-        // At most one point. Observed at scale 1 with no spring under-damped (#40288): the last frame with a closing
-        // ground shows the third pane one point wide (x 722...723) beside the second on its place (364...716). A closing
-        // pane's free side follows its rider's travel (`ClosingPanesRules.collapse`: its distance left is its width x
-        // the rider's part left), so a rider that is a part of a point short of its place in its last frame shows as a
-        // larger part of ground. Read, not measured: the close spring was 0.95 damped until 2026-11-10 and passed its
-        // place before it rested, so the rider's travel was complete in that frame. More than a point is ground the pane
-        // kept for the landing: the failure this test is for.
+        // Under one point, the bound before #40288. Measured at dfc699991f16 (aws-m4pro-2, macOS 27.0.1, scale 1; no spring
+        // is under-damped since #40288): two last-column closes 7 to 12 frames apart left 2, 3, 4, 7, 13 and 22 pt in the
+        // last frame, and 13 to 16 frames apart the whole pane, 352 pt. A closing pane's free side follows its rider's
+        // share of the rider's travel (`ClosingPanesRules.collapse`), so what a live pane has left when the motion lands
+        // shows on the closing pane times its size over that travel, and a rider with under half a point to go gives it
+        // no travel. The landing now waits for the closing panes' free sides as it does for the live edges, and a pane
+        // beside panes with under half a point to go goes at once (`ClosingPanes.landingLeavesGround`, `hasTravel`).
         if let lastGround {
             let way = grounds.suffix(8).map { String(format: "%.2f", Double($0)) }.joined(separator: ", ")
-            #expect(lastGround <= 1, """
+            #expect(lastGround < 1, """
             the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away \
             (\(lastGroundFrame); the ground of the last frames, in points: \(way))
             """)
