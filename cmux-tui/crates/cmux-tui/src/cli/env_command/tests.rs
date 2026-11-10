@@ -50,7 +50,9 @@ impl Daemon for FakeDaemon {
         self.calls.push((action.to_owned(), params.clone()));
         let secret_echo = |mut value: Value| {
             if self.echo {
-                value["secrets"] = json!([{"name": "API_KEY", "value": SECRET, "hosts": ["api.example.com"], "sealed": SECRET}]);
+                value["secrets"] = json!([{"name": "API_KEY", "value": SECRET, "sealed": SECRET,
+                    "hosts": ["api.example.com"],
+                    "header": {"name": "x-api-key", "format": "{value}"}}]);
                 value["access_token"] = json!(SECRET);
             }
             value
