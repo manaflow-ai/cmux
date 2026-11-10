@@ -265,9 +265,13 @@ final class TopHomePageView: NSView {
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
     }
 
-    /// An archived Chief's conversation: listed by the store, left out of `rows` (``HomeArchivedChiefs``).
+    /// An archived Chief's conversation: listed by the store, left out of `rows` (``HomeArchivedChiefs``);
+    /// or a deleted Chief's direct conversation, which the owner no longer lists at all (CMUX-40).
     static func isHidden(_ id: ConversationID, rows: [InboxRow], home: HomeService) -> Bool {
-        home.homeStore.rows.contains { $0.id == id } && !rows.contains { $0.id == id }
+        guard !rows.contains(where: { $0.id == id }) else { return false }
+        if home.homeStore.rows.contains(where: { $0.id == id }) { return true }
+        return HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id)
+            .hides(participants: home.participants(of: id.rawValue).map(\.id))
     }
 
     /// What the Chief observation watches: the preferred Chief and whether this Mac's Chief is the
@@ -334,7 +338,8 @@ final class TopHomePageView: NSView {
     /// The preferred Chief's conversation, unless Archive Chief hid it (``HomeArchivedChiefs/openable(_:listed:)``).
     static func chief(_ home: HomeService) -> String? {
         HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id)
-            .openable(home.defaultChiefConversation, listed: home.homeStore.rows)
+            .openable(home.defaultChiefConversation, listed: home.homeStore.rows,
+                      participants: { home.participants(of: $0).map(\.id) })
     }
 
     /// The shown conversation is one the owner's own inbox does not have:
