@@ -174,11 +174,6 @@ function BubbleRow({
       conversation={message.conversation}
       parts={row.parts as readonly HomeAttachment[]}
       strings={strings}
-      {...(actions.onDragAttachment
-        ? {
-            onDragOut: (part: HomeAttachment) => actions.onDragAttachment?.(message, part, message.parts.indexOf(part)),
-          }
-        : {})}
     />
   ) : row.markdown ? (
     <Markdown streaming={row.streaming}>{text}</Markdown>

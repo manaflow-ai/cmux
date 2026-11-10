@@ -63,26 +63,6 @@ export interface MessagesTranscriptProps extends TranscriptData {
   now?: number;
 }
 
-/** The row callbacks the transcript passes on (``RowActions``): present or absent decides a menu row. */
-const ROW_CALLBACKS = [
-  "onRetry",
-  "onDiscard",
-  "canCancelUpload",
-  "onCancelUpload",
-  "onReact",
-  "onReply",
-  "onDelete",
-  "onRetryReply",
-  "onForward",
-  "onShare",
-  "onFile",
-  "onReplyToSelection",
-  "onOpenReplies",
-  "onDragAttachment",
-] as const satisfies readonly (keyof MessagesTranscriptProps & keyof RowActions)[];
-
-const copyText = (text: string) => void navigator.clipboard?.writeText(text);
-
 const reducedMotion = () => {
   const gate = document.documentElement.dataset.cmuxMotion;
   return gate === "off" || gate === "reduced" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -221,8 +201,6 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
 
   // The pinned section's height: the top row grows by it, so the oldest message scrolls clear of it.
   const pinnedBox = useRef<HTMLDivElement | null>(null);
-  const hasPinned = !!pinned;
-  const hasCard = !!setupCard;
   useEffect(() => {
     const element = pinnedBox.current;
     if (!element) return setPinnedHeight(0);
