@@ -228,7 +228,7 @@ pub(super) struct AgentHooksAtRest {
     /// The daemon's clock as a test sets it, in Unix milliseconds (0: the
     /// wall clock).
     #[cfg(all(test, unix))]
-    clock_ms_for_test: std::sync::atomic::AtomicU64,
+    clock_ms_for_test: AtomicU64,
 }
 
 /// The journal gets at most one agent activity row per this long.
@@ -364,7 +364,7 @@ impl AgentHooksAtRest {
         let mut times = HashMap::<String, i64>::new();
         for stamp in activity.stamps.values() {
             let at_ms = i64::try_from(stamp.observed_at_ms).unwrap_or(i64::MAX);
-            let time = times.entry(format!("{}/{}", stamp.provider, stamp.session)).or_insert(0);
+            let time = times.entry(format!("{}/{}", stamp.provider, stamp.session)).or_default();
             *time = (*time).max(at_ms);
         }
         times
@@ -434,10 +434,7 @@ impl Mux {
     fn agent_activity_now_ms(&self) -> u64 {
         #[cfg(all(test, unix))]
         {
-            let set = self
-                .agent_hooks_at_rest
-                .clock_ms_for_test
-                .load(std::sync::atomic::Ordering::Relaxed);
+            let set = self.agent_hooks_at_rest.clock_ms_for_test.load(Ordering::Relaxed);
             if set != 0 {
                 return set;
             }
@@ -503,9 +500,7 @@ impl Mux {
     /// hours of reports with no sleep.
     #[cfg(all(test, unix))]
     pub(crate) fn set_agent_activity_clock_for_test(&self, now_ms: u64) {
-        self.agent_hooks_at_rest
-            .clock_ms_for_test
-            .store(now_ms, std::sync::atomic::Ordering::Relaxed);
+        self.agent_hooks_at_rest.clock_ms_for_test.store(now_ms, Ordering::Relaxed);
     }
 
     /// Counts a live journal stream as a reader of `agent.state.changed` rows
