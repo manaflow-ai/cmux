@@ -12,6 +12,19 @@ import Testing
         #expect(CornerFlush.flush.isOn && CornerFlush.tight.isOn)
     }
 
+    /// The default folder tab keeps the layout the user chose: a chrome style without the curved main
+    /// pane keeps it off (and its gray selection); one with the card takes it.
+    @Test func theDefaultKeepsAFlatChromeStyle() {
+        guard CornerFlush.tunable.override == nil, DesignSettings.shared.paneChrome.padding == nil else { return }
+        let design = DesignSettings.shared
+        let before = design.chromeStyle
+        defer { design.chromeStyle = before }
+        design.chromeStyle = .flat
+        #expect(CornerFlush.current == .off, "a flat window keeps its layout")
+        design.chromeStyle = .card
+        #expect(CornerFlush.current == .goo, "the card takes the folder tab")
+    }
+
     @Test func tightHasNoGapOnTheSidebarSide() {
         #expect(CornerFlush.tight.sidebarGap == 0)
         #expect(CornerFlush.flush.sidebarGap == CornerFlush.flush.gap)

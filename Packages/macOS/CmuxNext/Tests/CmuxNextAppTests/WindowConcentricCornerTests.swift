@@ -17,13 +17,11 @@ import Testing
 /// the card's radius is the window's less the inset, and the inset is the same on both sides of the
 /// corner. The 8 pt main pane 6 pt inside the 16 pt window (concentric: 10 pt) left a gap that widened
 /// toward the corner, and its top sat 4 pt down against 6 pt at the side.
-@MainActor @Suite(.serialized, .closesItsWindows) struct WindowConcentricCornerTests {
-    /// The gutter geometry these tests pin is the one without the folder tab (`chrome.cornerFlush` off);
-    /// the folder tab is the default (design/selected-is-foreground.md), so each test sets `flush` itself.
-    private func load(radius: Double? = nil, flush: CornerFlush = .off) {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(DesignTunables.all)
-        TunableStore.shared.set(CornerFlush.tunable.key, flush == CornerFlush.tunable.defaultValue ? nil : flush.tunableValue)
+@MainActor @Suite(.serialized, .closesItsWindows, .cornerFlush(.off)) struct WindowConcentricCornerTests {
+    /// The gutter geometry these tests pin is the one without the folder tab (the suite's
+    /// `.cornerFlush(.off)`); the folder tab's case sets `.goo` itself, and the trait puts it back.
+    private func load(radius: Double? = nil, flush: CornerFlush? = nil) {
+        if let flush { TunableStore.shared.set(CornerFlush.tunable.key, flush.tunableValue) }
         var layout: [String: JSONValue] = [:]
         if let radius { layout["paneCornerRadius"] = .number(radius) }
         // The curved main pane (the `card` style): the card a window corner holds.
@@ -75,7 +73,7 @@ import Testing
     /// window's radius; `layout.paneCornerRadius` still sets it.
     @Test(arguments: [10.0, 16.0, 26.0])
     func theMainPaneIsConcentricWithTheWindow(window: Double) {
-        defer { load(); TunableStore.shared.set(CornerFlush.tunable.key, nil) }
+        defer { load() }
         load()
         let gutter = Metrics.mainPaneGutter
         #expect(gutter > 0, "the default card has a gutter")
@@ -89,7 +87,7 @@ import Testing
     /// across its 4 pt gap, and never rounder than the window.
     @Test(arguments: [10.0, 16.0, 26.0])
     func theFolderTabCardIsConcentricWithTheWindow(window: Double) {
-        defer { load(); TunableStore.shared.set(CornerFlush.tunable.key, nil) }
+        defer { load() }
         load(flush: .goo)
         #expect(CornerFlush.current == .goo)
         #expect(Metrics.mainPaneGutter == CornerFlush.current.gap)
@@ -100,7 +98,7 @@ import Testing
     /// The tabs nest in that card: its radius less their inset, so the first pill, the card and the
     /// window share one center.
     @Test func theTabsNestInTheWindowConcentricCard() {
-        defer { load(); TunableStore.shared.set(CornerFlush.tunable.key, nil) }
+        defer { load() }
         load()
         let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
         #expect(Metrics.tabStripCardRadius == card)
@@ -110,7 +108,7 @@ import Testing
     /// The ⋮ in the card's top-trailing corner is concentric with it: the card's radius less the
     /// button's inset (it was the 4 pt item radius).
     @Test func theMoreButtonIsConcentricWithItsCorner() {
-        defer { load(); TunableStore.shared.set(CornerFlush.tunable.key, nil) }
+        defer { load() }
         load()
         let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
         let inset = PaneToolbarView.trailingGap
@@ -127,7 +125,7 @@ import Testing
     /// The default top row keeps the gutter at the card's top as at its sides (an even inset), and
     /// the controls center on the pills' line there.
     @Test func theCardsTopInsetEqualsItsSideInset() throws {
-        defer { load(); TunableStore.shared.set(CornerFlush.tunable.key, nil) }
+        defer { load() }
         load()
         #expect(TopRowLineLook.tunable.defaultValue == .concentric)
         let design = DesignSettings.shared

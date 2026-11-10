@@ -17,7 +17,7 @@ import Testing
 /// line, the line drawn right under it. The trailing "…" sits on the pane's one trailing control
 /// column, above the browser toolbar's ⋮ (9d31a6eb78b, Lawrence msg 19627: "the three vertical dots,
 /// there are 2 of them, and they are different sizes"), not at its top gap from the edge.
-@MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .cornerFlush(.off)) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,

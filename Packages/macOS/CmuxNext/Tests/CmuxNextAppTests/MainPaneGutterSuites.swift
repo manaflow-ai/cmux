@@ -7,8 +7,10 @@ import Testing
 /// The suites that read the curved main pane's gutter (`chrome.mainPane.gutter`): the window
 /// edge, its corners and the chrome shade. They run one at a time under this parent, so a test
 /// that sets the gutter (the Debug Settings flush opt-in, gutter 0) never runs beside one that
-/// reads the default.
-@MainActor @Suite(.closesItsWindows, .serialized) struct MainPaneGutterSuites {
+/// reads the default. They pin the geometry without the folder tab (`chrome.cornerFlush` off,
+/// ``CornerFlushPin``); the folder tab's own geometry is tested in `CornerFlushTests` and
+/// `WindowConcentricCornerTests`.
+@MainActor @Suite(.closesItsWindows, .serialized, .cornerFlush(.off)) struct MainPaneGutterSuites {
     /// Runs `body` with the main pane gutter at `points` (the Debug Settings override), then
     /// removes the override.
     static func withGutter<T>(_ points: CGFloat, _ body: () throws -> T) rethrows -> T {

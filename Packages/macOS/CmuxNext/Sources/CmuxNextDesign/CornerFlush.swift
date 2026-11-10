@@ -43,10 +43,23 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
         help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Default flush-goo: the selected tab is the content's surface and joins it like a folder tab (design/selected-is-foreground.md). Off: the gray pill.",
         default: .goo, code: "CornerFlush.tunable")
 
-    /// The value in effect: the Debug Settings value, at every density. Compact density kept the old
-    /// corner while this was a Debug opt-in; the folder tab is the selected state now
-    /// (design/selected-is-foreground.md), and Compact is the default density, so it applies there too.
-    @MainActor public static var current: CornerFlush { tunable.value }
+    /// The value in effect, at every density. Compact density kept the old corner while this was a
+    /// Debug opt-in; the folder tab is the selected state now (design/selected-is-foreground.md), and
+    /// Compact is the default density, so it applies there too.
+    ///
+    /// The default joins the selected tab to the card only where the user's own layout keeps that card:
+    /// a chrome style without the curved main pane (`appearance.chromeStyle` flat, bare, panes), a
+    /// Debug override that turns the curved pane off, or a set `layout.panePadding` keeps the
+    /// layout the user chose and its gray selection, since the folder tab needs the card and puts
+    /// each strip's first tab on the card's edge. A Debug Settings value for `chrome.cornerFlush`
+    /// applies as set.
+    @MainActor public static var current: CornerFlush {
+        if let set = tunable.override { return set }
+        let design = DesignSettings.shared
+        let curved = ChromeTunables.mainPaneCurved.override ?? design.chromeStyle.curvedMainPane ?? ChromeTunables.mainPaneCurved.defaultValue
+        guard curved, design.paneChrome.padding == nil else { return .off }
+        return tunable.defaultValue
+    }
 
     public var isOn: Bool { self != .off }
 
