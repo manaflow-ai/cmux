@@ -21,14 +21,23 @@ import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { AreaIcon } from "./SheetPage";
-import { previewEntries, previewSections, type PreviewEntry } from "./updatedPreview";
+import { previewEntries, previewSections } from "./updatedPreview";
+import { ChipNotes, DigestNotes, HeadlineNotes, LedgerNotes, NotesRow } from "./UpdatedNotesLooks";
 import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { CopyVersion } from "./UpdateSurfaces";
 
-/** How the changes stand (gallery variants; `sections` ships): under their areas' headers with a gap
-    between pills (`sections`), under the headers with hairlines between rows (`divided`), or one flat
-    list (`flat`, the look before). */
-export type NotesLook = "sections" | "divided" | "flat";
+/** How the changes stand (`sections` ships): under their areas' headers with a gap between pills
+    (`sections`), under the headers with hairlines between rows (`divided`, gallery), one flat list
+    (`flat`, the look before, gallery), or one of the Debug looks (UpdatedNotesLooks.tsx: `digest`,
+    `chips`, `headline`, `ledger`; Debug Settings `sidebar.updatedCard.notesLook`). */
+export type NotesLook = "sections" | "divided" | "flat" | "digest" | "chips" | "headline" | "ledger";
+
+const LOOKS: readonly NotesLook[] = ["sections", "divided", "flat", "digest", "chips", "headline", "ledger"];
+
+/** The look the theme's `updated-notes-look` slot names; `sections` without one or for a name it does not know. */
+export function parseNotesLook(value: string | null | undefined): NotesLook {
+  return LOOKS.find((look) => look === value) ?? "sections";
+}
 
 export function UpdatedNotes({
   data,
@@ -36,7 +45,7 @@ export function UpdatedNotes({
   strings,
   actions,
   mode,
-  look = "sections",
+  look: lookProp,
 }: {
   data: UpdateHighlights;
   /** The notes of every build the update spans, newest first; absent until they load. */
@@ -45,8 +54,11 @@ export function UpdatedNotes({
   actions: UpdateSurfaceActions;
   /** The card's look (gallery); undefined reads the theme's. */
   mode?: UpdatedPreviewMode;
+  /** How the changes stand (gallery); undefined reads the theme's. */
   look?: NotesLook;
 }) {
+  const themedLook = parseNotesLook(useDecoration("updated-notes-look"));
+  const look = lookProp ?? themedLook;
   const titleId = useId();
   const themed = parsePreviewMode(useDecoration("updated-card-preview"));
   const titlesOnly = (mode ?? themed) === "beside-titles";
@@ -86,7 +98,17 @@ export function UpdatedNotes({
           </div>
         )}
       </header>
-      {entries.length > 0 && (
+      {entries.length > 0 && look === "digest" && (
+        <DigestNotes entries={entries} titlesOnly={titlesOnly} strings={strings} actions={actions} />
+      )}
+      {entries.length > 0 && look === "chips" && (
+        <ChipNotes entries={entries} titlesOnly={titlesOnly} strings={strings} actions={actions} />
+      )}
+      {entries.length > 0 && look === "headline" && (
+        <HeadlineNotes entries={entries} titlesOnly={titlesOnly} strings={strings} actions={actions} />
+      )}
+      {entries.length > 0 && look === "ledger" && <LedgerNotes entries={entries} strings={strings} actions={actions} />}
+      {entries.length > 0 && (look === "sections" || look === "divided" || look === "flat") && (
         <ul className="wn-notes-list" data-look={look} aria-label={strings.t("changelog.page.title")}>
           {look === "flat"
             ? entries.map((entry) => (
@@ -124,30 +146,6 @@ export function UpdatedNotes({
         </div>
       )}
     </section>
-  );
-}
-
-/** One change: its title and detail light together as one pill; a click opens What's New at it. */
-function NotesRow({
-  entry,
-  titlesOnly,
-  actions,
-}: {
-  entry: PreviewEntry;
-  titlesOnly: boolean;
-  actions: UpdateSurfaceActions;
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        className="wn-notes-row"
-        onClick={() => actions.openChangelog({ area: entry.area, title: entry.title })}
-      >
-        <span className="wn-notes-row-title">{entry.title}</span>
-        {!titlesOnly && entry.detail && <span className="wn-notes-row-detail">{entry.detail}</span>}
-      </button>
-    </li>
   );
 }
 

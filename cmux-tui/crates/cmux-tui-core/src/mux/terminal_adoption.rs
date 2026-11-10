@@ -109,9 +109,10 @@ impl Mux {
         // Hosts this pass marks adopting together, with their rows.
         let mut adopting = Vec::new();
         let mut candidates = Vec::new();
-        // Records whose cleanup failed retry on a thread scheduled after the
-        // live hosts': a second record of a live terminal must not claim its
-        // adoption thread first.
+        // Records this start does not adopt whose host may still run: each
+        // ends on a thread scheduled after the live hosts' (a second record
+        // of a live terminal must not claim its adoption thread first), never
+        // inline (clean_up_now_or_later).
         let mut cleanup_retries = Vec::new();
         let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
@@ -167,9 +168,7 @@ impl Mux {
         for (record_path, record) in records {
             let terminal_id = record.terminal_id.clone();
             if handled_terminals.contains(&terminal_id) {
-                if !cleanup_terminal_host_record(&record, &record_path) {
-                    cleanup_retries.push((record, record_path));
-                }
+                clean_up_now_or_later(record, record_path, &mut cleanup_retries);
                 continue;
             }
             let (mut terminal, public_id) = match prefetched.remove(&terminal_id) {
@@ -229,25 +228,19 @@ impl Mux {
                         }
                     }
                 } else {
-                    if !cleanup_terminal_host_record(&record, &record_path) {
-                        cleanup_retries.push((record, record_path));
-                    }
+                    clean_up_now_or_later(record, record_path, &mut cleanup_retries);
                     continue;
                 }
             }
             let terminal = terminal.expect("terminal imported or loaded");
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
-                if !cleanup_terminal_host_record(&record, &record_path) {
-                    cleanup_retries.push((record, record_path));
-                }
+                clean_up_now_or_later(record, record_path, &mut cleanup_retries);
                 continue;
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
                 handled_terminals.insert(terminal_id.clone());
-                if !cleanup_terminal_host_record(&record, &record_path) {
-                    cleanup_retries.push((record, record_path));
-                }
+                clean_up_now_or_later(record, record_path, &mut cleanup_retries);
                 continue;
             }
             if terminal.incarnation.as_deref().is_some_and(|value| value != record.incarnation) {
@@ -258,9 +251,7 @@ impl Mux {
                     &options,
                 )?;
                 handled_terminals.insert(terminal_id.clone());
-                if !cleanup_terminal_host_record(&record, &record_path) {
-                    cleanup_retries.push((record, record_path));
-                }
+                clean_up_now_or_later(record, record_path, &mut cleanup_retries);
                 continue;
             }
             // A second record for this terminal is cleaned up, not adopted.
@@ -300,9 +291,7 @@ impl Mux {
                         self.detach_exited_terminal_topology(&terminal_id)?;
                     }
                     handled_terminals.insert(terminal_id.clone());
-                    if !cleanup_terminal_host_record(&record, &record_path) {
-                        cleanup_retries.push((record, record_path));
-                    }
+                    clean_up_now_or_later(record, record_path, &mut cleanup_retries);
                     continue;
                 }
                 anyhow::bail!("terminal {terminal_id} could not be marked adopting: {error}");
@@ -729,7 +718,15 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if orphan_hosts::placed_on_adoption(&terminal) && !has_restored_placements {
+        // A template that this registry already published has a durable
+        // public terminal id. If its tab was closed it is detached, and it is
+        // restored detached below like any other terminal: placing its
+        // identity-less runtime here would leave a tab slot with no durable
+        // identity, fail every later resource projection, and stop the
+        // session from creating terminals.
+        let first_adoption = orphan_hosts::placed_on_adoption(&terminal)
+            && registry.terminal_resource_id(terminal_id)?.is_none();
+        if first_adoption && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -1262,6 +1259,26 @@ impl Drop for AdoptionSlot {
 /// (RFC 9562, custom) from the first 16 bytes of `SHA-256(session_id, 0, builder_key)`, in the
 /// lowercase 8-4-4-4-12 form every workspace key takes. A restart derives the same key, so the
 /// derivation must never change.
+/// Ends the host of a record this start does not adopt without holding the
+/// start: a proven-dead record is removed at once (a lock probe), while a
+/// live or unclear host, whose Terminate can take up to
+/// `HOST_TERMINATE_WAIT`, is left to its cleanup thread. Ended inline, one
+/// after another, such hosts held the first answer for the sum of their
+/// ends.
+#[cfg(any(unix, windows))]
+fn clean_up_now_or_later(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+    later: &mut Vec<(crate::terminal_host_runtime::TerminalHostRecord, std::path::PathBuf)>,
+) {
+    if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead
+        && cleanup_terminal_host_record(&record, &record_path)
+    {
+        return;
+    }
+    later.push((record, record_path));
+}
+
 fn derive_template_workspace_key(session_id: &str, builder_key: &str) -> String {
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;

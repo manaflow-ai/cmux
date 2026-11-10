@@ -153,12 +153,65 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    rc = subprocess.run(command, cwd=repo / ROOT).returncode
+    rc, red_files = run_clippy(command, repo / ROOT)
     if rc:
         print(f"::error title=cmux-tui clippy::clippy -D warnings failed for {scope}; "
-              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why); "
-              f"a red in a package you did not touch may already be red on the base branch")
+              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why)")
+        name_base_reds(repo, base if paths is not None else "", red_files)
     return 1 if rc else 0
+
+
+def run_clippy(command: list[str], cwd: Path) -> tuple[int, list[str]]:
+    """Run clippy with its output passed through as it comes, and return its exit code with the
+    files its errors point at (`--> crates/x/src/y.rs:1:2`, relative to cmux-tui), in order."""
+    files: list[str] = []
+    process = subprocess.Popen(command, cwd=cwd, stderr=subprocess.PIPE, text=True, errors="replace")
+    assert process.stderr is not None
+    for line in process.stderr:
+        sys.stderr.write(line)
+        if (path := red_file(line)) and path not in files:
+            files.append(path)
+    sys.stderr.flush()
+    return process.wait(), files
+
+
+def red_file(line: str) -> str | None:
+    """The file of a diagnostic's `-->` line, or None."""
+    rest = line.strip()
+    if not rest.startswith("--> "):
+        return None
+    location = rest[4:].strip()
+    # path:line:col; a Windows drive or a colon in the path keeps all but the last two fields.
+    parts = location.rsplit(":", 2)
+    return parts[0] if len(parts) == 3 and parts[1].isdigit() else None
+
+
+def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
+    """Say which red files the change does not touch, and the base commit that last changed each.
+
+    #40242 merged to feat-cmux-next with eight clippy errors in cmux-tui/src/cli/ext*.rs; every
+    pull request that touched cmux-tui then failed this step with a message naming its own
+    packages, and four of them were read as the pull request's own red. A red file outside the
+    diff is the base's: the fix is a base-red pull request, not a change to this one."""
+    if not base or set(base) == {"0"} or not red_files:
+        return
+    try:
+        changed = {path for path in fmt_changed.git(repo, "diff", "--name-only", "-z", base, "HEAD").split("\0") if path}
+    except subprocess.CalledProcessError:
+        return
+    outside = [path for path in red_files if f"{ROOT}/{path}" not in changed]
+    for path in outside:
+        try:
+            last = fmt_changed.git(repo, "log", "-1", "--format=%h %s", base, "--", f"{ROOT}/{path}").strip()
+        except subprocess.CalledProcessError:
+            last = ""
+        since = f" (last changed on the base by {last})" if last else ""
+        print(f"::error title=cmux-tui clippy (base red)::{ROOT}/{path} is red and this change does not touch it: "
+              f"most likely the base {base[:12]} already fails here{since}. Then fix it on the base branch in its own "
+              f"pull request and update this one once that lands (a lint this change causes in an untouched file, "
+              f"through an API it changed, is this change's to fix)")
+    if outside and len(outside) == len(red_files):
+        print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
 
 
 def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:

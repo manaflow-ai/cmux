@@ -309,6 +309,15 @@ public final class TerminalHostView: NSView {
         current = surfaceView
         old?.removeFromSuperview()
         followScrollbar(of: surfaceView)
+        // Beside the surface the host shows the program's own background when it set one (``programBackgroundDidChange(_:)``).
+        if surfaceView.session?.model.backgroundOverride != nil || old?.session?.model.backgroundOverride != nil { paintBackground() }
+    }
+
+    /// The current surface's program set its background (OSC 11, ``TerminalSurfaceModel/backgroundOverride``): what the
+    /// host shows beside its surface (a held frame's grow strip, RESIZE P0 15) is the colour of the program's empty cells.
+    func programBackgroundDidChange(_ surfaceView: TerminalSurfaceView) {
+        guard current === surfaceView else { return }
+        paintBackground()
     }
 
     /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
@@ -402,6 +411,16 @@ public final class TerminalHostView: NSView {
     /// snapped split's, close's or zoom's: its grid goes to the program with it (``TerminalSurfaceView``
     /// `followsKeyResize`, RESIZE P0 11). Cleared with ``dropsAheadAtRest``.
     var aheadOfKeyResize = false
+    /// The host's size when its size was drawn ahead of a follow or a snap (``drawAheadOfFollow(nextHostSize:keyPress:)``):
+    /// a layout at this size is not the placement the size waits for, so it does not drop it (RESIZE P0 14: a layout in
+    /// a Reduce Motion key press's own turn dropped the size drawn ahead and sent the old grid back). The placement at a
+    /// new size takes it or drops it; a snap that showed at this size drops it (``aheadOfFollowShown()``). Nil: the
+    /// next layout is the placement at rest (a followed hold ended).
+    var aheadRestBasis: CGSize?
+    /// A key press's held snap shows in this turn (``aheadOfFollowWillShow()``, RESIZE P0 21): the surface's placement
+    /// does not hold for its program's redraw again (``TerminalSurfaceView/programHoldTicks``). Cleared at the placement
+    /// and when the snap showed.
+    var showsKeySnap = false
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
 
@@ -425,11 +444,12 @@ public final class TerminalHostView: NSView {
         guard let current else { return }
         let placement = surfacePlacement
         current.place(placement.frame, anchor: placement.anchor)
+        showsKeySnap = false
         // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
         // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
         // placement took it if it is the final size; else Ghostty goes back to the view's size.
-        if dropsAheadAtRest, !surfaceFollowsArea {
-            (dropsAheadAtRest, aheadOfKeyResize) = (false, false)
+        if dropsAheadAtRest, !surfaceFollowsArea, aheadRestBasis != bounds.size {
+            (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (false, false, nil)
             current.dropAhead()
         }
     }
@@ -551,16 +571,20 @@ public final class TerminalHostView: NSView {
             return
         }
         guard !backdrop.panesPaintBackground else {
-            guard let rgb = theme?.colors?.background else {
-                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
-                return
-            }
-            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+            // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
+            // the colour of its empty cells.
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
             return
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+    }
+
+    /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).
+    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
+        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
+        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 }
 

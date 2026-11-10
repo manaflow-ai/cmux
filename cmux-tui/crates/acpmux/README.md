@@ -376,8 +376,17 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+# Race CLI commands run inside an authenticated acpmux agent session:
+acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
+acpmux race stats                                              # each model's wins / completed races
+acpmux race stop RACE                                          # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
+
+Race commands default to the authenticated calling agent's own chat. `--parent CHAT` may
+name that chat or a descendant it can manage; it does not authenticate an ordinary terminal.
+Use the chat's **menu → Tools → Race models** control in cmux NEXT from an ordinary terminal.
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
 turn change and the wait subscribes to hub events, so nothing is missed between the check
@@ -583,7 +592,8 @@ pi and their forks show their catalogs before any session exists; Claude uses a 
 table.
 
 ```
-Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot steer
+Enter        send prompt; steers a running turn when the agent steers
+Ctrl-s       queue the prompt for after the running turn
 Ctrl-t / n   new session tab    Alt-n     new session tab    Ctrl-g   cancel turn
 Cmd-Ctrl-h/j/k/l  move focus like cmux panes: h sidebar, l content, k transcript, j composer
                   (Alt-h/j/k/l on terminals that do not deliver Cmd)
@@ -1255,7 +1265,22 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
+Grok: XAI_API_KEY. DeepSeek Harness: DEEPSEEK_API_KEY.
+Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
+list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
+DEEPSEEK_API_KEY, HF_TOKEN and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus
+ANTHROPIC_BASE_URL and OPENAI_BASE_URL), exact names only; the cache keeps only the keys' names, so after a cached start such a harness waits
+for the shell (at most 3 s) while a key's value is missing. A plain base URL is cached by value; one
+that carries a credential (userinfo, or a key or token in its query) is cached by name only, and
+Claude, Codex and these harnesses wait for it the same way unless their profile sets it. So does a
+profile's `${env:X}` reference to a name the cache lacks. If the shell is slower than the wait, a
+missing base URL or reference refuses the start, naming the variable, rather than running on the
+default endpoint. Only a name the child's final env plan takes counts: never one its route unsets
+(`codex-login`) or a remote-origin launch, whose env is cleared. Every spawn path builds its command
+through the same check (`agent::harness_command_ready`, chat forks included; the sign-in check and
+the live-model probe call `login_env::await_child_env` on their own command). The same list keeps these keys in the
+daemon's own environment from Claude, Codex and every other agent (`agent/foreign_login.rs`). Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
 (`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
@@ -1341,7 +1366,13 @@ When a send (with or without `--no-wait`) is refused because its target names no
 no peer lists it, the CLI runs `my-relay send SESSION -` with the message on stdin and
 `ACPMUX_FROM` set to the sender it would have named (`--from`, `ACPMUX_FROM`, or the session it
 runs in), prints the command's stdout (say, its delivery id) and exits with its status, so a
-refusal there is this send's failure. `--json` prints
+refusal there is this send's failure. A Claude Code subagent's send (the Bash hook's mark, or the
+MCP `send` call's tool use id) also sets `ACPMUX_FROM_SUBAGENT` (`TYPE:ID`) and
+`ACPMUX_FROM_LABEL` (`LEAD's TYPE subagent ID`, the name cut to one line of at most 64 bytes):
+labels for the relay to show. Both are unverified claims: nothing on the far side can check them
+yet. A Codex subagent's relayed send has no label (the daemon finds a Codex subagent by its thread
+after the relay choice is made). `ACPMUX_FROM` stays the lead's name, the reply address, so the
+far side's answer reaches the lead. `--json` prints
 `{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
 peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
 `--attach` to such a target is refused. Unset (the default), nothing changes.
@@ -1472,7 +1503,9 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH (or a CodeRouter route is configured), an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
-  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
+  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
+  (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
+  `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
   `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
   `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
@@ -1672,6 +1705,14 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 
 Each session logs every JSON-RPC line in both directions plus acpmux records, with a
 per-session sequence number. Clients resume from a sequence number after a disconnect.
+
+That sequence number is the one resume cursor of a chat, on every route: a client attaches
+with `afterSeq` = the last `seq` it holds and drops duplicates by `seq`. Transports below
+acpmux keep their own positions only to replay frames within one connection: the Cloud
+carrier's lanes (interactive, control, bulk, tunnel) are transport scheduling, are never
+persisted, and are never a cursor a client sees or sends. After a relay drop, a route switch
+or a new dial, the chat resumes from acpmux's `seq`, so nothing is lost or shown twice
+([Cloud carrier roles](docs/carrier-roles.md#the-resume-cursor)).
 
 `acpmux export` writes a bundle: `session.json`, `events/*.ndjson`, the adapter's own session
 files under `native/` when the adapter is known (Codex rollouts, Claude Code project files),

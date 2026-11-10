@@ -1,3 +1,4 @@
+import os
 import CmuxNextCompat
 public import Observation
 
@@ -41,9 +42,14 @@ public nonisolated enum SpaceWindowAction: Hashable, Sendable {
     }
     @ObservationIgnored private weak var source: (any SpaceWindowSource)?
     @ObservationIgnored private var windowID: (@MainActor @Sendable () -> String?)?
-    @ObservationIgnored private var observation: Task<Void, Never>?
+    /// The observation task, in a lock so the nonisolated deinit can cancel it without a main-actor hop.
+    @ObservationIgnored let observation = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
     public init() {}
+
+    // A dropped `Task` handle does not cancel its task: cancel the observation here (#38333 review).
+    // cx-t7hu: nonisolated; the lock is a Sendable let, so cancelling needs no main-actor hop.
+    nonisolated deinit { observation.withLock { $0?.cancel() } }
 }
 
 /// The App's side of one window's switcher (`SpaceWindowMarks.install`): it reads the open windows and runs a choice.
@@ -85,13 +91,22 @@ extension SpaceWindowMarks {
         restartObservation()
     }
 
+    /// The window closed (`SidebarBridge.teardown`): stops the observation and drops the source for good, so a reused or
+    /// retained bar never observes again. A retained window keeps its views, so `isActive` alone may never turn off.
+    public func tearDown() {
+        perform = nil
+        source = nil
+        windowID = nil
+        restartObservation()
+    }
+
     /// Observes the windows while the bar is in a window and `install` has given a source; cancels otherwise.
     private func restartObservation() {
-        observation?.cancel()
-        observation = nil
+        observation.withLock { $0?.cancel(); $0 = nil }
         guard isActive, let source, let windowID else { return }
-        // task-owner: `observation`, cancelled when the bar leaves its window (`isActive`); event-driven (Observation)
-        observation = Task { [weak self, weak source] in
+        // task-owner: `observation`, cancelled when the bar leaves its window (`isActive`) or the window closes (`tearDown`);
+        // event-driven (Observation)
+        let task = Task { [weak self, weak source] in
             for await value in ObservationStream({ () -> ([ProfileKey: SpaceElsewhere], Bool)? in
                 guard let source else { return nil }
                 let here = windowID() ?? ""
@@ -103,5 +118,6 @@ extension SpaceWindowMarks {
                 if windowIsIncognito != value.1 { windowIsIncognito = value.1 }
             }
         }
+        observation.withLock { $0 = task }
     }
 }

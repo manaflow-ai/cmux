@@ -25,7 +25,9 @@ import os
 /// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
 /// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
-/// that dies on connect) only `retryWake` does.
+/// that dies on connect) only `retryWake` does. A remote machine whose link
+/// redials by itself (``RetryPolicy/linkReconnect``) gets one attempt per drop
+/// and then waits for an event: the link is the only layer that redials.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -76,8 +78,6 @@ public actor DaemonConnection {
     var handoffHoldTimer: DemandTimer?
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
     private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
-    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
-    private var retriesSpentObserver: (@Sendable () -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -140,6 +140,13 @@ public actor DaemonConnection {
         phase = .closed
         releaseHandoffHold()
         continuation.finish()
+    }
+
+    /// Drops the current socket only (app health's restart of a connection that stopped answering): the
+    /// close reaches ``transportClosed(serial:reason:)``, which reconnects. Unlike ``close()``, it never
+    /// stops the reconnect or finishes `events`.
+    public func dropTransport() {
+        if case .ready(let ready) = phase { ready.transport.close() }
     }
 
     /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
@@ -211,8 +218,15 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        try await self.request(request, timeout: timeout, on: nil)
+    }
+
+    /// `request` on the transport of connection `serial` (``DaemonEventEnvelope/connectionSerial``) only, when given:
+    /// a write its caller checked against that connection's tree (a surface it names) fails as not connected once
+    /// another transport, maybe to a daemon that numbers surfaces anew, took its place.
+    func request<R: DaemonRequest>(_ request: R, timeout: Duration?, on serial: UInt64?) async throws -> R.Response {
         await waitOutHandoff()
-        guard let ready else { throw DaemonError.notConnected }
+        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
@@ -221,7 +235,12 @@ public actor DaemonConnection {
             response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         } catch let refused as PaneNotReady {
             throw reported(refused)
+        } catch {
+            // App health: a request the daemon left unanswered (a terminal start's own deadline is not the daemon's health).
+            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { configuration.health?.noteRequest(timedOut: true) }
+            throw error
         }
+        configuration.health?.noteRequest(timedOut: false)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }
@@ -242,13 +261,6 @@ public actor DaemonConnection {
     /// scope answers it; `DaemonService` sets it on each connection it makes. Runs on this connection's executor.
     public func observePaneNotReady(_ observer: (@Sendable (PaneNotReady) -> Void)?) {
         paneNotReadyObserver = observer
-    }
-
-    /// Sets what is told when the reconnect loop's timed retries are spent and it waits for an
-    /// event only (a remote machine's header then reads offline, not connecting, HQ #4877 G4).
-    /// Runs on this connection's executor, after each failed attempt past the budget.
-    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
-        retriesSpentObserver = observer
     }
 
     /// The event sequence this connection has routed so far, or nil when
@@ -391,26 +403,57 @@ public actor DaemonConnection {
         }
     }
 
-    /// Up for `healthyAfter`: the next drop starts the backoff from its first step.
+    /// Up for `healthyAfter`: the next drop starts the backoff from its first step. Under a drop
+    /// budget (``RetryPolicy/dropBudget``) only time refills it, so a connection that stays up
+    /// changes nothing.
     private func stayedHealthy(serial: UInt64) {
-        guard serial == self.serial, case .ready = phase else { return }
+        guard serial == self.serial, case .ready = phase, pacer.dropBudget == nil else { return }
         pacer.reset()
     }
 
+    /// An explicit reconnect (a person's Reconnect): the drop budget is full again
+    /// (``RetryPacer/refillDropBudget()``). The caller then fires the retry wake.
+    public func refillRetryBudget() {
+        pacer.refillDropBudget()
+    }
+
+    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
+    private var retriesSpentObserver: (@Sendable (UInt64) -> Void)?
+
+    /// Called each time a reconnect parks: its last attempt failed and the next waits for an event
+    /// only (a remote machine's header then reads offline, and using it reconnects; HQ #4877 G4).
+    /// The observer gets the serial of the attempt that parked: a connection that came up after it
+    /// has a higher serial (``DaemonEventEnvelope/connectionSerial``), so a late delivery can tell.
+    public func observeRetriesSpent(_ observer: (@Sendable (UInt64) -> Void)?) {
+        retriesSpentObserver = observer
+    }
+
+    /// Why the reconnect ended for good (an incompatible daemon), or nil.
+    public private(set) var endedBy: DaemonError?
+
     private func reconnectLoop() async {
+        // The explicit events before the last attempt (`RetryPolicy.keepsEventsDuringAttempt`).
+        var mark: UInt64?
+        // The loop starts on a drop: under a drop budget its attempt spends a token.
+        pacer.noteDrop()
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
-            wake.rebaseline()
+            wake.rebaseline(keepingEventsAfter: pacer.policy.keepsEventsDuringAttempt ? mark : nil)
             let delay = pacer.failed()
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
+            }
+            if delay == nil, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?(serial) }
+            if pacer.waitsForToken, let delay {
+                logger.info("cmux-tui reconnect: drop budget spent; next attempt in \(String(describing: delay), privacy: .public) or on an event")
             }
             let cause = await wake.awaitWake(delay: delay, clock: clock, socket: pacer.wakesOnSocket)
             guard cause != .cancelled else { break }
             pacer.woke(cause)
             if isClosedPhase { break }
+            mark = wake.eventMark
             do {
                 _ = try await connectOnce()
                 break
@@ -421,6 +464,7 @@ public actor DaemonConnection {
                     logger.error("cmux-tui reconnect failed permanently: \(error.description, privacy: .public)")
                     reconnectTask = nil
                     phase = .closed
+                    endedBy = error
                     releaseHandoffHold()
                     continuation.finish(throwing: error)
                     return
@@ -434,10 +478,8 @@ public actor DaemonConnection {
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")
             }
-            if pacer.isExhausted {
+            if pacer.waitsForEventOnly {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
-                // A busy daemon keeps its timed retry: still reconnecting, not offline.
-                if pacer.waitsForEventOnly, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
             }
         }
         reconnectTask = nil

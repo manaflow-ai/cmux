@@ -30,6 +30,9 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SidebarTabGapCleanupTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseEchoWorkTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TabDragFollowsPointerTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TabDragGhostFollowsThemeTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TabMoveDepartureTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabMoveMotionTargetTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabStripRapidCloseTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TitlebarDoubleClickTests

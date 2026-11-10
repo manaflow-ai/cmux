@@ -7,6 +7,7 @@ use std::io::Write as _;
 
 use sha2::{Digest, Sha256};
 
+use super::super::build::check_staged_counts;
 use super::*;
 
 #[test]
@@ -65,7 +66,8 @@ fn live_rows(rows: i64) -> (Connection, Connection) {
         .execute_batch(
             "CREATE TABLE output_cleanup_state(key TEXT PRIMARY KEY, value TEXT);
              INSERT INTO output_cleanup_state VALUES
-               ('live_archive_end', '0'), ('live_head', '0'), ('live_output', '0');",
+               ('staged_through', '0'), ('live_archive_end', '0'), ('live_head', '0'),
+               ('live_output', '0');",
         )
         .unwrap();
     (source, staging)
@@ -128,22 +130,135 @@ fn an_interrupted_kind_backfill_never_marks_the_cleanup_not_needed() {
 
 #[test]
 fn a_resumed_kind_backfill_decodes_partly_mapped_segments_again() {
-    // The startup backfill sets its marker to `1` when it finishes. Resumed
-    // after a stop, it must revisit a segment that already has some kind
-    // rows, or the missing `terminal.output` row is never added and the map
-    // later says "no output".
+    // An older build's startup backfill (marker `0`) inserted kind rows one
+    // at a time. Resumed after a stop, it must revisit a segment that already
+    // has some kind rows, or the missing `terminal.output` row is never added
+    // and the map later says "no output". Segments at or before the recorded
+    // progress were finished whole and are not decoded again.
     let source = Connection::open_in_memory().unwrap();
     source
         .execute_batch(
             "CREATE TABLE journal_segments(segment_id TEXT PRIMARY KEY, start_sequence INTEGER);
              CREATE TABLE journal_segment_kinds(segment_id TEXT, kind TEXT);
-             INSERT INTO journal_segments VALUES('partly', 1), ('unmapped', 3);
+             INSERT INTO journal_segments VALUES('done', 1), ('partly', 3), ('unmapped', 5);
+             INSERT INTO journal_segment_kinds VALUES('done', 'agent.session.started');
              INSERT INTO journal_segment_kinds VALUES('partly', 'agent.session.started');",
         )
         .unwrap();
-    let ids = |resumed| {
-        super::super::super::session_journal::legacy_backfill_segment_ids(&source, resumed).unwrap()
+    let ids = |rescan| {
+        super::super::super::session_journal::legacy_backfill_segments(&source, rescan)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>()
     };
-    assert_eq!(ids(false), vec!["unmapped".to_owned()]);
-    assert_eq!(ids(true), vec!["partly".to_owned(), "unmapped".to_owned()]);
+    assert_eq!(ids(None), vec!["unmapped".to_owned()]);
+    assert_eq!(
+        ids(Some((0, None))),
+        vec!["done".to_owned(), "partly".to_owned(), "unmapped".to_owned()]
+    );
+    assert_eq!(ids(Some((1, None))), vec!["partly".to_owned(), "unmapped".to_owned()]);
+    // A bounded rescan: segments sealed after the run began keep their map.
+    assert_eq!(ids(Some((0, Some(1)))), vec!["done".to_owned(), "unmapped".to_owned()]);
+}
+
+/// A gzip segment of `json` (a JSON array of records) and its checksums.
+fn gzip_segment(json: &[u8]) -> (Vec<u8>, i64, Vec<u8>) {
+    let mut encoder =
+        flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+    encoder.write_all(json).unwrap();
+    (encoder.finish().unwrap(), i64::try_from(json.len()).unwrap(), Sha256::digest(json).to_vec())
+}
+
+fn seal_race_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir()
+        .join(format!("cmux-output-cleanup-seal-race-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn a_segment_sealed_before_the_live_count_is_staged_and_loses_no_record() {
+    // The staging pass finds no segment; the owner then seals sequences 1
+    // and 2 (an output record and a title) before the live rows are
+    // counted. Counted past the staged segments, the title would be in
+    // neither the staged segments nor the live range, and packing would
+    // record it as pruned.
+    let dir = seal_race_dir("first-seal");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    Connection::open(&db_path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE journal_segments(
+               segment_id TEXT PRIMARY KEY, start_sequence INTEGER, end_sequence INTEGER,
+               record_count INTEGER, codec TEXT, content BLOB, uncompressed_bytes INTEGER,
+               sha256 BLOB, actors_json TEXT);
+             CREATE TABLE journal_segment_kinds(segment_id TEXT, kind TEXT);
+             CREATE TABLE session_journal(sequence INTEGER PRIMARY KEY, kind TEXT);
+             CREATE INDEX session_journal_by_kind_sequence ON session_journal(kind, sequence);
+             INSERT INTO session_journal VALUES
+               (1, 'terminal.output'), (2, 'terminal.title'), (3, 'terminal.output');",
+        )
+        .unwrap();
+    let source = Connection::open(&db_path).unwrap();
+    let staging = open_staging(&db_path, "registry-seal-race").unwrap();
+    let owner_path = db_path.clone();
+    BEFORE_LIVE_COUNT.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            let json = br#"[{"sequence":1,"kind":"terminal.output","payload":{"data":"aGk="}},{"sequence":2,"kind":"terminal.title","payload":{"title":"build"}}]"#;
+            let (content, bytes, sha256) = gzip_segment(json);
+            let owner = Connection::open(&owner_path).unwrap();
+            owner
+                .execute(
+                    "INSERT INTO journal_segments
+                     VALUES('sealed', 1, 2, 2, 'gzip-json-v1', ?1, ?2, ?3, NULL)",
+                    params![content, bytes, sha256],
+                )
+                .unwrap();
+            owner.execute("DELETE FROM session_journal WHERE sequence <= 2", []).unwrap();
+        }));
+    });
+
+    let staged = stage_sealed(&db_path, &source, &staging, &|| true, 0).unwrap();
+    assert!(matches!(staged, Staged::Finished), "phase A did not finish");
+    assert!(
+        BEFORE_LIVE_COUNT.with(|hook| hook.borrow().is_none()),
+        "the seal ran between the staging pass and the count"
+    );
+    let title: i64 = staging
+        .query_row(
+            "SELECT COUNT(*) FROM output_cleanup_records
+             WHERE sequence = 2 AND kind = 'terminal.title'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(title, 1, "the title sealed before the count was lost");
+    assert_eq!(state_u64(&staging, "staged_through").unwrap(), 2);
+    assert_eq!(state_u64(&staging, "live_archive_end").unwrap(), 2);
+    assert_eq!(state_u64(&staging, "live_head").unwrap(), 3);
+    assert_eq!(state_u64(&staging, "live_output").unwrap(), 1);
+    check_staged_counts(&staging).unwrap();
+    drop((source, staging));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_staged_counts_fail_for_live_rows_counted_past_the_staged_segments() {
+    // No segment is staged, and the live rows were counted after sequence 2:
+    // the records through 2 are in neither, so the counts must not pass.
+    let dir = seal_race_dir("counts");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    let staging = open_staging(&db_path, "registry-seal-race").unwrap();
+    staging
+        .execute_batch(
+            "UPDATE output_cleanup_state SET value = '2' WHERE key = 'live_archive_end';
+             UPDATE output_cleanup_state SET value = '3' WHERE key = 'live_head';
+             UPDATE output_cleanup_state SET value = '1' WHERE key = 'live_output';",
+        )
+        .unwrap();
+    assert!(check_staged_counts(&staging).is_err(), "an unstaged archive passed the counts");
+    drop(staging);
+    std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -33,7 +33,9 @@ env:
 
 jobs:
   probe:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       contents: write
     # Called only by nightly.yml, so a nightly job: never Blacksmith. It holds contents: write and OIDC, so it

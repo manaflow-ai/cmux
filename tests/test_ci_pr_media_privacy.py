@@ -938,7 +938,8 @@ class FeatWorkflowTests(unittest.TestCase):
 
     # workflow -> job id -> the script its publishing step runs
     WRITER_JOBS = {
-        ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py"},
+        ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py",
+                                                  "whats-new-clips": "scripts/cmux-next/media/whats-new-clips.py"},
         ".github/workflows/nightly.yml": {"publish-nightly-reel": "scripts/cmux-next/media/reel.py"},
         ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
     }
@@ -948,7 +949,7 @@ class FeatWorkflowTests(unittest.TestCase):
     NEEDED = (".github/actions/pr-media-publish", "scripts/pr-media.py", "scripts/ci/pr_media_privacy.py",
               "scripts/ci/pr_media_gate.py", "scripts/ci/pr_media_ocr_tesseract.py", "scripts/ci/pr_media_ocr.swift")
     WRITERS = ("scripts/pr-media.py", "scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
-               "scripts/cmux-next/media/whats-new-gallery.py")
+               "scripts/cmux-next/media/whats-new-gallery.py", "scripts/cmux-next/media/whats-new-clips.py")
 
     @staticmethod
     def runs_a_writer(run: str, script: str | None = None) -> bool:
@@ -964,7 +965,9 @@ class FeatWorkflowTests(unittest.TestCase):
                 if name.endswith("media/reel.py") and "--publish" not in run[found.start():found.start() + 400]:
                     continue
                 # whats-new-gallery.py writes only in its `publish` command (plan and manifest read).
-                if name.endswith("media/whats-new-gallery.py") and not re.match(r"\s*publish\b", run[found.end():]):
+                # whats-new-clips.py too, in `publish` and `publish-auto` (plan, tours and render read).
+                if (name.endswith(("media/whats-new-gallery.py", "media/whats-new-clips.py"))
+                        and not re.match(r"\s*publish\b", run[found.end():])):
                     continue
                 return True
         return False

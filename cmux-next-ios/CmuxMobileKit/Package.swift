@@ -123,7 +123,7 @@ let package = Package(
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
-            "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileArtifacts", "CmuxMobileNotifications",
+            "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -147,6 +147,8 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", "CmuxMobileRealtime",
+                // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ]
@@ -172,6 +174,8 @@ let package = Package(
                 "CmuxMobileChief", "CmuxMobileModel", "CmuxMobileDesign", "CmuxMobileRealtime",
                 // libwebrtc for live Chief calls: CmuxVNCWebRTC's, the one build the app links.
                 .product(name: "WebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
+                // The process's libwebrtc field trials (WebRTCFieldTrials), set before the call's factory.
+                .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
                 .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             ],
@@ -212,6 +216,11 @@ let package = Package(
             "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+        ]),
+        // The instant-list perf bench (small vs god fixtures, budgets and the 1.2x rule):
+        // cmux-next-ios/design/instant-perf.md. CI runs it on its own, after the other tests.
+        .testTarget(name: "CmuxMobileInstantPerfTests", dependencies: [
+            "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileAgentChat", "CmuxMobileTransport",
         ]),
         .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed"]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),

@@ -229,7 +229,14 @@ test("only reads wait for a slot; a write, a click's answer or a Stop goes at on
   const sent: string[] = [];
   budget.admit(1, PROBE, () => sent.push("read"));
   budget.admit(2, PROBE, () => sent.push("waits"));
-  const others = [ANSWER, "_acpmux/bookmark_set", "_acpmux/permission_chat_revoke", "_acpmux/kill", "acp.session.fork"];
+  const others = [
+    ANSWER,
+    "_acpmux/bookmark_set",
+    "_acpmux/memory_resolve",
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/kill",
+    "acp.session.fork",
+  ];
   for (const [index, method] of others.entries()) {
     expect(waitsForSlot(method)).toBe(false);
     budget.admit(3 + index, method, () => sent.push(method));
@@ -238,6 +245,21 @@ test("only reads wait for a slot; a write, a click's answer or a Stop goes at on
   expect(budget.inFlight).toBe(1 + others.length);
   expect(waitsForSlot(PROBE)).toBe(true);
   expect(waitsForSlot("git.status")).toBe(true);
+});
+
+test("a preset read waits for a slot; a preset approval card's answer goes at once and never again", () => {
+  expect(waitsForSlot("_acpmux/presets", { name: "lane" })).toBe(true);
+  expect(waitsForSlot("_acpmux/presets")).toBe(true);
+  const approve = { name: "lane", approveMode: true, approveDigest: "d1", sessionId: "s1" };
+  expect(waitsForSlot("_acpmux/presets", approve)).toBe(false);
+  expect(waitsForSlot("_acpmux/presets", { ...approve, approveMode: false })).toBe(false);
+  expect(waitsForSlot("_acpmux/presets", { name: "lane", set: { model: "m" } })).toBe(false);
+  const budget = new RequestBudget(1);
+  const sent: string[] = [];
+  budget.admit(1, PROBE, () => sent.push("read"));
+  budget.admit(2, "_acpmux/presets", () => sent.push("preset read"), { name: "lane" });
+  budget.admit(3, "_acpmux/presets", () => sent.push("approve"), approve);
+  expect(sent).toEqual(["read", "approve"]);
 });
 
 test("a write refused as busy is never sent again, so a later write is not undone", async () => {

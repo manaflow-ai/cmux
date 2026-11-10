@@ -59,6 +59,11 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`silent_turn.rs`).
     "turn_silent",
     "turn_heard",
+    // A bounded tool-call loop started or made progress (`loop_detector.rs`).
+    "loop_detected",
+    "loop_cleared",
+    // A turn's last reply's claims and the runs that back them or not (`claim_check.rs`).
+    "claim_checks",
     // The harness retries the turn's failed model request (`turn_retry.rs`).
     "turn_retrying",
     "turn_result",
@@ -71,6 +76,14 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // Cards the chat draws under a turn: the away recap (`away_recap.rs`), the memory inbox's
+    // offer and its answer (`memory_inbox.rs`) and the prompt coach's offer and rewrite
+    // (`prompt_coach.rs`). A record left off this list never reaches a chat client.
+    "recap",
+    "memory_offer",
+    "memory_resolved",
+    "coach_offer",
+    "coach",
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",
@@ -91,6 +104,11 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "reopened",
     "host_started",
     "host_ended",
+    // A plan built in new worktrees, and the build kept (`plan_build.rs`): the chat's card.
+    "plan_build",
+    // A model race snapshot updates the parent's compare view and must travel with transcript
+    // subscriptions, including reconnect paging.
+    "race",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
@@ -145,6 +163,13 @@ impl EventFilter {
     pub fn of_subagent(mut self, id: Option<&str>) -> Self {
         self.subagent = id.filter(|id| !id.is_empty()).map(str::to_owned);
         self
+    }
+
+    /// Bytes every line of a matching record holds: a subagent's id as the log writes the JSON
+    /// string (``subagent_owns`` reads it from `_meta.acpmux`), so a store passes the chat's other
+    /// lines unparsed (`Store::scan_matching`). None when any line may match.
+    fn line_needle(&self) -> Option<Vec<u8>> {
+        serde_json::to_vec(self.subagent.as_deref()?).ok()
     }
 
     pub fn is_all(&self) -> bool {
@@ -498,7 +523,11 @@ impl Hub {
         };
         if limit == 0 || !newest {
             let mut found = 0usize;
-            self.store.scan(id, after, &mut |rec| {
+            let needle = filter.line_needle();
+            let may_match = |line: &[u8]| {
+                needle.as_deref().is_none_or(|needle| memchr::memmem::find(line, needle).is_some())
+            };
+            self.store.scan_matching(id, after, &may_match, &mut |rec| {
                 if rec.seq >= before {
                     return false;
                 }

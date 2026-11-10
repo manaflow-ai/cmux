@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 
@@ -61,13 +63,16 @@ enum CloudHandlers {
                 if let window, context.services.windows.controller(for: window.id) == nil {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
-                if request.takesPlainPath, actionOrigin == .user, window != nil {
+                let start = CloudHandlerRules().ask("cloud_handler_new_machine_start", [
+                    "isDefault": request.takesPlainPath, "byUser": actionOrigin == .user, "hasWindow": window != nil,
+                ])?["start"] as? String
+                if start == "setup" {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
-                guard request.takesPlainPath else {
+                guard start == "default" else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
                 }
@@ -110,18 +115,19 @@ enum CloudHandlers {
     /// never kills whatever machine the window happens to show.
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
-        if let target = invocation.target, target.kind == .machine {
-            // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
-            // resource id `cmux machine list` prints for a connected one.
-            guard let session = machines.session(target.id)
-                ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == target.id }) else {
-                throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id))
-            }
-            return session
+        let named = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
+        // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
+        // resource id `cmux machine list` prints for a connected one.
+        let found = named.flatMap { id in machines.session(id) ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == id }) }
+        let active = context.services.windows.active.flatMap { machines.session($0.state.machineID) }
+        let lookup: [String: Any] = ["named": named as Any, "namedFound": found != nil, "byUser": origin(of: invocation) == .user,
+                                     "activeFound": active != nil, "cloudCount": machines.cloud.count]
+        switch try CloudHandlerRules().checked("cloud_handler_machine_pick", lookup.compacted, valueKey: "pick") as? String {
+        case "named"?: if let found { return found }
+        case "active"?: if let active { return active }
+        case "only"?: if let only = machines.cloud.first { return only }
+        default: break
         }
-        guard origin(of: invocation) == .user else { throw ActionFailure(message: CloudStrings.noMachine) }
-        if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
-        if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
     }
 
@@ -130,6 +136,11 @@ enum CloudHandlers {
     /// (``ActionRunScope``) decides: a composite action from the CLI stays the CLI's.
     static func origin(of invocation: ActionInvocation) -> ActionOrigin {
         ActionRunScope.current?.origin ?? invocation.origin
+    }
+
+    /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked).
+    static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext) -> @MainActor () async -> Bool {
+        let person = origin(of: invocation) == .user, request = CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }); return { person ? true : await request.allowed(registry.descriptor(for: id)?.title ?? id.rawValue, in: context.services.windows.active?.window) }
     }
 
     /// The origin of a connect an invocation starts: `user` only for the
@@ -339,11 +350,9 @@ enum CloudHandlers {
         guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }
 
-    /// Whether `session` can take an attach now or after a resume: a legacy
-    /// machine with no connection may be paused behind a stale record, so
-    /// ``attached(_:_:within:)`` reads it again and decides.
+    /// Whether `session` can take an attach now: its machine is not changing and its daemon is connected.
     static func attachable(_ session: CloudMachineSession) -> Bool {
-        !session.machine.shownStatus.isChanging && (session.daemon.connection != nil || session.appLink == nil)
+        !session.machine.shownStatus.isChanging && session.daemon.connection != nil
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
@@ -357,11 +366,5 @@ enum CloudHandlers {
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
         await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
         try requireAttachableState(session)
-    }
-
-    static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
-        return command
     }
 }

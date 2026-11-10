@@ -3,10 +3,20 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
+import { CloudChatHint } from "../CloudChatHint";
 import { isActive, type Dictation, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
@@ -18,6 +28,14 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
+import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import {
+  awaitProjectPreview,
+  forgetProjectPreview,
+  newProjectPrompt,
+  projectNameFrom,
+  projectSlug,
+} from "./newProject";
 import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
@@ -91,10 +109,12 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
 import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
+import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { sendsHeldForHost } from "../sendWhenReady";
 import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
@@ -131,10 +151,14 @@ import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
+import { GRID_BUILTINS, gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
+import { panelId } from "../../../apps/scene/panelsClient";
+import type { PageClient } from "../../../pages/shared/pageClient";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
+import { githubIssueLink } from "../../../githubReferences";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -156,6 +180,10 @@ export type NewTabScreenActions = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
   ): unknown;
+  /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree. `cwd` is the
+  /// project the person picked on this page, when there is one; it must win over the tab's
+  /// inherited folder so checkout discovery uses the explicit choice.
+  onFixFromLink?(url: string, cwd?: string, harness?: string, model?: string): void | Promise<void>;
   onOpen(url: string): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
   onOpenInProfile?(url: string, id: string): void;
@@ -174,6 +202,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
+  /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
+  /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
+  onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -232,6 +263,12 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   startNotice?: React.ReactNode;
+  /// New Cloud Chat (the palette) is pending: once Run as is offered, the page takes it (this call)
+  /// and picks Cloud.
+  cloudPick?(): void;
+  /// The one-time Cloud hint (cloudChatHintModel.ts) is due: it shows over the strip while Cloud is not
+  /// the mode, and its Use Cloud is this page's own Cloud pick.
+  cloudHint?: { onClose(): void };
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -286,6 +323,9 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// New Project (newProject.ts): acpmux makes folder `name` with an empty git repository; resolves
+  /// with the folder it made.
+  onNewProject?(name: string): Promise<string>;
   /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
   extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
@@ -301,6 +341,9 @@ type Props = NewTabScreenActions & {
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
   /// is the composer alone. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// How the first-run starters under the composer look (FirstRunStarters.tsx); the gallery's
+  /// variants set it, the app leaves it unset (rows).
+  starterLook?: FirstRunStarterLook;
   /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
   /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
   headlineOff?: boolean;
@@ -331,6 +374,11 @@ type Props = NewTabScreenActions & {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
+  /// A fix-from-link request failed while the New Tab remains mounted.
+  fixError?: string;
+  /// Where installed apps' New Tab widgets come from (ExtensionWidgets.tsx): the gallery's and tests'
+  /// mock; the page host's when unset, `null` for none.
+  widgetClient?: PageClient | null;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -372,11 +420,19 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
+  // Installed apps' widgets in the widget row: mounted only when placed, and kept through a switch.
+  const appWidgets = useNewTabExtensionWidgets(props.widgetClient);
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
   const untouchedText = useRef((location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"));
   const [text, setText] = useState(carried?.text || untouchedText.current);
+  // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
+  // the person typed; until then it is the prompt's (projectNameFrom).
+  const [newProject, setNewProject] = useState<{ name?: string }>();
+  const [newProjectError, setNewProjectError] = useState<string>();
+  const newProjectPending = useRef(false);
+  const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
@@ -403,6 +459,10 @@ export function NewTabScreen(props: Props) {
   const [picked, setPicked] = useState(false);
   // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  useEffect(() => {
+    if (props.fixError) setFixing(false);
+  }, [props.fixError]);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
@@ -629,6 +689,9 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
+  // absent folder lets the host search only its approved local checkout roots.
+  const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
@@ -644,6 +707,13 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
+      // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
+      if (mode !== "persistent") {
+        // A folder still on its way, or made for a start that failed, is no longer this draft's.
+        projectChoice.current += 1;
+        setNewProject(undefined);
+        newProjectMade.current = undefined;
+      }
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
@@ -655,6 +725,17 @@ export function NewTabScreen(props: Props) {
       props.runMode?.onMode(mode);
     },
   };
+  // New Cloud Chat: the page's own Cloud pick (above), as soon as Cloud is offered here.
+  const takeCloudPick = props.cloudPick;
+  const cloudOfferedHere = runMode !== undefined;
+  const pickCloudNow = useEffectEvent(() => {
+    if (runMode && runMode.mode !== "cloud") runMode.onMode("cloud");
+  });
+  useEffect(() => {
+    if (!takeCloudPick || !cloudOfferedHere) return;
+    takeCloudPick();
+    pickCloudNow();
+  }, [takeCloudPick, cloudOfferedHere]);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -678,6 +759,8 @@ export function NewTabScreen(props: Props) {
     setStarting(args[0]);
     const failed = (error: unknown) => {
       created.current = false;
+      // A New project folder whose chat did not start opens no page for a later chat there.
+      forgetProjectPreview(args[2]);
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
       if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
@@ -740,6 +823,7 @@ export function NewTabScreen(props: Props) {
       return started === true;
     }
     if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
+    if (newProject && props.onNewProject) return askInNewProject(agent, sent.text, model, sentAttachments);
     if (machine)
       return requestChat(
         agent,
@@ -757,6 +841,8 @@ export function NewTabScreen(props: Props) {
     return none ? requestChat(agent, sent.text, cwd, model, true) : requestChat(agent, sent.text, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  // The chips' agent or model pick starts no chat in a folder New project has not made yet.
+  const chipFolder = newProject ? undefined : chatFolder;
   const remembered = useLastPick(chatFolder);
   const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -803,14 +889,10 @@ export function NewTabScreen(props: Props) {
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
   const createsWorktree =
     environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
-  // Its final directory (and project-local credentials) exists only after creation.
-  const targetCwd = createsWorktree
-    ? undefined
-    : environment
-      ? environmentCwd
-      : machine
-        ? machine.folder
-        : localChatCwd;
+  // Its final directory (and project-local credentials) exists only after creation, as New
+  // project's folder does.
+  const targetCwd =
+    createsWorktree || newProject ? undefined : environment ? environmentCwd : machine ? machine.folder : localChatCwd;
   // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
     harness && !offMachine && (!remoteTarget || targetHost)
@@ -905,6 +987,17 @@ export function NewTabScreen(props: Props) {
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
   /// One parse per change of the value, not per render.
   const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
+  const fixFromLink = useMemo(
+    () =>
+      !shell &&
+      !machine &&
+      !environment &&
+      (props.runMode?.mode ?? "persistent") === "persistent" &&
+      attachments.length === 0
+        ? githubIssueLink(typed)
+        : undefined,
+    [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
+  );
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -964,6 +1057,8 @@ export function NewTabScreen(props: Props) {
     setSelected(row ? rowKey(row) : NO_ROW);
   };
   const t = useT();
+  // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
+  const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
@@ -1053,6 +1148,12 @@ export function NewTabScreen(props: Props) {
   const openCardInTerminal = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key) props.onOpenChatInTerminal?.(key);
+  };
+  // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
+  const coldArchiveCard = (id: string, archived: boolean) => {
+    void props.onColdArchive?.(id, archived).catch((error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+    });
   };
   const list = useRef<HTMLDivElement>(null);
   // With no room under the box for every row, the rows go past the window's edge (cx-6k6cg); the
@@ -1234,7 +1335,7 @@ export function NewTabScreen(props: Props) {
     // agent here to warm; an address the person ends up typing releases it once cleared.
     props.onPromptTyped?.(
       shell ? "" : next,
-      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+      environment || newProject || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
   const submit = () => {
@@ -1590,9 +1691,28 @@ export function NewTabScreen(props: Props) {
     };
   }, []);
   const [browseError, setBrowseError] = useState<string>();
+  const chooseNewProject = () => {
+    projectChoice.current += 1;
+    setBrowseError(undefined);
+    setNewProjectError(undefined);
+    props.onCloudMachinePicked?.(undefined);
+    saved.pick(undefined);
+    setMachine(undefined);
+    touch();
+    setNone(false);
+    // A new folder is this Mac's: a Cloud or Sandboxed pick goes back to this Mac.
+    if (props.runMode && props.runMode.mode !== "persistent") runMode?.onMode("persistent");
+    // A folder kept from a failed start belongs to that choice; a new choice makes its own.
+    newProjectMade.current = undefined;
+    setNewProject((before) => before ?? {});
+    requestAnimationFrame(() => field.current?.focus());
+  };
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
     setBrowseError(undefined);
+    setNewProject(undefined);
+    // A folder made for a start that failed is New project's only while it stays the choice.
+    newProjectMade.current = undefined;
     // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
     // earlier so the next keystroke cannot wake that stale machine.
     props.onCloudMachinePicked?.(undefined);
@@ -1616,6 +1736,9 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
+    setNewProject(undefined);
+    // A folder made for a start that failed is New project's only while it stays the choice.
+    newProjectMade.current = undefined;
     // Choosing a local or SSH machine replaces an account Cloud target for this draft.
     props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
@@ -1670,6 +1793,39 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         unstarted();
         setWorktreeError((error instanceof Error && error.message) || String(error));
+      },
+    );
+  }
+  // New Project's chat: acpmux makes the folder and its repository, then the chat starts there as in
+  // a picked folder, asked to serve what it builds; its first local page opens beside it (App.tsx
+  // takeProjectPreview). A refusal shows above the card and the prompt stays in the field. A send
+  // again after a start that failed reuses the folder made for the same name, never a `name-2`.
+  function askInNewProject(agent: string, prompt: string, model?: string, sentAttachments?: ComposerAttachment[]) {
+    if (newProjectPending.current || !props.onNewProject) return;
+    newProjectPending.current = true;
+    setNewProjectError(undefined);
+    const extra = sentAttachments?.length ? sentAttachments : undefined;
+    const name = projectSlug(newProject?.name ?? "") || projectNameFrom(prompt);
+    const made = newProjectMade.current?.name === name ? newProjectMade.current.folder : undefined;
+    // The choice this send belongs to: a folder picked, or the page gone, while acpmux makes the
+    // folder starts no chat there (as a worktree's late reply, `projectChoice`).
+    const choice = projectChoice.current;
+    const current = () => browseAlive.current && choice === projectChoice.current;
+    void (made ? Promise.resolve(made) : props.onNewProject(name)).then(
+      (folder) => {
+        newProjectPending.current = false;
+        if (!current()) {
+          created.current = false;
+          return;
+        }
+        newProjectMade.current = { name, folder };
+        awaitProjectPreview(folder);
+        requestChat(agent, newProjectPrompt(prompt), folder, model, undefined, extra, {});
+      },
+      (error: unknown) => {
+        newProjectPending.current = false;
+        created.current = false;
+        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
       },
     );
   }
@@ -1784,7 +1940,7 @@ export function NewTabScreen(props: Props) {
           sessionId: chipSnapshot.summary?.sessionId ?? "",
           ...(machine
             ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
+            : askFolder && !newProject
               ? { cwd: askFolder }
               : { cwd: undefined }),
         }}
@@ -1796,6 +1952,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+        {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
@@ -1803,7 +1960,21 @@ export function NewTabScreen(props: Props) {
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
-        noProject={none}
+        noProject={none && !newProject}
+        {...(props.onNewProject
+          ? {
+              onNewProject: chooseNewProject,
+              newProject: !!newProject,
+              newProjectName: newProject && (
+                <NewProjectName
+                  {...(newProject.name !== undefined ? { name: newProject.name } : {})}
+                  derived={projectNameFrom(text)}
+                  onName={(name) => setNewProject({ name })}
+                  onDone={() => field.current?.focus()}
+                />
+              ),
+            }
+          : {})}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
@@ -1818,6 +1989,9 @@ export function NewTabScreen(props: Props) {
                 onPick: (id: string) => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  // An environment is where the chat starts: New project's folder is no longer it.
+                  setNewProject(undefined);
+                  newProjectMade.current = undefined;
                   touch();
                   // Saved environments are local/SSH destinations, never account Cloud machines.
                   props.onCloudMachinePicked?.(undefined);
@@ -1890,7 +2064,7 @@ export function NewTabScreen(props: Props) {
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && (
-          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+          <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
         )}
         <span className="acpmux-composer-actions">
           {props.accessory}
@@ -1946,6 +2120,7 @@ export function NewTabScreen(props: Props) {
           variant={sections.chats}
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
           onShowAll={props.onShowAll}
         />
       )}
@@ -2015,6 +2190,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {newProjectError && (
+          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+        )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}
@@ -2037,6 +2215,9 @@ export function NewTabScreen(props: Props) {
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
+        {props.cloudHint && runMode && runMode.mode !== "cloud" && (
+          <CloudChatHint onUse={() => runMode.onMode("cloud")} onClose={props.cloudHint.onClose} />
+        )}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
@@ -2142,6 +2323,33 @@ export function NewTabScreen(props: Props) {
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
             {split && pickers}
           </div>
+          {fixFromLink && props.onFixFromLink && (
+            <div className="nt-create-strip">
+              <button
+                type="button"
+                className="nt-create-strip-item nt-fix-chip"
+                disabled={fixing}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => {
+                  if (fixing) return;
+                  setFixing(true);
+                  void Promise.resolve()
+                    .then(() => props.onFixFromLink?.(fixFromLink.url, fixFolder, harness, chipModel))
+                    .then(
+                      () => setFixing(false),
+                      () => setFixing(false),
+                    );
+                }}
+              >
+                {t("worktree.fixFromLink")}
+              </button>
+              {props.fixError && (
+                <p className="nt-fix-error" role="alert">
+                  {props.fixError}
+                </p>
+              )}
+            </div>
+          )}
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
@@ -2151,7 +2359,9 @@ export function NewTabScreen(props: Props) {
           <AttachmentStrip
             attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
             pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
-            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
+            {...(command.error || attachError || heldForHost
+              ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
+              : {})}
             codex={harness === "codex"}
             // A strip chip's × takes its node out of the text too (the strip view shows placed ones
             // here), so the inline view brings back none and the prompt sends none.
@@ -2176,7 +2386,7 @@ export function NewTabScreen(props: Props) {
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
+              <Chips snapshot={chipSnapshot} {...(chipFolder ? { cwd: chipFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
         )}
@@ -2203,7 +2413,47 @@ export function NewTabScreen(props: Props) {
       now={at}
     />
   );
-  const extras = <NewTabExtras widgets={widgets} now={at} />;
+  const extras = (
+    <NewTabExtras
+      widgets={widgets}
+      now={at}
+      extensions={appWidgets}
+      editing={editing}
+      {...(onEditWidgets ? { onEdit: onEditWidgets } : {})}
+    />
+  );
+  // Add Widgets places an app's widget at the row's end, keeping the row's order as the person sees it.
+  const placedAppWidgets = new Set(appWidgets.mounted.map((widget) => panelId(widget.panel)));
+  const addableAppWidgets = !appWidgets.editable
+    ? []
+    : appWidgets.available
+        .filter((panel) => !placedAppWidgets.has(panelId(panel)))
+        .map((panel) => ({ id: panelId(panel), title: panel.title }));
+  const addAppWidget = (id: string) => {
+    const row = gridOrder(
+      [...GRID_BUILTINS.filter((widget) => widgets.has(widget)), ...placedAppWidgets],
+      appWidgets.layout,
+    );
+    appWidgets.setLayout([...row, id]);
+  };
+  // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
+  // pick fills the composer and sends nothing; the first chat takes them away for good.
+  const pickStarter = (prompt: string) => {
+    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it, and
+    // one left in the profile search (Open in Profile…) would name a profile after it.
+    setShell(false);
+    setProfilePick(undefined);
+    edit(prompt);
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setCaret(field.current.plainText().length);
+    });
+  };
+  const starters = showsFirstRunStarters(snapshot, {
+    allChats,
+    chatsPending: props.chatsPending === true,
+    deviceChats: pushed.length,
+  }) && <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />;
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -2297,7 +2547,9 @@ export function NewTabScreen(props: Props) {
         data-layout={stage ? "stage" : undefined}
         data-minimal={minimal || undefined}
       >
-        {onEditWidgets && <WidgetEditBar editing={editing} onEdit={onEditWidgets} />}
+        {onEditWidgets && (
+          <WidgetEditBar editing={editing} onEdit={onEditWidgets} apps={addableAppWidgets} onAddApp={addAppWidget} />
+        )}
         {stage ? (
           <>
             {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
@@ -2319,6 +2571,7 @@ export function NewTabScreen(props: Props) {
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
+            {starters}
             {extras}
             {props.notice}
             {environmentPanel}
@@ -2336,6 +2589,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {starters}
             {extras}
             {ambient}
             {props.notice}

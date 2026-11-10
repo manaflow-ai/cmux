@@ -162,16 +162,30 @@ import Testing
     }
 
     /// A link chip whose path the pane never authorized (page script made it up) is still refused,
-    /// and a folder is refused in words that say folders.
-    @Test func aPageInventedPathOrAFolderIsStillRefused() {
+    /// a folder's too. A folder the pane authorized goes by its path, and its chip becomes a saved
+    /// link to the machine's copy with its name kept.
+    @MainActor @Test func aPageInventedPathIsRefusedAndAnAuthorizedFolderGoes() async throws {
         let invented: JSONValue = .object(["id": .string("x"), "kind": .string("link"), "name": .string("id_ed25519"),
                                            "path": .string("/Users/me/.ssh/id_ed25519")])
         #expect(AgentPaneCloudAttachments([invented], files: ["/Users/me/Downloads/report.pdf"]) == nil)
         #expect(AgentPaneCloudAttachments.refusal([invented]).contains("needs a local file"))
         let folder: JSONValue = .object(["id": .string("link:/Users/me/docs"), "kind": .string("link"), "name": .string("docs/"),
                                          "path": .string("/Users/me/docs")])
-        #expect(AgentPaneCloudAttachments([folder], files: ["/Users/me/docs"]) == nil)
-        #expect(AgentPaneCloudAttachments.refusal([image, folder]).hasPrefix("Folders"))
+        #expect(AgentPaneCloudAttachments([folder], files: ["/Users/me/other"]) == nil)
+        #expect(AgentPaneCloudAttachments.refusal([image, folder]).contains("needs a local file"))
+        let carry = try #require(AgentPaneCloudAttachments([folder], files: ["/Users/me/docs"]))
+        let pastes = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-pastes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pastes) }
+        let chips = try await carry.withUploaded(in: pastes, upload: { paths in
+            #expect(paths == ["/Users/me/docs"], "the folder goes by its own path")
+            return .init(paths: ["/work/local/uploads/0/docs"], undo: {})
+        }) { $0 }
+        #expect(chips[0]["path"] == .string("/work/local/uploads/0/docs") && chips[0]["saved"] == .bool(true))
+        #expect(chips[0]["name"] == .string("docs/"))
+        let nameless: JSONValue = .object(["id": .string("link:/"), "kind": .string("link"), "name": .string("/"), "path": .string("/")])
+        #expect(AgentPaneCloudAttachments([nameless], files: ["/"]) == nil)
+        let slashedText: JSONValue = .object(["id": .string("t"), "kind": .string("text"), "name": .string("notes/"), "text": .string("x")])
+        #expect(AgentPaneCloudAttachments([slashedText]) == nil, "only a link names a folder")
     }
 
     @MainActor @Test func attachmentSeedIsTakenOnlyOnce() async {

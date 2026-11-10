@@ -105,6 +105,8 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
+        self.ledger.close(LEDGER_DRAIN);
     }
 
     async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
@@ -129,6 +131,8 @@ impl Hub {
         self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
+        // So does the cold archive's preview worker (`cold_archive.rs`).
+        self.cold_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
@@ -142,8 +146,12 @@ impl Hub {
         // retry its journal held that the startup had not restored yet.
         if !preserve_auto_resume {
             let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
-            let (marked, unmarked): (Vec<_>, Vec<_>) =
-                sessions.iter().partition(|s| self.has_auto_resume_mark(s));
+            // A cold-archived chat holds no retry (`cold_archive.rs` archives none with a mark),
+            // and a read of its log would bring it back.
+            let (marked, unmarked): (Vec<_>, Vec<_>) = sessions
+                .iter()
+                .filter(|s| s.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_none())
+                .partition(|s| self.has_auto_resume_mark(s));
             let total = marked.len() + unmarked.len();
             for (done, s) in marked.into_iter().chain(unmarked).enumerate() {
                 if tokio::time::Instant::now() >= budget {
@@ -314,11 +322,22 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The outbox's journal folded into its snapshot (`hub/outbox.rs`): the next daemon to
+        // start, an older one too, reads every delivery from `outbox.json` alone.
+        self.outbox.compact();
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
+        // The approvals audit trail's writer: what was answered before now is on disk.
+        self.audit.close(AUDIT_DRAIN);
     }
 }
+
+/// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
+const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long the shutdown waits for the cost ledger's writer to drain.
+const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
 pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";

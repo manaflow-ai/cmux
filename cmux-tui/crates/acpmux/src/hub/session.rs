@@ -75,6 +75,8 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
+    pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
     /// `session.json` in version order (fuzz row g finding g2).
     pub(super) meta_writer: super::meta_save::MetaWriter,
@@ -104,6 +106,9 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// The startup pass left its log unread, the chat being cold-archived (`load_logs`): the
+    /// pass's end does not make it read (`Hub::session_log_loaded`).
+    pub(super) log_skipped: AtomicBool,
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
@@ -128,9 +133,16 @@ pub struct Session {
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
+    /// Tests only: a pause once a prompt is written, before its `on_sent` runs
+    /// (`steer_end::agent_prompt_hook`): `arrived` fires there, the writer blocks until `release`.
+    #[cfg(test)]
+    pub(super) sent_seam:
+        StdMutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
+    pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -236,7 +248,7 @@ pub struct Session {
     pub(super) person: AtomicBool,
     /// Its creator asked its agent start to wait on the harness rather than a wall clock
     /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
-    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// ends when the harness stops working (`start_watch.rs` `StartWatch`), and says it is still
     /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
     pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
@@ -253,8 +265,9 @@ pub struct Session {
     /// (`start_defaults.rs`).
     pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
-    /// files while the directory is being removed.
-    pub(super) purged: AtomicBool,
+    /// files while the directory is being removed. Shared with the audit writer, which drops an
+    /// entry of this copy that reaches it after the purge, even once a new chat took the id.
+    pub(super) purged: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
@@ -329,6 +342,13 @@ pub struct Session {
     pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
+    /// Bumps on every change of this session's own summary row (`list_guard::Events::send_row`):
+    /// its cached closed row is rebuilt after it, and no other session's
+    /// (`Hub::cached_closed_summary`).
+    pub(super) summary_gen: AtomicU64,
+    /// What another session's row reads of this one's metadata, hashed (`parent_print`): a
+    /// metadata commit that changes it marks every cached closed row stale (`meta_save.rs`).
+    pub(super) parent_print: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
@@ -370,6 +390,15 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// Bounded completed tool attempts used to identify a repeated failing call
+    /// (`loop_detector.rs`).
+    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
+    /// The running turn's finished command calls, bounded, that its last reply's claims are
+    /// checked against when it ends (`claim_check.rs`).
+    pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
+    /// Its command calls while its harness's sandbox refuses them, newest last and bounded
+    /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
+    pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,
@@ -411,6 +440,10 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
+    pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
+    /// The state update sections its log last kept (`update_repeats.rs`).
+    pub(super) update_repeats: StdMutex<super::update_repeats::UpdateRepeats>,
     /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
     pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).
@@ -845,19 +878,79 @@ pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
         text.push_str(part);
         units += part.encode_utf16().count();
         if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
-            pasted.push(json!({"start": start, "end": units}));
+            let mut range = serde_json::Map::new();
+            range.insert("start".into(), json!(start));
+            range.insert("end".into(), json!(units));
+            // A paste that reads as another agent's output names it (`agent_text.rs`), so a
+            // client draws it as that agent's, never as the person's words.
+            let found = crate::agent_text::detect(part);
+            if found.agent() {
+                range.insert("agent".into(), agent_mark(&found));
+            }
+            pasted.push(Value::Object(range));
         }
     }
     (text, pasted)
 }
 
+/// `{from?, signals}`: what [`crate::agent_text::detect`] found, as a record names it.
+fn agent_mark(found: &crate::agent_text::Detected) -> Value {
+    let mut mark = serde_json::Map::new();
+    mark.insert("signals".into(), json!(found.signals));
+    if let Some(from) = &found.from {
+        mark.insert("from".into(), json!(from));
+    }
+    Value::Object(mark)
+}
+
+/// `agentText` of a prompt record: what reads as another agent's output in the typed (unmarked)
+/// text of `blocks`, the first block that does; `None` when none does. The text itself is the
+/// person's to say: a client notes it beside their bubble, never as their words alone.
+fn typed_agent_text(blocks: &[Value]) -> Option<Value> {
+    blocks
+        .iter()
+        .filter(|b| !crate::prompt_context::is_context(b))
+        .filter(|b| b.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) != Some(true))
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .map(crate::agent_text::detect)
+        .find(crate::agent_text::Detected::agent)
+        .map(|found| agent_mark(&found))
+}
+
 /// Adds `pasted` (the ranges of `blocks`' pasted text, `prompt_text_parts`) to the prompt
-/// record `msg`, whose `text` is `prompt_text(blocks)`; none when nothing was pasted, or
+/// record `msg`, whose `text` is `prompt_text(blocks)`, and `agentText` when its typed text
+/// reads as another agent's output (`typed_agent_text`); none when nothing was pasted, or
 /// when `msg` records some other text the ranges would not fit.
 pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
     let (text, pasted) = prompt_text_parts(blocks);
-    if !pasted.is_empty() && msg.get("text").and_then(Value::as_str) == Some(text.as_str()) {
+    if msg.get("text").and_then(Value::as_str) != Some(text.as_str()) {
+        return;
+    }
+    if !pasted.is_empty() {
         msg["pasted"] = Value::Array(pasted);
+    }
+    // Only the person's own prompt: another agent's carries its sender (an agent kind of
+    // `_meta.provenance`, `fromAgent`). A client draws `agentText` only on the person's bubble.
+    // A person's own prompt with provenance (`person_message`, multiplayer) is still theirs.
+    // A prompt the daemon made from no person (an unverified client's, a suggested task's
+    // result, a fan-in or inbox digest) already names where it came from: no note either.
+    let provenance = msg.pointer("/_meta/provenance");
+    let synthetic =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str).is_some_and(|kind| {
+            [
+                crate::prompt_provenance::UNVERIFIED_KIND,
+                "offer_result",
+                super::digest::DIGEST_KIND,
+                super::digest::inbox_digest::KIND,
+            ]
+            .contains(&kind)
+        });
+    let agents = synthetic || super::digest::agent_sender(provenance, None).is_some();
+    if !agents
+        && msg.get("fromAgent").is_none()
+        && let Some(agent) = typed_agent_text(blocks)
+    {
+        msg["agentText"] = agent;
     }
 }
 
@@ -928,6 +1021,7 @@ impl SessionStderr {
 /// ended since it was built. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    session: &'a Session,
     events: &'a super::list_guard::Events,
 }
 
@@ -935,7 +1029,7 @@ impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
         // Released first, then counted: a list built after the count reads it free.
         drop(self.guard.take());
-        self.events.changed();
+        self.events.row_changed(self.session);
     }
 }
 
@@ -943,7 +1037,7 @@ impl Hub {
     /// `session.spawn_lock`, held as a [`SpawnLease`].
     pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
         let guard = session.spawn_lock.lock().await;
-        self.events.changed();
-        SpawnLease { guard: Some(guard), events: &self.events }
+        self.events.row_changed(session);
+        SpawnLease { guard: Some(guard), session, events: &self.events }
     }
 }

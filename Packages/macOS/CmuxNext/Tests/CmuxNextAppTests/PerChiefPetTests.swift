@@ -7,6 +7,7 @@ import CmuxNextFloating
 @testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ import Testing
         var count = 0
     }
 
-    /// One Chief's settings popover with the pet rows installed, as HomeHostView builds it.
+    /// One Chief's settings popover with the pet rows installed, as `HomeChiefSurface` builds it.
     struct Popover {
         let view: HomeChiefSettingsView
         let rows: ChiefPetSettingsRows
@@ -76,7 +77,7 @@ import Testing
             let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(), picks: picks)
             let redraws = Redraws()
             rows.onMascot = { redraws.count += 1 }
-            // HomeHostView's order: the rows are installed and show the default Chief's character,
+            // HomeChiefSurface's order: the rows are installed and show the default Chief's character,
             // then the conversation's Chief is known.
             rows.install(in: view, addRow: { view.addAppearanceRow($0, control: $1) }, open: { false })
             let popover = Popover(view: view, rows: rows, redraws: redraws)
@@ -96,7 +97,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let suite = "cnc-per-chief-pet-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         return Harness(settings: settings, url: url, suite: suite, defaults: defaults)
     }
 

@@ -67,6 +67,9 @@ pub(super) struct OpenWork {
     /// `permission_request` records by agent request id: (permissionId,
     /// request, logged decision when there is one).
     pub(super) permissions: HashMap<String, (String, Value, Option<Value>)>,
+    /// When each of those was first asked, and under which turn, by permissionId: the review
+    /// index takes them before the ask is reissued, so a restored ask keeps its age and turn.
+    pub(super) asked_at: HashMap<String, (u64, Option<String>)>,
     /// Of those, the agent request ids whose logged decision an ancestor session gave
     /// (`answeredBy.session`, `subsession_answer.rs`).
     ancestor_answers: std::collections::HashSet<String>,
@@ -261,6 +264,10 @@ impl Hub {
         off: &OffLatch,
     ) -> Option<Arc<ChildAgent>> {
         session.floor.left_host_read.store(false, Ordering::SeqCst);
+        // An agent that cannot keep the chat's policy is stopped, not reached (`policy_mode.rs`).
+        if self.refuse_unheld(session).await {
+            return None;
+        }
         if !off.off() {
             let learning = child.clone();
             tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
@@ -453,7 +460,7 @@ impl Hub {
         }
     }
 
-    fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
+    pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
         self.sessions.lock().unwrap().get(id).cloned()
     }
 
@@ -555,7 +562,7 @@ impl Hub {
         };
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
-        let proven = self.adopt_caller_token(&session.id, caller_token);
+        let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
@@ -636,6 +643,12 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
+        // while no daemon reached it) does not run on (`policy_mode.rs`).
+        if self.refuse_unheld(session).await {
+            hold.take();
+            return Ok(());
+        }
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
@@ -1034,6 +1047,8 @@ impl Hub {
                         });
                         asked.insert(aid.to_string(), (pid.to_owned(), request, decided));
                         by_permission.insert(pid.to_owned(), aid.to_string());
+                        let turn = e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                        work.asked_at.insert(pid.to_owned(), (e.at, turn));
                     }
                 }
                 ("mux", "permission_withdrawn")
@@ -1258,6 +1273,7 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
+                        accepted: true,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
@@ -1399,6 +1415,14 @@ impl Hub {
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
             {
+                // The review index learns the ask as first recorded, before any reissue.
+                if (decided.is_none() || work.ancestor_answers.contains(&id.to_string()))
+                    && let Some((at, turn)) = work.asked_at.get(&permission_id)
+                {
+                    let original = json!({"permissionId": permission_id.clone(),
+                                          "turnId": turn, "request": request.clone()});
+                    self.review_index.note_ask(&session.id, &original, *at);
+                }
                 if floored {
                     let cancelled = json!({"outcome": {"outcome": "cancelled"}});
                     let _ = child.respond(id.clone(), Ok(cancelled)).await;
@@ -1828,13 +1852,14 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
             command_line,
             Some((&session.id, &meta.name)),
         )
+        .await
         .map_err(internal)?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
@@ -1847,6 +1872,8 @@ impl Hub {
         // The class it runs at once its start is over, from the harness's own env: its profile's
         // value as resolved (`cpu_class.rs`). It starts at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut spec = crate::agent_host::SpawnSpec {
@@ -1863,6 +1890,7 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
@@ -1925,7 +1953,7 @@ impl Hub {
         if let Some(pid) = record.harness_pid {
             crate::cpu_class::clear_running(pid);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &record.incarnation);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
         let mut started = json!({

@@ -86,6 +86,7 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
+        GitRepositoryActions(place: { gitPlace(context, $0) }, announce: { BrowserFileImport.toast(context.services, id: "git-repository-action", $0) }).bind(into: registry)
         // The front window's Home, else the Chief directly (HomeChiefActions).
         HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
@@ -126,6 +127,9 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud, carrying a page's `handoff` token
+            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: invocation["handoff"]?.stringValue)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: invocation["handoff"]?.stringValue)) }
+            return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
         }
@@ -142,12 +146,12 @@ enum AgentHandlers {
             view.toggleInspector()
         }
         registry.bind(.stopTurn, run: { invocation in
-            guard let view = focusedAgentView(.stopTurn, context, invocation) else { return }
+            guard let view = invocation.target.flatMap({ $0.kind == .tab ? context.services.agentTabs.existingView($0.id, machine: invocation.targetMachineID) : nil }) ?? focusedAgentView(.stopTurn, context, invocation) else { return } // a tab target's chat, shown or not (the sidebar drive indicator)
             view.stopTurn()
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
             AgentPaneTunables.pointerInspector.value ? nil :
-                "UI pointer inspector is off. Turn it on in Debug Settings."
+                "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
             // A targeted context-menu invocation starts at the right-click point.
@@ -269,6 +273,12 @@ enum AgentHandlers {
                                              phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
                                              confirmRunning: { helper.confirmRunning() }),
             focus: AppComputerUseFocus(services: services))
+    }
+
+    /// The invocation's tab folder and its machine's git link (GitRepositoryActions).
+    static func gitPlace(_ context: AppActionContext, _ invocation: ActionInvocation) -> GitRepositoryActions.Place? {
+        guard let tab = context.scope(invocation).tab, let cwd = tab.pane.tab(tab.id)?.cwd else { return nil }
+        return GitRepositoryActions.Place(link: context.services.agentGit.link(for: tab.pane.daemon), cwd: cwd, tab: ActionTargetRef(kind: .tab, id: tab.id.rawValue), machineID: tab.pane.daemon.machineID)
     }
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath

@@ -11,8 +11,8 @@ public import CmuxNextDesignTokens
 /// (content can move under a still pointer, and tracking areas then send
 /// nothing), dismissals, suppressions and removed targets. Nothing polls
 /// while no card shows (a pointer resting on a card is the one exception,
-/// below): the only timer is a one-shot `DemandTimer`, armed only in a pending,
-/// leaving, grace or pinned phase; the event monitor for dismissals exists only
+/// below): the only timers are one-shot `DemandTimer`s, armed only in a pending,
+/// leaving, grace or pinned phase (the settle timer only while pending); the event monitor for dismissals exists only
 /// while a card is pending or shown.
 ///
 /// Hover intent (`HoverIntentTiming`): a pointer moving from a shown card's
@@ -95,12 +95,31 @@ public final class HoverCardCoordinator {
     /// pointer gives no target a card (a row's, a tab's or a user's custom
     /// one); Show Resource Usage still pins one. Tests inject one.
     public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.showsHoverCards }
+    /// The cold delay is the default one, which opens a card once the pointer stops; a delay the
+    /// user set in `sidebar.hoverCards.delay`, 400 ms too, is a fixed wait (review F2 of #38872).
+    /// Tests inject one.
+    public var delaySettles: () -> Bool = { !DesignSettings.shared.hoverCardDelayIsSet }
     /// A mouse button is down (a press, a drag, a selection): the pointer
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
+    /// Fires a pending card's deadline early once the pointer stops on its target
+    /// (`HoverCardTiming.settleQuiet`); armed only while a card is pending.
+    private let settleTimer: DemandTimer
+    /// Time on the timers' clock, so a test's manual clock moves the pointer's speed too.
+    private let elapsed: () -> Duration
+    /// The last pointer move and its time, for the pointer's speed.
+    private var lastMove: (point: CGPoint, at: Duration)?
+
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
+        settleTimer = DemandTimer(owner: "HoverCards.settle", clock: clock)
+        elapsed = Self.stopwatch(clock)
+    }
+
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     /// App and window notifications, installed with the first source (a
@@ -133,6 +152,7 @@ public final class HoverCardCoordinator {
         MainActor.assumeIsolated {
             if let monitor { NSEvent.removeMonitor(monitor) }
             timer.cancel()
+            settleTimer.cancel()
         }
     }
 
@@ -183,6 +203,44 @@ public final class HoverCardCoordinator {
         // sidebar row's card): a tab's card below its strip still swaps at once, as in Chrome.
         let holdsAim = machine.shownTarget?.leave.hidesAtOnce != true || panel?.escapeGeometry != nil
         send(.hit(hit?.target, moved: true, aiming: aiming && holdsAim, bridging: bridging))
+        settle(at: now)
+    }
+
+    /// A pending card at the default delay opens once the pointer stops on its target
+    /// (`HoverCardTiming.settleQuiet` and friends): this move slow enough after the last one opens it
+    /// now, else it opens if no move follows within the quiet window. Content moving under a still
+    /// pointer sends no move, so it still waits the whole delay.
+    private func settle(at point: CGPoint) {
+        // The same point again is the same move reported twice (crossing between strips, one event is
+        // the exit of one and the entry of the next, review F1 of #38872): not a sample, or it reads
+        // as a pointer at rest and opens the card it is passing over.
+        if let lastMove, lastMove.point == point { return }
+        let at = elapsed()
+        let last = lastMove
+        lastMove = (point, at)
+        guard case .pending(let target, let token) = machine.phase, target.delay == HoverCardTiming.showDelay,
+              delaySettles() else {
+            settleTimer.cancel()
+            return
+        }
+        if let last, at > last.at, at - last.at <= HoverCardTiming.settleSample {
+            let distance = Double(hypot(point.x - last.point.x, point.y - last.point.y))
+            if distance / (at - last.at).hoverCardSeconds <= HoverCardTiming.settleSpeed {
+                settled(token)
+                return
+            }
+        }
+        settleTimer.schedule(after: HoverCardTiming.settleQuiet) { @MainActor [weak self] in
+            self?.settled(token)
+        }
+    }
+
+    /// The pointer stopped on the target `token`'s card waits for: it shows now, as at its deadline.
+    private func settled(_ token: Int) {
+        settleTimer.cancel()
+        guard case .pending(_, let armed) = machine.phase, armed == token else { return }
+        timer.cancel()
+        send(.deadline(token: token))
     }
 
     /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
@@ -284,9 +342,11 @@ public final class HoverCardCoordinator {
     }
 
     /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
-    public func refit(_ id: HoverTargetID) {
+    /// - Parameter animated: The card grows or folds to its new size on the hover cards' motion (its fixed
+    ///   corner stays put), as a retarget's resize does; off, it takes the new size at once.
+    public func refit(_ id: HoverTargetID, animated: Bool = false) {
         guard machine.shownTarget?.id == id else { return }
-        panel?.refit()
+        panel?.refit(animated: animated)
         updateCardMouse()
     }
 

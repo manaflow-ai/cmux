@@ -15,7 +15,12 @@
 // LATENCY=ms delays every answer, as a remote or busy daemon does (a local one answers in about 1 ms):
 // a switch that waits on several answers in turn shows it, one that draws from memory does not.
 // Each arm's last round also measures 5 s of idle wakeups and renderer task time (bench/stability.ts).
+// Then one page switches A and B back and forth (CHURN=40 times) and prints what each switch leaves behind:
+// chat_switch.churn.{heap_kb,dom_nodes,listeners}_per_switch, slopes after a forced GC whose target is 0 (bench/growth.ts).
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
+// FIXTURE=god makes A and B god sessions (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
+// subagents, images, months of history) instead of TURNS-turn chats, and names every row chat_switch.god.*: a row
+// pairs with its ordinary twin by dropping `.god`.
 // REMOTE_TAIL=both (or present/absent) switches to remote B before read-ahead, with A fast and
 // PEER_ATTACH_MS=2000 delaying only B's live attach. This is a synthetic click-origin comparison,
 // not a native Mac measurement. Each round starts a fresh page and ends after live reconciliation.
@@ -25,7 +30,9 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { perfRow, TARGET_MS } from "./perfRow";
+import { benchFixture, godChat, LATEST_TEXT, scaledPerfRow } from "./godFixture";
+import { growthPerOp, growthRows, sampleGrowth, type GrowthSample } from "./growth";
+import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
@@ -34,6 +41,12 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isInteger(TURNS) || TURNS
   console.error("usage: bun bench/chat-switch.bench.ts [rounds=7] [turns=300]");
   process.exit(2);
 }
+const FIXTURE = benchFixture();
+const perfRow = scaledPerfRow(printRow, FIXTURE);
+/// The growth phase: WARM switches to fill caches, then CHURN switches sampled every SAMPLE_EVERY.
+const WARM = 6;
+const CHURN = Number(process.env.CHURN ?? 40);
+const SAMPLE_EVERY = 4;
 const LATENCY = Number(process.env.LATENCY ?? 0);
 const REMOTE_TAIL = process.env.REMOTE_TAIL;
 if (REMOTE_TAIL !== undefined && !["both", "present", "absent"].includes(REMOTE_TAIL))
@@ -45,14 +58,14 @@ let remoteTail: RemoteTail | undefined;
 const webviews = path.resolve(import.meta.dir, "..");
 const A = PAPERCUT_CHAT;
 const B = "0190a000-0000-7000-8000-00000000fc02";
-const FIRST_TEXT = `Answer ${TURNS}:`;
-const SECOND_TEXT = `Reply ${TURNS}:`;
+const FIRST_TEXT = FIXTURE === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
+const SECOND_TEXT = FIRST_TEXT.replace("Answer ", "Reply ");
 
 type Chat = {
   session: Record<string, unknown>;
   events: ReturnType<typeof papercutEvents>["events"];
 };
-const first = papercutEvents({ turns: TURNS, running: false });
+const first = FIXTURE === "god" ? godChat(A) : papercutEvents({ turns: TURNS, running: false });
 const chats = new Map<string, Chat>([
   [A, { session: first.session, events: first.events.map((event) => ({ ...event, sessionId: A })) }],
   [
@@ -472,7 +485,9 @@ try {
   };
 
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
-  console.log(`chat-switch: ${TURNS} turns per chat, answers delayed ${LATENCY} ms, median of ${ROUNDS}`);
+  console.log(
+    `chat-switch: ${FIXTURE === "god" ? "god sessions" : `${TURNS} turns per chat`}, answers delayed ${LATENCY} ms, median of ${ROUNDS}`,
+  );
   console.log("arm | latest ms | settled ms | long tasks | long ms | layout shift");
   const arms: { name: string; idle: number; mode?: RemoteTail }[] = REMOTE_TAIL
     ? (REMOTE_TAIL === "both" ? (["absent", "present"] as const) : [REMOTE_TAIL as RemoteTail]).map((mode) => ({
@@ -572,7 +587,60 @@ try {
       floor: 0.5,
     });
     if (quiet.cpuMs !== null)
-      perfRow({ name: `chat_switch.${key}.idle_cpu_ms`, p50: quiet.cpuMs, p95: quiet.cpuMs, target: 5, floor: 2 });
+      perfRow({
+        name: `chat_switch.${key}.idle_cpu_ms`,
+        p50: quiet.cpuMs,
+        p95: quiet.cpuMs,
+        target: 5,
+        floor: 2,
+        clock: "cpu",
+        version: 3,
+      });
+  }
+  // Growth per switch (bench/growth.ts): one page switches A, B, A, B... CHURN times; after WARM switches (caches
+  // filled) it samples the GC'd heap, DOM nodes and listeners every SAMPLE_EVERY switches. Back where it started, a
+  // switch must leave nothing behind: each slope's target is 0.
+  if (!REMOTE_TAIL) {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    try {
+      const page = await context.newPage();
+      const cdp = await context.newCDPSession(page);
+      await page.goto(url);
+      await page.waitForFunction((text) => document.body.textContent?.includes(text), FIRST_TEXT, {
+        timeout: 120_000,
+        polling: 100,
+      });
+      const samples: GrowthSample[] = [];
+      for (let op = 1; op <= WARM + CHURN; op++) {
+        const [id, text, other] = op % 2 ? [B, SECOND_TEXT, FIRST_TEXT] : [A, FIRST_TEXT, SECOND_TEXT];
+        await page.evaluate(
+          (id) =>
+            (
+              window as unknown as {
+                cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+              }
+            ).cmuxAcpmuxActions["chat.select"]!({ sessionId: id }),
+          id,
+        );
+        await page.waitForFunction(
+          ({ text, other }) => {
+            const scroller = document.querySelector(".acpmux-scroll");
+            return !!scroller?.textContent?.includes(text) && !scroller.textContent.includes(other);
+          },
+          { text, other },
+          { timeout: 60_000, polling: "raf" },
+        );
+        if (op > WARM && (op - WARM) % SAMPLE_EVERY === 0) samples.push(await sampleGrowth(cdp, op));
+      }
+      const growth = growthPerOp(samples);
+      console.log(
+        `growth over ${CHURN} switches: heap ${growth.heapKbPerOp} KB, ${growth.nodesPerOp} DOM nodes, ` +
+          `${growth.listenersPerOp} listeners per switch (first sample ${JSON.stringify(samples[0])}, last ${JSON.stringify(samples.at(-1))})`,
+      );
+      for (const row of growthRows("chat_switch.churn", "switch", growth)) perfRow(row);
+    } finally {
+      await context.close();
+    }
   }
 } finally {
   await release();

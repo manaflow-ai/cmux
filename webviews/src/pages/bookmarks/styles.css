@@ -41,7 +41,7 @@
   user-select: text;
 }
 
-.bm-search:focus {
+.bm-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -73,12 +73,15 @@
   min-height: 0;
 }
 
-/* The folder tree. */
+/* The folder tree. Its width is the default until its edge is dragged (SplitEdge sets
+   --bookmarks-tree-width on it); the track reads invalid while that is unset, and the list keeps 280px. */
 .bm-tree-pane {
+  --bm-tree-track: clamp(140px, var(--bookmarks-tree-width), 100% - 280px);
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
-  width: clamp(160px, 28%, 240px);
+  width: var(--bm-tree-track, clamp(160px, 28%, 240px));
   min-height: 0;
   padding: 8px 0 8px calc(var(--page-edge) - 8px);
   border-inline-end: 1px solid var(--page-separator);
@@ -272,8 +275,36 @@
   padding: 0 8px;
 }
 
-.bm-crumbs.is-narrow-only {
+.bm-crumbs.is-narrow-only,
+.bm-roots.is-narrow-only {
   display: none;
+}
+
+/* The roots of a page without its tree: Bookmarks Bar and Other Bookmarks, the shown one pressed. */
+.bm-roots {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--page-edge) 0;
+}
+.bm-root {
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bm-root:hover {
+  background: var(--page-hover);
+}
+.bm-root[aria-pressed="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
 }
 
 .bm-crumb {
@@ -303,7 +334,8 @@
     display: none;
   }
 
-  .bm-crumbs.is-narrow-only {
+  .bm-crumbs.is-narrow-only,
+  .bm-roots.is-narrow-only {
     display: flex;
   }
 }
@@ -380,7 +412,7 @@
   user-select: text;
 }
 
-.bm-editor-input:focus {
+.bm-editor-input:focus-visible {
   border-color: var(--page-text-3);
 }
 

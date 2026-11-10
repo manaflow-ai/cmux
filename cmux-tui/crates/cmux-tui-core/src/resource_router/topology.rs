@@ -45,6 +45,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::PaneFocusDirection
             | ResourceOperation::PaneNeighborGet
             | ResourceOperation::PaneSwap
+            | ResourceOperation::PaneMove
             | ResourceOperation::PaneZoom
             | ResourceOperation::PaneSplitRatioSet
             | ResourceOperation::PaneViewportWidthSet
@@ -411,6 +412,7 @@ fn dispatch_exact_topology_mutation(
         | ResourceOperation::PaneCreate
         | ResourceOperation::PaneSplit
         | ResourceOperation::PaneRun
+        | ResourceOperation::PaneMove
         | ResourceOperation::TabCreateTerminal
         | ResourceOperation::TabCreateBrowser => {
             mutation_result(mux, commit.result, commit.revision, commit.replayed)
@@ -705,6 +707,7 @@ mod tests {
             ResourceOperation::PaneFocusDirection,
             ResourceOperation::PaneNeighborGet,
             ResourceOperation::PaneSwap,
+            ResourceOperation::PaneMove,
             ResourceOperation::PaneZoom,
             ResourceOperation::PaneSplitRatioSet,
             ResourceOperation::PaneViewportWidthSet,
@@ -1987,6 +1990,93 @@ mod tests {
             latest["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()["name"],
             "Calculate 2+2"
         );
+    }
+
+    fn capture_diagnostics(mux: &Mux) -> Arc<Mutex<Vec<String>>> {
+        let diagnostics = Arc::new(Mutex::new(Vec::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        diagnostics
+    }
+
+    fn reports(diagnostics: &[String], operation: &str, key: &str, cause: &str) -> usize {
+        diagnostics
+            .iter()
+            .filter(|message| {
+                message.contains(operation) && message.contains(key) && message.contains(cause)
+            })
+            .count()
+    }
+
+    #[test]
+    fn an_indeterminate_close_reports_its_cause_to_the_daemon_log() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "close-cause");
+        let tab = created["value"]["tab_id"].as_str().unwrap().to_string();
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+        let request = || {
+            parsed(
+                ResourceOperation::TabClose,
+                selectors(None, None, None, Some(&tab)),
+                json!({}),
+                Some("tab-close-cause"),
+            )
+        };
+
+        assert_eq!(dispatch(&mux, request()).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(dispatch(&mux, request()).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        assert_eq!(
+            reports(
+                &diagnostics,
+                "tab.close",
+                "tab-close-cause",
+                "injected outcome commit failure"
+            ),
+            1,
+            "the daemon log has no cause for the indeterminate close: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports(&diagnostics, "tab.close", "tab-close-cause", "an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
+    fn an_indeterminate_creation_reports_its_cause_to_the_daemon_log() {
+        let mux = mux();
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+
+        let error = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceCreate,
+                session_selectors(),
+                json!({"initial_content":"terminal","name":"create-cause"}),
+                Some("workspace-create-cause"),
+            ),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        assert!(
+            reports(
+                &diagnostics,
+                "workspace.create",
+                "workspace-create-cause",
+                "injected outcome commit failure"
+            ) >= 1,
+            "the daemon log has no cause for the indeterminate creation: {diagnostics:?}"
+        );
+        mux.shutdown();
     }
 
     mod snapshot_mutation_tests;

@@ -59,6 +59,33 @@ struct CmuxToastPageGlassTests {
         #expect(page.superview == nil)
     }
 
+    /// The toast's glass sits in the overlay panel, a clear window over the window it covers. Liquid Glass
+    /// there has nothing in its own window to bend: its lens drew a dark 1 px line and a bright bevel
+    /// inside the toast's rim, as it did on the dialog card (Lawrence 2026-11-07, the Leave site? dialog:
+    /// "weird roundness", "weird border"). Each toast's glass is the blur of what is behind the window,
+    /// with the toast's rim as its one edge.
+    @Test func eachToastsGlassBlursWhatIsBehindItsClearWindowNeverLiquidGlass() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("toast-blur-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Toasts</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let pool = CmuxToastWebHost.makePool()
+        pool.testRoot = root
+        let (page, _) = try #require(pool.claim())
+        defer { page.close() }
+        let view = CmuxToastPageView(page: page)
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        view.placeGlass(resting: [(1, NSRect(x: 100, y: 336, width: 300, height: 44))], fading: [])
+        let surface = try #require(view.subviews.compactMap { $0 as? OverlaySurfaceView }.first)
+        #expect(surface.prefersBlurToLiquidGlass)
+        #expect(surface.samplesBehindWindow)
+        #expect(surface.material != .liquidGlass)
+        // One edge: the toast's rim, at the toast's corner.
+        let rim = try #require(surface.rimView)
+        #expect(rim.cornerRadius == SurfaceRole.toast.cornerRadius)
+        view.releasePage()
+    }
+
     /// Review of #37289 at 97fe7eab (F1): the toast page took the overlay page's answer, no first
     /// mouse, so in an inactive window a toast's Undo or close only brought the window forward and
     /// needed a second click; the native toast's buttons answered the first. The toasts' page takes

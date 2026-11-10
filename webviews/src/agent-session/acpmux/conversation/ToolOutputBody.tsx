@@ -15,6 +15,7 @@ import { watchOutputViewport } from "./outputViewport";
 import { OutputMore } from "./toolOutput";
 import { previewedOutput, useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
+import { wholeBlocksAfter } from "./markdownCut";
 
 /// Its own component keeps the sideways watcher mounted with the Raw body when a reader switches
 /// renderers. Markdown never mounts that watcher, and no renderer runs a tool's fences.
@@ -114,7 +115,10 @@ export const ToolOutput = memo(function ToolOutput({
             tabIndex={0}
             aria-label={t("handoff.tool_output")}
           >
-            {shown.shown && <Markdown plainCode>{shown.shown}</Markdown>}
+            {/* A cut tail starts at its first whole block: never inside a fence or a span (markdownCut.ts). */}
+            {shown.shown && (
+              <Markdown plainCode>{(shown.cut && wholeBlocksAfter(shown.shown)) || shown.shown}</Markdown>
+            )}
           </div>
         ) : (
           <MonoOutput

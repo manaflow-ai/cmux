@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 857,
-    "mcp": 771
+    "verbs": 861,
+    "mcp": 777
   },
   "nouns": [
     {
@@ -407,7 +407,7 @@
         },
         {
           "command": "cmux agent toggle-ui-pointer",
-          "title": "Inspect UI Element",
+          "title": "Point at Element",
           "id": "agentPane.togglePointerInspector",
           "mcp": true,
           "mcpTool": "app_agent_toggle_ui_pointer"
@@ -601,6 +601,13 @@
           "id": "app.install",
           "mcp": true,
           "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps reload",
+          "title": "Reload Custom Views",
+          "id": "app.reloadCustomViews",
+          "mcp": true,
+          "mcpTool": "app_apps_reload"
         },
         {
           "command": "cmux apps remove",
@@ -1415,6 +1422,13 @@
           "mcpTool": "app_cloud_move"
         },
         {
+          "command": "cmux cloud move-to-machine",
+          "title": "Move to Another Machine",
+          "id": "cloudMoveToMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_move_to_machine"
+        },
+        {
           "command": "cmux cloud network-list",
           "title": "List Cloud Networks",
           "id": "cloudNetworkList",
@@ -1762,7 +1776,7 @@
         },
         {
           "command": "cmux density use-cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "id": "appearance.density.cozy",
           "mcp": false,
           "mcpTool": null
@@ -1792,6 +1806,32 @@
           "id": "device.add",
           "mcp": true,
           "mcpTool": "app_device_add"
+        }
+      ]
+    },
+    {
+      "noun": "divider",
+      "verbs": [
+        {
+          "command": "cmux divider hide",
+          "title": "Hide Divider",
+          "id": "divider.hide",
+          "mcp": true,
+          "mcpTool": "app_divider_hide"
+        },
+        {
+          "command": "cmux divider insert",
+          "title": "Insert New",
+          "id": "divider.insertNew",
+          "mcp": true,
+          "mcpTool": "app_divider_insert"
+        },
+        {
+          "command": "cmux divider show",
+          "title": "Show Divider",
+          "id": "divider.show",
+          "mcp": true,
+          "mcpTool": "app_divider_show"
         }
       ]
     },
@@ -2085,6 +2125,13 @@
           "id": "home.showHiddenConversations",
           "mcp": true,
           "mcpTool": "app_home_show_hidden"
+        },
+        {
+          "command": "cmux home start-agent",
+          "title": "Start Queued Agent Now",
+          "id": "home.startQueuedAgent",
+          "mcp": true,
+          "mcpTool": "app_home_start_agent"
         },
         {
           "command": "cmux home switch-view",
@@ -3836,20 +3883,6 @@
           "command": "cmux settings use-aggressive-tab-hibernation",
           "title": "Hibernate Hidden Tabs After 10 Minutes",
           "id": "browser.hibernation.aggressive",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings use-animations-without-bounce",
-          "title": "Use Animations Without Bounce",
-          "id": "appearance.animations.bounce.none",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings use-bouncy-animations",
-          "title": "Use Bouncy Animations",
-          "id": "appearance.animations.bounce.subtle",
           "mcp": false,
           "mcpTool": null
         },
@@ -6238,6 +6271,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 75
+    "systemChange": 73
   }
 }

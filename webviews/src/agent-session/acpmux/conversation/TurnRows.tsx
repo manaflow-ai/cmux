@@ -4,7 +4,7 @@
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
-import { copyTextResult } from "./clipboard";
+import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
@@ -19,9 +19,10 @@ import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { toolRunSummary } from "./toolRunSummary";
 import { ToolRunSteps } from "./ToolRunSteps";
+import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
@@ -73,7 +74,7 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { groupDisclosureKey, runDisclosureKey, thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -140,7 +141,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
-  inherits?: readonly string[],
+  runLine?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -151,7 +152,10 @@ function groupNode(
           items={group.items}
           folded={folded}
           disclosureKey={groupDisclosureKey(group, index, rowId)!}
-          inherits={inherits}
+          // An edits group keeps its own state: closed, each file's diff one click away, whatever the
+          // run's line around it was (it draws inside the opened run's line as its own line too).
+          inherits={group.kind === "edits" ? undefined : runLine}
+          closedBy={group.kind === "edits" ? undefined : runLine}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -235,6 +239,26 @@ function groupNode(
   }
 }
 
+/// How a folded stretch's line follows the group lines it grew from and splits back into
+/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
+/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
+/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
+/// ran, one by one, closes it (`closedBy`).
+function runLinks(stretch: RunStretch, rowId: string) {
+  const inherits: string[] = [];
+  const passesDown: string[] = [];
+  const closedBy: string[] = [];
+  stretch.groups.forEach((group, offset) => {
+    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
+    if (!key) return;
+    inherits.push(key);
+    if (group.type === "group" && group.kind === "edits") return;
+    passesDown.push(key);
+    if (group.type === "group") closedBy.push(key);
+  });
+  return { inherits, passesDown, closedBy };
+}
+
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
@@ -244,6 +268,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const foldRun = row.foldRun;
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
+  // The row's groups and runs, in a word: when a new call changes it, the line the reader opened is
+  // kept where it is on screen (KeepOpenedLine.tsx).
+  const shape = useMemo(() => runShape(stretches), [stretches]);
   const nodes = stretches.map((stretch) => {
     // A stretch's line and its groups' lines take each other's place as calls arrive (one group
     // grows into a run of two kinds; a run loses its line when a call in it runs again): each opens
@@ -268,11 +295,17 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         );
       });
     if (!stretch.fold) return drawn;
-    const inherits = stretch.groups.flatMap(
-      (group, offset) => groupDisclosureKey(group, stretch.from + offset, row.id) ?? [],
-    );
+    const links = runLinks(stretch, row.id);
     return (
-      <ToolRun key={key} disclosureKey={key} inherits={inherits} items={stretch.items} defaultOpen={start.lineOpen}>
+      <ToolRun
+        key={key}
+        disclosureKey={key}
+        inherits={links.inherits}
+        passesDown={links.passesDown}
+        closedBy={links.closedBy}
+        items={stretch.items}
+        defaultOpen={start.lineOpen}
+      >
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );
@@ -288,7 +321,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
           {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
               lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
-          <div className="cv-tools">{nodes}</div>
+          <KeepOpenedLine shape={shape}>{nodes}</KeepOpenedLine>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -645,8 +678,6 @@ function TurnFailure({
   retryNote?: RetryNote;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
@@ -666,6 +697,9 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "team-cap",
+      "no-credit",
+      "cloud-auth-expired",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
@@ -831,30 +865,7 @@ function TurnFailure({
           // A retried attempt that failed too says so, so the new card is not read as the old one.
           failedAgain && <output className="cv-turn-error__note text-detail text-dim">{t("turn.failedAgain")}</output>
         )}
-        {message && (
-          <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-            {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
-            <summary className="cv-turn-note__summary">
-              {t("turn.failure.details")}
-              <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${detailsOpen ? " is-open" : ""}`} />
-            </summary>
-            <span className="cv-turn-error__raw">
-              <span className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
-              <button
-                type="button"
-                className="cv-turn-auth-action"
-                onClick={() =>
-                  void copyTextResult(message).then(
-                    (accepted) => setCopied(accepted),
-                    () => setCopied(false),
-                  )
-                }
-              >
-                {copied ? t("turn.copied") : t("turn.failure.copyError")}
-              </button>
-            </span>
-          </details>
-        )}
+        {message && <ErrorDetails text={message} />}
       </span>
     </div>
   );

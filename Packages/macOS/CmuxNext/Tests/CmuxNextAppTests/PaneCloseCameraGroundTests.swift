@@ -117,6 +117,8 @@ struct PaneCloseCameraGroundTests {
         let closing = try panes.map { try #require(rig.root.context.hosts[$0], "SETUP: no host for \($0)") }
         var widths: [(frame: Int, width: CGFloat)] = []
         var lastGround: CGFloat?
+        /// What the last frame with a closing ground showed, for the failure text: the strip camera and each shown host.
+        var lastGroundFrame = ""
         var frames = 0
         for (index, pane) in panes.enumerated() {
             _ = try #require(rig.model.showPaneClose(pane), "\(pane) did not close")
@@ -131,6 +133,13 @@ struct PaneCloseCameraGroundTests {
                 // What of the line only closing grounds cover: in the landing's frame it is gone at once.
                 if closing.contains(where: { $0.superview != nil && !$0.isHidden && $0.showsClosingGround }) {
                     lastGround = uncovered(liveOnly: true) - uncovered()
+                    var shown: [String] = []
+                    for case let host as PaneHostView in screen.subviews where !host.isHidden && host.alphaValue > 0.01 {
+                        let kind: String = host.showsClosingGround ? " closing" : ""
+                        shown.append("\(host.pane)\(kind) x \(host.frame.minX)...\(host.frame.maxX)")
+                    }
+                    let camera: String = "camera \(screen.scroll.value) -> \(screen.scroll.target)"
+                    lastGroundFrame = "frame \(frames), scale \(screen.scale), \(camera), " + shown.sorted().joined(separator: "; ")
                 }
             }
         }
@@ -139,7 +148,14 @@ struct PaneCloseCameraGroundTests {
         let open = widths.filter { $0.width > max(atRest, rest) + 1 }
         #expect(frames > 3, "the close did not spring (\(frames) frames)")
         #expect(open.isEmpty, "\(open.count) frames show the shell in the window (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
-        if let lastGround { #expect(lastGround < 1, "the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away") }
+        // At most one point. Observed at scale 1 with no spring under-damped (#40288): the last frame with a closing
+        // ground shows the third pane one point wide (x 722...723) beside the second on its place (364...716). A closing
+        // pane's free side follows its rider's travel (`ClosingPanesRules.collapse`: its distance left is its width x
+        // the rider's part left), so a rider that is a part of a point short of its place in its last frame shows as a
+        // larger part of ground. Read, not measured: the close spring was 0.95 damped until 2026-11-10 and passed its
+        // place before it rested, so the rider's travel was complete in that frame. More than a point is ground the pane
+        // kept for the landing: the failure this test is for.
+        if let lastGround { #expect(lastGround <= 1, "the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away (\(lastGroundFrame))") }
         #expect(closing.allSatisfy { $0.superview == nil }, "a closed host is left in the tree after the landing")
     }
 }

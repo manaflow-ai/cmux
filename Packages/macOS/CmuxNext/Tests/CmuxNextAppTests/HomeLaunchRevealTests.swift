@@ -28,17 +28,6 @@ struct HomeLaunchRevealTests {
         #expect(content.contentView.alphaValue == 1, "only Home waits for its conversation")
     }
 
-    @Test func homeIsReadyOnceItsConversationsFirstPageIsIn() async {
-        let (services, reveal) = Self.services()
-        let view = HomeHostView(services: services, conversation: "conv_local")
-        view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
-        let deadline = ContinuousClock.now + .seconds(10)
-        // Polls a state the view reaches on its own turns (the offline store answering the open).
-        while !reveal.isReady(.home), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
-        #expect(reveal.isReady(.home), "Home's first page came in and the launch still held Home")
-        withExtendedLifetime(view) {}
-    }
-
     /// Home is made after the launch window (3049 ms on a cold launch, the sidebar's hold long
     /// before): the launch deadline must not release it before it is held, and its own wait runs
     /// from its own hold. The other regions still show at the launch deadline.
@@ -57,6 +46,24 @@ struct HomeLaunchRevealTests {
         clock.advance(by: .milliseconds(1500))
         await Self.yield(until: { reveal.isReady(.home) })
         #expect(home.alphaValue == 1, "a Home whose conversation never came stayed clear past its own deadline")
+    }
+
+    /// The launch marks say whether Home showed by its data or by its deadline (goal next-launch-instant):
+    /// `reveal.home` alone cannot, since a deadline 1.5 s after the hold looks like a slow first page.
+    @Test func aRegionShownByItsDeadlineIsToldApartFromOneShownByItsData() async throws {
+        let clock = ManualClock()
+        let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
+        let sidebar = NSView(), home = NSView()
+        reveal.hold(sidebar, until: .sidebar)
+        reveal.markReady(.sidebar)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1500))
+        await Self.yield(until: { reveal.isReady(.pane) })
+        reveal.hold(home, until: .home)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1500))
+        await Self.yield(until: { reveal.isReady(.home) })
+        #expect(reveal.shownByDeadline == [.home, .pane, .tabs], "only the regions whose data never came count as shown by deadline")
     }
 
     /// A Home closed before its page came (a fresh Home replaced it) leaves its deadline behind:

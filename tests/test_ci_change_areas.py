@@ -642,7 +642,6 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
     ):
         assert want in outside, want
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
@@ -4500,7 +4499,13 @@ exit 65
                 fixture.write_text(content)
                 fixture.chmod(0o755)
             (root / "cmux-compile-admission.txt").write_text("unable to open dependencies file\n")
+            # The step sources the fleet-cache retry and the CAS classifier; no fleet socket here, so local cache.
+            for relative in ("scripts/ci/lib/fleet-cache-fallback.sh", "scripts/ci/fleet-compilation-cache.sh",
+                             "scripts/cmux-next/lib/compilation-cache.sh"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, root / relative)
             env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                       CMUX_FLEET_CAS_SOCKET=str(root / "absent.sock"),
                        RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
                        CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
@@ -4878,6 +4883,14 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+
+def test_docs_reference_inputs_run_web_unit_tests() -> None:
+    # web/tests/next-docs.test.ts reads these outside web/; a change to them that
+    # skipped Web tests left the generated palette reference stale on base (#38631).
+    for path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        assert web_subareas.classify_paths([path]).unit_tests, path
+        assert module.is_web_change(path), path
+
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
@@ -4907,6 +4920,30 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
+    # cmux#40171 review: web=true, the scope green with outputs={} and every child skipped must stay a red, as on base.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={job: "skipped" for job in WEB_JOBS if job != "web-subarea-scope"},
+        subareas={},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout, result.stdout
+
+
+def test_web_status_with_partial_subarea_outputs_still_names_its_failed_child() -> None:
+    # cmux#40171 review (fe389ab5): partial scope outputs ({"db": "true"}), the scope abandoned and web-tests failed
+    # raised KeyError on subareas["typecheck"], so no summary red: line and no failed child came out.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={**{job: "skipped" for job in WEB_JOBS}, "web-subarea-scope": "abandoned", "web-tests": "failure"},
+        subareas={"db": "true"},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout and "web-tests: failure" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, result.stderr
 
 
 def test_web_status_allows_unrouted_skips() -> None:

@@ -14,7 +14,10 @@ mod dial_cli;
 mod enrollment;
 mod ensure;
 mod inbound;
-#[cfg(target_os = "macos")]
+mod key_lock;
+// Also in tests elsewhere: its plist rewrite needs no launchd.
+#[cfg(any(test, target_os = "macos"))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
@@ -23,13 +26,13 @@ pub(crate) mod machine_update;
 mod mesh;
 mod paired_streams;
 mod process_exit;
-// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
+// `cmux link seed plan`; `cmux link seed push|clone|pull|move` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
 mod start_chat_cli;
 mod state;
-mod sync_cli;
+pub(crate) mod sync_cli;
 
 #[cfg(test)]
 mod acpmux_tests;
@@ -111,6 +114,11 @@ fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
 
 /// `cmux link ...` from `main`: the exit code, with any error on stderr.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // `link` prints JSON only: a `--json` written before an action (`cmux
+    // --json link status` puts it there) only asks for the error object on
+    // a refusal, and never hides the action from the dispatch below.
+    let json = args.first().is_some_and(|arg| arg == "--json");
+    let args = if json { args.get(1..).unwrap_or_default() } else { args };
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
@@ -120,7 +128,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return sync_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("seed") {
-        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
+        if matches!(
+            args.get(1).map(String::as_str),
+            Some("push" | "clone" | "pull" | "move" | "copy-rest")
+        ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
         return seed::run(&args[1..]);
@@ -148,11 +159,44 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     match run_link(args) {
         Ok(()) => 0,
+        // A word or option `link` does not have: exit 2 with the help to
+        // run, like every scope (docs/cli-conventions.md in cmuxterm-hq).
+        Err(error) if error.is::<LinkUsage>() => {
+            let mut message = error.to_string();
+            if !message.contains("--help") {
+                message.push_str("; run `cmux link --help`");
+            }
+            if json || args.iter().any(|arg| arg == "--json") {
+                eprintln!(
+                    "{}",
+                    json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false})
+                );
+            } else {
+                eprintln!("{}: {message}", crate::cli::BIN);
+            }
+            2
+        }
         Err(error) => {
             eprintln!("{error}");
             1
         }
     }
+}
+
+/// A usage error of `cmux link`: an action or option it does not have.
+#[derive(Debug)]
+struct LinkUsage(String);
+
+impl std::fmt::Display for LinkUsage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LinkUsage {}
+
+fn link_usage(message: String) -> anyhow::Error {
+    anyhow::Error::new(LinkUsage(message))
 }
 
 fn help_text() -> String {
@@ -166,6 +210,10 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
     let help = || anyhow!(help_text());
+    // `link` prints JSON only: `--json` anywhere is a no-op, never an
+    // unknown option.
+    let args: Vec<String> = args.iter().filter(|arg| *arg != "--json").cloned().collect();
+    let args = args.as_slice();
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
@@ -176,7 +224,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd", key_lock::FLAG],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -204,7 +252,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         "-h" | "--help" | "help" => Err(help()),
-        other => Err(anyhow!(catalog().remote_client.unknown_action("link", other))),
+        other => Err(link_usage(catalog().remote_client.unknown_action("link", other))),
     }
 }
 
@@ -217,13 +265,13 @@ fn flags(args: &[String], allowed: &[&'static str]) -> anyhow::Result<Flags> {
     while index < args.len() {
         let argument = args[index].as_str();
         let Some(name) = allowed.iter().copied().find(|name| *name == argument) else {
-            return Err(anyhow!(catalog().remote_client.unknown_option(argument)));
+            return Err(link_usage(catalog().remote_client.unknown_option(argument)));
         };
         let value = args
             .get(index + 1)
-            .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
+            .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))?;
         if values.insert(name, value.clone()).is_some() {
-            return Err(anyhow!(catalog().remote_client.option_once(name)));
+            return Err(link_usage(catalog().remote_client.option_once(name)));
         }
         index += 2;
     }
@@ -234,7 +282,7 @@ fn required<'a>(flags: &'a Flags, name: &str) -> anyhow::Result<&'a str> {
     flags
         .get(name)
         .map(String::as_str)
-        .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))
+        .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))
 }
 
 fn state(flags: &Flags) -> anyhow::Result<LinkState> {
@@ -247,9 +295,9 @@ fn print_json(value: &serde_json::Value) {
 
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let port = match flags.get("--port") {
-        Some(port) => port
-            .parse()
-            .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
+        Some(port) => port.parse().map_err(|_| {
+            link_usage(catalog().remote_client.invalid_option_value("--port", "PORT"))
+        })?,
         None => state::DEFAULT_PORT,
     };
     // Resolve an enrollment before opening (and creating) link state. It never
@@ -287,7 +335,7 @@ fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
 /// and the pairing file the app watches for peer changes (`peers_file`).
 fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
-    let public_key = state::public_key(&*state.private_key()?);
+    let public_key = state.own_public_key()?;
     let live = ensure::live(state);
     if config.server_identity.is_some()
         && let Some(live) = &live
@@ -323,7 +371,9 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             )?;
             let endpoint = match flags.get("--endpoint") {
                 Some(text) => Some(text.parse::<SocketAddr>().map_err(|_| {
-                    anyhow!(catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"))
+                    link_usage(
+                        catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"),
+                    )
                 })?),
                 None => None,
             };
@@ -347,7 +397,7 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             print_json(&serde_json::to_value(Pairings::load(&state.peers_path())?)?);
             Ok(())
         }
-        other => Err(anyhow!(catalog().remote_client.unknown_action("link peer", other))),
+        other => Err(link_usage(catalog().remote_client.unknown_action("link peer", other))),
     }
 }
 
@@ -393,15 +443,29 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let config_path = server_config_path(flags);
     let config_bytes = read_server_config(config_path.as_deref())?;
     let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
-    let ready = match flags.get("--ready-fd") {
+    let mut ready = match flags.get("--ready-fd") {
         Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
         None => None,
     };
     // One link per state directory, for its whole life, taken before the
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
+    // This machine's WireGuard key, for the link's whole life, before the key
+    // is read: while another process holds it, this link does not serve.
+    let explicit = flags.get(key_lock::FLAG).map(PathBuf::from);
+    // launchd gives `serve` none of the app's environment: without the flag,
+    // the lock directory below is a guess (`key_lock.rs`).
+    #[cfg(target_os = "macos")]
+    if explicit.is_none() && crate::launchd_refresh::run_by_launchd(launchd::LABEL) {
+        eprintln!(
+            "warning: launchd runs this link without {}: its WireGuard key lock directory is \
+             guessed; run `cmux link ensure` or `cmux link install-agent` from the app to fix the agent",
+            key_lock::FLAG
+        );
+    }
+    let key = key_lock::take(&state, explicit.as_deref(), &mut ready)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, watch))
+    tokio_runtime()?.block_on(serve(state, &key, session_socket, owner, ready, served, watch))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -465,6 +529,7 @@ fn owner_session(
 
 async fn serve(
     state: LinkState,
+    key: &cmux_link::key_holder::KeyHolder,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
@@ -472,7 +537,7 @@ async fn serve(
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key()?;
+    let private_key = state.private_key(key)?;
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -585,19 +650,30 @@ async fn shutdown_signal() -> anyhow::Result<()> {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
-    let state = state(flags)?;
-    state.config().context("run `cmux link init --install ID` first")?;
+/// The launchd agent's `serve` arguments. The key lock directory is resolved
+/// here, in the app's process: launchd starts `serve` without the app's
+/// environment (`key_lock.rs`).
+#[cfg(any(test, target_os = "macos"))]
+fn agent_arguments(state: &LinkState, flags: &Flags) -> Vec<String> {
     let mut arguments = vec![
         "link".to_string(),
         "serve".to_string(),
         "--state-dir".to_string(),
         state.dir().to_string_lossy().into_owned(),
+        key_lock::FLAG.to_string(),
+        key_lock::lock_dir(state).to_string_lossy().into_owned(),
     ];
     if let Some(session) = flags.get("--session-socket") {
         arguments.extend(["--session-socket".to_string(), session.clone()]);
     }
+    arguments
+}
+
+#[cfg(target_os = "macos")]
+fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
+    let state = state(flags)?;
+    state.config().context("run `cmux link init --install ID` first")?;
+    let arguments = agent_arguments(&state, flags);
     let program = std::env::current_exe()?;
     let path = launchd::install(&program, &arguments)?;
     print_json(&json!({"ok": true, "plist": path, "label": launchd::LABEL}));

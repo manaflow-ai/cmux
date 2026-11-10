@@ -19,7 +19,8 @@
 //! The person at a terminal (no agent detected) keeps the app action as it
 //! was. `read`, `wait` and `list` read Chief chats (`cmux chief read|wait|
 //! chats`); people's and group chats live with the app's cloud lease, which
-//! only the app may use.
+//! only the app may use. `read|wait SESSION` with an agent chat's session id
+//! is that chat's (chat_send.rs).
 
 use super::script::{self, Request};
 use super::{ChatTarget, Session, caller, pick_chat};
@@ -75,9 +76,17 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<Chat> {
     let prefix = args.get(..args.len().saturating_sub(command.len())).unwrap_or_default();
     match verb.as_str() {
         "send" => send(&global, prefix, rest),
+        // `chat read|wait SESSION`: an agent chat's, not a Chief's (chat_send.rs).
+        "read" | "wait" if names_agent_chat(rest) => None,
         "read" | "wait" | "list" => Some(Chat::Exit(read(&global, verb, rest))),
         _ => None,
     }
+}
+
+/// Whether `chat read|wait` words start with an agent chat's session id (a UUID or `acp:…`):
+/// a Chief's chat is named with `--to`, and its words are message refs.
+fn names_agent_chat(rest: &[String]) -> bool {
+    rest.first().is_some_and(|word| crate::cli::chat_send::is_session_id(word))
 }
 
 fn parse_send(args: &[String]) -> Result<Send, String> {
@@ -102,10 +111,7 @@ fn parse_send(args: &[String]) -> Result<Send, String> {
             "--wait" => send.wait = true,
             "--no-wait-agents" => send.no_wait_agents = true,
             "--timeout" => {
-                let text = value()?;
-                let secs: u64 =
-                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
-                send.timeout_secs = (secs > 0).then_some(secs);
+                send.timeout_secs = crate::cli::chat_send::timeout_secs(&value()?)?;
             }
             "--as" | "--from" => send.sender_name = Some(value()?),
             "--class" => send.class = Some(value()?),
@@ -266,6 +272,24 @@ mod tests {
             parse_send(&strings(&["--to", "chief", "--", "--wait", "is", "text"])).expect("parsed");
         assert_eq!((dashed.text.as_deref(), dashed.wait), (Some("--wait is text"), false));
         assert!(parse_send(&strings(&["--timeout", "soon"])).is_err());
+    }
+
+    #[test]
+    fn read_and_wait_with_a_session_id_are_an_agent_chats_not_the_chiefs() {
+        // Before, `cmux chat read <uuid>` asked the Chief and answered "the Chief is not
+        // running" (exit 3) for a chat `cmux chat` itself started.
+        let session = "0d4f9a52-8c1e-4b7a-9f3e-2a6b5c7d8e9f";
+        for verb in ["read", "wait"] {
+            assert!(names_agent_chat(&strings(&[session, "--timeout", "60"])), "{verb}");
+            assert_eq!(run_if_requested(&strings(&["chat", verb, session])), None, "{verb}");
+            let acp = format!("acp:{session}");
+            assert_eq!(run_if_requested(&strings(&["chat", verb, &acp])), None, "{verb}");
+        }
+        // The Chief's words stay the Chief's: `--to`, a message ref, nothing.
+        assert!(!names_agent_chat(&strings(&["--to", "chief"])));
+        assert!(!names_agent_chat(&strings(&["#12"])));
+        assert!(!names_agent_chat(&strings(&["msg_abc"])));
+        assert!(!names_agent_chat(&[]));
     }
 
     #[test]

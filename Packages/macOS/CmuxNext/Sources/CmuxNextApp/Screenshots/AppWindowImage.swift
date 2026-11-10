@@ -32,12 +32,12 @@ struct AppWindowImage {
             // pixels there (its background without the grant).
             guard let image = try? await page.snapshot() else { continue }
             let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-            layers.append(.page(image, rect, holes: holes, clip: WindowImageClip(page.pageWindowClip)))
+            layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
         }
         // React pages on the Chromium engine (the agent page, Settings) draw the same way.
         for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
             guard let image = await page.chromiumImage() else { continue }
-            layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
+            layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
         }
         // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
         if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
@@ -65,7 +65,7 @@ struct AppWindowImage {
             var layers: [WindowImageLayer] = []
             for (page, rect) in PageRegistry.shownChromiumPages(in: window) where !ScreenshotMask.isCovered(page, rules: .app) {
                 guard let image = await page.chromiumImage() else { continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
+                layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
             }
             // The last reading follows the last await, so nothing changes before the paint.
             sampler.stop()
@@ -141,7 +141,7 @@ extension ScreenshotMask {
         if let page = view as? PageWebView { return !shownAppPages.contains(page.descriptor.id) }
         // A web page tab is judged by its PageWebView above; a native one by its page id here.
         if let tab = view as? InternalPageView, !(tab.content is PageWebView) { return !shownNativePages.contains(tab.page.rawValue) }
-        return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView || view is TopHomePageView
-            || view is HomeNewMessageView || view is HomeDockSwitchView || view is HomeSidebarView || view is HomeNativeTranscriptView
+        return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeConversationPage
+            || view is HomeDockSwitchView
     }
 }

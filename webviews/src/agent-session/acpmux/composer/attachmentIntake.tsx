@@ -24,6 +24,9 @@ import { isVideoAttachment, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
+import { PastedTextChip } from "./PastedTextChip";
+import { UIPickChip } from "./UIPickChip";
+import { isUIPick } from "./uiPickModel";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
@@ -126,7 +129,8 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
-          // Where its chip is when the prompt goes: the sent preview moves from it (sendMorph.ts).
+          // Where its chip is when the prompt goes: sent from the latest row, it moves from there
+          // to its slot in the message (conversation/sendMorph.ts).
           ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
@@ -316,18 +320,6 @@ export function UploadProgress({ value, name, size = 16 }: { value: number; name
 /// inlineCopyId) draws the original's.
 const keptThumbOf = (id: string) => keptThumb(id) ?? keptThumb(inlineCopyParent(id) ?? id);
 
-/// An oversized paste's other way on (Leo, 2026-11-07: "you can either just paste it and it just
-/// becomes this, like, .txt, kind of like an attachment, um, or you can just make it raw"): a click on
-/// its card puts it in the prompt as text, this sends it as a Pasted text.txt file.
-export function KeepFileButton({ onKeep }: { onKeep(): void }) {
-  const t = useT();
-  return (
-    <button type="button" className="acpmux-attachment-keep-file" onClick={onKeep}>
-      {t(ATTACHMENT_LABELS.keepPasted)}
-    </button>
-  );
-}
-
 /// A staged attachment's chip: the strip draws it, and so does the prompt for one placed in its text
 /// (composer/inlineAttachments.tsx), with the same preview, open, play and remove.
 export function AttachmentChip({
@@ -473,45 +465,32 @@ export function AttachmentChip({
   // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
   // file name; its × still removes it.
   if (isImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
-  // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
+  // A huge paste (pastedText.ts): a compact chip that opens its whole text, Edit in Prompt and Keep
+  // as .txt in the opened view (PastedTextChip.tsx). Its menu keeps both too.
   if (pasted) {
     const text = attachment.text ?? "";
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
     const keep = onKeepFile ? () => onKeepFile(attachment.id) : undefined;
     const label = `${name} · ${pastedSize(t, language, text)}`;
-    const accessible = `${attachment.name || pasteName(text)}, ${label}`;
-    const body = (
-      <TextAttachmentCard
-        text={text}
-        label={label}
-        wrap
-        {...(keep ? { reserve: t(ATTACHMENT_LABELS.keepPasted) } : {})}
-      />
-    );
     return menu(
       expand,
-      <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">
-        {expand ? (
-          <button
-            type="button"
-            className="acpmux-attachment-pasted-open"
-            aria-label={accessible}
-            /* tooltip-allow: the chip shows the paste's first lines; the tooltip says a click puts it back in the prompt */
-            title={t(ATTACHMENT_LABELS.editPasted)}
-            onClick={expand}
-          >
-            {body}
-          </button>
-        ) : (
-          <span className="acpmux-attachment-pasted-open">{body}</span>
-        )}
-        {keep ? <KeepFileButton onKeep={keep} /> : null}
-        {remove}
-      </div>,
+      <PastedTextChip
+        host="strip"
+        text={text}
+        name={name}
+        accessibleName={`${attachment.name || pasteName(text)}, ${label}`}
+        remove={remove}
+        {...(expand ? { onEdit: expand } : {})}
+        {...(keep ? { onKeep: keep } : {})}
+      />,
       t(ATTACHMENT_LABELS.editPasted),
       keep,
     );
   }
+  // An inspector pick (uiPickModel.ts): the element and a snippet of its text, opening its whole
+  // report in place (UIPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))
+    return menu(undefined, <UIPickChip host="strip" name={attachment.name} text={attachment.text} remove={remove} />);
   // A text file (attachments.ts readAttachment) or a picked selection: the same page of its first
   // lines, under its name and line count.
   if (attachment.kind === "text" && attachment.text !== undefined) {
@@ -543,9 +522,10 @@ export function AttachmentChip({
     );
   }
   // A video goes as its path too, with its poster and length once the host read them; a click plays it
-  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
-  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
-  // and no poster; Quick Look still plays it from its path when the pane may not.
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer); in a chat on
+  // another machine, from its upload there. One the host could not read (or never asked: a chat on
+  // another machine) keeps the square with its play glyph and no poster; Quick Look plays it from its
+  // path when the pane may not, and one nothing can play says so on its tile.
   if (isVideoAttachment(attachment)) {
     const play = videoPlayer.play;
     return (
@@ -559,6 +539,7 @@ export function AttachmentChip({
             reading={!attachment.video && videoReading}
             remove={remove}
             onPlay={play}
+            unplayable={videoPlayer.unplayable}
           />,
           t("media.play"),
         )}

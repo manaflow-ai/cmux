@@ -24,10 +24,24 @@ public final class WindowRegistryStore {
     /// its own workspace's entry, never `value`, so a workspace made, closed or moved elsewhere maps no other row again
     /// (TYPING UNDER LOAD F6: every row read the whole registry).
     public let incognitoByWorkspace = ObservedMap<String, Bool>()
-    /// The workspaces `incognitoByWorkspace` answers for.
+    /// The window that lists each workspace (`WindowRegistry.owner(of:)`), observed one workspace at a time: nil while
+    /// no window lists it. An observer of ONE workspace (its link places, its shown name) reads its own entry, never
+    /// `value`: a read of `value` there made one workspace made or closed wake one observer per workspace of the
+    /// session (WORKSPACE LIST 800: 826 workspaces named again per list change, about 100 ms of main thread).
+    public let ownerByWorkspace = ObservedMap<String, String>()
+    /// The workspaces `incognitoByWorkspace` and `ownerByWorkspace` answer for.
     @ObservationIgnored private var answered: Set<String> = []
 
     public init() {}
+
+    /// Whether window `id` is one the launch brings back (the launch window, or one of the `saved` windows the
+    /// restore opens) while the launch runs. Only such a window stands in for its rows (saved rows, the connecting
+    /// machines' loading bars) and shows in place. A window this run opens, also while the launch runs or after a
+    /// restore that gave up (`isLaunching` stays set then), is new: it lists its own live rows from its first frame
+    /// and opens like a new window (https://github.com/manaflow-ai/cmux/issues/38128).
+    public func restoresSession(_ id: String, launchWindow: String?, saved: [String]?) -> Bool {
+        isLaunching && (id == launchWindow || saved?.contains(id) == true)
+    }
 
     /// Runs one transition; returns what it changed.
     @discardableResult
@@ -36,7 +50,7 @@ public final class WindowRegistryStore {
         let changes = transition(&next)
         if next != value {
             value = next
-            refreshIncognitoAnswers()
+            refreshWorkspaceAnswers()
         }
         return changes
     }
@@ -49,16 +63,27 @@ public final class WindowRegistryStore {
     /// Workspaces window `id` lists, in order.
     public func members(of id: String) -> [String] { value.window(id)?.workspaceIDs ?? provisional[id] ?? [] }
 
-    /// Writes each workspace's window kind: O(listed workspaces); only the entries that changed notify.
-    private func refreshIncognitoAnswers() {
+    /// The window that lists `workspaceID` (`value.owner(of:)`); observes that workspace's entry only.
+    public func owner(ofWorkspace workspaceID: String) -> String? { ownerByWorkspace[workspaceID] }
+
+    /// Writes each workspace's window kind and owner: O(listed workspaces); only the entries that changed notify.
+    private func refreshWorkspaceAnswers() {
         var answers: [String: Bool] = [:]
+        var owners: [String: String] = [:]
         // The first window that lists a workspace owns it (`WindowRegistry.owner(of:)`).
         for window in value.windows {
-            for id in window.workspaceIDs where answers[id] == nil { answers[id] = value.isIncognito(window.id) }
+            for id in window.workspaceIDs where answers[id] == nil {
+                answers[id] = value.isIncognito(window.id)
+                owners[id] = value.owner(of: id)
+            }
         }
         for id in value.discarding { answers[id] = true }
-        for id in answered where answers[id] == nil { incognitoByWorkspace[id] = nil }
+        for id in answered {
+            if answers[id] == nil { incognitoByWorkspace[id] = nil }
+            if owners[id] == nil { ownerByWorkspace[id] = nil }
+        }
         for (id, answer) in answers { incognitoByWorkspace[id] = answer }
+        for (id, owner) in owners { ownerByWorkspace[id] = owner }
         answered = Set(answers.keys)
     }
 }

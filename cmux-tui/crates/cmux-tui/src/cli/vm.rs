@@ -126,14 +126,13 @@ pub(super) fn vm_help_note(japanese: bool) -> &'static str {
     if japanese {
         "cmux アプリがあれば、`cmux vm ls|status|pause|resume|rm|resize|fork|rename` は VM の名前か ID\n\
          （1 台なら省略可）であなたの Cloud VM を操作します。アプリがなければ cmux VM API の動詞として動きます。\n\
-         ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。\n\
-         `cmux cloud` と `cmux machine new|show|pause|…` は `cmux vm` の旧名で、どちらも使えます。"
+         `cmux vm shutdown` は `pause` と同じです（削除は `rm`）。\n\
+         ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。"
     } else {
         "With the cmux app, `cmux vm ls|status|pause|resume|rm|resize|fork|rename` act on your\n\
          Cloud VMs by name or id (or the only one); without it they are the cmux VM API's verbs.\n\
-         Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`.\n\
-         `cmux cloud` and `cmux machine new|show|pause|...` are old names of `cmux vm`;\n\
-         both work."
+         `cmux vm shutdown` is `pause` (`rm` deletes the VM).\n\
+         Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`."
     }
 }
 
@@ -186,6 +185,8 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "access" | "client-session" => ("client-session", sub_verb(tail, NEW_LS)),
         "key" | "token" => ("token", sub_verb(tail, NEW_LS)),
         "snapshot" => ("snapshot", sub_verb(tail, SNAPSHOT)),
+        // `shutdown` is `pause` here too, as with the app (vm_short.rs).
+        "shutdown" => ("pause", tail.to_vec()),
         "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" => {
             (verb.as_str(), tail.to_vec())
         }
@@ -434,11 +435,11 @@ pub(super) fn machine_note(verb: Option<&str>, terminal: bool, japanese: bool) -
     }
     let verb = verb.filter(|verb| !verb.starts_with('-')).unwrap_or("VERB");
     Some(if japanese {
-        format!(
-            "cmux: VM は `cmux vm` で扱います（`cmux vm {verb}`）。`cmux machine {verb}` も使えます。"
-        )
+        format!("cmux: VM は `cmux vm` で扱います（`cmux vm {verb}`）。")
     } else {
-        format!("cmux: `cmux machine {verb}` is now `cmux vm {verb}`; both work.")
+        // The new spelling only (Leo, 2026-11-10: "i thought we rewrote the cli commands to not
+        // use machine?"); the old one keeps running.
+        format!("cmux: VMs are `cmux vm` now: `cmux vm {verb}`.")
     })
 }
 
@@ -459,19 +460,80 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
             .take_while(|word| *word != "--")
             .any(|word| word == "--target" || word.starts_with("--target="))
     };
-    let machine_owned = MACHINE_VERBS.contains(&verb)
-        || OTHER_MACHINE_VERBS.contains(&verb)
-        || VM_OWN_WORDS.contains(&verb)
-        || verb.starts_with('-');
     let cloud_form = matches!(verb, "exec" | "client-session") && targeted();
-    if machine_owned && !cloud_form {
+    if vm_owns_verb(verb) && !cloud_form {
         return None;
     }
     let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
     let mut rewritten = before.to_vec();
     rewritten.push("cloud".to_owned());
-    rewritten.extend(after.iter().cloned());
+    rewritten.extend(yes_as_confirm(after));
     Some(rewritten)
+}
+
+/// `words` (a Cloud verb and its words) with `--yes` (`-y`), every delete's yes (`vm rm dev
+/// --yes`), as the `--confirm` the app's Cloud actions read. Only a verb that deletes gets it
+/// (anywhere else a `--yes` is a value, as in `start-chat --prompt --yes`); from `--` on, words
+/// are text.
+fn yes_as_confirm(words: &[String]) -> Vec<String> {
+    let verb = words.iter().find(|word| !word.starts_with('-')).map_or("", String::as_str);
+    yes_words(verb, words)
+}
+
+/// `words` of Cloud's `verb` with its yes (`--yes`, `-y`) as the app's `--confirm`, when `verb`
+/// deletes something. A delete's other flags all take a value (`--path -y` removes the file
+/// `-y`), so a word right after one stays as typed, as does every word from `--` on.
+pub(super) fn yes_words(verb: &str, words: &[String]) -> Vec<String> {
+    if !super::cloud_help::confirms(verb) {
+        return words.to_vec();
+    }
+    let mut text = false;
+    let mut value_next = false;
+    words
+        .iter()
+        .map(|word| {
+            text |= word == "--";
+            let value = std::mem::replace(
+                &mut value_next,
+                word.starts_with("--")
+                    && !word.contains('=')
+                    && !matches!(word.as_str(), "--" | "--yes" | "--confirm" | "--json"),
+            );
+            match word.as_str() {
+                "--yes" | "-y" if !text && !value => "--confirm".to_owned(),
+                _ => word.clone(),
+            }
+        })
+        .collect()
+}
+
+/// `cmux cloud VERB … --yes` (`cloud`, `vm`'s old name): the same `--confirm`, `None` when there
+/// is no `--yes` to respell.
+pub(super) fn cloud_yes(args: &[String]) -> Option<Vec<String>> {
+    let (_, at) = scope_at(args, |word| word == "cloud")?;
+    let after = args.get(at + 1..)?;
+    let respelled = yes_as_confirm(after);
+    if respelled == after {
+        return None;
+    }
+    let mut rewritten = args[..=at].to_vec();
+    rewritten.extend(respelled);
+    Some(rewritten)
+}
+
+/// Whether `vm VERB` is this module's (or another `machine` module's) verb, not Cloud's.
+fn vm_owns_verb(verb: &str) -> bool {
+    MACHINE_VERBS.contains(&verb)
+        || OTHER_MACHINE_VERBS.contains(&verb)
+        || VM_OWN_WORDS.contains(&verb)
+        || verb.starts_with('-')
+}
+
+/// Whether a printed `cmux cloud VERB …` hint runs the same as `cmux vm VERB …`
+/// (vm_words.rs): every Cloud verb `vm` does not own, `exec` and `client-session` (printed with
+/// their `--target`), and `ls`/`list` (the short list, the same rows).
+pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
+    !vm_owns_verb(verb) || matches!(verb, "exec" | "client-session" | "ls" | "list")
 }
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
@@ -493,6 +555,11 @@ pub(super) fn cloud_rename_note(args: &[String]) {
 
 /// The note [`cloud_rename_note`] prints for `cmux cloud VERB`.
 pub(super) fn rename_note(verb: Option<&str>, japanese: bool) -> String {
+    // `cmux cloud list-machines` is `cmux vm ls` (vm_words.rs).
+    super::vm_words::respell(&cloud_rename_text(verb, japanese))
+}
+
+fn cloud_rename_text(verb: Option<&str>, japanese: bool) -> String {
     match (verb, japanese) {
         (Some("start-chat"), false) => {
             "cmux: `cmux cloud start-chat` is now `cmux chat --on vm:ID|NAME|new`; both work.".into()
@@ -640,24 +707,31 @@ pub(super) fn app_present(
 const NEW_HELP: &str = "\
 usage: cmux vm new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
                    [--repo OWNER/NAME[@REF]] [--machine-config FILE]
-                   [--bootstrap lane --bootstrap-script FILE] [--json]
+                   [--bootstrap lane --bootstrap-script FILE]
+                   [--wait [--timeout SECONDS]] [--json]
 
 Make a Cloud VM. With the cmux app signed in, this is the same VM
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
 confirm when an agent asks, and it prints the VM's target and how to open
 a terminal, start an agent or run a command there. With no flags it takes the
-app's default size and keeps running when idle; `cmux vm set-idle-pause`
-sets a pause, and --persistent makes sure none is set.
+app's default size and pauses once idle (nothing attached, no agent turn
+running; a few minutes on cmux Cloud) and resumes when you open it again.
+--persistent keeps it running; `cmux vm set-idle-pause` sets the timeout.
 
   cmux vm new
   cmux vm new --name api-dev --size medium --repo OWNER/NAME
+  cmux vm new --name api-dev --machine-config .cmux/machine.toml --wait
+
+--wait answers once the VM is ready: running, its machine config applied
+(--machine-config, or the --repo checkout's .cmux/machine.toml) and the
+secrets that file names delivered from this Mac (`cmux vm secret set NAME`).
+A failed setup answers with its status and the log to read. --timeout
+SECONDS (default 1200) ends the wait; the VM goes on starting.
 
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
 --public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
-
-`cmux machine new` and `cmux cloud new-machine` are old names; both still work.
 ";
 
 /// What a person reads after `cmux vm new` (the app's `cloud new-machine`)
@@ -682,24 +756,24 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     let cmux = cmux_with_route(global);
     if result.get("pending").and_then(Value::as_bool) == Some(true) {
         return Some(format!(
-            "Creating a Cloud machine; it is still starting. It shows in the sidebar and in \
-             `{cmux} vm list-machines` when it is ready.\n"
+            "Creating a Cloud VM; it is still starting. It shows in the sidebar and in \
+             `{cmux} vm ls` when it is ready.\n"
         ));
     }
     let id = result.get("machine_id")?.as_str()?;
     let target = result
         .get("target")
         .and_then(Value::as_str)
-        .map_or_else(|| format!("machine:{id}"), str::to_owned);
+        .map_or_else(|| format!("vm:{id}"), super::vm_words::respell);
     let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
     let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
     let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
     Some(format!(
-        "Created Cloud machine {name}: {status}.\n\n\
+        "Created Cloud VM {name}: {status}.\n\n\
          Next:\n  \
-         open a terminal:  {cmux} vm ssh --target {target}\n  \
-         start an agent:   {cmux} vm start-session --target {target} --agent claude\n  \
-         run a command:    {cmux} vm exec --target {target} --command 'uname -a'\n"
+         open a terminal:  {cmux} vm ssh {id}\n  \
+         start an agent:   {cmux} chat --on {target} 'PROMPT'\n  \
+         run a command:    {cmux} vm exec {id} -- uname -a\n"
     ))
 }
 
@@ -777,6 +851,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             || super::app::connect_command(&global).is_ok(),
             super::cloud_machines::app_found,
         );
+        // `--wait`: the create, then the waits a person does by hand (vm_ready.rs). The app's verbs only.
+        if app_present
+            && new_route(tail, app_present) == NewRoute::App
+            && let Some(code) = super::vm_ready::run_if_requested(&global, tail)
+        {
+            return Some(code);
+        }
         if new_route(tail, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {

@@ -1,6 +1,6 @@
 //! The stdio contract of `cmux carrier dial` and `serve` and its pure rules:
-//! the reply and ready lines, the exit codes, the step a failure names, the one deadline and its
-//! full-jitter backoff, and the route log line. No I/O here.
+//! the reply and ready lines, the exit codes, the step a failure names, the one deadline, and the
+//! route log line. No I/O here.
 
 use std::time::Duration;
 
@@ -11,12 +11,6 @@ use serde_json::json;
 pub(super) const DEFAULT_DEADLINE: Duration = Duration::from_secs(180);
 /// The longest `--deadline-ms` accepted.
 pub(super) const MAX_DEADLINE_MS: u64 = 600_000;
-/// The first backoff ceiling between attempts, doubled after each failure.
-pub(super) const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
-/// The largest backoff ceiling: the machine link's own park between redial
-/// bursts (`ReconnectPolicy::maximum_delay`), so a dial after a long outage
-/// waits no longer than an established link would.
-pub(super) const MAX_BACKOFF: Duration = Duration::from_secs(5);
 /// The usage `error_code` (exit 64).
 pub(super) const BAD_REQUEST: &str = "bad_request";
 /// The longest `error_detail`, in bytes.
@@ -74,15 +68,47 @@ pub(super) struct Failure {
     pub step: Step,
     pub detail: String,
     pub retryable: bool,
+    /// The daemon no longer has the attempt's session (its session host
+    /// restarted): the next attempt opens a fresh session
+    /// ([`super::client::dial`] allows [`MAX_FRESH_SESSIONS`]).
+    pub fresh_session: bool,
+}
+
+/// How many times one dial opens a fresh session because the daemon lost
+/// the one it was given: once per restart, bounded so a daemon that keeps
+/// restarting cannot keep a dial redialing.
+pub(super) const MAX_FRESH_SESSIONS: u32 = 2;
+
+/// One dial's budget of fresh sessions ([`MAX_FRESH_SESSIONS`]), shared by
+/// every step that may ask for one (the mux-control attempt and the
+/// desktop open), so a dial never opens more than that in total.
+#[derive(Default)]
+pub(super) struct FreshSessions(std::sync::atomic::AtomicU32);
+
+impl FreshSessions {
+    /// Spends one fresh session; false when the dial has none left.
+    pub(super) fn take(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |spent| {
+                (spent < MAX_FRESH_SESSIONS).then_some(spent + 1)
+            })
+            .is_ok()
+    }
 }
 
 impl Failure {
     pub(super) fn retry(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: true }
+        Self { step, detail: detail.into(), retryable: true, fresh_session: false }
     }
 
     pub(super) fn fatal(step: Step, detail: impl Into<String>) -> Self {
-        Self { step, detail: detail.into(), retryable: false }
+        Self { step, detail: detail.into(), retryable: false, fresh_session: false }
+    }
+
+    /// The daemon answered that it no longer has the session.
+    pub(super) fn session_gone(step: Step, detail: impl Into<String>) -> Self {
+        Self { step, detail: detail.into(), retryable: true, fresh_session: true }
     }
 
     /// The deadline passed while the attempt was at `step`.
@@ -425,37 +451,43 @@ pub(super) fn phases_line(
     )
 }
 
-/// The full-jitter backoff between attempts of one dial: each delay is
-/// uniform in `[0, ceiling]`, the ceiling doubles up to [`MAX_BACKOFF`], and
-/// no delay outlives the deadline.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Backoff {
-    ceiling: Duration,
+/// The carriers line, appended only to the connect log after an attempt's
+/// phases line (and after each resume's route line):
+/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code>`.
+/// `ssh` says whether the attempt had the ssh backup route and, when not,
+/// why it was left out (a resume rotates over the routes its dial built, so
+/// it has none). `carrier` is the route that carried the attempt or resume,
+/// `none` when it failed. It holds neither `cloud.connect` nor
+/// `carrier.phases`, so readers that pin those lines' shapes (cmuxterm-hq's
+/// start matrix) never take it for one of theirs.
+pub(super) fn routes_line(
+    machine: &str,
+    phase: Phase,
+    ssh: Option<&str>,
+    carrier: Option<&str>,
+    outcome: Option<Step>,
+    said: Option<&str>,
+) -> String {
+    let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
+    let said = said
+        .map(cmux_remote::provider::one_line)
+        .filter(|said| !said.is_empty())
+        .map_or_else(String::new, |said| format!(" ssh_stderr=\"{}\"", last_chars(&said)));
+    format!(
+        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{said}\n",
+        phase.name(),
+        carrier.unwrap_or("none"),
+        outcome.map_or("ok", Step::error_code),
+    )
 }
 
-impl Default for Backoff {
-    fn default() -> Self {
-        Self { ceiling: INITIAL_BACKOFF }
-    }
-}
+/// The most of a captured ssh stderr line a `carrier.routes` line keeps:
+/// its end, where ssh says why it stopped.
+const MAX_SSH_STDERR_CHARS: usize = 240;
 
-impl Backoff {
-    /// The delay before the next attempt, given `remaining` time to the
-    /// deadline and `jitter` (the full-jitter draw from `[0, ceiling]`), or
-    /// `None` when no time is left for another attempt.
-    pub(super) fn next(
-        &mut self,
-        remaining: Duration,
-        jitter: impl FnOnce(Duration) -> Duration,
-    ) -> Option<Duration> {
-        if remaining.is_zero() {
-            return None;
-        }
-        let ceiling = self.ceiling;
-        self.ceiling = (ceiling * 2).min(MAX_BACKOFF);
-        let delay = jitter(ceiling).min(ceiling);
-        (delay < remaining).then_some(delay)
-    }
+fn last_chars(line: &str) -> String {
+    let kept: Vec<char> = line.chars().rev().take(MAX_SSH_STDERR_CHARS).collect();
+    kept.into_iter().rev().collect()
 }
 
 /// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.

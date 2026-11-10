@@ -18,6 +18,7 @@ extension ScreenContentView {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
             releaseClosing()
+            releasePaneFrameNoticesIfSettled()
             return false
         }
         let frameSpring = policy.spring(motionState.frameSpring)
@@ -42,6 +43,9 @@ extension ScreenContentView {
                 reportLeadingColumn()
             }
         }
+        // Right after its frame's `layout.travel` (no sample in between): the strip camera's points left after this
+        // frame's step, as `travelLeft` is for the panes (New Column moves only the camera).
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value))) }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
         if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
@@ -50,6 +54,8 @@ extension ScreenContentView {
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
         if !moving { releaseClosing() }
+        // The motion landed with no drag and no zoom left: the pane views post again.
+        if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
     }
     /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
@@ -249,10 +255,12 @@ extension ScreenContentView {
             if host.restSize != rest.size { host.restSize = rest.size }
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
-            // A key press's rest size reaches the content before its host moves (S1B: the press's first tick, where the key's
-            // turn used to do it): the content takes its final size once, at the edge that stays, never the frame's first.
-            let announcesFirst = restChanged && springing && holdsContentForKeyResize
-            if announcesFirst { host.announceRest() }
+            // A spring that starts or retargets (a split, a close, a zoom, a key press, a press during the motion) to a new
+            // size: the content hears the size it will rest at now, once, before its host takes this frame's size (S1B for
+            // key presses; #37755 for every spring). It decides how it rides the motion before the frame lays it out: a
+            // terminal sends its final grid at the start, a Chromium page that holds the keys lays out at its rest and keeps
+            // its window, and none of them is laid out first at the frame's size, which it leaves in the next frame.
+            if restChanged, springing { host.announceRest() }
             if host.restOffset != restOffset { host.restOffset = restOffset }
             if host.frame.size != placed.size {
                 host.frame = placed
@@ -270,9 +278,6 @@ extension ScreenContentView {
                 host.frame = placed
                 changed = true
             }
-            // A spring that starts or retargets (a press during the motion) to a new size: the content
-            // hears the size it will rest at now, once (a terminal sends its final grid at the start).
-            if restChanged, springing, !announcesFirst { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true
@@ -290,6 +295,8 @@ extension ScreenContentView {
         if zoomMotion.pane != zooming {
             ensureStacking()
             changed = true
+            // Each pane view the zoom moved posts its one frame notice now (`FrameNoticeHold`).
+            releasePaneFrameNoticesIfSettled()
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose

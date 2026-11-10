@@ -69,9 +69,13 @@ export type AttachmentIntakeOptions = {
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
-  /// True while the composer takes nothing (a Cloud start is out, App.tsx `cloudStarting`): a paste
-  /// or a file drop stages no attachment then, since the tab closes with only the sent prompt.
+  /// True while the field takes nothing (the classic New Tab page while a Cloud start from it is out,
+  /// NewTabScreen `cloudStarting`): a paste or a file drop stages no attachment then.
   locked?(): boolean;
+  /// Why no attachment is taken now, said to the person (a chat's Cloud start: the host carries the
+  /// started chat's text, not its chips, App.tsx `cloudStarting`). Typing stays open; a paste, drop or
+  /// pick of files stages nothing and the composer's note says this instead.
+  refusal?(): string | undefined;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its
   /// chips to `elsewhere` instead of this chat's strip.
@@ -676,10 +680,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
+  /// The refusal now (`refusal`), said in the composer's note: true when nothing may be attached.
+  const [refused] = useState(() => () => {
+    const why = live.current.options.refusal?.();
+    if (why) setAttachError(why);
+    return why !== undefined;
+  });
   const [attach] = useState(
     () =>
       (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false) =>
-        intake(given, uploads, kind, undefined, needs),
+        given.length && refused() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -688,37 +698,63 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// again. A send keeps waiting through a failure (`bound`): it goes with the chip once Retry makes
   /// it, or without it once its × drops it. Its × runs `stop` (the host stops sending) and drops
   /// whatever `make` answers later, as does the composer going away while `make` still runs.
+  /// The tile goes in at the caret, as a paste's does, and the chip `make` answers takes its id there:
+  /// it never waits in the strip above the text and then jumps into it (Leo, 2026-11-09: "the
+  /// attachments preview going into the top area of hte composer and THEN to where they shuld be").
+  /// `again`: Retry's, the failed tile made again where it is.
   const [attachLater] = useState(
-    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
-      const batch = { scope: live.current.options.scope, bound: true };
-      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
-      sources.current.set(chip.id, { make, name, failure, stop });
-      making.current.set(chip.id, stop);
-      batches.current.add(batch);
-      flushSync(() => setPending((chips) => [...chips, chip]));
-      void make()
-        .catch(() => undefined)
-        .then((attachment) => {
-          making.current.delete(chip.id);
-          batches.current.delete(batch);
-          if (!sources.current.has(chip.id)) return;
-          if (!attachment) {
-            setPending((chips) =>
-              chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
-            );
-            return;
-          }
-          sources.current.delete(chip.id);
-          setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
-          // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
-          const now = live.current.options;
-          if (batch.scope !== now.scope) {
-            if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
-            return;
-          }
-          setAttachments((staged) => appendAttachments(staged, [attachment]));
-        });
-    },
+    () =>
+      (
+        name: string,
+        make: () => Promise<ComposerAttachment | undefined>,
+        failure: string,
+        stop?: () => void,
+        again?: string,
+      ) => {
+        if (again === undefined && refused()) return stop?.();
+        const batch = { scope: live.current.options.scope, bound: true };
+        const chip: PendingAttachment = {
+          id: again ?? crypto.randomUUID(),
+          name,
+          image: false,
+          scope: batch.scope,
+          bound: true,
+        };
+        sources.current.set(chip.id, { make, name, failure, stop });
+        making.current.set(chip.id, stop);
+        batches.current.add(batch);
+        flushSync(() =>
+          setPending((chips) =>
+            again !== undefined && chips.some((shown) => shown.id === again)
+              ? chips.map((shown) => (shown.id === again ? chip : shown))
+              : [...chips, chip],
+          ),
+        );
+        if (again === undefined) live.current.options.place?.([chip]);
+        void make()
+          .catch(() => undefined)
+          .then((made) => {
+            making.current.delete(chip.id);
+            batches.current.delete(batch);
+            if (!sources.current.has(chip.id)) return;
+            if (!made) {
+              setPending((chips) =>
+                chips.map((shown) => (shown.id === chip.id ? { ...shown, failed: failure, retryable: true } : shown)),
+              );
+              return;
+            }
+            sources.current.delete(chip.id);
+            const attachment = { ...made, id: chip.id };
+            setPending((chips) => chips.filter((shown) => shown.id !== chip.id));
+            // The composer moved to another chat meanwhile: the chip is the chat's it was made for.
+            const now = live.current.options;
+            if (batch.scope !== now.scope) {
+              if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
+              return;
+            }
+            setAttachments((staged) => appendAttachments(staged, [attachment]));
+          });
+      },
   );
   // The composer goes away: a host-made chip still being made has nowhere to land, so it stops,
   // and whatever its `make` answers later is dropped (its source goes too).
@@ -818,9 +854,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (originals.current.has(id)) return void retryOriginal(id);
     const source = sources.current.get(id);
     if (source && "make" in source) {
-      sources.current.delete(id);
-      setPending((chips) => chips.filter((chip) => chip.id !== id));
-      attachLater(source.name, source.make, source.failure, source.stop);
+      attachLater(source.name, source.make, source.failure, source.stop, id);
       return;
     }
     const file = source?.file;
@@ -856,14 +890,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const removeFileDropLifecycle = installFileDropLifecycle(
       (files) => {
         if (live.current.options.locked?.()) return showDrop(HIDDEN_DROP);
+        if (refused()) return showDrop(HIDDEN_DROP);
         showDrop(landDropOverlay(dropRef.current, files));
         void attach(files, true, "drop");
       },
       (active, event) => {
         const { allowImages, dropZone, locked } = live.current.options;
-        const refused = locked?.() === true;
-        setDropping(active && !refused);
-        if (refused) return showDrop(HIDDEN_DROP);
+        const closed = locked?.() === true || live.current.options.refusal?.() !== undefined;
+        setDropping(active && !closed);
+        if (closed) return showDrop(HIDDEN_DROP);
         showDrop(stepDropOverlay(dropRef.current, active, event, allowImages, dropZone?.()));
       },
     );
@@ -872,7 +907,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
-  }, [attach, showDrop]);
+  }, [attach, showDrop, refused]);
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
@@ -913,6 +948,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     dropLanded,
     attach,
     attachLater,
+    /// Says the refusal (`refusal`) when there is one: true when nothing may be attached now.
+    refused,
   };
 }
 
@@ -932,13 +969,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// `chat.upload.begin` spent the Enter that a send bound only once the chip was ready (Leo,
 /// 2026-11-06, "Not sent: it needs your own key press or click."). `hold(send, kept)`: a send that
 /// already has its gesture (one an earlier hold bound) keeps it and binds none. A later hold keeps
-/// the gesture the held one bound: one send, one gesture.
+/// the gesture the held one bound: one send, one gesture. `hold(send, kept, bindOwn)`: a send whose
+/// gesture binds otherwise (`/side`'s, bound to no chat yet) binds with `bindOwn` instead.
 export function useSendWhenAttached<G = unknown>(
   pending: number,
   scope?: string,
   unsettled: number = pending,
   bind?: () => G | undefined,
-): ((send: (gesture?: G) => void, kept?: G) => boolean) & { cancel(): void } {
+): ((send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean) & { cancel(): void } {
   const held = useRef<{ send: (gesture?: G) => void; gesture: G | undefined } | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -955,9 +993,9 @@ export function useSendWhenAttached<G = unknown>(
   }, [unsettled]);
   const [hold] = useState(() =>
     Object.assign(
-      (send: (gesture?: G) => void, kept?: G) => {
+      (send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
         if (count.current === 0 && !held.current) return false;
-        held.current = { send, gesture: kept ?? held.current?.gesture ?? binder.current?.() };
+        held.current = { send, gesture: kept ?? held.current?.gesture ?? (bindOwn ?? binder.current)?.() };
         return true;
       },
       {
@@ -974,19 +1012,21 @@ export function useSendWhenAttached<G = unknown>(
 /// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
 /// `hold(awaits, send, kept)`: when `awaits`, holds `send` (true; a later hold replaces it);
 /// otherwise the send goes now (false) and any held one is dropped, so it never goes later on its
-/// own with whatever draft the composer has then. A new `scope` drops it too. `bind` and `kept`: the
-/// held send's gesture, as useSendWhenAttached binds it.
+/// own with whatever draft the composer has then. A new `scope` drops it too. `bind`, `kept` and
+/// `bindOwn`: the held send's gesture, as useSendWhenAttached binds it.
 export function useSendWhenOriginals<G = unknown>(
   uploading: number,
   scope?: string,
   bind?: () => G | undefined,
-): (awaits: boolean, send: (gesture?: G) => void, kept?: G) => boolean {
+): (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean {
   const wait = useSendWhenAttached<G>(uploading, scope, uploading, bind);
-  const [hold] = useState(() => (awaits: boolean, send: (gesture?: G) => void, kept?: G) => {
-    if (awaits && wait(send, kept)) return true;
-    wait.cancel();
-    return false;
-  });
+  const [hold] = useState(
+    () => (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
+      if (awaits && wait(send, kept, bindOwn)) return true;
+      wait.cancel();
+      return false;
+    },
+  );
   return hold;
 }
 

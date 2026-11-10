@@ -110,6 +110,24 @@ pub(super) fn acp_prompt_blocks(
     Ok(out)
 }
 
+/// The turn a pending run of `prompt_id` was given on `session`, and whether it still waits in
+/// the queue: the queued prompt's, or the running turn's. None while that run has not been
+/// accepted (its agent still starts, a check still runs, also one after its turn shows: a
+/// Cloud turn's claim can still refuse it), or between its leaving the queue and its turn's
+/// start.
+fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
+    let queued = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.iter().find(|q| q.prompt_id == prompt_id).map(|q| (q.turn_id.clone(), true))
+    };
+    queued.or_else(|| {
+        let turn = session.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        turn.as_ref()
+            .filter(|t| t.prompt_id == prompt_id && t.accepted)
+            .map(|t| (t.turn_id.clone(), false))
+    })
+}
+
 /// A `file://` URI for the saved file, percent-encoded so a project folder with
 /// spaces or non-ASCII letters still names a valid link (and a Windows path
 /// gets its drive form).
@@ -156,6 +174,10 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
+        if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
+            return answer;
+        }
         // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
         // session: with no provenance its record would read as the person's own.
         if opts.provenance.is_none()
@@ -188,6 +210,9 @@ impl Hub {
             // entry (the ledger is only for client-supplied idempotency keys).
             let generated_id = uuid::Uuid::now_v7().to_string();
             opts.prompt_id = Some(generated_id.clone());
+            if let Some(text) = opts.coach.take() {
+                self.coach_prompt(session, &generated_id, &text);
+            }
             ensure_message_provenance(&mut opts, &session.id);
             let message = message_context(self, session, &blocks, &opts, &generated_id);
             embed_message_context(&mut opts, message.as_ref(), &session.id);
@@ -224,7 +249,15 @@ impl Hub {
         let outcome = match seen {
             Err(mut first) => {
                 if let Some(f) = opts.on_accepted.take() {
-                    f(duplicate(Value::Null));
+                    // The first run's turn, once it has one (queued or running): the sender of
+                    // this copy then knows the prompt was taken. With none yet, the first run
+                    // may still be held or refused, and only its answer says.
+                    let (turn, queued) = pending_turn(session, &prompt_id).unzip();
+                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    if queued == Some(true) {
+                        notice.set("queued", json!(true));
+                    }
+                    f(notice);
                 }
                 let result = first
                     .wait_for(Option::is_some)
@@ -239,6 +272,10 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A client's resend of this id was answered above: the coach counts the prompt once.
+        if let Some(text) = opts.coach.take() {
+            self.coach_prompt(session, &prompt_id, &text);
+        }
         // A resent inbox message answers as its notice did, a failure as the same error.
         if opts.resend
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
@@ -387,9 +424,14 @@ impl Hub {
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
-        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
-        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        // Capture this before guard validation: a stop racing the final setup fence must
+        // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
+        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
+        if let Some(guard) = opts.race_guard.as_ref() {
+            guard()?;
+        }
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
@@ -423,7 +465,13 @@ impl Hub {
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
+        let race_guard = opts.race_guard.clone();
         let mut accept = |mut v: Value| {
+            if let Some(race_guard) = race_guard.as_ref()
+                && let Err(error) = race_guard()
+            {
+                v = json!({"raceCancelled": true, "error": error.message});
+            }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
@@ -476,6 +524,7 @@ impl Hub {
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
                     opts.wake_or_fail,
+                    opts.reply_reader.clone(),
                     &mut accept,
                 ))
                 .await;
@@ -560,12 +609,27 @@ impl Hub {
             self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        // A question no caller reads the reply of, from a session that did not start this chat
+        // and that the inbox did not take: its reply goes back when the turn that answers it ends
+        // (`question_replies.rs`). It is due under this prompt until its turn is known: its steer
+        // is written into the running turn (`steer_end.rs`), or its own turn starts (below).
+        // Dropped with this request when neither happened.
+        let _reply_due = {
+            let provenance = opts.provenance.as_ref();
+            let subagent = provenance
+                .and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT))
+                .filter(|s| s.is_object())
+                .cloned();
+            let reads = opts.reply_reader.is_some() || opts.wake_or_fail;
+            let asker = super::question_replies::asker_of(provenance);
+            self.question_reply_pending(session, &prompt_id, asker, subagent, class, reads)
+        };
         if steer_now {
             if cloud_turn.is_some() {
                 return Err(RpcError::invalid_params(
@@ -573,11 +637,18 @@ impl Hub {
                 ));
             }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
+            let steer_id = prompt_id.clone();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
-            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
-                .await;
+            let steered =
+                Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                    .await;
+            // A steer refused or taken back unread answers no question in that turn.
+            if steered.is_err() {
+                self.question_replies_settled(session, &steer_id, false);
+            }
+            return steered;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -710,6 +781,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // A queued prompt was accepted when it was queued; any other is, once its checks pass.
+        turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
         *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
             Some((turn_id.to_string(), false));
@@ -756,6 +829,15 @@ impl Hub {
         } else {
             None
         };
+        // Admission can wait through queueing and dispatch checks. A cancelled race
+        // must refuse the prompt itself, not merely change its acceptance response.
+        if let Some(race_guard) = race_guard.as_ref()
+            && let Err(e) = race_guard()
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -783,6 +865,14 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        #[cfg(test)]
+        {
+            let seam = self.turn_shown_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Claim only after every dispatch fence that can refuse the prompt has passed. The
         // capability is one-use; every successful claim is finished below or on each early exit.
         if let Some((cloud, scope)) = cloud_exec.as_ref()
@@ -798,6 +888,11 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        // This turn answers the questions its prompt and the joined ones carry
+        // (`question_replies.rs`).
+        for id in std::iter::once(&prompt_id).chain(parts.iter().map(|part| &part.prompt_id)) {
+            self.question_reply_in_turn(session, id, &turn_id);
+        }
         let team_prompt_ids: Vec<_> = std::iter::once(prompt_id.clone())
             .chain(parts.iter().map(|part| part.prompt_id.clone()))
             .collect();
@@ -847,7 +942,10 @@ impl Hub {
                 m.delegator = Some(from);
             }
             // One shared turn path applies the creation snapshot exactly once, including
-            // queued/CLI prompts. A settings edit never changes an already-created chat.
+            // queued/CLI prompts. A settings edit never changes an already-created chat. The
+            // rules on a system-level channel are not in it: the spawn gives them
+            // (`context_inventory::launch_args`). Appended, never put first: a client's display
+            // parts name the person's blocks by index.
             if !m.cmux_context_delivered && control != Control::Web {
                 crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
             }
@@ -883,6 +981,12 @@ impl Hub {
             if let Some(key) = supersede.as_deref() {
                 let _ =
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
+            // From here a second copy of the prompt hears this turn (`pending_turn`).
+            if let Some(turn) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+                && turn.turn_id == turn_id
+            {
+                turn.accepted = true;
             }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
@@ -979,6 +1083,19 @@ impl Hub {
                 return Err(e);
             }
         };
+        // cmux's rules on a system-level channel that this agent's start did not carry (its own
+        // value, rules too long for one argument, a chat moved under a guard): once, in this
+        // message, like the first message's context. Read after the start, which records the
+        // command line it ran (`spawn_argv`).
+        let rules_owed = control != Control::Web && {
+            let m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            !m.cmux_rules_in_transcript
+                && crate::context_inventory::append_owed_rules(
+                    m.cmux_context.as_deref(),
+                    m.spawn_argv.as_deref(),
+                    &mut blocks,
+                )
+        };
         // Add information after digest reconstruction and the person's display record. Slash
         // commands keep their prompt intact and leave these notices for a normal turn.
         let team_enabled =
@@ -1002,7 +1119,7 @@ impl Hub {
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000)
+            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
         {
             blocks.insert(
                     0,
@@ -1078,7 +1195,7 @@ impl Hub {
             return Err(e);
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
-        Self::hold_stalled_count(session);
+        self.hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         if !trigger {
             self.clear_deferred_unread(session);
@@ -1100,7 +1217,8 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
+            // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref()),
             &turn_id,
             false,
             false,
@@ -1109,11 +1227,13 @@ impl Hub {
             None,
             || {
                 if delivers_context {
-                    session
-                        .meta
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .cmux_context_delivered = true;
+                    let mut m =
+                        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    m.cmux_context_delivered = true;
+                    if rules_owed {
+                        crate::context_inventory::record_rules_in_transcript(&mut m, turn_seq);
+                    }
+                    drop(m);
                     self.save_meta(session);
                 }
                 self.mark_team_messages(session, &team_messages);
@@ -1189,7 +1309,7 @@ impl Hub {
                 );
                 // The turn goes on, on the fallback. A new agent: the old one's silence and
                 // tools are not its own, and its count starts once the prompt is written to it.
-                Self::hold_stalled_count(session);
+                self.hold_stalled_count(session);
                 // The conversation the chat's own profile resumes, if the fallback cannot start.
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
@@ -1245,8 +1365,22 @@ impl Hub {
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
+                        // Rules the fallback's start did not carry (its own appended prompt or
+                        // developer instructions), judged by its own command line.
+                        let rules_owed_here = !rules_owed && control != Control::Web && {
+                            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                            !m.cmux_rules_in_transcript
+                                && crate::context_inventory::append_owed_rules(
+                                    m.cmux_context.as_deref(),
+                                    m.spawn_argv.as_deref(),
+                                    &mut blocks,
+                                )
+                        };
+                        // The rules this message carries: owed here, or kept from the first
+                        // attempt's blocks, whose write may have failed before it was confirmed.
+                        let rules_in_message = rules_owed || rules_owed_here;
                         if session.rehydrate.swap(false, Ordering::SeqCst)
-                            && let Some(transcript) = self.transcript(session, 24_000)
+                            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
                             blocks.insert(
                                 0,
@@ -1280,14 +1414,31 @@ impl Hub {
                                     super::steer_end::agent_prompt_hook(
                                         session,
                                         &child2,
-                                        json!({"sessionId": sid2, "prompt": wire}),
+                                        // Its sender and marks as on the first write.
+                                        super::prompt_sender::run_params(
+                                            &sid2,
+                                            json!(wire),
+                                            &run,
+                                            provenance.as_ref(),
+                                        ),
                                         &turn_id,
                                         false,
                                         false,
                                         fence.as_ref(),
-                                        confirm_team_write,
+                                        // Owed rules are recorded only once the writer took them.
+                                        confirm_team_write || rules_in_message,
                                         None,
                                         || {
+                                            if rules_in_message {
+                                                crate::context_inventory::record_rules_in_transcript(
+                                                    &mut session
+                                                        .meta
+                                                        .lock()
+                                                        .unwrap_or_else(|e| e.into_inner()),
+                                                    turn_seq,
+                                                );
+                                                self.save_meta(session);
+                                            }
                                             self.mark_team_messages(session, &team_messages);
                                             if team_enabled {
                                                 self.mark_team_work(session, &team_prompt_ids);
@@ -1604,11 +1755,18 @@ impl Hub {
                 result = Ok(stopped_answer());
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
+            // The facts it offered for the project's instructions (`memory_inbox.rs`), first.
+            let learned = crate::wrap_up_suggestion::take_learned(&session.id);
+            // Whether it taught something, taken however it ended: a turn's signals never carry
+            // into the next one.
+            let taught = crate::memory_inbox::take(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);
                     let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
+                    // Its last reply's claims, checked against its own runs (`claim_check.rs`).
+                    self.append_claim_checks(session, turn_id);
                     self.append(
                         session,
                         "mux",
@@ -1643,6 +1801,12 @@ impl Hub {
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
                     }
+                    if status == "completed" && taught {
+                        self.offer_learned(session, learned);
+                    }
+                    // A chat that took several corrections, kept now (`prompt_coach.rs`): settled
+                    // by this turn's own prompt only.
+                    self.coach_turn_ended(session, prompt_id, status == "completed");
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
@@ -1730,7 +1894,7 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
-        self.inbox_turn_ended(session);
+        self.inbox_turn_ended(session, turn_id, turn, true);
         match stopped_early {
             Some(e) => Err(e),
             None => result,
@@ -1819,7 +1983,7 @@ impl Hub {
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
-            self.inbox_turn_ended(session);
+            self.inbox_turn_ended(session, turn_id, turn, false);
             return;
         }
         let mut e = e.clone();
@@ -1847,7 +2011,7 @@ impl Hub {
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
-        self.inbox_turn_ended(session);
+        self.inbox_turn_ended(session, turn_id, turn, false);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -2292,6 +2456,12 @@ impl Hub {
         } else {
             None
         };
+        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
+        // stopped or marked purged: a purge that fails or times out fails the delete with the
+        // chat as it was, still recording (the writer lifts its own fence again).
+        if purge {
+            self.audit_purge(&session.id).await?;
+        }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
@@ -2346,6 +2516,8 @@ impl Hub {
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
+            // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
+            self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self
@@ -2369,6 +2541,8 @@ impl Hub {
             }
             self.git_branch_forget(&session.id);
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
+            self.caller_registry.forget(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -2411,6 +2585,7 @@ impl Hub {
                 }),
                 remote: None,
                 update_line: Default::default(),
+                row: Default::default(),
             });
             drop(sessions);
         }

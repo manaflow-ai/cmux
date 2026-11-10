@@ -342,6 +342,31 @@
             "delegate"
           ],
           "swift_owner": "CloudAgentStartSetting"
+        },
+        {
+          "key": "cloud.turnCheckpoints",
+          "name": "turnCheckpoints",
+          "title": {
+            "key": "settings.cloud.turnCheckpoints",
+            "text": "Save a Checkpoint Before Each Cloud Chat Turn"
+          },
+          "help": {
+            "key": "settings.cloud.turnCheckpoints.help",
+            "text": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "checkpoint",
+            "snapshot",
+            "undo",
+            "rewind",
+            "restore",
+            "turn",
+            "back",
+            "machine"
+          ]
         }
       ]
     },
@@ -568,6 +593,36 @@
             "quit",
             "background",
             "device hub"
+          ]
+        },
+        {
+          "key": "remote.ultraMode",
+          "name": "ultraMode",
+          "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.",
+          "title": {
+            "key": "settings.remote.ultraMode",
+            "text": "Ultra Connection Mode"
+          },
+          "help": {
+            "key": "settings.remote.ultraMode.help",
+            "text": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+          },
+          "summary": {
+            "key": "settings.remote.ultraMode.summary",
+            "text": "Uses more data to stay fast on lossy networks"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "ultra",
+            "lossy",
+            "packet loss",
+            "bandwidth",
+            "data",
+            "wireguard",
+            "cloud",
+            "latency",
+            "fec"
           ]
         }
       ]

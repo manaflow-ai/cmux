@@ -175,7 +175,9 @@ fn connection_handler_owns_every_router_connection_operation() {
         );
         connection_operations += usize::from(requires_connection);
     }
-    assert_eq!(connection_operations, 58);
+    // 58, and the 34 cloud.* ops still run with the connection's own Cloud session (#37350);
+    // #38293 moved resize, snapshots, restore and fork to the app server.
+    assert_eq!(connection_operations, 92);
 }
 
 #[test]
@@ -662,6 +664,7 @@ fn exported_stack_layout_is_accepted_as_an_apply_request() {
 #[test]
 fn swapping_across_a_stack_boundary_keeps_exported_expansion_valid() {
     let mut root = Node::Split {
+        divider_hidden: false,
         id: 10,
         dir: SplitDir::Right,
         ratio: 0.5,

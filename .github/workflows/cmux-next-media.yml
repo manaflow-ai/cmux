@@ -124,6 +124,10 @@ jobs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
       wanted: ${{ steps.decide.outputs.wanted }}
+      # The What's New clips a nightly tip records (whats-new-clips.py plan): the plan as compact JSON and
+      # the commit its tip highlights' befores are recorded on.
+      clips_plan: ${{ steps.clips.outputs.plan }}
+      clips_base: ${{ steps.clips.outputs.base }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -134,6 +138,10 @@ jobs:
             scripts/ci/github_spend.py
             scripts/ci/media_auto_tour.py
             scripts/cmux-next/media/path_map.py
+            scripts/cmux-next/media/whats-new-clips.py
+            scripts/cmux-next/media/tour.py
+            release-notes/next/highlights
+            release-notes/next/clips
           sparse-checkout-cone-mode: false
 
       - name: Decide whether this pull request gets a tour
@@ -208,6 +216,33 @@ jobs:
           print(f"{len(paths)} changed path(s)")
           PY
 
+      # Planned here, before the pick, so a tip that adds only a highlight and its clip spec (no UI
+      # path) still gets a Mac: a plan made on the Mac came after the pick had skipped the tour. The plan
+      # also takes the highlights of the last CLIP_REANNOUNCE_DAYS whose clips are not published yet (a
+      # tour past PLAN_LIMIT left them waiting, or their spec came later), so it reads that much history:
+      # commits and trees only, the highlights it reads are in the sparse checkout. Best effort: a failed
+      # plan records no clips and leaves the pick as it was.
+      - name: Plan the What's New clips
+        id: clips
+        if: ${{ steps.decide.outputs.wanted == 'true' && github.event_name != 'pull_request' }}
+        continue-on-error: true
+        env:
+          BASE: ${{ inputs.base_sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] && [[ "$BASE" != 0000000000000000000000000000000000000000 ]] \
+            || { echo "no previous tip ($BASE); no clips"; exit 0; }
+          head_time="$(git show -s --format=%ct "$HEAD")"
+          # One day past the window: the oldest highlight in it needs its commit's parent.
+          git fetch --no-tags --quiet --filter=blob:none --shallow-since="@$((head_time - 8 * 86400))" origin "$HEAD"
+          # The previous tip is in that history; a depth-1 fetch of it would cut the history at it.
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-tags --quiet --filter=blob:none --depth=1 origin "$BASE"
+          python3 scripts/cmux-next/media/whats-new-clips.py plan --base "$BASE" --head "$HEAD" \
+            --out "$RUNNER_TEMP/clips-plan.json" --tours "$RUNNER_TEMP/clip-tours" | tee /dev/stderr
+          echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
       - name: Pick an owned gui runner
         id: pick
         if: ${{ steps.decide.outputs.wanted == 'true' }}
@@ -219,9 +254,15 @@ jobs:
           # A batch dispatch (docs/ci/cmux-next-batch.md#groups) tours a branch of this repository.
           SAME_REPO: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
           FORCE_MAC: ${{ contains(github.event.pull_request.labels.*.name, 'media-tour-mac') }}
+          # A planned clip needs both apps whatever the paths say.
+          CLIPS_PLAN: ${{ steps.clips.outputs.plan }}
         run: |
           force=()
           if [ "$FORCE_MAC" = true ]; then force=(--force-mac); fi
+          if [ -n "$CLIPS_PLAN" ] && [ "$CLIPS_PLAN" != "[]" ]; then
+            echo "What's New clips planned: $CLIPS_PLAN"
+            force=(--force-mac)
+          fi
           python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO" \
             --paths-file "$RUNNER_TEMP/changed-paths.txt" "${force[@]}"
 
@@ -244,15 +285,18 @@ jobs:
     outputs:
       is_ui: ${{ steps.scope.outputs.is_ui }}
       tree_note: ${{ steps.tree.outputs.note }}
+      # What's New clips recorded on a nightly tip (the whats-new-clips job publishes them).
+      clips: ${{ steps.clips.outputs.count }}
     env:
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
       # Warm tour slots per Mac. The claim step sets TOUR_TAG to the slot's
-      # tag; base and head build as ${TOUR_TAG}-base and -head, so the two
-      # apps never share state or sockets. A tour past K takes an overflow
-      # slot (cold, pruned once idle) rather than wait.
+      # tag; base and head build as ${TOUR_TAG}-base and -head (swapped when
+      # the base is a reused -head app), so the two apps never share state or
+      # sockets. A tour past K takes an overflow slot (cold, pruned once idle)
+      # rather than wait.
       CMUX_MEDIA_TOUR_SLOTS: ${{ vars.CMUX_MEDIA_TOUR_SLOTS || '2' }}
       # A nightly tour compares the previous nightly-next tip with the new one.
       BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.before || github.sha }}
@@ -300,18 +344,32 @@ jobs:
 
       - name: Map changed UI paths to tours
         id: scope
+        env:
+          CLIPS_PLAN: ${{ needs.route.outputs.clips_plan }}
         run: |
           set -euo pipefail
           git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > "$RUNNER_TEMP/changed-paths.txt"
           python3 scripts/cmux-next/media/path_map.py --json \
             --paths-file "$RUNNER_TEMP/changed-paths.txt" > "$RUNNER_TEMP/tour-scope.json"
-          python3 - "$RUNNER_TEMP/tour-scope.json" "$GITHUB_OUTPUT" <<'PY'
+          # A nightly tip records the What's New clips the route job planned (whats-new-clips.py plan),
+          # so a tip with one needs both apps even when no tour maps to its paths. The tours come from
+          # this checkout's specs.
+          clips=0
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ -n "${CLIPS_PLAN:-}" ]; then
+            printf '%s\n' "$CLIPS_PLAN" > "$RUNNER_TEMP/clips-plan.json"
+            clips="$(python3 scripts/cmux-next/media/whats-new-clips.py write-tours --plan "$RUNNER_TEMP/clips-plan.json" \
+              --tours "$RUNNER_TEMP/clip-tours" | tee /dev/stderr | tail -n 1)" \
+              || { echo "::warning title=What's New clip::the plan made no tours; no clips this tip"; clips=0; }
+          fi
+          python3 - "$RUNNER_TEMP/tour-scope.json" "$GITHUB_OUTPUT" "$clips" <<'PY'
           import json, pathlib, sys
           data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          clips = sys.argv[3] if sys.argv[3].isdigit() else "0"
           with pathlib.Path(sys.argv[2]).open("a") as out:
-              out.write(f"is_ui={'true' if data['is_ui'] else 'false'}\n")
+              out.write(f"is_ui={'true' if data['is_ui'] or clips != '0' else 'false'}\n")
               out.write("tours=" + ",".join(data["tours"]) + "\n")
-          print(json.dumps(data, indent=2))
+              out.write(f"clips={clips}\n")
+          print(json.dumps(data, indent=2), f"What's New clips: {clips}")
           PY
 
       - name: Check screen capture
@@ -426,6 +484,11 @@ jobs:
       # the same slot number on any Mac). It is in that run's artifacts
       # (media_app_cache.py); fetching it skips the base's worktree, GhosttyKit
       # and ~6 min build. Any miss, refusal or failure builds as before.
+      # A nightly tour's base is the previous tip, which the previous tour
+      # built as its head: it shares that app under whichever slot tag it built
+      # it with. Each tour built the previous tip again before (1 base reuse in
+      # 170 tours, 2026-11-04..06). When the base comes from the -head tag, the
+      # head builds under -base instead, so the two apps still differ in tag.
       - name: Reuse the base app another tour built
         id: base_cache
         if: steps.scope.outputs.is_ui == 'true'
@@ -434,10 +497,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 "$MEDIA_TOUR_CI/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
-            --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" --recipe "$MEDIA_APP_RECIPE" \
-            --dest "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}-base/Build/Products/Debug" \
-            --github-output "$GITHUB_OUTPUT" || echo "no reusable base app; building it"
+          fetch() {
+            python3 "$MEDIA_TOUR_CI/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
+              --tag "$1" --sha "$MERGE_BASE" --recipe "$MEDIA_APP_RECIPE" \
+              --dest "$HOME/Library/Developer/Xcode/DerivedData/cmux-$1/Build/Products/Debug" \
+              --github-output "$GITHUB_OUTPUT"
+          }
+          fetch "${TOUR_TAG}-base" && exit 0
+          if fetch "${TOUR_TAG}-head"; then
+            echo "head_tag=${TOUR_TAG}-base" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "no reusable base app; building it"
 
       # The archive cache is the one glaeda CI jobs on these Macs already share
       # (ci-macos.yml): the two downloads took 2-7 min a tour without it.
@@ -514,6 +585,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         env:
           BASE_APP: ${{ steps.base_cache.outputs.app }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if [ -n "$BASE_APP" ]; then
@@ -525,9 +597,12 @@ jobs:
           [ -z "${BASE_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$BASE_TUI_TREE_KEY"
           ci="$MEDIA_TOUR_CI"
           "$ci/media_build_app.sh" "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
-          # Pack it for later tours (the next step uploads it). Best effort.
+          # Pack it for later tours (the share step uploads it). Best effort.
           # An app built on a stand-in cmux-tui tree is not this commit's app.
+          # A nightly tour shares its head instead: the next tip's tour asks
+          # for this tour's head, never for its base.
           [ -z "${BASE_TUI_TREE_KEY:-}" ] || exit 0
+          [ "${EVENT_NAME:-}" != push ] || exit 0
           app="$(sed -n 's/^base_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
           if python3 "$ci/media_app_cache.py" pack --app "$app" --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
               --recipe "$MEDIA_APP_RECIPE" --out "$RUNNER_TEMP/media-app/app.tar"; then
@@ -535,28 +610,46 @@ jobs:
               --recipe "$MEDIA_APP_RECIPE")" >> "$GITHUB_OUTPUT"
           fi
 
-      # Uploaded before the head builds, so a tour cancelled by a newer push
-      # still leaves its base for the next one.
-      - name: Share the base app with later tours
-        if: steps.build_base.outputs.artifact != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ steps.build_base.outputs.artifact }}
-          path: ${{ runner.temp }}/media-app/app.tar
-          if-no-files-found: ignore
-          compression-level: 1
-          retention-days: 1
-
+      # The head builds under the tag the base did not take (base_cache).
       - name: Build the head app
         id: build_head
         if: steps.scope.outputs.is_ui == 'true'
+        env:
+          HEAD_TAG: ${{ steps.base_cache.outputs.head_tag }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
           [ -z "${HEAD_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$HEAD_TUI_TREE_KEY"
           ci="$MEDIA_TOUR_CI"
-          "$ci/media_build_app.sh" "$GITHUB_WORKSPACE" "${TOUR_TAG}-head" "$RUNNER_TEMP/reload-head.out" head_app
+          tag="${HEAD_TAG:-${TOUR_TAG}-head}"
+          "$ci/media_build_app.sh" "$GITHUB_WORKSPACE" "$tag" "$RUNNER_TEMP/reload-head.out" head_app
+          # A nightly tip's head is the next tip's base: pack it for that tour.
+          [ "${EVENT_NAME:-}" = push ] || exit 0
+          [ -z "${HEAD_TUI_TREE_KEY:-}" ] || exit 0
+          app="$(sed -n 's/^head_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          if python3 "$ci/media_app_cache.py" pack --app "$app" --tag "$tag" --sha "$HEAD_SHA" \
+              --recipe "$MEDIA_APP_RECIPE" --out "$RUNNER_TEMP/media-app/app.tar"; then
+            echo "artifact=$(python3 "$ci/media_app_cache.py" name --tag "$tag" --sha "$HEAD_SHA" \
+              --recipe "$MEDIA_APP_RECIPE")" >> "$GITHUB_OUTPUT"
+          fi
+
+      # One app per tour is shared: a pull request or dispatch tour's base, or
+      # a nightly tour's head (the build steps pack at most one). Uploaded as
+      # soon as the head is built: nightly tips come about every 16 min and a
+      # tour takes about 37, so the next tip's tour has usually started by now.
+      # always(): a pull request tour cancelled by a newer push while its head
+      # builds still shares the base it already packed.
+      - name: Share a built app with later tours
+        if: ${{ always() && (steps.build_head.outputs.artifact != '' || steps.build_base.outputs.artifact != '') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.build_head.outputs.artifact || steps.build_base.outputs.artifact }}
+          path: ${{ runner.temp }}/media-app/app.tar
+          if-no-files-found: ignore
+          compression-level: 1
+          retention-days: 1
 
       - name: Capture before and after interactions
         id: capture
@@ -576,6 +669,61 @@ jobs:
             --head-app "${{ steps.build_head.outputs.head_app }}" \
             --out "$media_dir" \
             --receipt "$media_dir/capture-receipt.json"
+
+      # The new tip's app records each planned clip; for an improvement the app of the commit before its
+      # highlight records its before: the previous tip's for the ones the tip adds, and for an earlier
+      # one (the plan's `before`) an app built at that commit in the base slot, after the base app's
+      # tours are done (at most PLAN_EXTRA_BEFORES such builds). tour.py writes <out>/<role>/<id>/
+      # (manifest.json, capture.mov), which the whats-new-clips job renders and publishes. Best effort:
+      # a clip that fails is left out.
+      - name: Record What's New clips
+        id: clips
+        if: steps.scope.outputs.is_ui == 'true' && steps.scope.outputs.clips != '0' && steps.scope.outputs.clips != ''
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          BASE_APP: ${{ steps.build_base.outputs.base_app }}
+          HEAD_APP: ${{ steps.build_head.outputs.head_app }}
+          CLIPS_BASE: ${{ needs.route.outputs.clips_base }}
+          GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
+        # GitHub runs this as bash -e: a tour.py that exits 1 (one tour failed) would end the step before
+        # the other role and the count, and the publish job would drop the clips that did record. Every
+        # failure here is handled where it happens; publish-auto leaves out a clip whose tour failed.
+        run: |
+          set +e
+          set -uo pipefail
+          out="${RUNNER_TEMP:?}/media/whats-new-clips"
+          clips=scripts/cmux-next/media/whats-new-clips.py
+          mkdir -p "$out"
+          cp "$RUNNER_TEMP/clips-plan.json" "$out/plan.json"
+          # First, so the publish job runs on what was recorded even when an extra before app times out.
+          echo "count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$out/plan.json")" >> "$GITHUB_OUTPUT"
+          record() {  # ROLE APP [--before SHA]
+            local role="$1" app="$2"; shift 2
+            # Highlight ids are lowercase words and dashes: one path per word.
+            # shellcheck disable=SC2046 # split on purpose, one tour path per word
+            set -- $(python3 "$clips" tours --plan "$out/plan.json" --role "$role" --dir "$RUNNER_TEMP/clip-tours" "$@")
+            [ "$#" -gt 0 ] || return 0
+            python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
+              || echo "::warning title=What's New clip::a $role tour failed (exit $?); its clip is left out"
+          }
+          record after "$HEAD_APP"
+          record before "$BASE_APP" --before "${CLIPS_BASE:-$MERGE_BASE}"
+          for sha in $(python3 "$clips" tours --plan "$out/plan.json" --role before --dir . \
+              --before "${CLIPS_BASE:-$MERGE_BASE}" --other-befores); do
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
+            tree="$RUNNER_TEMP/cmux-next-clip-before"
+            git fetch --no-tags --quiet --depth=1 origin "$sha" \
+              && git worktree add -f -f --detach "$tree" "$sha" \
+              && git -C "$tree" submodule update --init --recursive \
+              && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh) \
+              && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
+                "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
+              || { echo "::warning title=What's New clip::no app at $sha; its befores wait"; continue; }
+            app="$(sed -n 's/^clip_before_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+            record before "$app" --before "$sha"
+            git worktree remove -f -f "$tree" || true
+          done
 
       - name: Record no-UI scope
         if: steps.scope.outputs.is_ui != 'true'
@@ -622,7 +770,65 @@ jobs:
         if: ${{ always() }}
         run: |
           git worktree remove -f -f "$RUNNER_TEMP/cmux-next-base" 2>/dev/null || true
+          git worktree remove -f -f "$RUNNER_TEMP/cmux-next-clip-before" 2>/dev/null || true
           git worktree prune || true
+
+  # The clips a nightly tip's tour recorded (whats-new-clips.py plan): rendered to animated WebP here on
+  # Linux and published to whats-new/ID/clip-auto-ROLE.webp through the privacy-checked action, where
+  # release-notes.py finds them (the highlight rides along with the next nightly). Never on a pull
+  # request: only a nightly-next push or a feat-cmux-next dispatch reaches the pr-media environment.
+  whats-new-clips:
+    name: Publish the What's New clips
+    needs: tour
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.tour.outputs.clips != '' && needs.tour.outputs.clips != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    environment: pr-media
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/cmux-next/media/whats-new-clips.py
+            scripts/cmux-next/media/tour.py
+            release-notes/next/clips
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-media
+          path: ${{ runner.temp }}/media
+
+      - name: Install the clip encoder
+        timeout-minutes: 4
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          if ! command -v img2webp >/dev/null || ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends webp ffmpeg >/dev/null
+          fi
+
+      - name: Publish the clips
+        uses: ./.github/actions/pr-media-publish
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            clips="$RUNNER_TEMP/media/whats-new-clips"
+            python3 scripts/cmux-next/media/whats-new-clips.py publish-auto \
+              --plan "$clips/plan.json" --results "$clips" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # A pull request run never holds the private-terms list or the pr-media write
   # token: its tour reaches the branch through a run of this workflow on

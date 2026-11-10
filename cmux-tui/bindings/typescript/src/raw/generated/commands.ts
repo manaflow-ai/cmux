@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1768118a3f6c36eca9967eb1114909809bec1c337cc65d95be19e530da94a705. */
+/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
 
 
 import type * as T from "./types.js";
@@ -1939,6 +1939,7 @@ export type ParkTabsResult = T.JsonValue;
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
+  "filename"?: (string) | null;
   "lease": string;
   "mime"?: (string) | null;
   "offset"?: (bigint) | null;
@@ -2415,6 +2416,15 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetDividerVisibleRequest extends CmuxRequestBase {
+  cmd: "set-divider-visible";
+  "split": T.Id;
+  "transaction"?: (bigint) | null;
+  "visible": boolean;
+}
+export type SetDividerVisibleResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
 export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
   cmd: "set-frontend-browser-history";
   "history": (T.JsonValue) | null;
@@ -2571,6 +2581,14 @@ export interface SetTerminalKeepRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface SetTerminalTailPinRequest extends CmuxRequestBase {
+  cmd: "set-terminal-tail-pin";
+  "pinned": boolean;
+  "surface"?: (T.Id) | null;
+  "terminal"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
@@ -2604,6 +2622,32 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
 }
 export type SetWorkspaceMetadataResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface ShellReadRequest extends CmuxRequestBase {
+  cmd: "shell-read";
+  "after"?: bigint;
+  "run": string;
+  "wait_ms"?: (bigint) | null;
+}
+export type ShellReadResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface ShellRunRequest extends CmuxRequestBase {
+  cmd: "shell-run";
+  "command": string;
+  "cwd"?: (string) | null;
+  "run"?: (string) | null;
+  "scope"?: (string) | null;
+}
+export type ShellRunResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface ShellStopRequest extends CmuxRequestBase {
+  cmd: "shell-stop";
+  "run": string;
+}
+export type ShellStopResult = T.JsonValue;
+
 /** Protocol v9; authority: local-admin. */
 export interface ShutdownDaemonRequest extends CmuxRequestBase {
   cmd: "shutdown-daemon";
@@ -2635,6 +2679,9 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
+  /** The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down. */
+  "around"?: (T.Id) | null;
+  "before"?: boolean;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
   "dir": T.SplitDirection;
@@ -3203,6 +3250,7 @@ export type CmuxRequest =
   | SetClientSizingRequest
   | SetColumnDockRequest
   | SetDefaultColorsRequest
+  | SetDividerVisibleRequest
   | SetFrontendBrowserHistoryRequest
   | SetHostSizePolicyRequest
   | SetLayoutSizesRequest
@@ -3221,9 +3269,13 @@ export type CmuxRequest =
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
   | SetTerminalKeepRequest
+  | SetTerminalTailPinRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | SetWorkspaceMetadataRequest
+  | ShellReadRequest
+  | ShellRunRequest
+  | ShellStopRequest
   | ShutdownDaemonRequest
   | SidebarPluginRequest
   | SnapshotRequestRequest
@@ -5139,6 +5191,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "set-divider-visible": {
+    request: SetDividerVisibleRequest;
+    result: SetDividerVisibleResult;
+    authority: "control";
+    since: 12;
+    capability: "split-divider-visibility-v1";
+    stream: null;
+  };
   "set-frontend-browser-history": {
     request: SetFrontendBrowserHistoryRequest;
     result: SetFrontendBrowserHistoryResult;
@@ -5283,6 +5343,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "terminal-reap-v1";
     stream: null;
   };
+  "set-terminal-tail-pin": {
+    request: SetTerminalTailPinRequest;
+    result: T.SetTerminalTailPinResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-tail-pin-v1";
+    stream: null;
+  };
   "set-viewport-pane-width": {
     request: SetViewportPaneWidthRequest;
     result: SetViewportPaneWidthResult;
@@ -5305,6 +5373,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "workspace-metadata-v1";
+    stream: null;
+  };
+  "shell-read": {
+    request: ShellReadRequest;
+    result: ShellReadResult;
+    authority: "control";
+    since: 12;
+    capability: "shell-runs-v1";
+    stream: null;
+  };
+  "shell-run": {
+    request: ShellRunRequest;
+    result: ShellRunResult;
+    authority: "control";
+    since: 12;
+    capability: "shell-runs-v1";
+    stream: null;
+  };
+  "shell-stop": {
+    request: ShellStopRequest;
+    result: ShellStopResult;
+    authority: "control";
+    since: 12;
+    capability: "shell-runs-v1";
     stream: null;
   };
   "shutdown-daemon": {

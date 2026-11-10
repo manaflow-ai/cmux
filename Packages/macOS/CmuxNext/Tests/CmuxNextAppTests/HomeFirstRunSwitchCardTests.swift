@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 @testable import CmuxNextHomeModel
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextHomeEngine
@@ -13,7 +14,7 @@ import CmuxNextHomeEngine
 @MainActor @Suite struct HomeFirstRunSwitchCardTests {
     private func defaults() -> UserDefaults {
         let name = "HomeFirstRunSwitchCardTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }
@@ -42,39 +43,5 @@ import CmuxNextHomeEngine
         // Moved off Ctrl-1…9: Switch to Desktop no longer takes them.
         registry.setShortcutOverride(Shortcut("1", modifiers: [.control, .option]), for: "selectSurfaceByNumber")
         #expect(source.keys(registry: registry)?.desktopConflict == false)
-    }
-
-    @Test func cardShowsLinesNoteOnlyOnConflictAndButtonsCallBack() {
-        let card = HomeFirstRunSwitchCard(frame: NSRect(x: 0, y: 0, width: 340, height: 200))
-        var keys = HomeSwitchKeys(tabByNumber: "⌃1…9", workspaceByNumber: "⌘1…9", nextPreviousTab: "⇧⌘[ ⇧⌘]",
-                                  nextPreviousWorkspace: nil, focusBackForward: "⌥⌘, ⌥⌘.")
-        card.apply(keys)
-        #expect(!card.isHidden)
-        #expect(card.lineViews.map(\.keys.stringValue) == ["⌃1…9", "⌘1…9", "⇧⌘[ ⇧⌘]", "⌥⌘, ⌥⌘."], "an unbound key has no line")
-        #expect(card.note.isHidden && card.openSettings.isHidden)
-        let plain = card.height(for: 340)
-        keys.desktopConflict = true
-        card.apply(keys)
-        #expect(!card.note.isHidden && !card.openSettings.isHidden)
-        #expect(card.height(for: 340) > plain)
-        var hid = false, opened = false
-        card.onHide = { hid = true }
-        card.onOpenSettings = { opened = true }
-        card.openSettings.performClick(nil)
-        card.hide.performClick(nil)
-        #expect(hid && opened)
-        card.apply(nil)
-        #expect(card.isHidden)
-    }
-
-    @Test func firstRunPanelHidesTheCardAfterHide() {
-        let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
-        panel.setShortcuts(terminal: "⌘T", agent: nil, switching: HomeSwitchKeys(
-            tabByNumber: "⌃1…9", workspaceByNumber: nil, nextPreviousTab: nil, nextPreviousWorkspace: nil, focusBackForward: nil))
-        panel.layoutSubtreeIfNeeded()
-        #expect(!panel.switchCard.isHidden)
-        #expect(panel.switchCard.frame.height > 0)
-        panel.setShortcuts(terminal: "⌘T", agent: nil, switching: nil)
-        #expect(panel.switchCard.isHidden)
     }
 }

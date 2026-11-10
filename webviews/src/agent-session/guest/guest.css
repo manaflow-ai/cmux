@@ -10,7 +10,7 @@
 .guest-join{display:flex;gap:8px;margin-top:4px}
 .guest-join__name{flex:1;min-width:0;height:32px;box-sizing:border-box;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
 /* Focus shows as the caret and a stronger edge, never a ring on the field (desktop.css). */
-.guest-join__name:focus{outline:none;border-color:var(--agent-border-strong)}
+.guest-join__name:focus-visible{outline:none;border-color:var(--agent-border-strong)}
 .guest-join__button{flex:none;height:32px;padding:0 16px;border:0;border-radius:8px;background:var(--agent-accent);color:var(--agent-on-accent, var(--agent-page-bg));font:inherit;font-weight:500}
 .guest-join__button:disabled{opacity:0.45}
 .guest-join__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
@@ -64,7 +64,7 @@
    14 on 22.75 before its sheet, and whatever the root's --cv-font-size is after. */
 .guest-mine{--cv-text:var(--agent-text);--cv-fg:var(--agent-text);--cv-font:var(--font-ui);--cv-font-size:var(--text-content);--cv-line-height:var(--text-content--line-height)}
 .guest-mine .cv-user{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
-.guest-mine .cv-user__bubble{--cv-bubble-pad-block:max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);--cv-bubble-pad-inline:calc(4 * var(--grid-base));position:relative;box-sizing:border-box;max-width:70%;padding:var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);border-radius:var(--grid-cards-radius);font-family:var(--cv-font);font-size:var(--cv-font-size);line-height:var(--cv-line-height);letter-spacing:var(--cv-tracking, 0.045px);color:var(--cv-text);white-space:pre-wrap;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
+.guest-mine .cv-user__bubble{--cv-bubble-pad-block:max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);--cv-bubble-pad-inline:calc(4 * var(--grid-base));position:relative;box-sizing:border-box;max-width:70%;padding:var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);border-radius:var(--grid-cards-radius);font-family:var(--cv-font);font-size:var(--cv-font-size);line-height:var(--cv-line-height);letter-spacing:var(--cv-tracking, 0px);color:var(--cv-text);white-space:pre-wrap;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
 .guest-mine .cv-user__bubble{
   --glass-tint:color-mix(in srgb, var(--cv-fg) 10%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
@@ -77,5 +77,5 @@
 .guest-mine__decided{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .guest-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .guest-composer__field{flex:1;min-width:0;min-height:32px;max-height:160px;box-sizing:border-box;padding:4px 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;resize:none;field-sizing:content}
-.guest-composer__field:focus{outline:none;border-color:var(--agent-border-strong)}
+.guest-composer__field:focus-visible{outline:none;border-color:var(--agent-border-strong)}
 .guest-composer__note{flex-basis:100%}

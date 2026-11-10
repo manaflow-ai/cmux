@@ -72,6 +72,20 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "tray", "hat", "tuck", "handle", "grabber", "pull", "tab", "side", "left", "middle", "center", "right", "composer"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.unreadBannerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.unreadBanner", "Unread Banner"),
+                help: SettingsText.keyed("settings.agentPane.display.unreadBanner.help", "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."),
+                kind: .choice([
+                    SettingChoice("expanded", SettingsText.keyed("settings.choice.expanded", "Expanded")),
+                    SettingChoice("collapsed", SettingsText.keyed("settings.choice.collapsed", "Collapsed")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.unreadBannerDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "unread", "new", "banner", "since", "jump", "mark", "read", "collapse", "expand", "hide"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.senderIconLeadPath,
                 section: .appearance,
                 group: group,
@@ -134,7 +148,9 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 title: SettingsText.keyed("settings.agentPane.display.uiFont", "Chat Interface Font"),
                 help: SettingsText.keyed("settings.agentPane.display.uiFont.help", "The font of the whole chat: replies, the composer, cards and menus."),
                 kind: .choice([
-                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "cmux Inter (default)")),
+                    SettingChoice("system-ui", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System (default)")),
+                    SettingChoice("system-ui-tight", SettingsText.keyed("settings.choice.agentChatUiFontSystemUiTight", "System, tight")),
+                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "cmux Inter")),
                     SettingChoice("inter", SettingsText.keyed("settings.choice.agentChatUiFontInter", "Inter")),
                     SettingChoice("verdana", SettingsText.keyed("settings.choice.agentChatUiFontVerdana", "Verdana")),
                     SettingChoice("roboto", SettingsText.keyed("settings.choice.agentChatUiFontRoboto", "Roboto")),
@@ -144,11 +160,9 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("cmux-sans", SettingsText.keyed("settings.choice.agentChatUiFontCmuxSans", "cmux Sans")),
                     SettingChoice("hanken", SettingsText.keyed("settings.choice.agentChatUiFontHanken", "Hanken Grotesk")),
                     SettingChoice("atkinson", SettingsText.keyed("settings.choice.agentChatUiFontAtkinson", "Atkinson Hyperlegible Next")),
-                    SettingChoice("system-ui", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System")),
-                    SettingChoice("system-ui-tight", SettingsText.keyed("settings.choice.agentChatUiFontSystemUiTight", "System, tight")),
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.uiFontDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson"]
+                keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson", "system"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.fontSizePath,
@@ -254,6 +268,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.presentationDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.promptCoachPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
+                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat that took several corrections, shows how its first prompt could have said it all at once."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
+                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.statusVerbsModePath,

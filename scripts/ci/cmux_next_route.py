@@ -137,6 +137,7 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh",
     "tests/test_check_app_personalities.sh",
     ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/runner-cargo-home/",
     # check-app-ffi-pin.sh's sources (the pinned CCmuxAppFFI release) and the
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
@@ -149,6 +150,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cookie-sync/",
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -257,8 +259,8 @@ BUNDLE_INPUTS = (
     "schemas/type-scale/type-scale.json",
     # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
     "schemas/design-scale/design-scale.json",
-    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
+    # The theme slots the slot registry imports (src/slots/registry.ts).
+    "schemas/theme/slots.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -590,9 +592,12 @@ def _scheme_phase_rust_inputs(root: Path) -> list[str]:
 
 def matches(path: str, pattern: str) -> bool:
     """A trailing / is a directory; a `*` is a test target's pattern read (ci-target-graph.py
-    glob_read: fnmatch, whose `*` also crosses /, so it matches at least what the test reads)."""
+    glob_read: fnmatch, whose `*` also crosses /, so it matches at least what the test reads). A `/**/`
+    is zero or more folders, as in the generator's pathlib glob: `Sources/**/*.swift` reads
+    `Sources/A.swift` too, which fnmatch alone would miss."""
     if "*" in pattern:
-        return fnmatch.fnmatchcase(path, pattern + "*" if pattern.endswith("/") else pattern)
+        pattern = pattern + "*" if pattern.endswith("/") else pattern
+        return fnmatch.fnmatchcase(path, pattern) or ("/**/" in pattern and fnmatch.fnmatchcase(path, pattern.replace("/**/", "/")))
     return under(path, pattern) if pattern.endswith("/") else path == pattern
 
 

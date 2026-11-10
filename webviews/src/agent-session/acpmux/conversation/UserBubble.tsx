@@ -13,7 +13,9 @@
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
 // block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
-// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+// it sent is its poster and length among them, playing on a click (SentVideoTile.tsx), frames or not.
+// A Cloud chat's prompt whose turn has a machine checkpoint taken before it ran adds Back to before
+// this turn after Fork (MessageActions.tsx RewindButton): one click puts the machine back there.
 import {
   Fragment,
   memo,
@@ -34,24 +36,34 @@ import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
-import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
-import { isStripMedia, readsAsText } from "./inlinePromptContentModel";
+import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts, resendsAttachments } from "../inlinePrompt";
+import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
+import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageTime,
+  PinButton,
+  PromptRetry,
+  RewindButton,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
+import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
@@ -74,8 +86,10 @@ export function UserBubble({
   const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
+  // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
   const text = useMemo(
     () =>
+      tourBubbleText(givenText) ??
       withoutSkillDollars(
         withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
         skills,
@@ -114,12 +128,9 @@ export function UserBubble({
   const files = (
     recorded?.length
       ? recorded
-      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
-        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+      : // A video, with its frames or without, is its tile (sentVideos.ts), left out below.
         row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
-            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-            : [],
+          file.kind === "link" ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }] : [],
         )
   )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
@@ -144,17 +155,14 @@ export function UserBubble({
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
   // to read beside its attachments, keep the legacy bands above the bubble.
-  const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
   const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
-  const hasInterleaved =
-    firstMedia >= 0 &&
-    (placed
-      ? orderedParts!.some((part) => !isStripMedia(part))
-      : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
+  // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
+  const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
   // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
-  const inlineAttachmentOnly = Boolean(orderedParts?.length && orderedParts.every((part) => !readsAsText(part)));
+  // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
+  const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
   const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
@@ -171,6 +179,7 @@ export function UserBubble({
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
+  // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const renderFile = useCallback(
@@ -359,6 +368,7 @@ export function UserBubble({
               )}
               {retry}
               {forkButton}
+              <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
@@ -382,14 +392,6 @@ function shownSkills(row: AcpmuxRow, skills: SkillCatalog): AcpmuxRow {
       ),
     }),
   };
-}
-
-/// The paths of the originals a prompt's images kept (an image the composer converted sends its
-/// original file after it).
-function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
-  return new Set(
-    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
-  );
 }
 
 function UserFooter({
@@ -430,7 +432,7 @@ export const SentImages = memo(function SentImages({
 });
 
 /// A prompt's videos, each at a sent image's height in its own shape.
-function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   return videos.map((video) => (
     <SentVideoTile
       key={`${video.name}\n${video.path}`}
@@ -455,9 +457,6 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const [failed, setFailed] = useState<string>();
   // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
   const from = useSourceLabel(image.source);
-  // The pane's own send: the thumbnail's first frame is over the composer's chip, then it moves to
-  // the slot it holds from that frame (sendMorph.ts).
-  const morph = useMemo(() => sendMorphRef(image.id), [image.id]);
   if (shown.status === "missing") return null;
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
@@ -474,12 +473,15 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // Keep the thumbnail's row slot while the host reads the attachment. Without this, the
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
+  // The box a send from the latest row lands its chip's copy on (sendMorph.ts): the badge's box when
+  // it names its source, else the thumbnail.
+  const key = image.source ? undefined : image.id;
   if (shown.src === undefined)
     return (
       <span
-        ref={morph}
         className="cv-user__image-placeholder"
         aria-hidden="true"
+        data-send-key={key}
         style={{ ...shape, flexBasis: width }}
       />
     );
@@ -488,8 +490,8 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
   const thumbnail = (
     <img
-      ref={morph}
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
+      data-send-key={key}
       src={src}
       alt={label}
       // Decoded ahead (imageEntries.ts): it paints with the frame that mounts it, no blank frame.
@@ -521,7 +523,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   );
   if (!image.source) return opened;
   return (
-    <span className="cv-user__sourced">
+    <span className="cv-user__sourced" data-send-key={image.id}>
       {opened}
       <SourceBadge source={image.source} />
     </span>

@@ -90,7 +90,7 @@ use super::{STDIO_SHUTDOWN_TIMEOUT, ServeArgs, client, reply, route_log};
 pub(super) const MAX_CONNECTIONS: usize = 64;
 /// How long open sessions get to close once the listener stops.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-const USAGE: &str = "usage: cmux carrier serve --machine vm_… --socket /absolute/path [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]";
+const USAGE: &str = "usage: cmux carrier serve --machine vm_… --socket /absolute/path [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--wg-hub PATH]";
 
 /// What every connection shares.
 struct Shared {
@@ -107,6 +107,8 @@ struct Shared {
     prefetched: Arc<Prefetched>,
     /// The connect log: route and phases lines.
     log: Arc<dyn Fn(String) + Send + Sync>,
+    /// The ssh backup carrier's pieces, for every dial.
+    ssh: Arc<super::ssh::SshSetup>,
 }
 
 /// `cmux carrier serve …`: the exit code.
@@ -127,7 +129,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         let source = source.clone();
         Arc::new(move || source.identity())
     };
+    let ssh = Arc::new(super::ssh::SshSetup::from_env(dial.wg_hub.clone()));
     let shared = Arc::new(Shared {
+        ssh,
         session: Slot::new(idle_time(), who.clone()),
         machine: dial.machine,
         deadline: dial.deadline,
@@ -293,19 +297,24 @@ async fn connection(
         prefetched: shared.prefetched.clone(),
         log: shared.log.clone(),
         phases: shared.log.clone(),
+        fresh_sessions: Default::default(),
+        progress: None,
+        ssh: shared.ssh.clone(),
+        ssh_refusal: super::ssh::SshRefusal::default(),
     };
     let plan = &plan;
-    let opened = tokio::select! {
-        opened = shared.session.stream(deadline, move || client::dial(plan, super::jitter)) => opened,
+    let outcome = tokio::select! {
+        outcome = shared.session.stream(deadline, move || client::dial(plan)) => outcome,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
-    let held::Stream { mux, vmk, lease, dialed } = match opened {
-        Ok(opened) => opened,
-        Err(held::Refused { failure, dialed }) => {
+    let held::Stream { mux, vmk, lease, dialed, opened } = match outcome {
+        Ok(stream) => stream,
+        Err(held::Refused { failure, dialed, opened }) => {
             if !dialed {
-                // No dial attempt logged this one: the held session's.
+                // No dial attempt logged this one: the held session's. Its
+                // mux time is the stream open alone; `ms` runs from accept.
                 let elapsed = accepted.elapsed();
-                let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
+                let times = PhaseTimes { mux: opened, ..PhaseTimes::default() };
                 (shared.log)(contract::phases_line(
                     &shared.machine,
                     PhasesOf::Stream,
@@ -322,7 +331,7 @@ async fn connection(
         // The dial's own attempts wrote theirs; a stream on the held
         // session writes one line of its own.
         let elapsed = accepted.elapsed();
-        let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
+        let times = PhaseTimes { mux: opened, ..PhaseTimes::default() };
         (shared.log)(contract::phases_line(
             &shared.machine,
             PhasesOf::Stream,

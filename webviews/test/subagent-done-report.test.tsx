@@ -147,11 +147,19 @@ test("a click on a line with a report toggles it; only the name opens the view",
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
-test("a line with no report stays one button that opens the view", () => {
+// Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole
+// line click sending me to the subagent righ split".
+test("a line with no report opens the view from its name chip alone", () => {
   const opened: string[] = [];
   const host = render([agent("a")], opened);
-  expect(host.querySelector("button.cv-agent-tag")).toBeNull();
-  click(host.querySelector("button.cv-subagent-done")!);
+  expect(host.querySelector("button.cv-subagent-done")).toBeNull();
+  for (const part of [".cv-tool__icon", ".cv-subagent-done__time", ".cv-subagent-done__chevron"]) {
+    click(host.querySelector(`.cv-subagent-done-row ${part}`)!);
+    expect(opened).toEqual([]);
+  }
+  const name = host.querySelector<HTMLButtonElement>(".cv-subagent-done button.cv-agent-tag.is-open");
+  expect(name?.textContent).toBe("Task a");
+  click(name!);
   expect(opened).toEqual(["a"]);
 });
 

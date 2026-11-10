@@ -218,6 +218,60 @@
           ]
         },
         {
+          "key": "agentPane.display.unreadBanner",
+          "note": "How the floating unread banner shows at the transcript's top start while the \"New\" line is off screen (webviews conversation/SinceDivider.tsx UnreadBanner, design/transcript-overlays.md; Leo, 2026-11-10: \"you can have the collapsed view. You can have the expanded view. You can have, like, right click to just hide it completely. You can right click to bring it back\"). The banner's chevron and the right-click menus of the banner and the line write it.",
+          "title": {
+            "key": "settings.agentPane.display.unreadBanner",
+            "text": "Unread Banner"
+          },
+          "help": {
+            "key": "settings.agentPane.display.unreadBanner.help",
+            "text": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "expanded",
+              "title": {
+                "key": "settings.choice.expanded",
+                "text": "Expanded"
+              }
+            },
+            {
+              "value": "collapsed",
+              "title": {
+                "key": "settings.choice.collapsed",
+                "text": "Collapsed"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "expanded",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "unread",
+            "new",
+            "banner",
+            "since",
+            "jump",
+            "mark",
+            "read",
+            "collapse",
+            "expand",
+            "hide"
+          ]
+        },
+        {
           "key": "agentPane.display.senderIcon.lead",
           "name": "senderIconLead",
           "note": "A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's mark with a small badge in the session's own color (Leo, 2026-11-05: \"you either have the model family be the big one or the small one, and then you have the, like, colored either robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like\"). Which of the two is big.",
@@ -436,7 +490,7 @@
         {
           "key": "agentPane.display.font.ui",
           "name": "uiFont",
-          "note": "The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: \"I haven't tried switching fonts in my own app yet. So we could just try some stuff like that\"). The default is today's: Inter with its calculated tracking.",
+          "note": "The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: \"I haven't tried switching fonts in my own app yet. So we could just try some stuff like that\"). The default is the macOS system font (Lawrence, 2026-11-07: \"default fonts on cmux for everything should be macos default, not inter\"); Inter, with its calculated tracking or stock, is a choice.",
           "title": {
             "key": "settings.agentPane.display.uiFont",
             "text": "Chat Interface Font"
@@ -448,10 +502,24 @@
           "kind": "choice",
           "choices": [
             {
+              "value": "system-ui",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUi",
+                "text": "System (default)"
+              }
+            },
+            {
+              "value": "system-ui-tight",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUiTight",
+                "text": "System, tight"
+              }
+            },
+            {
               "value": "inter-tuned",
               "title": {
                 "key": "settings.choice.agentChatUiFontInterTuned",
-                "text": "cmux Inter (default)"
+                "text": "cmux Inter"
               }
             },
             {
@@ -516,23 +584,9 @@
                 "key": "settings.choice.agentChatUiFontAtkinson",
                 "text": "Atkinson Hyperlegible Next"
               }
-            },
-            {
-              "value": "system-ui",
-              "title": {
-                "key": "settings.choice.agentChatUiFontSystemUi",
-                "text": "System"
-              }
-            },
-            {
-              "value": "system-ui-tight",
-              "title": {
-                "key": "settings.choice.agentChatUiFontSystemUiTight",
-                "text": "System, tight"
-              }
             }
           ],
-          "default": "inter-tuned",
+          "default": "system-ui",
           "keywords": [
             "agent",
             "chat",
@@ -551,7 +605,8 @@
             "source sans",
             "cmux sans",
             "hanken",
-            "atkinson"
+            "atkinson",
+            "system"
           ]
         },
         {
@@ -916,6 +971,33 @@
             "bubbles",
             "chat",
             "tools"
+          ]
+        },
+        {
+          "key": "agentPane.display.promptCoach",
+          "note": "Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.",
+          "title": {
+            "key": "settings.agentPane.display.promptCoach",
+            "text": "Prompt Coach"
+          },
+          "help": {
+            "key": "settings.agentPane.display.promptCoach.help",
+            "text": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "prompt",
+            "coach",
+            "rewrite",
+            "corrections",
+            "tips",
+            "one shot",
+            "first prompt",
+            "copy"
           ]
         },
         {

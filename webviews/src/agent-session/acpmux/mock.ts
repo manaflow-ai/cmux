@@ -8,6 +8,7 @@ import {
   codexModels,
   mockResolvable,
   mockSessions,
+  listedSession,
   newSessionSummary,
   sessionHistory,
   sessionSummary,
@@ -31,10 +32,17 @@ export type MockSessionAuth = {
   fromSessionId: string | null;
   login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
 };
+/// Mux records acpmux's "transcript" kind leaves out (paging.rs `TRANSCRIPT_MUX_KINDS`) that the
+/// pane asks for by name.
+const MOCK_NOT_TRANSCRIPT = new Set(["preset_approval_request", "preset_approval_decision"]);
 type MockAuthGlobals = {
   cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
   cmuxAcpmuxMockNative?: Record<string, unknown>;
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
+  /** `_acpmux/memory_resolve` fails with this message, as acpmux does when it cannot write the file. */
+  cmuxAcpmuxMockMemoryError?: string;
+  /** `_acpmux/presets` with `approveMode` fails with this message, as acpmux does when the host or the person check refuses it. */
+  cmuxAcpmuxMockPresetError?: string;
   /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
@@ -43,6 +51,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
+  cmuxAcpmuxMockListSize?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -60,6 +70,42 @@ const harnesses = [
 /// The seeded project's own harness profiles (`<folder>/.cmux/harnesses/<id>.toml`), one in each
 /// state a folder profile can be in. Acme waits for the user's Enable.
 const MOCK_PROFILE_FOLDER = "~/code/cmux";
+/// The runs a mock plan build starts: a Claude one, and a Codex one beside it for a compare.
+function mockPlanBuilds(count: number) {
+  const runs = [
+    {
+      harness: "claude",
+      added: 142,
+      removed: 31,
+      files: [
+        { path: "src/sync/queue.ts", added: 96, removed: 18 },
+        { path: "src/sync/queue.test.ts", added: 46, removed: 13 },
+      ],
+    },
+    {
+      harness: "codex",
+      added: 88,
+      removed: 40,
+      files: [
+        { path: "src/sync/queue.ts", added: 61, removed: 33 },
+        { path: "src/sync/retry.ts", added: 27, removed: 7 },
+      ],
+    },
+  ];
+  return runs.slice(0, count).map((run, index) => ({
+    sessionId: `mock-plan-build-${index + 1}`,
+    name: `build-plan-${run.harness}`,
+    harness: run.harness,
+    status: "idle",
+    archived: false,
+    branch: `cmux/build-plan-${run.harness}`,
+    base: "main",
+    root: `~/.cmux/worktrees/cmux/build-plan-${run.harness}`,
+    added: run.added,
+    removed: run.removed,
+    files: run.files,
+  }));
+}
 const mockFolderProfiles = [
   { id: "acme", displayName: "Acme Agent", state: "needs-enable" },
   { id: "lint-bot", displayName: "Lint Bot", state: "needs-trust" },
@@ -196,6 +242,17 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 /// tool call (a log or an edit) after every `toolEvery` deltas.
 export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
 
+/// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
+/// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
+function subagentOwns(event: EventRecord, id: string): boolean {
+  if (event.dir !== "in" || event.msg?.method !== "session/update") return false;
+  const mux = event.msg.params?._meta?.acpmux;
+  return (
+    mux?.subagent === id ||
+    (Array.isArray(mux?.subagents) && mux.subagents.some((change: { id?: unknown }) => change?.id === id))
+  );
+}
+
 /// An in-page acpmux daemon behind the WebSocket interface the client uses.
 export class MockAcpmuxSocket {
   /// The mock daemon the page connected to last, for `debug.agent_pane load_seed` (loadDebug.ts).
@@ -290,6 +347,19 @@ export class MockAcpmuxSocket {
       for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
+    const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+  }
+
+  /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
+  /// the daemon tells it: one `session_changed` with that session's summary. The row keeps its place.
+  /// `fields` may read the session's current summary (an unread toggle flips what it is).
+  changeSession(
+    target: string,
+    fields: Record<string, unknown> | ((current: Record<string, any>) => Record<string, unknown>),
+  ): void {
+    const current = this.sessions.find((entry) => entry.sessionId === target);
+    if (current) this.touch(target, typeof fields === "function" ? fields(current) : fields, false);
   }
 
   /// Claude lists its slash commands when a session starts, so the composer's + and `/` work.
@@ -343,6 +413,14 @@ export class MockAcpmuxSocket {
     return id;
   }
 
+  /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without
+  /// delivery: `_acpmux/events {subagent}` reads them as acpmux's log would (`debug.agent_pane
+  /// seed_rows` `subagent-report`, whose capped report card's Show more reads that subagent's reply).
+  seedSubagentLog(target: string, id: string, updates: { update: Update; meta: Record<string, unknown> }[]): void {
+    this.events = this.events.filter((event) => event.sessionId !== target || !subagentOwns(event, id));
+    for (const step of updates) this.record(target, step);
+  }
+
   /// Streams one turn into `target` as fast as `options` say, as a busy agent does: text deltas
   /// on a timer (not on frames, as a socket's arrive) with large tool calls between them.
   async streamLoadTurn(
@@ -380,12 +458,31 @@ export class MockAcpmuxSocket {
   /// No reply text streams, so whatever the transcript draws past the running turn is waste.
   async tickLoadTurn(
     target: string,
-    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string },
+    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string; backgroundCommands?: number },
   ): Promise<{ ticks: number; sidebar: number }> {
     const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: run the long check` } });
     this.emit(target, { mux: "turn_started" });
+    // Shells sent to the background first, as Claude's Bash `run_in_background` does: each call ends at
+    // once and its shell keeps running, so the composer's hat (SubagentTray.tsx) shows it with its
+    // time ticking for the whole run. They are left running when the turn ends.
+    for (let index = 0; index < (options.backgroundCommands ?? 0); index += 1) {
+      const shell = `load-tick-${turn}-background-${index}`;
+      const command = `bun run dev --port ${4300 + index}`;
+      this.emit(target, {
+        update: tool(shell, "execute", command, "in_progress", {
+          rawInput: { command, run_in_background: true },
+        }),
+      });
+      this.emit(target, {
+        update: done(shell, {
+          content: [
+            { type: "content", content: { type: "text", text: `Command running in background with ID: ${shell}` } },
+          ],
+        }),
+      });
+    }
     const call = `load-tick-${turn}`;
     this.emit(target, {
       update: tool(call, "execute", "Run bun test --watch", "in_progress", {
@@ -476,7 +573,9 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
-              features: ["queueApproval", "queueGet"],
+              // The memory inbox (`memory_offer` records, `_acpmux/memory_resolve`).
+              // The prompt coach (`coach_offer` and `coach` records, `_acpmux/prompt_coach`).
+              features: ["queueApproval", "queueGet", "memory-inbox-v1", "prompt-coach-v1"],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
@@ -630,6 +729,71 @@ export class MockAcpmuxSocket {
         this.bookmarks.set(target, marks);
         return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
       }
+      // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
+      // the `memory_resolved` record the daemon would, with only the offer's facts still open.
+      case "_acpmux/memory_resolve": {
+        const failure = (globalThis as MockAuthGlobals).cmuxAcpmuxMockMemoryError;
+        if (failure) throw Object.assign(new Error(failure), { code: -32000 });
+        const offerId = String(params.offerId ?? "");
+        const offer = this.events.find(
+          (event) => event.sessionId === target && event.kind === "memory_offer" && event.msg?.offerId === offerId,
+        );
+        if (!offer) throw Object.assign(new Error(`no memory offer ${offerId}`), { code: -32001 });
+        const settled = new Set(
+          this.events
+            .filter((event) => event.kind === "memory_resolved" && event.msg?.offerId === offerId)
+            .flatMap((event) => [...(event.msg?.accepted ?? []), ...(event.msg?.dismissed ?? [])]),
+        );
+        const open = (value: unknown) =>
+          (Array.isArray(value) ? value.map(String) : []).filter(
+            (fact) => (offer.msg?.facts ?? []).includes(fact) && !settled.has(fact),
+          );
+        const accepted = open(params.accept);
+        const dismissed = open(params.dismiss).filter((fact) => !accepted.includes(fact));
+        const file = String(offer.msg?.file ?? params.file ?? "");
+        if (accepted.length || dismissed.length)
+          this.emit(target, { mux: "memory_resolved", msg: { offerId, file, accepted, dismissed } });
+        return { file, accepted, dismissed, wrote: accepted.length > 0 };
+      }
+      // The prompt coach's rewrite (acpmux prompt_coach.rs): no model call here; it logs the `coach`
+      // record the daemon would, the chat's first prompt with what the person said later, once.
+      case "_acpmux/prompt_coach": {
+        const coachId = String(params.coachId ?? "");
+        const own = this.events.filter((event) => event.sessionId === target);
+        const offer = own.find((event) => event.kind === "coach_offer" && event.msg?.coachId === coachId);
+        if (!offer || own.some((event) => event.kind === "coach" && event.msg?.coachId === coachId))
+          return { made: false };
+        const said = own
+          .filter((event) => event.kind === "user_message" && typeof event.msg?.text === "string")
+          .map((event) => String(event.msg?.text));
+        const firstPrompt = said[0] ?? "";
+        const rewrite = [firstPrompt, ...said.slice(1).map((text) => `- ${text}`)].join("\n");
+        this.emit(target, {
+          mux: "coach",
+          msg: { coachId, firstPrompt, rewrite, corrections: Number(offer.msg?.corrections ?? said.length - 1) },
+        });
+        return { made: true };
+      }
+      // A preset approval card's answer (hub/unattended_presets.rs): it counts only for the digest
+      // the chat's latest request for that preset names, and records the decision in that chat.
+      case "_acpmux/presets": {
+        if (params.approveMode === undefined) return { presets: {} };
+        const failure = (globalThis as MockAuthGlobals).cmuxAcpmuxMockPresetError;
+        if (failure) throw Object.assign(new Error(failure), { code: -32000 });
+        const name = String(params.name ?? "");
+        const chat = String(params.sessionId ?? "");
+        const asked = this.events
+          .filter(
+            (event) =>
+              event.sessionId === chat && event.kind === "preset_approval_request" && event.msg?.preset === name,
+          )
+          .at(-1);
+        if (!asked || asked.msg?.digest !== params.approveDigest)
+          throw Object.assign(new Error(`preset ${name} changed since its card was shown`), { code: -32602 });
+        const outcome = params.approveMode === true ? "approved" : "declined";
+        this.emit(chat, { mux: "preset_approval_decision", msg: { preset: name, digest: asked.msg.digest, outcome } });
+        return { name };
+      }
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/attachment": {
@@ -670,6 +834,61 @@ export class MockAcpmuxSocket {
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
+      // A plan build (`_acpmux/plan/build`): here approves; a worktree or a compare answers the ask
+      // with a deny and records the runs it started on the chat, as acpmux does.
+      case "_acpmux/plan/build": {
+        const where = String(params.target ?? "");
+        if (where === "here") {
+          this.closeSeededTurn(target, "completed", true);
+          return { target: "here", buildId: null, builds: [] };
+        }
+        const buildId = `mock-build-${this.events.length}`;
+        const builds = mockPlanBuilds(where === "compare" ? 2 : 1);
+        this.closeSeededTurn(target, "completed", false);
+        this.emit(target, {
+          mux: "plan_build",
+          msg: {
+            event: "started",
+            buildId,
+            target: where,
+            permissionId: params.permissionId,
+            builds: builds.map(({ sessionId, name, harness, branch, root, base }) => ({
+              sessionId,
+              name,
+              harness,
+              branch,
+              root,
+              base,
+            })),
+          },
+        });
+        return {
+          target: where,
+          buildId,
+          builds: builds.map(({ sessionId, name, harness, branch, root, base }) => ({
+            sessionId,
+            name,
+            harness,
+            worktree: { root, branch, base },
+          })),
+        };
+      }
+      case "_acpmux/plan/compare":
+        return { buildId: params.buildId, target: "compare", keptSessionId: null, builds: mockPlanBuilds(2) };
+      case "_acpmux/plan/keep": {
+        const keep = String(params.keep ?? "");
+        const builds = mockPlanBuilds(2).map((build) => ({ ...build, archived: build.sessionId !== keep }));
+        this.emit(target, {
+          mux: "plan_build",
+          msg: {
+            event: "kept",
+            buildId: params.buildId,
+            keptSessionId: keep,
+            archived: builds.filter((build) => build.archived).map((build) => build.sessionId),
+          },
+        });
+        return { buildId: params.buildId, target: "compare", keptSessionId: keep, builds };
+      }
       case "session/new": {
         // A gallery state whose folder is not trusted yet: the start waits on the Trust question.
         if ((globalThis as MockAuthGlobals).cmuxAcpmuxMockTrustPending && !this.trustGranted)
@@ -954,19 +1173,24 @@ export class MockAcpmuxSocket {
   /// A page of a session's events, as acpmux's `_acpmux/events` and `_acpmux/attach` return it
   /// (hub/paging.rs): after `afterSeq` oldest first, or (`beforeSeq`, or an attach without
   /// `afterSeq`) the newest `limit` before `beforeSeq`; a page also ends before its records pass
-  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript.
+  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript;
+  /// `subagent` only that subagent's own records (`EventFilter::of_subagent`).
   private page(
     target: string,
     params: Record<string, any>,
     attach = false,
   ): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
+    const subagent = typeof params.subagent === "string" && params.subagent ? params.subagent : undefined;
     const wanted = (event: EventRecord) =>
-      kinds.length === 0 ||
-      kinds.includes(event.kind) ||
-      (event.kind !== "available_commands_update" &&
-        event.kind !== "prompt_suggestion" &&
-        kinds.includes("transcript"));
+      (subagent === undefined || subagentOwns(event, subagent)) &&
+      (kinds.length === 0 ||
+        kinds.includes(event.kind) ||
+        (event.kind !== "available_commands_update" &&
+          event.kind !== "prompt_suggestion" &&
+          // As acpmux's paging.rs: the preset approval records are not transcript; a read asks by name.
+          !MOCK_NOT_TRANSCRIPT.has(event.kind) &&
+          kinds.includes("transcript")));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
     const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);

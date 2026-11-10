@@ -4,6 +4,8 @@
 //! fake mux socket behind it. Every key is generated here.
 #![allow(dead_code)]
 
+pub mod host;
+
 use std::io::BufRead;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -37,6 +39,10 @@ pub const TOKEN: &str = "person-test-credential";
 /// the platform answers for.
 pub const JWT_A: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYSJ9.sig";
 pub const JWT_B: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJwZXJzb24tYiJ9.sig";
+/// Two opaque dotted credentials, not JWTs, whose middle segments are the
+/// same `sub` person-a claim; the platform answers for both.
+pub const OPAQUE_1: &str = "opaque.eyJzdWIiOiJwZXJzb24tYSJ9.one";
+pub const OPAQUE_2: &str = "other.eyJzdWIiOiJwZXJzb24tYSJ9.two";
 pub const TEAM: &str = "team_00000000000000000001";
 pub const BIN: &str = env!("CARGO_BIN_EXE_cmux-tui");
 
@@ -107,6 +113,7 @@ pub async fn platform(
     teams: Teams,
     keys: Keys,
     bearers: Bearers,
+    ssh: Option<Arc<SshStub>>,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -119,6 +126,7 @@ pub async fn platform(
             let teams = teams.clone();
             let keys = keys.clone();
             let bearers = bearers.clone();
+            let ssh = ssh.clone();
             let status = status.load(Ordering::SeqCst);
             tokio::spawn(async move {
                 let mut reader = tokio::io::BufReader::new(&mut stream);
@@ -140,9 +148,12 @@ pub async fn platform(
                     if let Some(value) = header.strip_prefix("content-length:") {
                         length = value.trim().parse().unwrap();
                     }
-                    if let Some(bearer) = [TOKEN, JWT_A, JWT_B].into_iter().find(|token| {
-                        header == format!("authorization: bearer {}", token.to_ascii_lowercase())
-                    }) {
+                    if let Some(bearer) =
+                        [TOKEN, JWT_A, JWT_B, OPAQUE_1, OPAQUE_2].into_iter().find(|token| {
+                            header
+                                == format!("authorization: bearer {}", token.to_ascii_lowercase())
+                        })
+                    {
                         authorized = true;
                         bearers.lock().unwrap().push(bearer);
                     }
@@ -150,6 +161,17 @@ pub async fn platform(
                 let mut body = vec![0; length];
                 reader.read_exact(&mut body).await.unwrap();
                 let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                if let Some(ssh) = ssh.as_ref().filter(|_| path.ends_with("/ssh-endpoint")) {
+                    assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/ssh-endpoint"));
+                    assert!(authorized, "ssh-endpoint takes the person's credential");
+                    let body = ssh.endpoint(&request).to_string();
+                    let reply = format!(
+                        "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                    return;
+                }
                 teams.lock().unwrap().push(team);
                 keys.lock().unwrap().push(request["noise_key"].as_str().map(str::to_owned));
                 let n = asked.fetch_add(1, Ordering::SeqCst);
@@ -176,6 +198,9 @@ pub async fn platform(
                     if let Some(key) = &daemon_key {
                         value["daemon_key"] = json!(key);
                     }
+                    if let Some(ssh) = &ssh {
+                        value["ssh"] = ssh.candidate();
+                    }
                     if let Some(key) = request["noise_key"].as_str() {
                         let key: [u8; 32] =
                             URL_SAFE_NO_PAD.decode(key).unwrap().try_into().unwrap();
@@ -195,9 +220,34 @@ pub async fn platform(
     address
 }
 
-/// The session's mux socket: echoes each line, then pushes one line of its
-/// own naming the mux connection (`conn`, 0 for the first), so two sessions
-/// tell apart.
+/// Answers `line` when it is the role stamp the session host writes first on a
+/// grant's `mux-control` stream (`cmux-remote` `mux_carrier_role.rs`), the way
+/// the session daemon takes it (`cmux-tui-core` `server/carrier_role.rs`), and
+/// says whether it was. A stand-in that echoed the stamp instead did not take
+/// it, so the host refused every stream of a grant that is not the owner's.
+/// Like the daemon, it takes only a well-formed stamp (the stamp's request id
+/// and exactly a valid `vmk`) and refuses any other `carrier-role` line.
+pub async fn took_role_stamp(line: &str, writer: &mut tokio::net::unix::OwnedWriteHalf) -> bool {
+    use cmux_link::carrier_role::{COMMAND, REQUEST_ID, parse};
+    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(line) else { return false };
+    if fields.get("cmd").and_then(Value::as_str) != Some(COMMAND) {
+        return false;
+    }
+    fields.remove("cmd");
+    let id = fields.remove("id").unwrap_or(Value::Null);
+    let taken = if id == REQUEST_ID && parse(&fields).is_some() {
+        json!({"id": id, "ok": true, "data": {}})
+    } else {
+        let code = "carrier_role.malformed";
+        json!({"id": id, "ok": false, "error": code, "error_code": code})
+    };
+    let _ = writer.write_all(format!("{taken}\n").as_bytes()).await;
+    true
+}
+
+/// The session's mux socket: takes the role stamp ([`took_role_stamp`]),
+/// echoes each line, then pushes one line of its own naming the mux
+/// connection (`conn`, 0 for the first), so two sessions tell apart.
 pub async fn fake_mux(path: &Path) {
     let listener = tokio::net::UnixListener::bind(path).unwrap();
     tokio::spawn(async move {
@@ -207,6 +257,9 @@ pub async fn fake_mux(path: &Path) {
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(reader).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    if took_role_stamp(&line, &mut writer).await {
+                        continue;
+                    }
                     writer.write_all(format!("{line}\n").as_bytes()).await.unwrap();
                     let pushed = format!("{{\"event\":\"pushed\",\"conn\":{conn}}}\n");
                     writer.write_all(pushed.as_bytes()).await.unwrap();
@@ -214,6 +267,46 @@ pub async fn fake_mux(path: &Path) {
             });
         }
     });
+}
+
+/// The platform's ssh backup carrier: the carrier answer's `ssh` candidate
+/// and `ssh-endpoint`'s answer, a carrier key's route to it. Every
+/// ssh-endpoint request body is kept.
+#[derive(Default)]
+pub struct SshStub {
+    pub asked: Mutex<Vec<Value>>,
+}
+
+/// The candidate's mesh address (never dialed: the fake ssh runs the forced
+/// command itself).
+pub const SSH_HOST: &str = "10.20.0.7";
+
+/// A well-formed host key for the candidate.
+pub fn ssh_host_key() -> String {
+    let mut blob = Vec::new();
+    blob.extend_from_slice(&11_u32.to_be_bytes());
+    blob.extend_from_slice(b"ssh-ed25519");
+    blob.extend_from_slice(&32_u32.to_be_bytes());
+    blob.extend_from_slice(&[7_u8; 32]);
+    format!("ssh-ed25519 {}", base64::engine::general_purpose::STANDARD.encode(blob))
+}
+
+impl SshStub {
+    fn candidate(&self) -> Value {
+        json!({"host": SSH_HOST, "port": 22, "user": "cmux", "hostKey": null})
+    }
+
+    fn endpoint(&self, request: &Value) -> Value {
+        self.asked.lock().unwrap().push(request.clone());
+        json!({
+            "host": SSH_HOST,
+            "port": 22,
+            "username": "cmux",
+            "hostPublicKey": ssh_host_key(),
+            "expiresAtUnix": now() + 900,
+            "purpose": "carrier",
+        })
+    }
 }
 
 /// The `x-cmux-team` header of each platform request (`None` when absent).
@@ -398,6 +491,7 @@ fn world_with(
             teams.clone(),
             keys.clone(),
             bearers.clone(),
+            None,
         )
         .await;
         (platform, registration, named_relay, answered_signer, daemon_key)
@@ -514,4 +608,332 @@ pub fn wait(child: &mut Child, limit: Duration) -> Option<i32> {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// A machine reachable over both carriers: the relay (behind a proxy a test
+/// can cut, or a dead address) and a fake ssh whose "forced command" runs
+/// the real `cmux-tui remote-link` into the same daemon's link socket.
+pub struct SshWorld {
+    pub platform: SocketAddr,
+    pub dir: tempfile::TempDir,
+    pub ssh: Arc<SshStub>,
+    /// The tunnel hub's socket: a listener that only accepts, or, in a
+    /// [`world_ssh_via_hub`], the stand-in hub at the default socket.
+    pub hub: std::path::PathBuf,
+    /// The fake ssh client, and the file it writes its arguments to.
+    pub fake_ssh: std::path::PathBuf,
+    pub ssh_args: std::path::PathBuf,
+    /// While this file exists the fake ssh's links end, and new ones exit
+    /// at once (the ssh carrier is down).
+    pub ssh_cut: std::path::PathBuf,
+    /// While this file exists the fake ssh writes junk to its stderr and
+    /// exits 255, as ssh does when it cannot connect.
+    pub ssh_junk: std::path::PathBuf,
+    /// Cuts every relay connection, and refuses new ones.
+    pub cut: watch::Sender<bool>,
+    /// In a [`world_ssh_via_hub`]: while set, the stand-in hub ends every
+    /// tunneled connection and refuses new ones (the tunnel is down).
+    pub hub_cut: Arc<std::sync::atomic::AtomicBool>,
+    /// The `host:port` of each SOCKS5 CONNECT the stand-in hub took.
+    pub hub_dialed: Arc<Mutex<Vec<String>>>,
+    _hub: Option<std::os::unix::net::UnixListener>,
+    _link: cmux_remote::daemon::UnixServer,
+    _registration: Option<cmux_remote::provider::RelayDaemonRegistration>,
+    _runtime: tokio::runtime::Runtime,
+}
+
+impl SshWorld {
+    /// The dial's own connect log.
+    pub fn connect_log(&self) -> String {
+        let log = self.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
+        std::fs::read_to_string(log).unwrap_or_default()
+    }
+
+    /// The private state the ssh carrier keeps.
+    pub fn ssh_state(&self) -> std::path::PathBuf {
+        self.dir.path().join(".local/state/cmux-tui/sessions/carrier/ssh")
+    }
+}
+
+/// `relay_up`: the platform names a relay proxy the test can cut; else an
+/// address nothing listens on, so every relay connect is refused.
+pub fn world_ssh(relay_up: bool) -> SshWorld {
+    ssh_world(relay_up, false)
+}
+
+/// A machine whose ssh carrier goes the whole way the dial's ProxyCommand
+/// names: the fake ssh runs that ProxyCommand (the real `cmux-tui wg dial
+/// --hub <socket> %h %p`), whose SOCKS5 CONNECT reaches a stand-in tunnel
+/// hub on the default socket (`<state dir>/carrier/tunnel.sock`), which
+/// plays the machine's sshd: it runs the carrier key's forced command, the
+/// real `cmux-tui remote-link --stdio`, on the tunneled stream. Only the
+/// WireGuard tunnel and sshd's encryption are left out; [`SshWorld::hub_cut`]
+/// takes the tunnel down.
+pub fn world_ssh_via_hub() -> SshWorld {
+    ssh_world(true, true)
+}
+
+fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
+    use std::os::unix::fs::PermissionsExt as _;
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mux = dir.path().join("mux.sock");
+    let link = dir.path().join("link.sock");
+    let state = dir.path().join("daemon");
+    let hub_cut = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub_dialed = Arc::new(Mutex::new(Vec::new()));
+    let (hub, hub_listener) = if via_hub {
+        let carrier = dir.path().join(".local/state/cmux-tui/sessions/carrier");
+        std::fs::create_dir_all(&carrier).unwrap();
+        let hub = carrier.join("tunnel.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+        stand_in_hub(
+            listener,
+            link.clone(),
+            dir.path().into(),
+            hub_cut.clone(),
+            hub_dialed.clone(),
+        );
+        (hub, None)
+    } else {
+        let hub = dir.path().join("hub.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+        (hub, Some(listener))
+    };
+    let ssh_args = dir.path().join("ssh-args");
+    let fake_ssh = dir.path().join("fake-ssh");
+    let ssh_cut = dir.path().join("ssh-cut");
+    let ssh_junk = dir.path().join("ssh-junk");
+    // sshd runs the key's forced command whatever the client asks; this
+    // stand-in does the same, without the network or the ProxyCommand. The
+    // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
+    // remote-link makes of a SIGTERM; stdin goes to the command through
+    // fd 3: a background command's own stdin is /dev/null).
+    let script = if via_hub {
+        PROXY_SSH.replace("{args}", &ssh_args.display().to_string())
+    } else {
+        format!(
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$@\" >> '{args}'\n\
+             [ -e '{cut}' ] && exit 255\n\
+             if [ -e '{junk}' ]; then printf 'ssh: connect to host {SSH_HOST} port 22: \
+             Connection refused\\r\\n{{\"ok\": \"junk\"}}\\n' >&2; exit 255; fi\n\
+             exec 3<&0\n\
+             '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{link}' <&3 &\n\
+             child=$!\n\
+             while kill -0 \"$child\" 2>/dev/null; do\n\
+             if [ -e '{cut}' ]; then kill -9 \"$child\"; exit 255; fi\n\
+             sleep 0.05\n\
+             done\n\
+             wait \"$child\"\n",
+            args = ssh_args.display(),
+            cut = ssh_cut.display(),
+            junk = ssh_junk.display(),
+            link = link.display(),
+        )
+    };
+    std::fs::write(&fake_ssh, script).unwrap();
+    std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let ssh = Arc::new(SshStub::default());
+    let (cut, cut_seen) = watch::channel(false);
+    let (platform, registration, link_server) = runtime.block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay_address = listener.local_addr().unwrap();
+        let relay = Relay::new(RelayConfig { allow_open: true, ..RelayConfig::default() }).unwrap();
+        let (listener, router) = relay.server_parts(listener);
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let signer = Arc::new(Signer::generate("mux-control", None));
+        std::fs::create_dir_all(&state).unwrap();
+        let auth = AuthDatabase::load_or_create(&state, "carrier-ssh-test", false).unwrap();
+        let verifier =
+            CarrierGrantVerifier::new(ISSUER, MACHINE, TEAM, signer.keyset(), || Some(now()), 64)
+                .unwrap();
+        auth.set_grant_verifier(Arc::new(verifier)).unwrap();
+        let (daemon, accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let link_server =
+            cmux_remote::daemon::serve_unix(daemon.clone(), link.clone(), 65_535).await.unwrap();
+        let (named, registration) = if relay_up {
+            let registered = register_relay_daemon(
+                daemon,
+                RelayDaemonConfig {
+                    endpoint: url::Url::parse(&format!("relay+ws://{relay_address}")).unwrap(),
+                    slot: SLOT.into(),
+                    ticket: "open-daemon-ticket".into(),
+                    maximum_frame_bytes: 65_535,
+                    control_timeout: Duration::from_secs(5),
+                },
+            )
+            .await
+            .unwrap();
+            (cuttable_proxy(relay_address, cut_seen).await, Some(registered))
+        } else {
+            let dead = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+            (dead, None)
+        };
+        fake_mux(&mux).await;
+        let services = DaemonServices::new(WorkspaceService::new(), Some(mux.clone()));
+        std::thread::spawn(move || {
+            let local = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            local.block_on(services.run(accepted));
+        });
+        let daemon_key = Some(URL_SAFE_NO_PAD.encode(auth.identity().public_key()));
+        let platform = platform(
+            signer,
+            named,
+            daemon_key,
+            Arc::new(AtomicU16::new(200)),
+            Arc::new(AtomicUsize::new(0)),
+            Teams::default(),
+            Keys::default(),
+            Bearers::default(),
+            Some(ssh.clone()),
+        )
+        .await;
+        (platform, registration, link_server)
+    });
+    SshWorld {
+        platform,
+        dir,
+        ssh,
+        hub,
+        fake_ssh,
+        ssh_args,
+        ssh_cut,
+        ssh_junk,
+        cut,
+        hub_cut,
+        hub_dialed,
+        _hub: hub_listener,
+        _link: link_server,
+        _registration: registration,
+        _runtime: runtime,
+    }
+}
+
+/// The fake ssh of a [`world_ssh_via_hub`]: it records its arguments, then
+/// becomes the ProxyCommand the dial gave it, with `%h`, `%p` and `%%`
+/// expanded as ssh does, so the link's bytes go through `wg dial`. (The
+/// real ssh would speak its protocol over that stream; the stand-in hub's
+/// "sshd" runs the forced command on it directly.)
+const PROXY_SSH: &str = r#"#!/bin/sh
+printf '%s\n' "$@" >> '{args}'
+port=22
+proxy=
+dest=
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p) port=$2; shift 2 ;;
+        -o) case "$2" in ProxyCommand=*) proxy=${2#ProxyCommand=} ;; esac; shift 2 ;;
+        --) dest=$2; break ;;
+        *) shift ;;
+    esac
+done
+[ -n "$proxy" ] || { echo 'ssh: no ProxyCommand' >&2; exit 255; }
+host=${dest#*@}
+proxy=$(printf '%s' "$proxy" | sed -e "s/%h/$host/g" -e "s/%p/$port/g" -e 's/%%/%/g')
+exec /bin/sh -c "exec $proxy"
+"#;
+
+/// The stand-in tunnel hub on `listener`: SOCKS5 CONNECT without auth (what
+/// `wg dial` sends for port 22), recorded in `dialed`, then the machine's
+/// sshd with the carrier key's forced command: `cmux-tui remote-link
+/// --stdio` into the daemon's `link` socket, with the tunneled stream as its
+/// stdin and stdout. While `cut` is set every tunneled stream ends (the
+/// command is killed and the stream shut down) and new ones are dropped.
+fn stand_in_hub(
+    listener: std::os::unix::net::UnixListener,
+    link: std::path::PathBuf,
+    home: std::path::PathBuf,
+    cut: Arc<std::sync::atomic::AtomicBool>,
+    dialed: Arc<Mutex<Vec<String>>>,
+) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            if cut.load(Ordering::SeqCst) {
+                continue;
+            }
+            let (link, home, cut, dialed) =
+                (link.clone(), home.clone(), cut.clone(), dialed.clone());
+            std::thread::spawn(move || hub_stream(stream, &link, &home, &cut, &dialed));
+        }
+    });
+}
+
+fn hub_stream(
+    mut stream: std::os::unix::net::UnixStream,
+    link: &Path,
+    home: &Path,
+    cut: &std::sync::atomic::AtomicBool,
+    dialed: &Mutex<Vec<String>>,
+) {
+    use std::io::{Read as _, Write as _};
+    // The hub's own liveness check (`hub_up`) connects and closes: no greeting.
+    let mut greeting = [0_u8; 3];
+    if stream.read_exact(&mut greeting).is_err() || greeting != [5, 1, 0] {
+        return;
+    }
+    let mut head = [0_u8; 4];
+    if stream.write_all(&[5, 0]).is_err() || stream.read_exact(&mut head).is_err() {
+        return;
+    }
+    // CONNECT to a literal IPv4 address: the ssh candidate's mesh address.
+    let mut target = [0_u8; 6];
+    if head != [5, 1, 0, 1] || stream.read_exact(&mut target).is_err() {
+        let _ = stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]);
+        return;
+    }
+    let ip = std::net::Ipv4Addr::new(target[0], target[1], target[2], target[3]);
+    let port = u16::from_be_bytes([target[4], target[5]]);
+    dialed.lock().unwrap().push(format!("{ip}:{port}"));
+    if stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).is_err() {
+        return;
+    }
+    // sshd hands the forced command the session's own descriptors: here the
+    // tunneled stream itself is its stdin and stdout, with nothing copying
+    // between them.
+    let (Ok(input), Ok(output)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let mut child = std::process::Command::new(BIN)
+        .args(["remote-link", "--stdio", "--session", "carrier-ssh", "--link-socket"])
+        .arg(link)
+        .env_clear()
+        .env("HOME", home)
+        .stdin(std::process::Stdio::from(std::os::fd::OwnedFd::from(input)))
+        .stdout(std::process::Stdio::from(std::os::fd::OwnedFd::from(output)))
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    while child.try_wait().ok().flatten().is_none() {
+        if cut.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+}
+
+/// A TCP proxy to `relay` whose connections all end, and whose new ones
+/// are refused, once `cut` is true.
+async fn cuttable_proxy(relay: SocketAddr, cut: watch::Receiver<bool>) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut client, _)) = listener.accept().await else { return };
+            if *cut.borrow() {
+                continue;
+            }
+            let mut cut = cut.clone();
+            tokio::spawn(async move {
+                let Ok(mut upstream) = TcpStream::connect(relay).await else { return };
+                tokio::select! {
+                    _ = tokio::io::copy_bidirectional(&mut client, &mut upstream) => {}
+                    _ = cut.wait_for(|cut| *cut) => {}
+                }
+            });
+        }
+    });
+    address
 }

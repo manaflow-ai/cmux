@@ -869,6 +869,11 @@ pub enum PermissionPolicy {
     /// Claude Code's "accept edits" without needing Claude's own mode.
     ApproveEdits,
     DenyAll,
+    /// A reviewer's read-only shell: what approve-reads approves runs unasked (reads, searches
+    /// and read-only shell commands such as `git log`, `git diff`, `grep`, `rg`, `ls`, `cat`,
+    /// `sed -n`, `hub/shell_readonly.rs`), and every other tool call is denied at once, so a
+    /// session with no person to ask never waits.
+    Review,
 }
 
 impl std::str::FromStr for PermissionPolicy {
@@ -880,6 +885,7 @@ impl std::str::FromStr for PermissionPolicy {
             "approve-reads" => Ok(Self::ApproveReads),
             "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
+            "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
     }
@@ -893,6 +899,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::ApproveReads => "approve-reads",
             Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
+            Self::Review => "review",
         };
         f.write_str(s)
     }
@@ -1054,7 +1061,8 @@ pub struct SessionResourceConfig {
     pub sessions_tasks_max: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`.
+    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
+    /// Claude Code launcher (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -2028,13 +2036,14 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 mod nested_env;
+pub(crate) use nested_env::inherited_caller_scoped_keys;
 #[cfg(windows)]
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
+pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};

@@ -92,6 +92,8 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// The page's generated resources (its media, its chat's drawn copy); nil on the old host.
+    private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -153,11 +155,15 @@ public final class AgentPaneView: NSView {
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The chat's own ground under its page, from the turn the pane is made (``AgentPaneGround``).
+    let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
     var holdsPageAway = false
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
+    /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
+    var chromiumMoveWait: ChromiumMoveWait?
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -213,8 +219,13 @@ public final class AgentPaneView: NSView {
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             provider.tailHost = model.host
             provider.tabKey = { [weak model] in model?.tabKey() }
+            // A chat's drawn copy is kept only outside incognito (``AgentPaneChatSnapshots``).
+            let keepsSnapshots = { @MainActor [weak model] in model?.sendIsIncognito.map { !$0() } ?? false }
+            provider.keepsChatSnapshots = keepsSnapshots
+            let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
+            pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -266,6 +277,10 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageResources?.themeKey = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
+        }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
@@ -336,6 +351,7 @@ public final class AgentPaneView: NSView {
         }
         installTransport()
         installContextMenu()
+        ground.install(in: self)
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
@@ -344,21 +360,15 @@ public final class AgentPaneView: NSView {
             source.load(into: webView)
         }
         beginLoadingState()
-        Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
+        Self.logger.info("agent pane webview loading source=\(source.logDescription, privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
+        model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
         installHostGlass()
-    }
-
-    private static func sourceDescription(_ source: AgentPaneSource) -> String {
-        switch source {
-        case .bundled(let url): return "bundled:\(url.path)"
-        case .devServer(let url): return "dev:\(url.absoluteString)"
-        }
     }
 
     private func applyIconFamily() {
@@ -402,7 +412,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -438,7 +448,8 @@ public final class AgentPaneView: NSView {
     public override func layout() {
         super.layout()
         let frame = topBar.contentFrame(in: bounds)
-        let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
+        // A held page has the size its pane rests at, once: a pane on a spring gives it no size it leaves again.
+        let shown = holdsPageAway ? heldPageFrame(of: frame) : frame
         if let page {
             let moved = page.frame != shown
             page.frame = shown
@@ -446,6 +457,7 @@ public final class AgentPaneView: NSView {
             if moved { applyNativeRects() }
         } else { webView.frame = shown }
         placeChromiumMove(at: frame)
+        ground.place(in: frame, of: self)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
         layoutHostGlass()
@@ -674,6 +686,7 @@ public final class AgentPaneView: NSView {
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
+        ground.paint(AgentPaneTheme.pageBackground(tokens, surface: surface, backgrounds: themeScope.surfaceBackgrounds))
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
         themeHostGlass()
