@@ -6355,7 +6355,8 @@ jobs:
   # started and its red could not be re-run. This job reads the runners now: an idle owned side runner first
   # (minis first), else attempt 1's cascade (a free Blacksmith slot, or 6 vCPU's moving queue when no mini can
   # take it). It is skipped whenever macos-placement placed this attempt. Every step fails open: no output
-  # keeps the compile's route.
+  # keeps the compile's route. Like fast-tier-rerun-placement, it places only the first such re-run: a later
+  # re-run of failed jobs carries this job's success too, whose reading the compile skips as an earlier attempt's.
   scheme-compile-rerun-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [macos-placement, path_route, push-head-preflight, dev-daily-tree-wait]

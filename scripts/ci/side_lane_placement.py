@@ -907,9 +907,10 @@ def rerun_scheme(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | 
     if attempt == "1":
         return "", None, "attempt 1 is placed by macos-placement"
     label = (env.get("SIDE_LABEL") or "").strip()
-    owned_side = label.startswith(pool.SIDE_PREFIX) and pool.persistent(label)
-    if runners is not None and owned_side and pool.idle_placement(runners, label, (SCHEME_JOB,)):
-        return label, None, f"idle `{label}` takes the scheme compile (a warm owned build first)"
+    # The compatible side label attempt 1's decide() would take (side_route(): a wider class's idle runners too).
+    side = side_route(label, runners, 1)
+    if side and pool.idle_placement(runners, side, (SCHEME_JOB,)):
+        return side, None, f"idle `{side}` takes the scheme compile (a warm owned build first)"
     route = route_label(label, runners, 1) or label
     placed = cascade.place(rerun_scheme_env(env), (), live, waiting, seen, saturated=runners is not None,
                            route_wait=route_wait(route, runners, seen))

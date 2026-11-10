@@ -1332,6 +1332,21 @@ class SchemeCompileRerun(unittest.TestCase):
     def test_an_idle_mini_comes_first(self):
         label, placed, _ = self.place([runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1")])
         self.assertEqual((label, placed), (SIDE, None))
+        # A light side label spills onto an idle std side runner, as attempt 1's side_route() does.
+        light = "glaeda-side-light-xcode-26.6"
+        runners = [runner("mini-l-glaeda-1", busy=True, labels=("glaeda-light-xcode-26.6", light)),
+                   runner("mini-b-glaeda-1")]
+        values = {"SIDE_LABEL": light, "GITHUB_RUN_ATTEMPT": "3", "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}
+        self.assertEqual(placement.rerun_scheme(values, runners, {}, {}, self.seen())[0], SIDE)
+
+    def test_unread_runners_place_as_attempt_1_does(self):
+        # Unread runners vouch for no idle mini. A free hosted slot still takes the compile, as on attempt 1;
+        # with the hosted counts unread too, nothing moves and the compile keeps its route.
+        label, placed, why = self.place(None)
+        self.assertEqual((label, placed.jobs[self.LARGE]), ("", (self.JOB,)), why)
+        values = {"SIDE_LABEL": SIDE, "GITHUB_RUN_ATTEMPT": "3", "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}
+        label, placed, why = placement.rerun_scheme(values, None, None, None, None)
+        self.assertEqual((label, placed.jobs[self.LARGE], placed.jobs[self.SMALL]), ("", (), ()), why)
 
     def test_busy_minis_take_a_free_blacksmith_slot(self):
         _, placed, _ = self.place([runner("mini-a-glaeda-1", busy=True)])
