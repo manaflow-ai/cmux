@@ -21,19 +21,18 @@ import Testing
 /// a turn may end with the layer at the new size and the old frame in it; the fork's tests own that rule
 /// (`src/renderer/Metal.zig` "resize sync:", `src/renderer/metal/IOSurfaceLayer.zig` "host present:"). What stays the
 /// app's is here: the newest size of a hidden terminal, a new size's frame through main's present, a key turn that never
-/// holds the main thread for its terminals, and a new display scale (P12, not moved into Ghostty yet: disabled).
+/// holds the main thread for its terminals, and a new display scale end to end (P12, Ghostty's rule since fork 0efdef967).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)))
 struct TerminalSurfaceCommitSizeTests {
     /// Its window moved to a display of another scale (1x and 2x): the terminal keeps its layer's scale and its frame
     /// until the frame drawn at the new scale is ready, and both change in that one commit (Codex review of
     /// b9bafbda1e0: the new `contentsScale` went to the layer at once, so the old frame showed at the new scale for
-    /// 1-4 refreshes). The landing's commit is then reported, so output goes to the screen off the main thread again.
+    /// 1-4 refreshes). After the landing's commit output goes to the screen off the main thread again.
     ///
-    /// Disabled: #40174 deleted the app's scale hold (`holdsScale`) with the frame presenter, and the design moves P12
-    /// into Ghostty (ghostty-integration.md, P table: "P12 move into Ghostty"); fork c31377f1a does not set
-    /// `contentsScale` with the new scale's frame yet. Turn it on with that fork change.
-    @Test(.disabled("P12: the content scale goes to the layer before its frame; moves into Ghostty (ghostty-integration.md P12), not in fork c31377f1a"))
-    func aNewDisplayScaleLandsWithTheFrameDrawnAtIt() async throws {
+    /// The rule is Ghostty's since fork 0efdef967 (ghostty-integration.md P12: `ghostty_surface_set_content_scale` on a
+    /// host-sized surface; `IOSurfaceLayer.zig` "host present: a new content scale ..."): the app's scale hold
+    /// (`holdsScale`) went with the frame presenter, and the app no longer sets the layer's `contentsScale`.
+    @Test func aNewDisplayScaleLandsWithTheFrameDrawnAtIt() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
         let view = fixture.session.surfaceView

@@ -403,14 +403,9 @@ public final class TerminalSurfaceView: NSView {
             // A new scale: the next size goes to Ghostty even at the same pixel size.
             lastSurfacePixels = nil
         }
+        // The layer's `contentsScale` is Ghostty's (a host-sized surface, ghostty.h `ghostty_surface_set_host_sized`):
+        // it changes in the transaction that shows the first frame drawn at the new scale (ghostty-integration P12).
         if let window {
-            let backing = backingScaleOverride ?? window.backingScaleFactor
-            if layer?.contentsScale != backing {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                layer?.contentsScale = backing
-                CATransaction.commit()
-            }
             if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
                screenNumber.uint32Value != appliedDisplayID {
                 appliedDisplayID = screenNumber.uint32Value
