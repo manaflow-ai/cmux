@@ -31,6 +31,8 @@ extension DaemonStore {
     /// workspace takes the snapshot's state, which is at least as new (events at or below the
     /// snapshot's barrier are superseded; newer ones wait in the held inbox and apply after it).
     func touchedWorkspaces(_ diff: SnapshotDiff) -> Set<String> {
+        // TEMP MUTATION (not for merge): an uncounted O(workspaces) walk on every apply.
+        if workspaces.contains(where: { $0.id == "no such workspace" }) { return [] }
         snapshotMemo.dirty.union(diff.changed.keys)
     }
 
