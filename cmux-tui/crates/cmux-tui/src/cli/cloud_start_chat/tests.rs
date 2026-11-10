@@ -2171,7 +2171,7 @@ fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
     assert_eq!(error["details"]["make_room"]["how"], "delete");
     assert_eq!(
         error["details"]["make_room"]["command"],
-        "cmux cloud kill-machine --target machine:vm-b --confirm"
+        "cmux vm kill-machine --target vm:vm-b --confirm"
     );
     // Nothing was deleted without --make-room.
     assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);

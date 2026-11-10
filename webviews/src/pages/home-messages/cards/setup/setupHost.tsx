@@ -3,7 +3,7 @@
 // (HomeHostView+SetupCard.swift); the page now draws it itself, in a Chief chat, under the Needs you
 // section. The host sends the rows' state as values (setupModel.ts `SetupState`) while the card shows
 // (a first run, until Hide or every row done) and null once it ended; the card owns its words.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { PageClient } from "../../../shared/pageClient";
 import type { Strings } from "../strings";
 import { SetupCard } from "./SetupCard";
@@ -66,15 +66,20 @@ export function useSetupCard(host: PageClient | null, active: boolean, strings: 
       window.removeEventListener("focus", onFocus);
     };
   }, [host, active]);
-  if (!host || !active || !state) return undefined;
-  const send = (op: string, params: unknown) => void host.call(op, params).catch(() => undefined);
-  return (
-    <SetupCard
-      strings={strings}
-      state={state}
-      look="rows"
-      onAction={(action: SetupAction) => send(SETUP_OPS.run, { action })}
-      onHide={() => send(SETUP_OPS.hide, {})}
-    />
-  );
+  // One element per state: a page render that changes nothing here hands the transcript the same
+  // card, so its pinned section keeps its observers and the card does not draw again.
+  const shown = host && active ? state : null;
+  return useMemo(() => {
+    if (!host || !shown) return undefined;
+    const send = (op: string, params: unknown) => void host.call(op, params).catch(() => undefined);
+    return (
+      <SetupCard
+        strings={strings}
+        state={shown}
+        look="rows"
+        onAction={(action: SetupAction) => send(SETUP_OPS.run, { action })}
+        onHide={() => send(SETUP_OPS.hide, {})}
+      />
+    );
+  }, [host, shown, strings]);
 }
