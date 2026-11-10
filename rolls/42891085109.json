@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42891085109",
+  "recorded_at": "2026-11-10T20:11:58Z",
+  "reason": "cmux-tui 180fbb50d442 changes the image's cmux-tui (pinned 35d6a202b436)",
+  "dry_run": false,
+  "cmux_tui": "180fbb50d442dce69a8fc09c63e06911455d1e25",
+  "fixes": [
+    {
+      "sha": "d8df6e9911ec8e488209bb3cb03fcbb01ed33892",
+      "mergedAt": "2026-11-10T19:34:53Z",
+      "subject": "cmux-tui-core: the router owns 95 connection operations (resource_attach base red since #40420) (#40691)"
+    },
+    {
+      "sha": "9d35d3ec66cd8e76e8724b6a28fe6ca237f83b78",
+      "mergedAt": "2026-11-10T19:33:01Z",
+      "subject": "cmux-tui: History last activity is live in the daemon, with one coalesced journal record each 5 minutes (#40719)"
+    },
+    {
+      "sha": "0d054bd81e07abcab62377f0588528ecfe4f918a",
+      "mergedAt": "2026-11-10T19:21:55Z",
+      "subject": "cmux-tui: a restart and a create stop reading the whole session per item (#40700)"
+    },
+    {
+      "sha": "b5a31e64516302d25ac4e56ad75ca4fbe5019657",
+      "mergedAt": "2026-11-10T19:21:37Z",
+      "subject": "Cloud Codex: the model-plane file follows the shell's precedence (#40632 F1) (#40694)"
+    },
+    {
+      "sha": "9bef956af4a0c4d938c53db3220272bd38bfebb4",
+      "mergedAt": "2026-11-10T11:16:02-08:00",
+      "subject": "Cloud copy: a huge Git folder is refused while it's listed; --allow-large is a parsed flag, cmux chat takes it (#40704)"
+    },
+    {
+      "sha": "252d5d1b1163ea80b50e58e5eaef7efc69eead02",
+      "mergedAt": "2026-11-10T11:14:39-08:00",
+      "subject": "Settings: the app takes the daemon's settings lock for every write of cmux-next.json (#40464)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T20:11:58Z",
+    "snapshot_id": "sh-2ec73197d92747f583007545a87dd15c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42891085109): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "be7caa5022fa7155daff853e36a3c73e6e36bbc5",
+    "image": "cloud-native-auto-180fbb50-42891085109-1",
+    "revision": "ci-42891085109-1",
+    "at": "2026-11-10T20:11:58Z"
+  },
+  "rolled_back": false
+}
