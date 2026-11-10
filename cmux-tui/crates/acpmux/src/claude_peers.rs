@@ -304,17 +304,33 @@ pub fn launch_args(_pid: u32) -> Option<Vec<String>> {
 fn procargs(buf: &[u8]) -> Option<Vec<String>> {
     let (count, rest) = buf.split_first_chunk::<4>()?;
     let argc = usize::try_from(i32::from_ne_bytes(*count)).ok()?;
-    let mut parts = rest.split(|b| *b == 0).filter(|s| !s.is_empty());
-    parts.next()?;
-    Some(parts.take(argc).map(|s| String::from_utf8_lossy(s).into_owned()).collect())
+    // The executable path, then the NUL padding after it; then exactly argc NUL-terminated
+    // arguments, empty ones included, so none of the environment after them is read as one.
+    let path_end = rest.iter().position(|b| *b == 0)?;
+    let (_, after_path) = rest.split_at(path_end);
+    let start = after_path.iter().position(|b| *b != 0)?;
+    let (_, mut args_buf) = after_path.split_at(start);
+    let mut args = Vec::with_capacity(argc.min(4096));
+    for _ in 0..argc {
+        let end = args_buf.iter().position(|b| *b == 0)?;
+        let (arg, tail) = args_buf.split_at(end);
+        args.push(String::from_utf8_lossy(arg).into_owned());
+        let (_, next) = tail.split_first()?;
+        args_buf = next;
+    }
+    Some(args)
 }
 
 /// The conversation `args` start Claude Code on (`--resume ID`, `--resume=ID`, `-r ID`,
 /// `--session-id ID`), read conservatively since it decides who may take over a registered chat:
 /// nothing after `--` (positional text), no flag that could be the operand of the option before
 /// it (one with no inline `=value`), and None when more than one argument names a session. A
-/// launch this misreads as naming none only means it cannot take a chat over.
+/// launch this misreads as naming none only means it cannot take a chat over. A forked launch
+/// (`--fork-session`, in any position or spelling) starts a new conversation, so it names none.
 pub fn resumed_session(args: &[String]) -> Option<String> {
+    if args.iter().skip(1).any(|a| a.starts_with("--fork")) {
+        return None;
+    }
     let mut found: Vec<String> = Vec::new();
     let mut prev: Option<&str> = None;
     let mut it = args.iter().skip(1).peekable();

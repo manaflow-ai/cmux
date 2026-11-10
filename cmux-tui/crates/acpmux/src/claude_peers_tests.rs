@@ -308,4 +308,25 @@ fn a_launch_names_its_conversation_in_any_spelling() {
     buf.extend_from_slice(b"/bin/claude\0\0\0claude\0--resume=s-9\0-p\0HOME=/x\0");
     let got = procargs(&buf).unwrap();
     assert_eq!(got, args(&["claude", "--resume=s-9", "-p"]), "the environment is not an argument");
+    // Repro (a418d95a F2): an empty argument stays one, so take(argc) never reaches the env.
+    let mut buf = 4i32.to_ne_bytes().to_vec();
+    buf.extend_from_slice(
+        b"/bin/claude\0\0\0\0claude\0--append-system-prompt\0\0hello\0--resume=victim\0",
+    );
+    let got = procargs(&buf).unwrap();
+    assert_eq!(got, args(&["claude", "--append-system-prompt", "", "hello"]));
+    assert_eq!(resumed_session(&got), None);
+    // Fewer arguments than argc: nothing.
+    let mut buf = 3i32.to_ne_bytes().to_vec();
+    buf.extend_from_slice(b"/bin/claude\0\0claude\0");
+    assert_eq!(procargs(&buf), None);
+    // Repro (a418d95a F1): a forked launch starts a new conversation, in any position.
+    for fork in [
+        &["claude", "--resume=victim", "--fork-session"][..],
+        &["claude", "--fork-session", "--resume", "victim"],
+        &["claude", "-r", "victim", "--fork-session=true"],
+        &["claude", "--session-id=victim", "--fork-session"],
+    ] {
+        assert_eq!(resumed_session(&args(fork)), None, "{fork:?}");
+    }
 }
