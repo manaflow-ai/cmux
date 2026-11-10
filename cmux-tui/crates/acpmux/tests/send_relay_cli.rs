@@ -154,29 +154,32 @@ fn a_target_nobody_here_resolves_goes_to_the_relay_and_a_session_here_never_does
     assert_eq!(relayed(&dir).len(), count, "{:?}", relayed(&dir));
 }
 
-/// Dead, or a zombie its new parent has not reaped yet.
-fn gone(pid: &str) -> bool {
+/// No process of group PGID is left, except zombies their new parent has not reaped yet.
+fn group_gone(pgid: &str) -> bool {
     (0..50).any(|_| {
-        let out = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output();
-        let stat = String::from_utf8_lossy(&out.unwrap().stdout).trim().to_owned();
-        let dead = stat.is_empty() || stat.starts_with('Z');
-        if !dead {
+        let out = std::process::Command::new("ps").args(["-A", "-o", "pgid=,stat="]).output();
+        let listing = String::from_utf8_lossy(&out.unwrap().stdout).into_owned();
+        let alive = listing.lines().any(|line| {
+            let mut fields = line.split_whitespace();
+            fields.next() == Some(pgid) && !fields.next().unwrap_or_default().starts_with('Z')
+        });
+        if alive {
             std::thread::sleep(Duration::from_millis(20));
         }
-        dead
+        !alive
     })
 }
 
 /// The relay stalls, and a process it started holds the CLI's stdout and stderr open: the send
-/// still ends at its deadline, exits 3, and the relay's whole group is gone.
+/// still ends at its deadline, exits 3, and the relay's whole group is gone. The relay never gets
+/// to record its own pids before the kill (run 42709088333 lost that race on a loaded runner), so
+/// the group comes from the timeout error, which names it from the spawn.
 #[test]
 fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
     let dir = scratch("deadline");
     let _shutdown = Shutdown(&dir);
-    let pids = dir.join("relay-pids");
     let relay = dir.join("relay");
-    let script = format!("#!/bin/sh\nsleep 30 &\necho $$ $! > {}\nsleep 30\n", pids.display());
-    fs::write(&relay, script).unwrap();
+    fs::write(&relay, "#!/bin/sh\nsleep 30 &\nsleep 30\n").unwrap();
     fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
         dir.join("config.json"),
@@ -205,10 +208,14 @@ fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
     assert_eq!(output.status.code(), Some(3), "{}", text(&output));
     assert!(elapsed < Duration::from_secs(4), "the relay outlived the deadline: {elapsed:?}");
 
-    let pids = fs::read_to_string(&pids).unwrap();
-    for pid in pids.split_whitespace() {
-        assert!(gone(pid), "relay process {pid} survived the timeout ({pids})");
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let group = stderr
+        .split("process group ")
+        .nth(1)
+        .map(|rest| rest.chars().take_while(char::is_ascii_digit).collect::<String>())
+        .filter(|group| !group.is_empty())
+        .unwrap_or_else(|| panic!("the timeout names no relay process group: {}", text(&output)));
+    assert!(group_gone(&group), "relay process group {group} survived the timeout");
 }
 
 /// W5-M (b): a Claude Code subagent's relayed send names the subagent to the relay as a label
