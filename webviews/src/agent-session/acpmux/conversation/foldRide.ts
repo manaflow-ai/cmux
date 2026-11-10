@@ -19,6 +19,8 @@
 // - the line the reader clicked (the transcript's fold hold) is in a row the ride would move, or has
 //   moved from where it is held (another fold above it in its own row): the transcript keeps that
 //   line in place by moving the offset, which a translate cannot;
+// - the reader scrolls (`land`): the scroll range is still the placed one, which a scroll into the
+//   rows' new end would clamp to, so the transcript places the rows before the browser scrolls;
 // - the mounted rows, where they are placed or moved, do not reach past the view's end: a close
 //   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view
 //   or within a screen of it,
@@ -183,6 +185,16 @@ export class FoldRide {
   reset(): void {
     this.release();
     this.handed = undefined;
+  }
+
+  /// Places every row at the height it lays out at now, as the fold's end does: the reader scrolls,
+  /// and the scroll range must end where the rows show (review of #39917 at 184fed21: a scroll to a
+  /// run's foot clamped 1250px short). The folds still playing ride again from there.
+  land(): void {
+    if (!this.riding) return;
+    const folds = [...this.folds.keys()];
+    this.release();
+    this.options.finish(folds.filter((fold) => fold.isConnected));
   }
 
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.

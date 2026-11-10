@@ -273,3 +273,29 @@ test("the ride gives way when a row it would move plays its own animation", () =
   expect(notice.style.translate).toBe("0 40px");
   ride.release();
 });
+
+// The reader scrolls while rows ride: the scroll range is still the placed one, so the transcript
+// places every row now, before the browser scrolls (review of #39917 at 184fed21: a scroll to a
+// run's foot clamped 1250px short). Nothing riding, a scroll places nothing.
+test("a reader scroll lands the ride: the rows are placed before it scrolls", () => {
+  const rows = transcript(4);
+  const [row, below] = rows as [HTMLElement, HTMLElement];
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const finished: HTMLElement[][] = [];
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: (folds) => finished.push(folds),
+  });
+  ride.land();
+  expect(finished).toEqual([]);
+  markHeightFold(row, 10_000);
+  height.set(row, 900);
+  expect(ride.ride([row])).toBe(true);
+  expect(below.style.translate).toBe("0 800px");
+  ride.land();
+  expect(ride.riding).toBe(false);
+  expect(below.style.translate).toBe("");
+  expect(finished).toEqual([[row]]);
+});
