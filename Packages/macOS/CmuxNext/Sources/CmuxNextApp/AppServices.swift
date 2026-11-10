@@ -745,10 +745,9 @@ final class AppServices {
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
-        cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
-            guard let self else { return }
-            let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
-            if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs() }
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in // the changed tabs only: a tab that is no listed page costs one lookup
+            guard let self, let provider = self.browserHost?.provider else { return }
+            if let changed = self.cache.presentationChanges.changedKeys { provider.refreshTabs(changed) } else { provider.refreshTabs() }
         }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
