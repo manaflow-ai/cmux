@@ -419,7 +419,11 @@ public final class TabStripView: NSView {
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         syncShown()
-        if CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
+        // The pane gives a shown strip its frame after unhiding it: report from the next layout, which has it.
+        if CornerFlush.current.isOn {
+            reportedCornerFlush = false
+            needsLayout = true
+        }
     }
 
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
