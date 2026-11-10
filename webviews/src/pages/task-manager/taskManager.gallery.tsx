@@ -7,7 +7,13 @@ import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { firstSampleSnapshot, manyRowsSnapshot, MockTaskManagerProvider, normalSnapshot } from "./mockProvider";
+import {
+  firstSampleSnapshot,
+  longNamesSnapshot,
+  manyRowsSnapshot,
+  MockTaskManagerProvider,
+  normalSnapshot,
+} from "./mockProvider";
 import { EMPTY_SNAPSHOT, TaskManagerStore } from "./store";
 import { TaskManagerRoot } from "./TaskManagerPage";
 import type { SortOrder, TaskManagerSnapshot } from "./types";
@@ -57,6 +63,10 @@ export default componentEntry<Props>({
     "remote-selected": {
       note: "Another machine's process: shown as host:pid, never ended from here.",
       props: { snapshot: manyRowsSnapshot(), selected: "m-cloud:4242", order: { key: "pid", ascending: false } },
+    },
+    "long-names": {
+      note: "Long tab titles and executables, and a remote machine with a long id: at the narrow width the table scrolls sideways so Task and Process stay readable, and the host gives way before the pid.",
+      props: { snapshot: longNamesSnapshot(), selected: "devbox-eu-west-build-07:918273" },
     },
   },
 });

@@ -20,9 +20,13 @@
   scroll-padding-top: calc(var(--ds-control-row) + 1px);
 }
 
-/* Task and Process share the room; the numbers keep fixed columns. */
+/* Task and Process share the room; the numbers keep columns sized to their text (the PID column
+   fits a remote `host:pid`). Below the table's minimum width it scrolls sideways in .tm-table-scroll,
+   header and all, so Task keeps about 140px and Process about 110px: names stay readable at the
+   narrowest pane instead of shrinking to a letter. */
 .tm-table {
   width: 100%;
+  min-width: 490px;
   table-layout: fixed;
   border-collapse: collapse;
   outline: none;
@@ -31,17 +35,24 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 
-.tm-table th[data-column="task"] {
-  width: 36%;
+.tm-table th[data-column="pid"] {
+  width: 96px;
 }
 
-.tm-table th[data-column="pid"],
 .tm-table th[data-column="cpu"] {
-  width: 72px;
+  width: 60px;
 }
 
 .tm-table th[data-column="memory"] {
-  width: 96px;
+  width: 84px;
+}
+
+/* Narrow: Task holds its 140px and Process takes the rest (110px or more within the minimum width);
+   wider, the two split the room evenly. */
+@media (max-width: 540px) {
+  .tm-table th[data-column="task"] {
+    width: 140px;
+  }
 }
 
 .tm-table thead th {
@@ -126,6 +137,25 @@ th[aria-sort="descending"] .tm-sort {
 .tm-numeric {
   text-align: end;
   font-variant-numeric: tabular-nums;
+}
+
+/* Another machine's `host:pid`: the host gives way first, the pid never does. */
+.tm-remote-id {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.tm-remote-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-remote-pid {
+  flex: none;
+  white-space: nowrap;
 }
 
 .tm-empty {

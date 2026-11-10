@@ -142,9 +142,26 @@ function Row({ row, selected, onSelect }: { row: TaskManagerRow; selected: boole
     >
       <td title={row.task}>{row.task}</td>
       <td title={row.name}>{row.name}</td>
-      <td className="tm-numeric">{pidText(row)}</td>
-      <td className="tm-numeric">{row.cpuText}</td>
-      <td className="tm-numeric">{row.memoryText}</td>
+      <td className="tm-numeric" title={pidText(row)}>
+        <PidCell row={row} />
+      </td>
+      <td className="tm-numeric" title={row.cpuText}>
+        {row.cpuText}
+      </td>
+      <td className="tm-numeric" title={row.memoryText}>
+        {row.memoryText}
+      </td>
     </tr>
+  );
+}
+
+/** The PID cell: the pid here; another machine's `host:pid` with only the host ellipsized. */
+function PidCell({ row }: { row: TaskManagerRow }) {
+  if (row.host === "local") return <>{row.pid}</>;
+  return (
+    <span className="tm-remote-id">
+      <span className="tm-remote-host">{row.host}</span>
+      <span className="tm-remote-pid">:{row.pid}</span>
+    </span>
   );
 }

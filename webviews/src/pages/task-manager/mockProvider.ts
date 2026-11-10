@@ -75,6 +75,18 @@ export function manyRowsSnapshot(): TaskManagerSnapshot {
   return { revision: 340, rows, total: "CPU 812.4% · Memory 9.87 GB" };
 }
 
+/** Long names and a remote machine with a long id: what the narrow pane must keep readable. */
+export function longNamesSnapshot(): TaskManagerSnapshot {
+  const rows = [
+    ...normalSnapshot().rows,
+    row(6120, "release notes draft, design review, cmux-next nightly", "cmux Helper (Renderer)", 0.042, 212.6),
+    row(6188, "workspace build-and-test", "cargo-nextest", 0.31, 640.2),
+    row(918273, "cmux daemon", "cmux-tui", 0.008, 41.3, REMOTE_REFUSAL, "devbox-eu-west-build-07"),
+    row(4242, "cmux daemon", "cmux-tui", 0.011, 39.8, REMOTE_REFUSAL, "m-cloud"),
+  ];
+  return { revision: 41, rows, total: "CPU 68.4% · Memory 2.01 GB" };
+}
+
 export class MockTaskManagerProvider implements PageClient {
   readonly calls: { op: string; params: unknown }[] = [];
 

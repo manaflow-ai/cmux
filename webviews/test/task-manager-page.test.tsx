@@ -130,3 +130,26 @@ test("arrowing past the visible rows reveals each newly selected row", async () 
     view.scrollIntoView = original;
   }
 });
+
+test("every cell carries its full text as a tooltip, and a remote id keeps its pid out of the ellipsis", async () => {
+  const { longNamesSnapshot } = await import("../src/pages/task-manager/mockProvider");
+  await mount(longNamesSnapshot());
+  const rows = [...host.querySelectorAll(".tm-row")];
+  expect(rows.length).toBeGreaterThan(0);
+  for (const row of rows) {
+    for (const cell of row.querySelectorAll("td")) expect(cell.getAttribute("title")).toBe(cell.textContent);
+  }
+  const remote = host.querySelector('.tm-row[data-row-id="devbox-eu-west-build-07:918273"]')!;
+  const [task, name, pid] = remote.querySelectorAll("td");
+  expect(task.getAttribute("title")).toBe("cmux daemon");
+  expect(name.getAttribute("title")).toBe("cmux-tui");
+  expect(pid.getAttribute("title")).toBe("devbox-eu-west-build-07:918273");
+  // Only the host may ellipsize; the pid sits in its own element beside it.
+  expect(pid.querySelector(".tm-remote-host")?.textContent).toBe("devbox-eu-west-build-07");
+  expect(pid.querySelector(".tm-remote-pid")?.textContent).toBe(":918273");
+  expect(pid.querySelector(".tm-remote-host .tm-remote-pid, .tm-remote-pid .tm-remote-host")).toBeNull();
+  // A local pid is the bare number.
+  const local = host.querySelector('.tm-row[data-row-id="local:6120"] td:nth-child(3)')!;
+  expect(local.textContent).toBe("6120");
+  expect(local.querySelector(".tm-remote-id")).toBeNull();
+});
