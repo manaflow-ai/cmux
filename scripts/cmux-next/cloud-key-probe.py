@@ -5,7 +5,9 @@ It reads every process's environment and command line, and every file under the 
 and the temp folders (whole, binary ones too), and prints one JSON line (after the `@@keyprobe ` marker)
 naming each finding by place and kind: `env` (a process's variable), `cmdline` (a process's arguments) or
 `file` (a path, and the line in a text file). It never prints, hashes or sends a value: a finding is the
-variable's name or the key's kind ("an Anthropic OAuth token"), never any of its characters.
+variable's name or the key's kind ("an Anthropic OAuth token"), never any of its characters. Every string it
+prints (a path, a process name) has its key-shaped parts replaced by their kind first, since a file or process
+can be named with a key.
 
 `complete` says whether "no finding" means "no key": it is true only when the probe ran as root, read
 every live process's environment and command line, read every file and directory, and finished the walk
@@ -89,6 +91,25 @@ PREFILTER = re.compile(
 ARG_ASSIGN = re.compile(r"^-{0,2}([A-Za-z][A-Za-z0-9_-]*)=(.*)$", re.S)
 ARG_NAME = re.compile(r"^-{1,2}([A-Za-z][A-Za-z0-9_-]*)$")
 INLINE_ASSIGN = re.compile(r"(?:^|[\s;&|(`])(?:export\s+)?([A-Z][A-Z0-9_]*)=([^\s;&|)`]*)")
+
+
+def redact(text):
+    """`text` (a path, a process name: anything the machine controls) with every key-shaped part replaced, so no
+    finding's place can carry a key out."""
+    for kind, pattern in SHAPES:
+        text = pattern.sub(f"[{kind}]", text)
+    return text
+
+
+def redacted(value):
+    """Every string in the report, redacted."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, list):
+        return [redacted(v) for v in value]
+    if isinstance(value, dict):
+        return {redact(k): redacted(v) for k, v in value.items()}
+    return value
 
 
 def value_finding(value):
@@ -328,7 +349,7 @@ def main(argv):
     report["gaps"] = gaps
     report["complete"] = not gaps
     report["ms"] = int((time.monotonic() - t0) * 1000)
-    print("@@keyprobe " + json.dumps(report, sort_keys=True))
+    print("@@keyprobe " + json.dumps(redacted(report), sort_keys=True))
     return 0
 
 

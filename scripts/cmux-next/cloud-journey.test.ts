@@ -916,6 +916,7 @@ describe("clean-room provider key probe", () => {
   const PROJ = tok("sk-proj-", 32);
   const GEMINI = "AQ.Ab8RN6Jq2ZkVd0wXyP4s";
   const REFRESH = tok("rt_", 30);
+  const GEMINI_SHAPE = `AIza${"Q".repeat(35)}`;
   const plant = (files: Record<string, string>): string => {
     const root = mkdtempSync(join(tmpdir(), "key-probe-"));
     for (const [rel, text] of Object.entries(files)) {
@@ -949,6 +950,11 @@ describe("clean-room provider key probe", () => {
       "proc/105/comm": "sh\n",
       "proc/105/environ": "",
       "proc/105/cmdline": "sh\0-c\0cd /w && XAI_API_KEY=opaque4 run; echo OPENAI_API_KEY=$OPENAI_API_KEY\0",
+      // A file and a process named with a key: found, and the name never prints the key.
+      [`home/cmux/cache/${PROJ}`]: `${PROJ}\n`,
+      "proc/106/comm": `${GEMINI_SHAPE}\n`,
+      "proc/106/environ": `CLAUDE_CODE_OAUTH_TOKEN=${OAUTH}\0`,
+      "proc/106/cmdline": "x\0",
       // A key inside node_modules and inside a binary file still counts.
       "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
@@ -961,7 +967,7 @@ describe("clean-room provider key probe", () => {
     });
     try {
       const { out, probe } = run(root);
-      for (const v of [OAUTH, PROJ, GEMINI, REFRESH, OAUTH.slice(13, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
+      for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
       const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
       expect(got).toEqual([
         "cmdline process env (1 pid): OPENAI_API_KEY",
@@ -969,6 +975,7 @@ describe("clean-room provider key probe", () => {
         "cmdline process sh (1 pid): XAI_API_KEY",
         "cmdline process tool (1 pid): GEMINI_API_KEY",
         "cmdline process tool (1 pid): OPENAI_API_KEY",
+        "env process [a Google AI key] (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
         "env process claude (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
         "file /home/cmux/.bashrc:2: GEMINI_API_KEY",
         "file /home/cmux/.claude/.credentials.json: a Claude login file",
@@ -977,9 +984,10 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
         "file /home/cmux/app/node_modules/x/.env:1: ANTHROPIC_API_KEY",
         "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
+        "file /home/cmux/cache/[an OpenAI project key]:1: an OpenAI project key",
         "file /opt/tool/bin/blob: an OpenAI project key",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("14 findings: ");
+      expect(keyProbeDetail(probe)).toStartWith("16 findings: ");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
@@ -1039,6 +1047,13 @@ describe("clean-room provider key probe", () => {
       spawnSync("chmod", ["-R", "u+rwX", root]);
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("scrub removes provider keys from any text the journey records", () => {
+    const text = `probe printed ${OAUTH} and ${PROJ} at /x/${GEMINI_SHAPE}`;
+    const out = scrub(text);
+    for (const v of [OAUTH, PROJ, GEMINI_SHAPE]) expect(out).not.toContain(v);
+    expect(out).toContain("[secret]");
   });
 
   test("an answer without the marker line is an error, not a clean machine", () => {
