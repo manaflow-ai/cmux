@@ -188,7 +188,7 @@ final class DaemonCredentialPageProvider: PageProvider {
         guard op == "cmux.host.credential.load" else { throw PageError.unknownOp(op) }
         let credential = try await daemonCredential()
         guard case .object(var fields) = credential, let chief else { return credential }
-        switch await chief.pageEndpoint(page: page) {
+        switch await chief.pageEndpoint(page: page, waitingUpTo: ChiefConversationOwner.pageStartWait) {
         case .starting: throw PageError.unavailable(Self.chiefStarting)
         case .unavailable: return credential
         case .ready(let owner):
