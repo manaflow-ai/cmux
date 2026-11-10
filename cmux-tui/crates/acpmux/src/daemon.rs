@@ -135,29 +135,30 @@ fn install_panic_log() {
         is_test_panic_thread,
     );
     #[cfg(debug_assertions)]
-    #[allow(
-        clippy::panic,
-        reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
-    )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         let _ = std::thread::Builder::new()
             .name(TEST_PANIC_THREAD.into())
-            // crash-allow: debug-only test trigger for the acpmux panic log
-            .spawn(|| panic!("acpmux test panic"));
+            .spawn(|| test_panic("acpmux test panic"));
     }
+}
+
+/// Debug builds only: the one panic the test triggers below raise.
+#[cfg(debug_assertions)]
+#[allow(
+    clippy::panic,
+    reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+)]
+fn test_panic(message: &str) -> ! {
+    // crash-allow: debug-only test trigger for the acpmux panic log
+    panic!("{message}");
 }
 
 /// Debug builds only: `ACPMUX_TEST_PANIC=<task>` makes that task of the daemon panic
 /// (tests/panic_log.rs).
 #[cfg(debug_assertions)]
-#[allow(
-    clippy::panic,
-    reason = "debug-build test trigger for a task's panic; release builds have no seam"
-)]
 fn test_panic_in(task: &str) {
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok(task) {
-        // crash-allow: debug-only test trigger for a task's panic
-        panic!("acpmux test panic in {task}");
+        test_panic(&format!("acpmux test panic in {task}"));
     }
 }
 
