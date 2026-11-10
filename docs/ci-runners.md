@@ -41,8 +41,10 @@ when that job is running. The gate keys on job names, so it refuses when one
 it waits for is no longer a job in the head's `cmux-next.yml`, `ci.yml` or
 `ci-web.yml`. It skips the merged-tree checks (merge cleanliness, the god-file
 check and `vp check`), except for a pull request that changes a path listed in
-`scripts/ci/merge-fast-gate-protected-paths.txt` on the base: workflows, shared CI
-scripts and `gh-merge-green` itself. That one gets every merged-tree check. The full
+`scripts/ci/merge-fast-gate-protected-paths.txt`: workflows, shared CI scripts and
+`gh-merge-green` itself. That one gets every merged-tree check. The list is the helper
+checkout's own copy (main), read with the gate code, so no feat-cmux-next pull request can
+change it; a missing, unreadable or empty list refuses the merge. The full
 suites run after the merge. It prints one `gh-merge-green:` line saying what
 it checked and how long it waited.
 

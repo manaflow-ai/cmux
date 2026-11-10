@@ -7,6 +7,8 @@
 
 mod directory;
 use directory::PublishedDirectory;
+mod pending_bells;
+use pending_bells::PendingBells;
 #[cfg(unix)]
 mod host_frames;
 
@@ -1682,6 +1684,12 @@ pub struct PtyTerminalRuntime {
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
     journal_capture_disabled: AtomicBool,
+    /// Why this terminal's journal lost output that no `terminal.output.gap`
+    /// record names yet. The record goes into the terminal lane before any
+    /// later output; after a full lane, only once the lane has drained to
+    /// half, so one record covers the whole dropped range. Lock it only under
+    /// `journal_capture_gate`.
+    journal_gap_pending: Mutex<Option<&'static str>>,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -1694,6 +1702,9 @@ pub struct PtyTerminalRuntime {
     reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     reaper_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
+    /// Bells the parser rang under `term`. `Mux::emit_terminal_bell` takes
+    /// `Mux::state`, so they are published only after `term` is released.
+    pending_bells: PendingBells,
     stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
@@ -2195,11 +2206,7 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
 }
 
 #[cfg(unix)]
-fn hosted_terminal_callbacks(
-    id: SurfaceId,
-    mux: Weak<Mux>,
-    title_changed: Arc<AtomicBool>,
-) -> Callbacks {
+fn hosted_terminal_callbacks(bells: &PendingBells, title_changed: Arc<AtomicBool>) -> Callbacks {
     Callbacks {
         // The terminal-host parser is authoritative and already writes query
         // responses (DA/DSR, Kitty graphics, OSC colors, ...) to the PTY. A
@@ -2209,11 +2216,7 @@ fn hosted_terminal_callbacks(
         on_title_changed: Some(Box::new(move || {
             title_changed.store(true, Ordering::Relaxed);
         })),
-        on_bell: Some(Box::new(move || {
-            if let Some(mux) = mux.upgrade() {
-                mux.emit_terminal_bell(id);
-            }
-        })),
+        on_bell: Some(bells.callback()),
     }
 }
 
@@ -2572,6 +2575,9 @@ impl Surface {
         // is fine, but keeping it queued makes the locking obvious).
         let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
+        // `on_bell` runs under the terminal lock: it only counts, and the
+        // reader publishes after it unlocks (see `PendingBells`).
+        let pending_bells = PendingBells::default();
 
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
@@ -2582,14 +2588,7 @@ impl Surface {
                 let flag = title_changed.clone();
                 move || flag.store(true, Ordering::Relaxed)
             })),
-            on_bell: Some(Box::new({
-                let mux = mux.clone();
-                move || {
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
-                    }
-                }
-            })),
+            on_bell: Some(pending_bells.callback()),
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
@@ -2627,6 +2626,7 @@ impl Surface {
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 journal_capture_disabled: AtomicBool::new(false),
+                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -2634,6 +2634,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2753,6 +2754,7 @@ impl Surface {
                             Err(_) => break,
                         };
                         let mut scroll_changed = None;
+                        let mut title_update = None;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             if let Some(update) = journal_update.as_mut()
@@ -2789,9 +2791,7 @@ impl Surface {
                             if title_changed.swap(false, Ordering::Relaxed) {
                                 let title = term.title().unwrap_or_default();
                                 *pty.title.lock().unwrap() = title.clone();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.emit_terminal_title(surface.id, title.into());
-                                }
+                                title_update = Some(title);
                             }
                             pty.record_directory(term.pwd());
                             if before != after {
@@ -2823,6 +2823,16 @@ impl Surface {
                         surface.publish_pending_last_command();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
+                        // Mux events take `Mux::state`. A resize holds the
+                        // geometry lock while it takes the terminal lock, and
+                        // a tree delta reads geometry under `Mux::state`, so
+                        // publish only after the terminal lock is released.
+                        pty.pending_bells.publish(&mux, surface.id);
+                        if let Some(title) = title_update
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.emit_terminal_title(surface.id, title.into());
+                        }
                         if let Some((offset, at_bottom)) = scroll_changed
                             && let Some(mux) = mux.upgrade()
                         {
@@ -3028,6 +3038,7 @@ impl Surface {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
         pty.request_frame(generation);
+        pty.pending_bells.publish(mux, surface.id);
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
         {
@@ -3079,7 +3090,8 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+        let pending_bells = PendingBells::default();
+        let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         anyhow::ensure!(
@@ -3153,6 +3165,7 @@ impl Surface {
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 journal_capture_disabled: AtomicBool::new(false),
+                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -3160,6 +3173,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3451,6 +3465,7 @@ impl Surface {
                                 surface.publish_pending_last_command();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
+                                pty.pending_bells.publish(&mux, surface.id);
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
                                 {
@@ -3515,8 +3530,7 @@ impl Surface {
                                     .map(|mux| mux.default_colors())
                                     .unwrap_or_default();
                                 let callbacks = hosted_terminal_callbacks(
-                                    id,
-                                    mux.clone(),
+                                    &pty.pending_bells,
                                     title_changed.clone(),
                                 );
                                 let Ok(mut replacement) =
@@ -3599,6 +3613,7 @@ impl Surface {
                                 surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
+                                pty.pending_bells.publish(&mux, surface.id);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.emit_terminal_title(surface.id, title.into());
                                     mux.emit_terminal_resized(surface.id, cols, rows, None);
@@ -3750,7 +3765,6 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3821,7 +3835,7 @@ impl Surface {
                             cell_height: replacement_snapshot.cell_pixels.1,
                         };
                         let callbacks =
-                            hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+                            hosted_terminal_callbacks(&pty.pending_bells, title_changed.clone());
                         let Ok(mut replacement_term) = Terminal::new(
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
@@ -3948,52 +3962,21 @@ impl Surface {
                             }
                             continue;
                         }
-                        if reconnect_mux.terminal_journal_enabled()
-                            && pty.journal_capture_supported
-                        {
-                            let checkpoint_key = format!(
-                                "host-reconnect:{}:{}:{}",
-                                identity.terminal_id,
-                                identity.incarnation,
-                                replacement_sequence_boundary
-                            );
-                            // The checkpoint is a journal-replay optimization:
-                            // failing to capture one only means the next replay
-                            // starts from an older boundary. Capture races with
-                            // every other terminal's concurrent reconnect
-                            // appends, so retry it in place a few times - and
-                            // never tear down the freshly reconnected, healthy
-                            // host over it. The old path disconnected and re-ran
-                            // the full reconnect up to 16 times per terminal,
-                            // each attempt's journal writes re-poisoning the
-                            // other terminals' captures.
-                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
-                                "terminal_host_reconnect",
-                                &checkpoint_key,
-                            );
-                            for attempt in 1u32..4 {
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(25 << attempt));
-                                checkpoint = reconnect_mux.create_journal_checkpoint(
-                                    "terminal_host_reconnect",
-                                    &checkpoint_key,
-                                );
-                            }
-                            match checkpoint {
-                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
-                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
-                                    &identity.terminal_id,
-                                    &error,
-                                ),
-                            }
-                        }
+                        // Bytes the host wrote while no daemon tap existed are
+                        // not in the journal. Record that gap in the terminal
+                        // lane before any new output; the journal retention
+                        // worker coalesces one checkpoint for the whole wave
+                        // (mux/journal_retention.rs). Capturing a session
+                        // checkpoint here kept this reader from the new
+                        // stream: under continuous output the host dropped
+                        // each replacement tap in turn.
+                        pty.journal_gap("host_reconnect");
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,
                         );
                         surface.publish_pending_directory();
+                        pty.pending_bells.publish(&pty.mux, pty.event_surface_id);
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -4228,7 +4211,8 @@ impl Surface {
         let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
+        let pending_bells = PendingBells::default();
+        let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -4269,6 +4253,7 @@ impl Surface {
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 journal_capture_disabled: AtomicBool::new(false),
+                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4276,6 +4261,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4460,17 +4446,9 @@ impl Surface {
             cell_height: cell_pixels.1,
         };
         let initial_pty_size = initial_geometry.pty_size()?;
-        let callbacks = Callbacks {
-            on_bell: Some(Box::new({
-                let mux = mux.clone();
-                move || {
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
-                    }
-                }
-            })),
-            ..Callbacks::default()
-        };
+        let pending_bells = PendingBells::default();
+        let callbacks =
+            Callbacks { on_bell: Some(pending_bells.callback()), ..Callbacks::default() };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
@@ -4506,6 +4484,7 @@ impl Surface {
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
                 journal_capture_disabled: AtomicBool::new(false),
+                journal_gap_pending: Mutex::new(None),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4513,6 +4492,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4580,6 +4560,14 @@ impl Surface {
         Ok(surface)
     }
 
+    /// Records this terminal's pending journal gap if the terminal lane takes
+    /// it: the retention worker calls this ahead of a coalesced checkpoint.
+    pub(crate) fn record_pending_journal_gap(&self) {
+        if let Some(pty) = self.as_pty() {
+            pty.record_pending_journal_gap();
+        }
+    }
+
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -4641,13 +4629,20 @@ impl Surface {
         // update crossed the reader deadline, wait through the active-update
         // grace. Report a gap if that update still did not complete.
         let output_gap = pty.close_terminal_journal_capture_when_idle(deadline);
-        if !output_gap || !pty.journal_capture_supported {
+        // A gap that found the terminal lane full, with no later output to
+        // record it ahead of.
+        let pending_gap = {
+            let _gate = pty.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
+            pty.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner()).take()
+        };
+        if !pty.journal_capture_supported {
             return None;
         }
+        let reason = if output_gap { "active_update_timeout" } else { pending_gap? };
         pty.terminal_public_id.clone().map(|terminal_id| TerminalJournalGap {
             terminal_id,
             generation: pty.journal_generation.clone(),
-            reason: "active_update_timeout",
+            reason,
         })
     }
 
@@ -6868,6 +6863,14 @@ impl PtySurface {
             .then_some((mux, terminal_id))
     }
 
+    /// Hands output to the journal's terminal lane without waiting. The
+    /// journal is a replay record and must not hold this reader back: a
+    /// reader that waits for lane space stops reading its host stream, and
+    /// the host drops the daemon's tap once it is 8 MiB behind. When the lane
+    /// is full, the output is not journaled, the terminal is noted for the
+    /// coalesced checkpoint, and the terminal keeps dropping until the lane
+    /// has drained to half; then one `journal_queue_full` gap record goes
+    /// ahead of the next output.
     fn journal_output_if_open(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
@@ -6875,56 +6878,41 @@ impl PtySurface {
     ) {
         let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
-            let mut pending = chunk.to_vec();
-            loop {
-                let retry = {
-                    let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire)
-                        || self.journal_capture_disabled.load(Ordering::Acquire)
-                    {
-                        return;
-                    }
-                    mux.try_journal_terminal_output(
-                        terminal_id.clone(),
-                        self.journal_generation.clone(),
-                        occurred_at_ms,
-                        pending,
-                    )
-                };
-                let retry = match retry {
-                    Ok(retry) => retry,
-                    Err(error) => {
-                        self.journal_capture_disabled.store(true, Ordering::Release);
-                        if mux
-                            .try_journal_terminal_output_gap(
-                                terminal_id,
-                                self.journal_generation.clone(),
-                                "journal_output_write_failed",
-                            )
-                            .is_err()
-                        {
-                            eprintln!(
-                                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
-                            );
-                        }
-                        eprintln!(
-                            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
-                        );
-                        return;
-                    }
-                };
-                let Some((retry, space_epoch)) = retry else { break };
-                pending = retry;
-                let deadline = mux.terminal_journal_durable_deadline();
-                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
+            let sent = {
+                let _gate =
+                    self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
+                if !self.journal_capture_open.load(Ordering::Acquire)
+                    || self.journal_capture_disabled.load(Ordering::Acquire)
                 {
+                    return;
+                }
+                let mut pending =
+                    self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
+                if !self.record_journal_gap(&mux, &terminal_id, &mut pending, true) {
+                    return;
+                }
+                let sent = mux.try_journal_terminal_output(
+                    terminal_id.clone(),
+                    self.journal_generation.clone(),
+                    occurred_at_ms,
+                    chunk.to_vec(),
+                );
+                if matches!(sent, Ok(Some(_))) && pending.is_none() {
+                    *pending = Some("journal_queue_full");
+                    mux.note_journal_gap_for_retention(&terminal_id);
+                }
+                sent
+            };
+            match sent {
+                Ok(None) => {}
+                Ok(Some(_)) => return,
+                Err(error) => {
                     self.journal_capture_disabled.store(true, Ordering::Release);
                     if mux
-                        .try_journal_terminal_output_gap_until(
+                        .try_journal_terminal_output_gap(
                             terminal_id,
                             self.journal_generation.clone(),
-                            "journal_output_deadline_expired",
-                            deadline,
+                            "journal_output_write_failed",
                         )
                         .is_err()
                     {
@@ -6941,19 +6929,90 @@ impl PtySurface {
         }
     }
 
+    /// Notes that this terminal's journal lost output (`reason`) and records
+    /// the gap now if the terminal lane has room; otherwise the next output
+    /// records it first.
+    fn journal_gap(&self, reason: &'static str) {
+        self.journal_gap_now(Some(reason), true);
+    }
+
+    /// Records the pending gap, if any, without noting the terminal again:
+    /// the retention worker calls this for the terminals it checkpoints.
+    fn record_pending_journal_gap(&self) {
+        self.journal_gap_now(None, false);
+    }
+
+    fn journal_gap_now(&self, reason: Option<&'static str>, note_retention: bool) {
+        let Some((mux, terminal_id)) = self.journal_target() else { return };
+        let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
+        if !self.journal_capture_open.load(Ordering::Acquire)
+            || self.journal_capture_disabled.load(Ordering::Acquire)
+        {
+            return;
+        }
+        let mut pending =
+            self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(reason) = reason.filter(|_| pending.is_none()) {
+            *pending = Some(reason);
+            mux.note_journal_gap_for_retention(&terminal_id);
+        }
+        self.record_journal_gap(&mux, &terminal_id, &mut pending, note_retention);
+    }
+
+    /// Records the pending gap, if any. `false` while it cannot be recorded,
+    /// so no later output may enter the lane yet: the terminal lane has no
+    /// room, or (after a full lane) has not drained to half yet, so the
+    /// dropped range stays open under the one pending gap.
+    fn record_journal_gap(
+        &self,
+        mux: &Arc<Mux>,
+        terminal_id: &Arc<TerminalPublicId>,
+        pending: &mut Option<&'static str>,
+        note_retention: bool,
+    ) -> bool {
+        let Some(reason) = *pending else { return true };
+        if reason == "journal_queue_full" && !mux.terminal_journal_lane_can_resume() {
+            return false;
+        }
+        if !mux.journal_terminal_output_gap(
+            terminal_id.clone(),
+            self.journal_generation.clone(),
+            reason,
+            note_retention,
+        ) {
+            return false;
+        }
+        *pending = None;
+        true
+    }
+
+    /// Journals an accepted geometry change without waiting, in order with
+    /// this terminal's output: a pending gap goes first, and a full terminal
+    /// lane leaves a `journal_queue_full` gap in place of the change. Callers
+    /// hold the parser lock, so a wait here would stall the terminal.
     fn journal_geometry(&self, geometry: PtyGeometry) {
         let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
         else {
             return;
         };
-        mux.journal_terminal_resize(
-            terminal_id,
+        let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
+        let mut pending =
+            self.journal_gap_pending.lock().unwrap_or_else(|error| error.into_inner());
+        if !self.record_journal_gap(&mux, &terminal_id, &mut pending, true) {
+            return;
+        }
+        if !mux.try_journal_terminal_resize(
+            terminal_id.clone(),
             self.journal_generation.clone(),
             geometry.cols,
             geometry.rows,
             geometry.cell_width,
             geometry.cell_height,
-        );
+        ) && pending.is_none()
+        {
+            *pending = Some("journal_queue_full");
+            mux.note_journal_gap_for_retention(&terminal_id);
+        }
     }
 
     fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
@@ -8066,6 +8125,357 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_full_terminal_journal_lane_drops_output_and_records_a_gap_before_later_output() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-lane-full-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux =
+            Mux::open_persistent("terminal-journal-lane-full", SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000082",
+                "10000000000040008000000000000082",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        print_journaled_for_test(&surface, &mux, "held");
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        // More chunks than the terminal lane holds: none of these calls may
+        // wait for the held writer.
+        for _ in 0..2048 {
+            print_journaled_for_test(&surface, &mux, "flood");
+        }
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
+
+        release.send(()).unwrap();
+        mux.flush_terminal_journal().unwrap();
+        print_journaled_for_test(&surface, &mux, "after-the-gap");
+        mux.flush_terminal_journal().unwrap();
+
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), None);
+        assert!(!pty.journal_capture_disabled.load(Ordering::Acquire));
+        let records = journal_records_after_for_test(&mux, 0);
+        let gap = records
+            .iter()
+            .position(|record| {
+                record.kind == "terminal.output.gap"
+                    && record.payload["reason"] == "journal_queue_full"
+            })
+            .expect("a journal_queue_full gap record");
+        let later = records
+            .iter()
+            .rposition(|record| record.kind == "terminal.output")
+            .expect("the later output record");
+        assert!(gap < later, "the gap record must precede the output after it");
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Every journal record after `sequence`, read in pages of the largest
+    /// size the journal serves.
+    #[cfg(unix)]
+    fn journal_records_after_for_test(
+        mux: &Mux,
+        mut sequence: u64,
+    ) -> Vec<crate::workspace_registry::SessionJournalRecord> {
+        let mut records = Vec::new();
+        loop {
+            let page = mux.session_journal_after(sequence, 1024).unwrap();
+            let Some(last) = page.records.last() else {
+                return records;
+            };
+            sequence = last.sequence;
+            records.extend(page.records);
+        }
+    }
+
+    /// Prints `text` the way the hosted reader does: the parser and the
+    /// journal see it inside one journal update, so a checkpoint capture
+    /// never pairs a parser state with a journal that lacks its bytes.
+    #[cfg(unix)]
+    fn print_journaled_for_test(surface: &Surface, mux: &Arc<Mux>, text: &str) {
+        let pty = surface.as_pty().unwrap();
+        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
+        let mut update = surface.begin_terminal_journal_update_for_test().unwrap();
+        assert!(update.activate());
+        surface.apply_local_pty_output_for_test(text.as_bytes()).unwrap();
+        pty.journal_output_if_open((mux.clone(), terminal_id), text.as_bytes().to_vec());
+        drop(update);
+    }
+
+    /// Output the journal dropped while its terminal lane was full is
+    /// covered by the coalesced checkpoint after the gap: that checkpoint plus
+    /// the journal after it replays the live screen and scrollback exactly,
+    /// and the gap record stays in the journal for diagnosis.
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_journal_range_is_covered_by_the_next_coalesced_checkpoint() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-gap-replay-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux =
+            Mux::open_persistent("terminal-journal-gap-replay", SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000081",
+                "10000000000040008000000000000081",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().clone();
+        let pty = surface.as_pty().unwrap();
+        for line in 0..20 {
+            print_journaled_for_test(&surface, &mux, &format!("before-{line}\r\n"));
+        }
+        mux.flush_terminal_journal().unwrap();
+
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        print_journaled_for_test(&surface, &mux, "held\r\n");
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        // More chunks than the terminal lane's 1024 slots.
+        for line in 0..1100 {
+            print_journaled_for_test(&surface, &mux, &format!("flood-{line}\r\n"));
+        }
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
+        release.send(()).unwrap();
+        mux.flush_terminal_journal().unwrap();
+        print_journaled_for_test(&surface, &mux, "after-the-gap\r\n");
+        mux.flush_terminal_journal().unwrap();
+
+        // One failed capture retries after the 30 s interval.
+        assert!(
+            mux.wait_for_coalesced_checkpoints_for_test(1, Duration::from_secs(40)),
+            "no coalesced checkpoint after the journal gap"
+        );
+        for line in 0..20 {
+            print_journaled_for_test(&surface, &mux, &format!("after-checkpoint-{line}\r\n"));
+        }
+        mux.flush_terminal_journal().unwrap();
+
+        let (checkpoint_id, replayed) =
+            replay_from_newest_checkpoint_for_test(&mux, &root, &terminal_id);
+        let live = surface.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+        assert!(live.contains("flood-1099") && live.contains("after-checkpoint-19"));
+        assert_eq!(replayed, live);
+        let preview = mux.journal_restore_preview(&checkpoint_id).unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        assert!(journal_records_after_for_test(&mux, 0).iter().any(|record| {
+            record.kind == "terminal.output.gap" && record.payload["reason"] == "journal_queue_full"
+        }));
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Rebuilds a terminal from the newest journal checkpoint plus the
+    /// `terminal.output` records after it. Returns the checkpoint id and the
+    /// rebuilt screen and scrollback.
+    #[cfg(unix)]
+    fn replay_from_newest_checkpoint_for_test(
+        mux: &Mux,
+        root: &std::path::Path,
+        terminal_id: &TerminalPublicId,
+    ) -> (String, String) {
+        let checkpoint = mux.journal_checkpoints().unwrap().into_iter().next().unwrap();
+        let content = checkpoint
+            .content_refs
+            .iter()
+            .find(|content| content.terminal_id == terminal_id.as_str())
+            .expect("the checkpoint holds the terminal's replay");
+        let database_path = std::fs::read_dir(root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let compressed: Vec<u8> = rusqlite::Connection::open(database_path)
+            .unwrap()
+            .query_row(
+                "SELECT content FROM journal_content_blobs WHERE content_id = ?1",
+                [&content.content_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(compressed.as_slice()).read_to_end(&mut decoded).unwrap();
+        let replay: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        let replay_bytes = base64::engine::general_purpose::STANDARD
+            .decode(replay["bytes_base64"].as_str().unwrap())
+            .unwrap();
+        let mut replayed =
+            Terminal::new(content.cols, content.rows, 64 * 1024 * 1024, Callbacks::default())
+                .unwrap();
+        replayed.vt_write(&replay_bytes);
+        let after = journal_records_after_for_test(mux, checkpoint.source_sequence);
+        for record in after.iter().filter(|record| record.kind == "terminal.output") {
+            replayed.vt_write(record.terminal_output.as_deref().unwrap());
+        }
+
+        (checkpoint.checkpoint_id, replayed.plain_text().unwrap())
+    }
+
+    /// A terminal lane that stays more than half full keeps the terminal's
+    /// output out of the journal, so the many episodes in which the lane
+    /// fills while the writer drains one batch at a time give one gap
+    /// record for the whole dropped range, not one gap per batch with a
+    /// chunk of output between each.
+    #[cfg(unix)]
+    #[test]
+    fn dropped_output_stays_one_gap_until_the_terminal_lane_drains_to_half() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-gap-coalesce-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux =
+            Mux::open_persistent("terminal-journal-gap-coalesce", SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000083",
+                "10000000000040008000000000000083",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (step, step_receiver) = sync_channel(1);
+        mux.install_journal_writer_pacing_for_test(entered, step_receiver);
+        print_journaled_for_test(&surface, &mux, "held\r\n");
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        // More chunks than the terminal lane's 1024 slots.
+        for _ in 0..1100 {
+            print_journaled_for_test(&surface, &mux, "flood\r\n");
+        }
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
+        // Each step lets the writer commit one batch and take the next (at
+        // most 64 chunks): the lane stays more than half full, and the
+        // terminal fills it again each round.
+        for _ in 0..5 {
+            step.send(()).unwrap();
+            entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            for _ in 0..100 {
+                print_journaled_for_test(&surface, &mux, "flood\r\n");
+            }
+        }
+        drop(step);
+        mux.flush_terminal_journal().unwrap();
+        print_journaled_for_test(&surface, &mux, "after-the-gap\r\n");
+        mux.flush_terminal_journal().unwrap();
+
+        let records = journal_records_after_for_test(&mux, 0);
+        let gaps: Vec<usize> = records
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| {
+                record.kind == "terminal.output.gap"
+                    && record.payload["reason"] == "journal_queue_full"
+            })
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(gaps.len(), 1, "one gap record for the whole dropped range: {gaps:?}");
+        let next_output = records[gaps[0]..]
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("the output after the gap");
+        assert_eq!(next_output.terminal_output.as_deref(), Some(&b"after-the-gap\r\n"[..]));
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A burst whose tail the journal dropped, with no output after it, still
+    /// gets its gap record and a coalesced checkpoint after that record: the
+    /// marker and the repair must not wait for the terminal's next output.
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_tail_with_no_later_output_gets_its_gap_and_checkpoint() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-gap-tail-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux =
+            Mux::open_persistent("terminal-journal-gap-tail", SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000084",
+                "10000000000040008000000000000084",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().clone();
+        let pty = surface.as_pty().unwrap();
+        for line in 0..20 {
+            print_journaled_for_test(&surface, &mux, &format!("before-{line}\r\n"));
+        }
+        mux.flush_terminal_journal().unwrap();
+
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        print_journaled_for_test(&surface, &mux, "held\r\n");
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        // More chunks than the terminal lane's 1024 slots; the burst ends here.
+        for line in 0..1100 {
+            print_journaled_for_test(&surface, &mux, &format!("flood-{line}\r\n"));
+        }
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
+        release.send(()).unwrap();
+        mux.flush_terminal_journal().unwrap();
+
+        // One failed capture retries after the 30 s interval.
+        assert!(
+            mux.wait_for_coalesced_checkpoints_for_test(1, Duration::from_secs(40)),
+            "no coalesced checkpoint after a burst whose tail the journal dropped"
+        );
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), None);
+        let records = journal_records_after_for_test(&mux, 0);
+        let gap = records
+            .iter()
+            .position(|record| {
+                record.kind == "terminal.output.gap"
+                    && record.payload["reason"] == "journal_queue_full"
+            })
+            .expect("a journal_queue_full gap record for the dropped tail");
+        let checkpoint = records
+            .iter()
+            .rposition(|record| record.kind == "journal.checkpoint.created")
+            .expect("the coalesced checkpoint record");
+        assert!(gap < checkpoint, "the checkpoint must follow the gap it covers");
+        let (checkpoint_id, replayed) =
+            replay_from_newest_checkpoint_for_test(&mux, &root, &terminal_id);
+        let live = surface.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+        assert!(live.contains("flood-1099"));
+        assert_eq!(replayed, live);
+        let preview = mux.journal_restore_preview(&checkpoint_id).unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
         for _ in 0..4 {
             payload.extend_from_slice(&0u64.to_le_bytes());
@@ -8235,9 +8645,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
-        let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
         let callbacks =
-            hosted_terminal_callbacks(1, Arc::downgrade(&mux), Arc::new(AtomicBool::new(false)));
+            hosted_terminal_callbacks(&PendingBells::default(), Arc::new(AtomicBool::new(false)));
 
         assert!(
             callbacks.on_pty_write.is_none(),

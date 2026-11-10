@@ -164,3 +164,43 @@ fn embedded_hook_mode_delivers_through_the_detached_child() {
     reply(&stream, &request);
     let _ = std::fs::remove_file(&socket);
 }
+
+/// A Claude that starts while no session daemon listens still claims its
+/// terminal: the claim keeps the Claudes it starts from its shell from taking
+/// the terminal later, so it must not depend on the journal send.
+#[test]
+fn w5n3_claim_is_written_when_no_daemon_listens() {
+    let socket = socket_path("claim-down");
+    let env_file = socket.with_extension("env");
+    let terminal = "term_0000000000000000000000000000c1a1";
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui-hook"))
+        .args(["claude", "SessionStart"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("CMUX_TUI_SOCKET", &socket)
+        .env("CMUX_TUI_TERMINAL_ID", terminal)
+        .env("CLAUDE_ENV_FILE", &env_file)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            br#"{"session_id":"claim-down-1","source":"startup","hook_event_name":"SessionStart"}"#,
+        )
+        .unwrap();
+    // Claude Code kills the hook at its 5 s timeout.
+    let output = wait_with_output(child, Duration::from_secs(5))
+        .expect("hook must exit inside the Claude hook timeout");
+    let claim = std::fs::read_to_string(&env_file).unwrap_or_default();
+    let _ = std::fs::remove_file(&env_file);
+    assert_eq!(
+        claim,
+        format!("export CMUX_TUI_CLAUDE_OWNER={terminal}/claim-down-1\n"),
+        "{output:?}"
+    );
+}

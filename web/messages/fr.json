@@ -3522,11 +3522,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Versions préliminaires de la prochaine app cmux",
-    "metaTitle": "cmux NEXT NIGHTLY — Versions préliminaires",
-    "metaDescription": "Téléchargez cmux NEXT NIGHTLY, un aperçu de la prochaine app cmux compilé automatiquement depuis son dernier commit. Fonctionne à côté de cmux avec ses propres mises à jour.",
+    "metaTitle": "cmux NEXT — Chief et vos agents de code, dans une seule app Mac",
+    "metaDescription": "cmux NEXT est le prochain cmux pour Mac. Dites à Chief quoi faire : il lance des agents de code dans leurs espaces de travail et vous fait un retour.",
     "description": "cmux NEXT NIGHTLY est un aperçu de la prochaine version de cmux, compilé automatiquement depuis son dernier commit. Il s'installe en tant que cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly) : il remplace donc cmux NIGHTLY et fonctionne à côté de cmux. Nécessite un Mac avec puce Apple.",
     "download": "Télécharger NEXT NIGHTLY pour Mac",
-    "warning": "Les versions NEXT NIGHTLY peuvent contenir des bugs ou des fonctionnalités incomplètes. En cas de problème, signalez-le sur <githubLink>GitHub</githubLink> ou dans <discordLink>#nightly-bugs sur Discord</discordLink>, et revenez à la version stable."
+    "warning": "Les versions NEXT NIGHTLY peuvent contenir des bugs ou des fonctionnalités incomplètes. En cas de problème, signalez-le sur <githubLink>GitHub</githubLink> ou dans <discordLink>#nightly-bugs sur Discord</discordLink>, et revenez à la version stable.",
+    "landing": {
+      "tagline": "Dites à Chief ce que vous voulez faire. Il gère les agents.",
+      "subtitle": "cmux NEXT est la prochaine version de cmux : une app Mac native construite sur Ghostty. Chief, son assistant intégré, lance des agents de code dans leurs propres espaces de travail, les surveille et vous prévient quand l'un d'eux a besoin de vous. Un terminal, un vrai navigateur et les diffs sont à côté de chaque agent.",
+      "requirements": "Apple silicon · macOS 14 ou version ultérieure · Fonctionne à côté de cmux",
+      "featuresTitle": "Fonctionnalités",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Dites-lui ce que vous voulez faire. Il lance des agents, confie les gros travaux à des sous-agents et vous fait un retour."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Une seule liste de chats pour Chief et tous les agents, avec des pastilles non lues quand l'un a besoin de vous."
+        },
+        "agents": {
+          "title": "Tout agent de code",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi et d'autres, sous forme de vrais chats avec leurs modifications et leurs diffs sous les yeux."
+        },
+        "floating": {
+          "title": "Chief flottant",
+          "body": "⌘I affiche Chief au-dessus de l'espace de travail en cours. ⌥⇧Space l'affiche depuis n'importe quelle app."
+        },
+        "search": {
+          "title": "Tout rechercher",
+          "body": "⌘⇧A trouve espaces de travail, onglets, chats d'agents, historique du navigateur et commandes passées."
+        },
+        "spaces": {
+          "title": "Spaces (espaces)",
+          "body": "Des jeux de fenêtres séparés pour des travaux séparés. ⌃⌥⌘← et → pour changer."
+        },
+        "browser": {
+          "title": "Un vrai navigateur",
+          "body": "Chromium dans un onglet, avec extensions, DevTools et profils, à côté de vos agents."
+        },
+        "machines": {
+          "title": "Vos machines",
+          "body": "Exécutez des espaces de travail via SSH, ou sur des machines cmux Cloud qui se mettent en pause à l'inactivité (cmux Pro)."
+        },
+        "history": {
+          "title": "Emportez votre historique",
+          "body": "Importez l'historique de Claude Code et Codex sous forme de chats consultables, et reprenez où vous en étiez."
+        },
+        "terminal": {
+          "title": "Terminal Ghostty",
+          "body": "Rendu par GPU, et il lit votre config Ghostty."
+        },
+        "sidebar": {
+          "title": "Votre propre barre latérale",
+          "body": "Ajoutez des sections à la barre latérale sous forme de listes ou de grilles, conçues comme de petites apps JavaScript."
+        },
+        "phone": {
+          "title": "iPhone, en bêta",
+          "body": "Répondez à la demande d'autorisation d'un agent depuis votre téléphone."
+        }
+      },
+      "heroAlt": "cmux NEXT : Home avec Chief à gauche, un agent Claude Code avec ses fichiers modifiés à droite",
+      "demosTitle": "Voir en images",
+      "demos": {
+        "docked": {
+          "caption": "Chief ancré à côté d'un espace de travail.",
+          "alt": "Chief ancré à droite d'un espace de travail de terminal"
+        },
+        "floating": {
+          "caption": "⌘I fait flotter Chief au-dessus de ce que vous faites.",
+          "alt": "Chief flottant au-dessus d'un espace de travail de terminal"
+        },
+        "agents": {
+          "caption": "Le chat d'un agent à côté de celui de Chief.",
+          "alt": "Une conversation avec un agent à côté d'un chat avec Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P lance n'importe quelle action par son nom.",
+          "alt": "La palette de commandes ouverte au-dessus d'une conversation"
+        },
+        "history": {
+          "caption": "Reprenez l'historique de Claude Code et Codex.",
+          "alt": "L'écran d'import listant Claude Code, Codex et d'autres sources"
+        },
+        "machines": {
+          "caption": "Choisissez la machine sur laquelle tourne un groupe d'espaces de travail.",
+          "alt": "Choix de la machine sur laquelle tourne un groupe d'espaces de travail"
+        }
+      },
+      "nightlyTitle": "À propos de NEXT NIGHTLY",
+      "nightlyBody": "Une nouvelle version sort chaque nuit à partir du dernier commit, et l'app se met à jour toute seule.",
+      "iconAlt": "Icône de cmux NEXT NIGHTLY"
+    }
   },
   "languageSwitcher": {
     "label": "Langue"

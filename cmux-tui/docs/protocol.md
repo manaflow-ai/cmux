@@ -165,8 +165,11 @@ tab placement for `n` seconds, through the same path as `close-terminal`
 first saw each terminal without a tab in the workspace registry, so the grace
 goes on across owner restarts. A placement restored within the grace cancels
 the reap, a terminal with an attach stream is tried again one grace later, and
-at most 16 closed terminals wait out the grace (past that, the longest-closed
-ends at once).
+at most 16 closed terminals without an attach stream wait out the grace (past
+that, the longest-closed ends at once). Such an owner lists the capability from
+the bind of its socket: its reaper makes its first pass once the owner holds
+its socket (possibly before `lifecycle_ready`), and a failed start or a failed
+later startup step ends the reaper and the capability.
 
 Then it sends ordered stream frames:
 

@@ -3,10 +3,13 @@
 
 mod agent_last_sessions;
 mod idle_close;
+mod journal_retention;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
+#[cfg(all(test, unix))]
+mod terminal_event_lock_order_tests;
 mod terminal_last_command;
 mod terminal_reap;
 
@@ -15,8 +18,8 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::SCREEN_CREATE_FOCUS_FIELD;
 pub use terminal_reap::{
-    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
-    validate_terminal_reap_grace,
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -272,6 +275,16 @@ type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
 #[cfg(test)]
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
+#[cfg(test)]
+type TerminalEventPublishHook = Arc<dyn Fn(TerminalEventPublication, SurfaceId) + Send + Sync>;
+
+/// The terminal event a [`TerminalEventPublishHook`] observes.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalEventPublication {
+    Title,
+    Bell,
+}
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
@@ -305,6 +318,21 @@ const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
     let placement_limit = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
     if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
 };
+
+/// Debug builds hold a terminal-host reconnect checkpoint while
+/// `CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT` names a FIFO: opening it waits
+/// for the test to open the other end, and the read ends when the test closes
+/// it. A held capture stands for a slow one (a long scrollback on a busy
+/// machine) without a timing race.
+#[cfg(debug_assertions)]
+fn hold_reconnect_checkpoint_for_test(origin: &str) {
+    if origin != "terminal_host_reconnect" {
+        return;
+    }
+    if let Some(path) = std::env::var_os("CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT") {
+        let _ = std::fs::read(path);
+    }
+}
 
 fn cell_pixel_retry_delay(attempts: u8) -> Duration {
     let multiplier = 1_u32.checked_shl(u32::from(attempts.saturating_sub(1))).unwrap_or(u32::MAX);
@@ -1623,13 +1651,33 @@ pub struct TerminalCloseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalCloseGuard {
     None,
-    /// The terminal has no tab placement (the unplaced-terminal reaper).
-    Unplaced,
+    /// The terminal has no tab placement and no client holds an attach
+    /// stream on it (the unplaced-terminal reaper). The close checks both
+    /// once it holds its locks, so an attach that lands before then keeps
+    /// the terminal (feat `UnplacedNotKeptAndDetached`).
+    UnplacedAndDetached,
+}
+
+impl TerminalCloseGuard {
+    /// The close needs the terminal without a placement.
+    pub(crate) fn requires_unplaced(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The close needs no attach stream on the terminal.
+    pub(crate) fn requires_detached(self) -> bool {
+        matches!(self, Self::UnplacedAndDetached)
+    }
 }
 
 /// The close guard did not hold, so nothing changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalCloseGuardFailed;
+pub(crate) enum TerminalCloseGuardFailed {
+    /// The terminal has a placement.
+    Placed,
+    /// A client holds an attach stream on the terminal.
+    Attached,
+}
 
 impl fmt::Display for TerminalCloseGuardFailed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2636,6 +2684,10 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs when a terminal title or bell publication starts, before it
+    /// resolves placements under `state`.
+    #[cfg(test)]
+    terminal_event_publish_hook: Mutex<Option<TerminalEventPublishHook>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -2701,6 +2753,9 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    /// Coalesced journal checkpoints after terminal-host reconnects; see
+    /// mux/journal_retention.rs.
+    journal_retention: journal_retention::JournalRetention,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
@@ -2736,13 +2791,9 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// The unplaced-terminal reap grace in milliseconds (`terminal_reap.rs`).
     terminal_reap_grace_ms: AtomicU64,
-    /// The running unplaced-terminal reaper's event receiver; `Some` while it
-    /// runs (`terminal-reaper-active-v1`).
+    /// The unplaced-terminal reaper's event receiver; `Some` while its thread
+    /// runs, held or released (`terminal-reaper-active-v1`).
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
-    /// The owner will start the unplaced-terminal reaper once its socket is
-    /// bound (`announce_terminal_reaper`); cleared when the reaper stops or
-    /// its start fails.
-    terminal_reaper_announced: AtomicBool,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3070,6 +3121,8 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            terminal_event_publish_hook: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -3127,6 +3180,7 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            journal_retention: Default::default(),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostic: Mutex::new(None),
             #[cfg(test)]
@@ -3162,7 +3216,6 @@ impl Mux {
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
-            terminal_reaper_announced: AtomicBool::new(false),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -6018,6 +6071,11 @@ impl Mux {
         });
     }
 
+    /// See [`crate::journal_ingress::JournalIngressSender::terminal_lane_can_resume`].
+    pub(crate) fn terminal_journal_lane_can_resume(&self) -> bool {
+        self.journal_ingress.terminal_lane_can_resume()
+    }
+
     pub(crate) fn try_journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -6056,18 +6114,6 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space_until(
-        &self,
-        observed: u64,
-        deadline: Instant,
-    ) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
-    }
-
-    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
-        self.journal_ingress.durable_deadline()
-    }
-
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
         self.journal_ingress.flush_terminal()
     }
@@ -6092,6 +6138,15 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_writer_pacing_for_test(
+        &self,
+        entered: SyncSender<()>,
+        step: Receiver<()>,
+    ) {
+        self.journal_ingress.install_writer_pacing_for_test(entered, step);
     }
 
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
@@ -6122,7 +6177,11 @@ impl Mux {
         })
     }
 
-    pub(crate) fn journal_terminal_resize(
+    /// Queues an accepted geometry change in the terminal lane without
+    /// waiting. `false` when the lane is full and the change was not
+    /// journaled; a writer that failed permanently counts as journaled, since
+    /// nothing will record it.
+    pub(crate) fn try_journal_terminal_resize(
         &self,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -6130,16 +6189,21 @@ impl Mux {
         rows: u16,
         cell_width: u16,
         cell_height: u16,
-    ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            cols,
-            rows,
-            cell_width,
-            cell_height,
-        });
+    ) -> bool {
+        !matches!(
+            self.journal_ingress.try_send(
+                crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                    terminal_id,
+                    generation,
+                    occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                    cols,
+                    rows,
+                    cell_width,
+                    cell_height,
+                },
+            ),
+            Err(crate::journal_ingress::JournalIngressTrySendError::Full { .. })
+        )
     }
 
     pub(crate) fn try_journal_terminal_output_gap(
@@ -6156,25 +6220,6 @@ impl Mux {
                 reason,
             },
         )
-    }
-
-    pub(crate) fn try_journal_terminal_output_gap_until(
-        &self,
-        terminal_id: Arc<TerminalPublicId>,
-        generation: Arc<str>,
-        reason: &'static str,
-        deadline: Instant,
-    ) -> anyhow::Result<()> {
-        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason,
-        };
-        if Instant::now() >= deadline {
-            return self.journal_ingress.try_send_terminal_gap(event);
-        }
-        self.journal_ingress.send_durable_until(event, deadline)
     }
 
     pub(crate) fn commit_session_journal_events<F>(
@@ -7109,6 +7154,8 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
+        #[cfg(debug_assertions)]
+        hold_reconnect_checkpoint_for_test(origin);
         let mut last_error = None;
         for attempt in 0..crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
             if let Some(commit) = self
@@ -7644,12 +7691,16 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Title, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
         }
     }
 
     pub(crate) fn emit_terminal_bell(&self, surface: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Bell, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::Bell(placement));
         }
@@ -10198,6 +10249,20 @@ impl Mux {
     }
 
     #[cfg(test)]
+    fn set_terminal_event_publish_hook(&self, hook: Option<TerminalEventPublishHook>) {
+        *self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    #[cfg(test)]
+    fn run_terminal_event_publish_hook(&self, kind: TerminalEventPublication, surface: SurfaceId) {
+        let hook =
+            self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(hook) = hook {
+            hook(kind, surface);
+        }
+    }
+
+    #[cfg(test)]
     fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.client_resize_before_apply.lock().unwrap() = hook;
     }
@@ -10736,16 +10801,25 @@ impl Mux {
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if guard == TerminalCloseGuard::Unplaced {
-                let placed = {
+            if guard.requires_unplaced() {
+                let (placed, attached) = {
                     let state = self.state.lock().unwrap();
-                    state.surfaces.values().any(|surface| {
+                    let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    })
+                    };
+                    let placed = state.surfaces.values().any(&hosts);
+                    let attached = guard.requires_detached()
+                        && state.terminal_catalog.values().any(|runtime| {
+                            hosts(runtime) && self.terminal_view_attached(runtime.id)
+                        });
+                    (placed, attached)
                 };
                 if placed {
-                    return Err(TerminalCloseGuardFailed.into());
+                    return Err(TerminalCloseGuardFailed::Placed.into());
+                }
+                if attached {
+                    return Err(TerminalCloseGuardFailed::Attached.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;
@@ -20659,32 +20733,6 @@ mod tests {
             .unwrap_err();
         assert!(error.to_string().contains("admission is closed"));
         assert!(!mux.daemon_shutdown_requested());
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn journal_review_gap_after_deadline_queues_best_effort_marker() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-gap-expired-deadline-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux = open_persistent_test_mux("gap-expired-deadline", &root);
-        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 44)).unwrap());
-
-        mux.try_journal_terminal_output_gap_until(
-            terminal_id,
-            Arc::from("gap-expired-generation"),
-            "journal_output_deadline_expired",
-            Instant::now() - Duration::from_millis(1),
-        )
-        .unwrap();
-        mux.flush_terminal_journal().unwrap();
-
-        assert!(mux.session_journal_after(0, 1024).unwrap().records.iter().any(|record| {
-            record.kind == "terminal.output.gap"
-                && record.payload["reason"] == "journal_output_deadline_expired"
-        }));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

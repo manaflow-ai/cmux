@@ -88,33 +88,52 @@ record = {"session_id": session, "outputs": {}}
 # Claude Code sources it before each Bash tool command when it exists. Like
 # Claude Code 2.1.319, the stand-in does not create it.
 env_file = os.path.join(os.environ["FAKE_RECORD_DIR"], "env-" + os.environ["OB_TAG"] + ".sh")
-payloads = [
-    ("SessionStart", {"source": "startup"}),
+
+def run_round(session, payloads):
+    outputs_by_event = {}
+    for event, extra in payloads:
+        payload = {"session_id": session, "transcript_path": "/dev/null", "cwd": os.getcwd(),
+                   "hook_event_name": event}
+        payload.update(extra)
+        outputs = []
+        for command, root in commands(event):
+            # What Claude Code sets for the commands it starts, hooks and tools.
+            env = dict(os.environ, CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
+                       CLAUDE_CODE_SESSION_ID=session)
+            if event == "SessionStart":
+                env["CLAUDE_ENV_FILE"] = env_file
+            if root:
+                env["CLAUDE_PLUGIN_ROOT"] = root
+            if os.environ.get("FAKE_HOOKS_SOURCE_ENV_FILE"):
+                # As if Claude Code sourced the env file for its hooks too
+                # (2.1.319 does so only for Bash tool commands).
+                env["FAKE_SOURCE"] = env_file
+                command = '[ -f "$FAKE_SOURCE" ] && . "$FAKE_SOURCE"; ' + command
+            done = subprocess.run(["/bin/sh", "-c", command], input=json.dumps(payload).encode(),
+                                  env=env, capture_output=True, timeout=60)
+            outputs.append(done.stdout.decode(errors="replace"))
+        outputs_by_event[event] = outputs
+    return outputs_by_event
+
+def write_record(tag, record):
+    out = os.path.join(os.environ["FAKE_RECORD_DIR"], "claude-" + tag + ".json")
+    with open(out + ".tmp", "w") as f:
+        json.dump(record, f)
+    os.rename(out + ".tmp", out)
+
+turn = [
     ("UserPromptSubmit", {"prompt": "hello"}),
     ("Stop", {"stop_hook_active": False,
               "last_assistant_message": os.environ.get("FAKE_REPLY", "done here")}),
 ]
-for event, extra in payloads:
-    payload = {"session_id": session, "transcript_path": "/dev/null", "cwd": os.getcwd(),
-               "hook_event_name": event}
-    payload.update(extra)
-    outputs = []
-    for command, root in commands(event):
-        # What Claude Code sets for the commands it starts, hooks and tools.
-        env = dict(os.environ, CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
-                   CLAUDE_CODE_SESSION_ID=session)
-        if event == "SessionStart":
-            env["CLAUDE_ENV_FILE"] = env_file
-        if root:
-            env["CLAUDE_PLUGIN_ROOT"] = root
-        done = subprocess.run(["/bin/sh", "-c", command], input=json.dumps(payload).encode(),
-                              env=env, capture_output=True, timeout=60)
-        outputs.append(done.stdout.decode(errors="replace"))
-    record["outputs"][event] = outputs
-out = os.path.join(os.environ["FAKE_RECORD_DIR"], "claude-" + os.environ["OB_TAG"] + ".json")
-with open(out + ".tmp", "w") as f:
-    json.dump(record, f)
-os.rename(out + ".tmp", out)
+record["outputs"] = run_round(session, [("SessionStart", {"source": "startup"})] + turn)
+write_record(os.environ["OB_TAG"], record)
+# `/clear`: the same Claude process ends the session and starts another.
+cleared = os.environ.get("FAKE_CLEAR_SESSION_ID")
+if cleared:
+    run_round(session, [("SessionEnd", {"reason": "clear"})])
+    outputs = run_round(cleared, [("SessionStart", {"source": "clear"})] + turn)
+    write_record(os.environ["OB_TAG"] + "-clear", {"session_id": cleared, "outputs": outputs})
 # A tool call that starts another Claude (`claude -p`) once the test says go:
 # it inherits the plugin folder and this Claude's tool environment.
 go = os.environ.get("FAKE_NESTED_GO")
@@ -129,8 +148,12 @@ if go:
     del nested["FAKE_NESTED_GO"]
     # Under the shim the tool command finds `claude` on PATH (the shim again).
     again = "claude" if os.environ["OB_TAG"].startswith("shim") else os.path.realpath(sys.argv[0])
-    subprocess.run(["/bin/sh", "-c", '[ -f "$1" ] && . "$1"; exec "$2" -p hi', "sh", env_file,
-                    again], env=nested, timeout=120)
+    # A Bash tool command sources the env file first; a Claude that a hook,
+    # an MCP server or a teammate starts does not.
+    script = '[ -f "$1" ] && . "$1"; exec "$2" -p hi'
+    if nested.pop("FAKE_NESTED_NO_ENV_FILE", None):
+        script = 'exec "$2" -p hi'
+    subprocess.run(["/bin/sh", "-c", script, "sh", env_file, again], env=nested, timeout=120)
 if os.environ.get("FAKE_EXIT"):
     sys.exit(0)
 time.sleep(600)
@@ -144,19 +167,6 @@ fn unique_root() -> PathBuf {
     fs::create_dir_all(&root).unwrap();
     // macOS /tmp is a symlink; the daemon resolves its own path.
     root.canonicalize().unwrap()
-}
-
-/// Writes `contents` as an executable file through a short-lived `sh`, so no
-/// fork of this test process holds a write descriptor to it (ETXTBSY).
-fn write_executable(path: &Path, contents: &str) {
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_bytes()).unwrap();
-    assert!(child.wait().unwrap().success(), "write {}", path.display());
 }
 
 struct Daemon {
@@ -436,7 +446,7 @@ fn any_launcher_claude_reports_to_the_pane_session() {
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
-    write_executable(&claude, FAKE_CLAUDE);
+    cmux_test_exec::write_executable(&claude, FAKE_CLAUDE).unwrap();
 
     // A launcher like `sr2 claude`: its own config directory, its own
     // `--settings` with a hook of its own, and Claude by full path.
@@ -450,9 +460,9 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     )
     .unwrap();
     let launcher = root.join("fake-sr2");
-    write_executable(
+    cmux_test_exec::write_executable(
         &launcher,
-        &format!(
+        format!(
             "#!/bin/sh\n[ \"$1\" = claude ] && shift\n\
              CLAUDE_CONFIG_DIR='{config}'\nexport CLAUDE_CONFIG_DIR\n\
              exec '{claude}' --settings '{settings}' \"$@\"\n",
@@ -460,7 +470,8 @@ fn any_launcher_claude_reports_to_the_pane_session() {
             claude = claude.display(),
             settings = launcher_settings.display(),
         ),
-    );
+    )
+    .unwrap();
 
     // `agent hook install claude` into its own config directory, for the
     // launch that also has the installed copy of the hooks.
@@ -474,7 +485,7 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     fs::create_dir_all(&build).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(exe, &daemon_exe).is_err() {
-        fs::copy(exe, &daemon_exe).unwrap();
+        cmux_test_exec::copy_executable(Path::new(exe), &daemon_exe).unwrap();
     }
     let install = Command::new(&daemon_exe)
         .args(["agent", "hook", "install", "claude"])
@@ -621,6 +632,9 @@ fn any_launcher_claude_reports_to_the_pane_session() {
             events.iter().filter(|seen| *seen == event).count() <= 1,
             "no-user-settings: two copies of the cmux hooks ran ({event}): {events:?}"
         );
+        // The guard is not empty: a cmux copy of each hook ran (and stood down).
+        let ran = record["outputs"][event].as_array().map_or(0, Vec::len);
+        assert!(ran >= 1, "no-user-settings: no copy of the {event} hook ran: {record}");
     }
     let row = daemon.agent_row(&daemon_exe, &cli_env, &limited);
     assert!(
@@ -645,10 +659,11 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
-    write_executable(&claude, FAKE_CLAUDE);
+    cmux_test_exec::write_executable(&claude, FAKE_CLAUDE).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
-        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+        cmux_test_exec::copy_executable(Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &daemon_exe)
+            .unwrap();
     }
     // `agent hook install claude` in one config directory: its copy of the
     // hooks, not the plugin's, then reports for the Claude and the nested one.
@@ -670,11 +685,14 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
     // the outer Claude's env file. The plugin reports for the first; the
     // installed hooks for the second; the shim's own hooks for the third,
     // whose nested Claude goes through the shim again (which passes it on
-    // without its hooks, so the installed ones run).
+    // without its hooks, so the installed ones run). The fourth starts its
+    // Claude the way a hook, an MCP server or a teammate would: without the
+    // env file, so with no claim in its environment.
     let cases = [
         ("plain", format!("'{}'", claude.display()), &empty_config, 2),
         ("installed", format!("'{}'", claude.display()), &installed_config, 3),
         ("shim", "claude".to_owned(), &installed_config, 4),
+        ("teammate", format!("FAKE_NESTED_NO_ENV_FILE=1 '{}'", claude.display()), &empty_config, 5),
     ];
     let mut terminals = Vec::new();
     for (tag, command, config, n) in &cases {
@@ -709,27 +727,92 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
     for (tag, (terminal, host_terminal), outer, nested) in &terminals {
         // Written after every hook command of the nested Claude returned; a
         // hook returns once its journal request is on the daemon's socket.
-        launch_record(&root, &daemon, &format!("{tag}-nested"));
+        let record = launch_record(&root, &daemon, &format!("{tag}-nested"));
+        // It is not told that it runs in the pane's terminal.
+        assert_eq!(
+            session_start_outputs_with(&record, "you run in a cmux terminal"),
+            0,
+            "{tag}: the nested Claude was told it runs in the pane's terminal: {record}"
+        );
         let ids = [terminal.as_str(), host_terminal.as_str()];
         // The nested Claude reports nothing to the pane: no journal record
-        // of its session, so neither the roster nor a view sees it.
+        // of its session, so neither the roster nor a view sees it. One with
+        // no claim still reaches the journal; the daemon keeps the row on
+        // the pane's agent (below).
         let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            let records = daemon.claude_hook_records(&ids);
-            let theirs: Vec<_> = records.iter().filter(|(_, session)| session == nested).collect();
-            assert!(
-                theirs.is_empty(),
-                "{tag}: the nested Claude reported to the pane's terminal: {theirs:?}"
-            );
-            if Instant::now() >= deadline {
-                break;
+        if *tag != "teammate" {
+            loop {
+                let records = daemon.claude_hook_records(&ids);
+                let theirs: Vec<_> =
+                    records.iter().filter(|(_, session)| session == nested).collect();
+                assert!(
+                    theirs.is_empty(),
+                    "{tag}: the nested Claude reported to the pane's terminal: {theirs:?}"
+                );
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
-            std::thread::sleep(Duration::from_millis(100));
         }
         let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
         assert_eq!(row["source"], "hook", "{tag}: {row}");
         assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
         assert_eq!(row["state"], "idle", "{tag}: {row}");
+    }
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn any_launcher_nested_claude_claim_keeps_clear_reporting_when_hooks_see_the_env_file() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    let realbin = root.join("realbin");
+    let build = root.join("build");
+    let config = root.join("config-empty");
+    for dir in [&home, &data, &realbin, &build, &config] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let claude = realbin.join("claude");
+    write_executable(&claude, FAKE_CLAUDE);
+    let daemon_exe = build.join("cmux-tui");
+    if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
+        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", realbin.display());
+    let mut daemon = Daemon::start(&root, &daemon_exe, "clear", &home, &data, &path);
+    let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+    // Claude Code 2.1.319 does not source the env file for its hooks. Were a
+    // later version to do so, the hooks of the claiming Claude would read its
+    // own claim; after `/clear` (a new session in the same process) they must
+    // still report.
+    let first = "00000000-0000-4000-8000-000000000061";
+    let cleared = "00000000-0000-4000-8000-000000000062";
+    let script = format!(
+        "OB_TAG=clear FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={first} \
+         FAKE_CLEAR_SESSION_ID={cleared} FAKE_HOOKS_SOURCE_ENV_FILE=1 \
+         CLAUDE_CONFIG_DIR='{config}'; \
+         export OB_TAG FAKE_RECORD_DIR FAKE_SESSION_ID FAKE_CLEAR_SESSION_ID \
+         FAKE_HOOKS_SOURCE_ENV_FILE CLAUDE_CONFIG_DIR; '{claude}'; sleep 600",
+        root = root.display(),
+        config = config.display(),
+        claude = claude.display(),
+    );
+    let (terminal, _) = daemon.run("clear", &script);
+    launch_record(&root, &daemon, "clear-clear");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let row = daemon.agent_row(&daemon_exe, &cli_env, &terminal);
+        if row["source"] == "hook" && row["extra"]["agent_session_id"] == cleared {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "after /clear the Claude's new session never reported: {row}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
     }
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
