@@ -286,6 +286,23 @@
   transform: translateX(-50%);
 }
 
+/* Needs you gives way to the card on a short pane (it clips); the Set Up cmux card scrolls in the room
+ * left above the message box (pinnedLayout.ts, the native layoutPinnedSection). */
+.mt-pinned-section {
+  overflow: hidden;
+}
+
+.mt-setup-slot {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mt-setup-card {
+  display: flex;
+  justify-content: center;
+}
+
 /* Rows. */
 .mt-older {
   display: flex;

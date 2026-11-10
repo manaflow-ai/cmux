@@ -17,6 +17,7 @@ import { APPROVAL_DECIDE_OP, ApprovalDecisions } from "../cards/approval/approva
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
+import { useSetupCard } from "../cards/setup/setupHost";
 import { NeedsYouSection, parseNeedsYou, type NeedsYouState } from "../cards/needsYou/NeedsYouSection";
 import { parseChiefFace, parseChiefPlace, type ChiefFace, type ChiefPlace } from "../transcript/ChiefPlace";
 import { cardStrings } from "../cards/strings";
@@ -505,6 +506,8 @@ function ConversationView(
     [host, isChief, conversation.id],
   );
   const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, isChief, startAgent);
+  // A Chief's Set Up cmux card while the app shows it (a first run), under Needs you.
+  const setupCard = useSetupCard(host, isChief, words.cards);
   const extras = useMemo<TranscriptExtras | undefined>(
     () => {
       const tail =
@@ -615,6 +618,7 @@ function ConversationView(
               ),
             }
           : {})}
+        {...(setupCard ? { setupCard } : {})}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
         toastAvoidance={props.toastAvoidance}

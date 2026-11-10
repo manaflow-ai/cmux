@@ -3,12 +3,14 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefMemory
+import CmuxNextCLIInstall
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -70,12 +72,18 @@ extension PageFactory {
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
         let host = HomeMessagesHostProvider(services: services, widthKey: widthKey)
-        let firstRun = HomeMessagesFirstRunProvider(sources: Self.firstRunSources(services), shown: { [weak host] in host?.shown })
+        let sources = Self.firstRunSources(services), firstRun = HomeMessagesFirstRunProvider(sources: sources, shown: { [weak host] in host?.shown })
+        let setup = SetupCardRoute(setup: app.onboarding.setup, agents: app.onboarding.signInHarnesses, environment: SetupCardEnvironment( // HomeHostView+SetupCard.swift's
+            account: { [weak app] in (app?.cloud.auth.isSignedIn ?? false, app?.cloud.auth.user?.primaryEmail) }, signInAccount: { sources.perform("palette.auth.signIn") },
+            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) }, installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
+            openAgents: { [weak app] in app?.onboarding.show(step: .agents) }, historySources: { await sources.memoryOffer() != nil },
+            importHistory: { [weak app] in app.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false }))
         host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun), PageRoute(prefix: HomeMessagesWidgets.prefix, provider: HomeMessagesWidgets(host: services.sidebarCustomization.chatWidgets, personOnlyMessage: RefusalStrings.personOnlyFromPage)),
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun), PageRoute(prefix: SetupCardPageProvider.prefix, provider: setup),
+               PageRoute(prefix: HomeMessagesWidgets.prefix, provider: HomeMessagesWidgets(host: services.sidebarCustomization.chatWidgets, personOnlyMessage: RefusalStrings.personOnlyFromPage)),
                PageRoute(prefix: HomeComposerFiles.prefix, provider: host.composerFiles)]
             + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
         let single = conversation.flatMap { $0.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }.map { "#/conversation/\($0)" }

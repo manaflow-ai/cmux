@@ -131,11 +131,13 @@ export function selectedMessageText(doc: Document): string | undefined {
   return text;
 }
 
-/** The keys that keep their arrows: a field, a list or menu that moves with them, the first run's rows. */
+/** The keys that keep their arrows: a field, a list or menu that moves with them, the first run's rows,
+ *  the Set Up cmux card (a focused button on it keeps Space and the arrows, as the native Home's
+ *  HomePrimaryInputHistoryTests `theSetupCardKeepsItsKeys`). */
 const KEEPS_ARROWS =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="listbox"], [role="menu"], ' +
   '[role="menubar"], [role="grid"], [role="tree"], [role="tablist"], [role="radiogroup"], [role="slider"], ' +
-  '[role="dialog"], .hm-first-run';
+  '[role="dialog"], .hm-first-run, .hm-setup';
 
 /** A plain Up or Down from anywhere in the page that does not keep its arrows (Lawrence 2026-10-19:
  *  "Up arrow ... handle unfocus as well"; HomeHostView+PrimaryInputHistory.swift): the composer

@@ -12,7 +12,8 @@ extension PageDescriptor {
     /// The sheets run four catalog actions through `cmux.app.action.run`, each on the person's click.
     public static let homeMessages = PageDescriptor(
         id: "cmux.home-messages", resource: "home-messages",
-        namespaces: ["cmux.host.credential.", "cmux.chief.profile.", "cmux.chief.backend.", "cmux.host.home.", HomeMessagesPageRoute.prefix],
+        namespaces: ["cmux.host.credential.", "cmux.chief.profile.", "cmux.chief.backend.", "cmux.host.home.", HomeMessagesPageRoute.prefix,
+                     "cmux.setup."], // the Set Up cmux card (CmuxNextOnboarding SetupCardRoute)
         nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: homeMessagesActions, gestureActions: homeMessagesActions,
         commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true)

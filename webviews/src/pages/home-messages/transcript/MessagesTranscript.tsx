@@ -44,6 +44,7 @@ import {
   type DictationCall,
   type MessageComposerHandle,
 } from "./MessageComposer";
+import { pinnedLayout, PINNED_GAP } from "./pinnedLayout";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 import { TranscriptHeader, alsoHereNames, type HeaderPanelItem, type TranscriptHeaderProps } from "./TranscriptHeader";
 import type { ReplyQuote } from "./replyQuote";
@@ -86,6 +87,9 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onPlace?: TranscriptHeaderProps["onPlace"];
   /** A section pinned under the header (Needs you); it lies over the rows. */
   pinned?: ReactNode;
+  /** A Chief's Set Up cmux card (cards/setup/setupHost.tsx), under `pinned` and over the rows; both stop
+   * above the message box and keep it its room (pinnedLayout.ts). */
+  setupCard?: ReactNode;
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
   attachments?: AttachmentService;
   /** What each attached file goes through before it uploads (the app's location removal). */
@@ -168,6 +172,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     colors,
     attachments,
     pinned,
+    setupCard,
     onLoadOlder,
     onRead,
     highlight,
@@ -395,7 +400,33 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     const observer = new ResizeObserver(() => setPinnedHeight(element.offsetHeight ? element.offsetHeight + 8 : 0));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [pinned]);
+  }, [pinned, setupCard]);
+  // The room above the message box, and the natural heights of the pinned section and the card:
+  // pinnedLayout.ts shares that room out (the native layoutPinnedSection).
+  const pinnedContent = useRef<HTMLDivElement | null>(null);
+  const cardContent = useRef<HTMLDivElement | null>(null);
+  const [heights, setHeights] = useState({ room: 0, pinned: 0, card: 0 });
+  useEffect(() => {
+    const parts = [scroller.current, pinnedContent.current, cardContent.current];
+    const read = () =>
+      setHeights((last) => {
+        const next = {
+          room: Math.max(0, (scroller.current?.clientHeight ?? 0) - HEADER_ROOM),
+          pinned: pinnedContent.current?.offsetHeight ?? 0,
+          card: cardContent.current?.offsetHeight ?? 0,
+        };
+        return next.room === last.room && next.pinned === last.pinned && next.card === last.card ? last : next;
+      });
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(read);
+    for (const part of parts) if (part) observer.observe(part);
+    return () => observer.disconnect();
+  }, [scroller, pinned, setupCard]);
+  // Before the room is measured nothing is capped (a first frame shows the parts whole).
+  const shares = heights.room
+    ? pinnedLayout(heights.room, pinned ? heights.pinned : undefined, setupCard ? heights.card : undefined)
+    : undefined;
 
   const title = conversationName(conversation, me);
   const other = conversation.kind === "group" ? undefined : conversation.participants.find((p) => p.id !== me);
@@ -489,9 +520,26 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
             onContact={props.onContact}
             strings={strings}
           />
-          {pinned && (
+          {(pinned || setupCard) && (
             <div ref={pinnedBox} className="mt-pinned">
-              {pinned}
+              {pinned && (
+                <div className="mt-pinned-section" style={shares ? { maxHeight: shares.pinned } : undefined}>
+                  <div ref={pinnedContent}>{pinned}</div>
+                </div>
+              )}
+              {setupCard && (
+                <div
+                  className="mt-setup-slot"
+                  style={{
+                    ...(shares ? { maxHeight: shares.card } : {}),
+                    ...(pinned && (!shares || shares.pinned > 0) ? { marginTop: PINNED_GAP } : {}),
+                  }}
+                >
+                  <div ref={cardContent} className="mt-setup-card">
+                    {setupCard}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {dropping && <div className="mt-drop-highlight" aria-hidden />}
