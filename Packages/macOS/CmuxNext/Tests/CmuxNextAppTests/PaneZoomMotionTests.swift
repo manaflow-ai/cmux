@@ -132,7 +132,7 @@ struct PaneZoomMotionTests {
         #expect(Self.grid3.panes.filter({ $0 != "p5" }).allSatisfy({ screen.opacity($0) == 0 }))
     }
 
-    @Test func anUnzoomMidZoomKeepsTheMotionsVelocityAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
+    @Test func anUnzoomMidZoomTurnsAtOnceWithNoJumpAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
         let screen = Screen(Self.grid2)
         defer { screen.window.closeAfterTest() }
         screen.zoom("p1")
@@ -144,13 +144,14 @@ struct PaneZoomMotionTests {
         let corner = screen.opacity("p4")
         #expect(widths[5] > widths[4])
         screen.unzoom()
-        // Nothing jumps at the interrupt, and the spring keeps its velocity: from rest it would
-        // start shrinking at once, carried it still grows for a frame.
+        // Nothing jumps at the interrupt, and the pane turns at once: its growing edges' velocity points away from
+        // the new target, so the next step drops it (`SpringParameters.admitted(velocity:distance:)`) and the pane
+        // shrinks from where it shows. It never grows past the place of the interrupt.
         #expect(screen.shown("p1")?.width == widths[5], "the zoomed pane jumped on the interrupt")
         #expect(abs(screen.opacity("p4") - corner) < 0.02, "the opposite corner jumped on the interrupt")
         screen.step()
         let after = try #require(screen.shown("p1")).width - widths[5]
-        #expect(after > 0, "velocity lost: the unzoom started from rest")
+        #expect(after < 0, "the unzoom carried the zoom's velocity: the pane grew \(after) pt more after the interrupt")
         let returning = try #require(screen.hostFrame("p2"))
         for frame in 1...120 {
             screen.step()
@@ -184,28 +185,26 @@ struct PaneZoomMotionTests {
         #expect((shown ?? .max) <= Int((0.35 * Self.scale / Self.dt).rounded(.up)))
     }
 
-    /// Reduce Motion snaps a zoom: no spring, the whole change in the first frame. A snapped structural change shows
-    /// at the next frame tick, its terminals drawn ahead at their new sizes in the change's turn (CLOSE MOTION 3,
-    /// #37330, `ScreenContentView+SnapFrame`), so that turn still shows what showed, and the first tick shows it all.
+    /// Reduce Motion snaps a zoom: no spring, the whole change in the change's own turn (GI RENDERER SYNC 2: the snap no
+    /// longer waits a frame tick for a draw-ahead; a resized terminal's renderer keeps its last frame top-left until the
+    /// program's redraw, `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED`). The next tick changes nothing and asks for no second frame.
     @Test func reduceMotionZoomsAndUnzoomsInOneFrame() throws {
         let screen = Screen(Self.grid2, reduceMotion: true)
         defer { screen.window.closeAfterTest() }
         let slot = try #require(screen.hostFrame("p1"))
         screen.zoom("p1")
-        #expect(screen.hostFrame("p1") == slot, "the zoom showed in its own turn, before its terminal had a frame at its size")
-        #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 }, "a covered pane went before the zoom showed")
-        // One frame: the first tick lands the zoom and asks for no second frame (no spring).
-        #expect(!screen.step(), "Reduce Motion asked for a second frame after the zoom's first")
         let zoomed = try #require(screen.screen?.geometry.panes["p1"])
         #expect(screen.shown("p1") == zoomed)
-        #expect(screen.hostFrame("p1") == zoomed, "the first frame does not show the zoomed pane at its rect")
-        #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 0 })
+        #expect(screen.hostFrame("p1") == zoomed, "the zoom did not show the zoomed pane at its rect in its own turn")
+        #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 0 }, "a covered pane still showed after the zoom's turn")
+        #expect(!screen.step(), "Reduce Motion asked for a frame after the zoom")
+        #expect(screen.hostFrame("p1") == zoomed, "the tick after the zoom moved the zoomed pane")
         screen.unzoom()
-        #expect(screen.hostFrame("p1") == zoomed, "the unzoom showed in its own turn, before its terminal had a frame at its size")
-        #expect(!screen.step(), "Reduce Motion asked for a second frame after the unzoom's first")
-        #expect(["p1", "p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 })
+        #expect(["p1", "p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 }, "the unzoom did not show every pane in its own turn")
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
-        #expect(screen.hostFrame("p1") == slot, "the first frame does not show the unzoomed pane in its slot")
+        #expect(screen.hostFrame("p1") == slot, "the unzoom did not show the pane in its slot in its own turn")
+        #expect(!screen.step(), "Reduce Motion asked for a frame after the unzoom")
+        #expect(screen.hostFrame("p1") == slot, "the tick after the unzoom moved the pane")
     }
 
     @Test func anArrivingSplitPaneIsOpaqueAndGrowsLiveFromTheEdgeWhileTheSplitPaneShrinksLive() throws {
