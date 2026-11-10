@@ -64,8 +64,11 @@ const HELP_READER_ENV: &str = "CMUX_COMPLETE_HELP";
 
 /// In a help reader, `Some(2)` for anything but a help: a launcher (which runs a checkout's
 /// script before it reads `--help`) or words that do not end in `--help` never run.
-pub(crate) fn refuse_in_help_reader(args: &[String]) -> Option<i32> {
+pub(crate) fn refuse_in_help_reader() -> Option<i32> {
+    // The environment first: outside a help reader no argument is read (or decoded) here.
     std::env::var_os(HELP_READER_ENV)?;
+    let args: Vec<String> =
+        std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let Some(words) = args.strip_suffix(&["--help".to_owned()][..]) else { return Some(2) };
     #[cfg(unix)]
     if super::dev::is_requested(words) {
@@ -124,6 +127,25 @@ pub(super) fn candidates(
     words: &[String],
     help: &dyn Fn(&[&str]) -> Option<String>,
 ) -> Vec<String> {
+    // Bash splits `--session=dev` at `=` into three words: join them back.
+    let mut joined: Vec<String> = Vec::new();
+    for word in words {
+        match joined.last_mut() {
+            Some(last) if word == "=" && last.starts_with("--") && !last.contains('=') => {
+                last.push('=');
+            }
+            Some(last)
+                if last.ends_with('=')
+                    && last.starts_with("--")
+                    && last.matches('=').count() == 1
+                    && !word.starts_with('-') =>
+            {
+                last.push_str(word);
+            }
+            _ => joined.push(word.clone()),
+        }
+    }
+    let words = joined.as_slice();
     let Some((partial, before)) = words.split_last() else { return Vec::new() };
     // Global options before the scope, and their values, are not command words.
     let mut command: Vec<&str> = Vec::new();
@@ -290,6 +312,9 @@ mod tests {
         assert_eq!(complete(&["vm", "exec", "--t"]), ["--timeout-ms"]);
         assert_eq!(complete(&["--socket", "/tmp/s", "vm", "p"]), ["pause"]);
         assert_eq!(complete(&["completion", ""]), ["bash", "fish", "zsh"]);
+        // Bash's words for `cmux --session=dev vm p`.
+        assert_eq!(complete(&["--session", "=", "dev", "vm", "p"]), ["pause"]);
+        assert_eq!(complete(&["--session=dev", "vm", "p"]), ["pause"]);
         assert!(complete(&["nope", ""]).is_empty());
     }
 

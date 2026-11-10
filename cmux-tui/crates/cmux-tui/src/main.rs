@@ -1889,7 +1889,7 @@ static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::On
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     // A help read for a Tab (`cmux completion`) prints a help or exits, before any scope runs.
-    if let Some(code) = cli::refuse_in_help_reader(&std::env::args().skip(1).collect::<Vec<_>>()) {
+    if let Some(code) = cli::refuse_in_help_reader() {
         client_log::exit(code);
     }
     startup_env::take_cloud_template_env();
