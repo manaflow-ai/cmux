@@ -272,6 +272,81 @@ fn open_page_perf() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A page of a chat's prompts reads the log's copies of them (`store/kind_index.rs`), not the
+/// log: read back from the end, the 16 prompts an open's `turnOpener` asks for walked the whole
+/// log of a chat with fewer, 4 s for a 1 GB chat on a lane (Leo, 2026-11-06: "we need to have
+/// things work a lot faster on load"). Its pages are the ones the read back gives, at every bound.
+#[test]
+fn a_page_of_prompts_reads_the_copies_not_the_log() {
+    let root = std::env::temp_dir().join(format!("acpmux-prompt-page-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    // Four turns of a long command's output; a steer and a queued prompt among them.
+    let mut log = codex_chat(4, 120, 85, false);
+    let steer_at = log.len() / 2;
+    let mut steer = log[steer_at].clone();
+    (steer.kind, steer.msg) = ("user_message".into(), json!({"text": "also this", "steer": true}));
+    log.insert(steer_at, steer);
+    let mut queued = log[steer_at].clone();
+    (queued.kind, queued.msg) = ("queued".into(), json!({"text": "next", "pad": "q".repeat(500)}));
+    log.insert(steer_at, queued);
+    for (n, rec) in log.iter_mut().enumerate() {
+        rec.seq = n as u64 + 1;
+    }
+    let last = log.last().unwrap().seq;
+    let writer = LocalStore::new(sessions.clone(), 256 << 10).unwrap();
+    writer.save(&meta("c")).unwrap();
+    let memory = crate::store::MemoryStore::default();
+    memory.save(&meta("c")).unwrap();
+    for rec in &log {
+        writer.append("c", rec).unwrap();
+        memory.append("c", rec).unwrap();
+    }
+    writer.flush().unwrap();
+    let local = hub(Box::new(LocalStore::new(sessions.clone(), 256 << 10).unwrap()));
+    // `MemoryStore` keeps no copies: its pages are read back from the end.
+    let back = hub(Box::new(memory));
+    // A chat's log load makes the copies (`hub/log_load.rs`).
+    local.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
+    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
+    let r0 = read_bytes();
+    let page = local.events_page("c", 0, Some(last), 16, Some(OPEN_BYTES), true, &prompts).unwrap();
+    let read = read_bytes() - r0;
+    assert_eq!(page.events.len(), 5, "four prompts and the steer");
+    assert!(!page.has_more);
+    if cfg!(target_os = "linux") {
+        assert!(read < log_bytes / 4, "a page of prompts read {read} of {log_bytes} bytes");
+    }
+    let queue = EventFilter::parse(Some(&json!(["queued", "user_message"])))
+        .unwrap()
+        .omitting_superseded(true);
+    let steer_seq = log.iter().find(|r| r.msg.get("steer").is_some()).unwrap().seq;
+    for filter in [&prompts, &queue] {
+        for (after, before, limit, max) in [
+            (0, Some(last), 16, Some(OPEN_BYTES)),
+            (0, None, 2, Some(OPEN_BYTES)),
+            (0, Some(steer_seq), 1, None),
+            (0, Some(steer_seq + 1), 16, Some(1)),
+            (steer_seq, None, 16, Some(OPEN_BYTES)),
+            (0, Some(2), 16, None),
+        ] {
+            let read = |hub: &Arc<Hub>| {
+                let page = hub.events_page("c", after, before, limit, max, true, filter).unwrap();
+                (page.events, page.has_more)
+            };
+            assert_eq!(
+                read(&local),
+                read(&back),
+                "after {after} before {before:?} limit {limit} max {max:?}"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
 fn read_bytes() -> u64 {
     std::fs::read_to_string("/proc/thread-self/io")
