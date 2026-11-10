@@ -200,6 +200,8 @@ impl Mux {
                 before = registry.resource_topology_scoped(&scope_list(&scope))?;
             }
         }
+        #[cfg(test)]
+        crate::walk_counters::frame_rows_read(before.active_screens.len());
         let panes = before.panes.iter().map(|pane| pane.public_id.clone()).collect::<Vec<_>>();
         let active_terminal_hosts = registry.active_terminal_hosts_of_panes(&panes)?;
         let read = started.elapsed();

@@ -133,6 +133,8 @@ impl Mux {
                 unchanged_keys.insert(("workspace".into(), workspace.public_id.to_string()));
                 continue;
             }
+            #[cfg(test)]
+            crate::walk_counters::workspace_rows_stated(1);
             changes.push(ResourceChange::UpsertWorkspace {
                 workspace: RegistryWorkspace {
                     id: workspace.id,
