@@ -187,9 +187,7 @@ final class HomeService {
         me: { [weak self] in
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
-        },
-        // The team picker drops Stack teams the backend does not list (ActiveTeam.confirmedTeams).
-        teamsListed: { [weak self] teams in self?.services.cloud.auth.activeTeam.confirmedTeams = teams })
+        }, teamsListed: { [weak self] in self?.services.cloud.auth.activeTeam.confirmedTeams = $0 })
     /// The active team (`ActiveTeam`, Switch Active Team) as the Worker names it: Home lists its people only.
     var activeWorkerTeam: String? {
         let auth = services.cloud.auth
