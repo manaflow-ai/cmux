@@ -1,7 +1,7 @@
 //! Link shares: the owner's verbs, redeem, the guest binding, expiry and a restart.
 use super::*;
 use crate::server::agent_session_attach_tests::{
-    Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with, terminal_pane,
+    Client, FakeAcpmux, Fixture, SESSION, WAIT, agent_tab, assert_code, mux_with, terminal_pane,
 };
 use crate::server::{
     BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
@@ -161,6 +161,35 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
     assert_eq!(redeem(&mut owner, &many, &"é".repeat(64), "n")["ok"], true);
 }
 
+/// A side chat is its owner's alone: a link guest of a share on its tab attaches to nothing,
+/// whatever its role, and the daemon remembers the chat as a side chat from then on.
+#[test]
+fn a_link_guest_never_attaches_to_a_side_chat() {
+    let fixture = Fixture { side_of: Some("acp_chat"), ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("share-side", fixture);
+    let mux = mux_with(&fake, "share-side");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-side-owner");
+    let share = create(&mut owner, surface, json!({}));
+    assert_eq!(invite(&mut owner, &share, "theo@example.com", Some("talk"))["ok"], true);
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "account":"theo@example.com", "name":"Theo",
+        "attempt_id":"a1"}));
+    let (mut client, bound) = bind(&mux, &share, &guest, "share-side-link");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_code(&attach, "agent_session.not_trusted");
+    assert_eq!(mux.control_clients.agent_sessions.attachment_count(), 0);
+    assert!(mux.control_clients.agent_sessions.sides.contains(SESSION));
+    // Known now: the next try ends before acpmux is asked.
+    while fake.next_frame(Duration::from_millis(200)).is_some() {}
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-attach", "surface":surface})),
+        "agent_session.not_trusted",
+    );
+    fake.no_frame();
+}
+
 /// An account invited with `talk` (signed in at the room) may send: its prompts reach acpmux
 /// held for the owner, and nothing outside its verbs does.
 #[test]
@@ -230,6 +259,14 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
         json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
             "option_id":"allow"}),
         json!({"cmd":"agent-session-children", "surface":surface}),
+        // A fork and a side chat are the owner's: every side op is outside a guest's verbs.
+        json!({"cmd":"agent-session-fork", "surface":surface, "through_seq":1}),
+        json!({"cmd":"agent-session-side", "surface":surface, "op":"open", "live":true}),
+        json!({"cmd":"agent-session-side", "surface":surface, "op":"btw", "text":"why?"}),
+        json!({"cmd":"agent-session-side", "surface":surface, "op":"prompt",
+            "session":"acp_side_fork", "prompt_id":"p", "text":"x"}),
+        json!({"cmd":"agent-session-side", "surface":surface, "op":"discard",
+            "session":"acp_side_fork"}),
         json!({"cmd":"agent-session-media", "surface":surface, "path":"/tmp/a.png"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"get"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit"}),

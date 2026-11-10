@@ -14,7 +14,7 @@
 //! running turn, say it types and views (presence). The daemon stamps the member as the author of
 //! every call (`_meta.acpmux.author {id: user_…, name}`), so acpmux records who asked; a frame's
 //! own `_host_*` markers or author are refused. Never: start, trust, a folder, media, children, a
-//! fork, a move, a model, mode or option change, the owner's sign-in, an answer to an ask, a
+//! fork, a side chat (`agent-session-side`, nor an attach to one the owner opened), a move, a model, mode or option change, the owner's sign-in, an answer to an ask, a
 //! decision on a prompt held for the owner, a share, a terminal or the workspace layout. Those stay
 //! the owner's (`agent_session.owner_only` for an answer, `remote_denied` for the rest).
 //!
@@ -240,20 +240,33 @@ pub(in crate::server) fn team_list(mux: &Mux, client: u64) -> Value {
         let state = mux.state.lock().unwrap_or_else(|e| e.into_inner());
         state.surfaces.iter().map(|(id, surface)| (*id, surface.clone())).collect::<Vec<_>>()
     };
-    let mut chats: Vec<Value> = surfaces
+    let listed: Vec<_> = surfaces
         .into_iter()
         .filter_map(|(surface, runtime)| match mux.conversation_tab_of(&runtime)? {
             ConversationTabRecord::AgentSession { session: Some(session), harness, .. } => {
-                let cloud_id = match (&team, &machine) {
-                    (Some(team), Some(machine)) => {
-                        json!(format!("cloud:{team}/{machine}/{session}"))
-                    }
-                    _ => Value::Null,
-                };
-                Some(json!({"surface": surface, "session": session, "harness": harness,
-                    "cloud_id": cloud_id}))
+                Some((surface, session, harness))
             }
             _ => None,
+        })
+        .collect();
+    // A side chat is its owner's alone: never listed (and never attached, `attach`). acpmux's
+    // own `side` tags are read now, so a daemon that restarted (and remembers none) lists none
+    // either; a list that cannot be read shows no chat.
+    let tagged = if listed.is_empty() { Some(Default::default()) } else { side::tagged_now(mux) };
+    let known = &mux.control_clients.agent_sessions.sides;
+    let mut chats: Vec<Value> = listed
+        .into_iter()
+        .filter(|(_, session, _)| {
+            tagged.as_ref().is_some_and(|tagged| !tagged.contains(session))
+                && !known.contains(session)
+        })
+        .map(|(surface, session, harness)| {
+            let cloud_id = match (&team, &machine) {
+                (Some(team), Some(machine)) => json!(format!("cloud:{team}/{machine}/{session}")),
+                _ => Value::Null,
+            };
+            json!({"surface": surface, "session": session, "harness": harness,
+                "cloud_id": cloud_id})
         })
         .collect();
     chats.sort_by_key(|chat| chat["surface"].as_u64());

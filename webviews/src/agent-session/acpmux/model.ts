@@ -1281,6 +1281,13 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// A side chat can fork this chat (`/side`, New side chat). A chat on another machine (the
+  /// app's relay) serves the fork for a side chat only: `canFork` stays off there, since Fork
+  /// Conversation and Edit and resend open the fork in this pane, which that relay does not do.
+  canSide?: boolean;
+  /// False only when side questions (`/btw`) cannot start here: a chat on another machine whose
+  /// relay does not list `_acpmux/btw` (an older machine).
+  canBtw?: boolean;
   /// acpmux serves the owner's Approve and Decline of a guest's prompt (initialize `queueApproval`).
   queueApproval?: boolean;
   canHandoff?: boolean;

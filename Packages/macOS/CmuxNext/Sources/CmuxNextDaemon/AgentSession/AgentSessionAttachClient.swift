@@ -120,6 +120,8 @@ public actor AgentSessionAttachClient {
         var steer = false
         /// `agent-session-queue-decision-v1`.
         var queueDecision = false
+        /// `agent-session-side-v1`.
+        var side = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -444,6 +446,34 @@ public actor AgentSessionAttachClient {
         return (session, data)
     }
 
+    public static let sideUnsupported = "agent_session.side_unsupported"
+
+    /// Whether the daemon opens side chats of the attached chat (`agent-session-side-v1`); never
+    /// for an observation.
+    public func servesSide() async -> Bool {
+        guard mode == .attach else { return false }
+        return (try? await liveConnection())?.1.side ?? false
+    }
+
+    /// `agent-session-side` (`agent-session-side-v1`): one step of the attached chat's side chats
+    /// on that machine. `op` `open` (`through_seq`, or `live`) forks the chat and tags the fork its
+    /// side chat, `btw` (`text`) starts acpmux's read-only side session, and `prompt` (`session`,
+    /// `prompt_id`, `text`) and `discard` (`session`) name a side chat this attachment opened. The
+    /// daemon pins the chat from the attachment; nothing here names a folder or a command.
+    public func side(_ op: String, _ fields: [String: any Sendable]) async throws -> Data {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.sideUnsupported, message: "a read-only agent session opens no side chat")
+        }
+        _ = try await liveTransport()
+        guard served.side else {
+            throw AgentSessionAttachError(code: Self.sideUnsupported, message: "update cmux on that machine to open a side chat from here")
+        }
+        var params = fields
+        params["op"] = op
+        // A side question waits for its session's agent to start (the daemon waits 30 s).
+        return try await call("agent-session-side", params, timeout: op == "btw" ? .seconds(35) : nil)
+    }
+
     /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in
     /// the attached chat. A daemon without the verb hears nothing (no one else is shown there).
     public func typing(_ on: Bool) async throws {
@@ -719,7 +749,8 @@ public actor AgentSessionAttachClient {
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
                             context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
                             steer: identity.supports(DaemonCapability.agentSessionSteer.rawValue),
-                            queueDecision: identity.supports(DaemonCapability.agentSessionQueueDecision.rawValue))
+                            queueDecision: identity.supports(DaemonCapability.agentSessionQueueDecision.rawValue),
+                            side: identity.supports(DaemonCapability.agentSessionSide.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

@@ -578,6 +578,13 @@ mod tests {
             json!({"cmd":"agent-session-start", "cwd":"/tmp"}),
             json!({"cmd":"agent-session-media", "media_id":"m1"}),
             json!({"cmd":"agent-session-children"}),
+            // A fork and a side chat are the owner's.
+            json!({"cmd":"agent-session-fork", "through_seq":1}),
+            json!({"cmd":"agent-session-side", "op":"open", "live":true}),
+            json!({"cmd":"agent-session-side", "op":"btw", "text":"why?"}),
+            json!({"cmd":"agent-session-side", "op":"prompt", "session":"acp_side_fork",
+                "prompt_id":"p", "text":"x"}),
+            json!({"cmd":"agent-session-side", "op":"discard", "session":"acp_side_fork"}),
             json!({"cmd":"agent-session-permission", "permission_id":"perm_attach", "option_id":"allow"}),
             json!({"cmd":"agent-session-typing", "on":true}),
             json!({"cmd":"agent-session-view", "visible":true}),

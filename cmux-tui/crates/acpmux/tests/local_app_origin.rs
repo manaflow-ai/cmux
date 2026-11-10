@@ -294,9 +294,10 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
 }
 
 /// New side chat (cx-jlzsf): the pane tags the fork it made as a side chat
-/// of its chat with `_acpmux/side`, which sets only the `side` tag.
+/// of its chat with `_acpmux/side`, which sets only the `side` tag, and only on a fork of that
+/// chat or a session the same connection created (the repo tour's task).
 #[tokio::test(flavor = "multi_thread")]
-async fn the_pane_marks_a_fork_as_its_chats_side_chat() {
+async fn the_pane_marks_only_a_fork_or_its_own_new_session_as_its_chats_side_chat() {
     let d = Daemon::start("side-chat");
     let token = d.local_token();
     let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
@@ -310,9 +311,14 @@ async fn the_pane_marks_a_fork_as_its_chats_side_chat() {
         ids.push(new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned());
     }
     let (chat, fork) = (&ids[0], &ids[1]);
+    // A session someone else created is not this connection's to hide (`Hub::mark_side`, whose
+    // unit test tags a real fork): another pane's connection is refused and it stays untagged.
+    let (mut other, _) = hello(&d, Some(PANE), Some(&token)).await;
+    let side = call(&mut other, 5, "_acpmux/side", json!({"sessionId": fork, "chat": chat})).await;
+    assert_eq!(side["error"]["data"]["reason"], json!("side.not_fork"), "{side}");
+    // The repo tour's task: the connection that created the session with `session/new` tags it.
     let side = call(&mut app, 5, "_acpmux/side", json!({"sessionId": fork, "chat": chat})).await;
     assert_eq!(side["result"]["tags"]["side"], json!(chat), "{side}");
-    assert!(side["result"]["tags"].as_object().is_some_and(|t| t.len() == 1), "{side}");
     // Never its own side chat, never of an unknown chat, and the chat is required.
     for (id, params) in [
         (6, json!({"sessionId": chat, "chat": chat})),

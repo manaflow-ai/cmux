@@ -172,6 +172,13 @@ pub(super) struct Fixture {
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// The attach page's session is a side chat of this chat (its `side` tag), as acpmux
+    /// summarizes one (agent_session_side_tests.rs).
+    pub(super) side_of: Option<&'static str>,
+    /// acpmux refuses `_acpmux/side` (the fork is not that chat's).
+    pub(super) side_refused: bool,
+    /// acpmux refuses its `_acpmux/sessions` list.
+    pub(super) sessions_unreadable: bool,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -277,9 +284,13 @@ fn serve(
                     json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
                 ];
                 events.extend(fixture.page.iter().cloned());
+                let mut session = json!({"sessionId": SESSION, "name": "sub", "status": "running",
+                    "pending": [{"permissionId": "perm_attach", "options": []}]});
+                if let Some(chat) = fixture.side_of {
+                    session["tags"] = json!({"side": chat});
+                }
                 Some(json!({
-                    "session": {"sessionId": SESSION, "name": "sub", "status": "running",
-                                "pending": [{"permissionId": "perm_attach", "options": []}]},
+                    "session": session,
                     "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
@@ -315,7 +326,21 @@ fn serve(
                     json!({"sessions": older, "nextCursor": "c1"})
                 })
             }
-            "_acpmux/sessions" => Some(machine_sessions()),
+            "_acpmux/sessions" => {
+                let mut list = machine_sessions();
+                // A side chat as acpmux lists it: its persisted `side` tag on the row.
+                if let Some(chat) = fixture.side_of
+                    && let Some(row) = list["sessions"]
+                        .as_array_mut()
+                        .and_then(|rows| rows.iter_mut().find(|row| row["sessionId"] == SESSION))
+                {
+                    row["tags"] = json!({"side": chat});
+                }
+                if fixture.sessions_unreadable {
+                    list = json!({FAKE_ERROR: "list.paced"});
+                }
+                Some(list)
+            }
             "_acpmux/info" => Some(json!({
                 "sessionId": params["sessionId"],
                 "transferBlocked": transfers.lock().unwrap().contains(
@@ -340,6 +365,15 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // A side chat's fork, its tag and a side question (agent_session_side_tests.rs).
+            "acp.session.fork" => Some(json!({"sessionId": SIDE_FORK,
+                "_meta": {"acpmux": {"sessionId": SIDE_FORK, "parentId": params["sessionId"]}}})),
+            "_acpmux/side" if fixture.side_refused => Some(
+                json!({FAKE_ERROR: "side.not_fork", FAKE_ERROR_DATA: {"reason": "side.not_fork"}}),
+            ),
+            "_acpmux/side" => Some(json!({"sessionId": params["sessionId"],
+                "tags": {"side": params["chat"]}})),
+            "_acpmux/btw" => Some(json!({"sessionId": SIDE_BTW})),
             // The owner's decision on a prompt held for them (agent-session-queue-*).
             "_acpmux/queue_approve" | "_acpmux/queue_decline" => Some(json!({"ok": true})),
             "_acpmux/context" | "_acpmux/context_override" => Some(json!({
@@ -385,7 +419,7 @@ fn serve(
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
                 }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                    "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
+                    "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});
                 writeln!(writer, "{accepted}").unwrap();
                 None
@@ -703,6 +737,7 @@ include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
+include!("agent_session_side_tests.rs");
 
 // MARK: Capability and trust
 

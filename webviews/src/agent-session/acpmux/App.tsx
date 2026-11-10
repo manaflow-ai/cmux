@@ -414,6 +414,7 @@ import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
   forkRefusal,
+  sideOffer,
   forkToTarget,
   forksAnyTurn,
   latestForkSeq,
@@ -5388,8 +5389,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }),
     [quick],
   );
-  // `/btw` opens a read-only side session beside the chat; the Quick Composer has none.
-  const opensSideSessions = !quick;
+  // `/btw` opens a read-only side session beside the chat; the Quick Composer has none, nor does
+  // a chat on another machine whose relay starts none (`canBtw`, an older machine).
+  const opensSideSessions = !quick && snapshot.canBtw !== false;
   const opensSideSessionsRef = useRef(opensSideSessions);
   opensSideSessionsRef.current = opensSideSessions;
   // A side session (New side chat's, or one `/btw` opened): its composer answers in it.
@@ -6156,6 +6158,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's folder on whichever machine runs it: the diff tab reads its repository there (the
   /// session host's git), so Changes opens a tab for a Cloud or remote chat too.
   const chatCwd = summary?.cwd || undefined;
+  /// Side chats and side questions as this chat offers them (`sideOffer`): on this computer, or on
+  /// another machine whose relay opens them there (a Cloud chat).
+  const sideOffers = sideOffer(snapshot, { localCwd, quick });
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
@@ -6246,10 +6251,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
-    if (forkRefusal(snapshot) === undefined && localCwd !== undefined && !quick) enabledCmuxActions.add("side");
+    if (sideOffer(snapshot, { localCwd, quick }).side) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
-    if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
+    // Not offered where it cannot start: a chat on another machine that opens no side session.
+    if (snapshot.sessionId && !isSideSession && sideOffer(snapshot, { localCwd, quick }).btw)
+      enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
       commands: mergedCommands(snapshot.commands, enabledCmuxActions),
@@ -8515,8 +8522,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const commandState = (fresh: boolean) => ({
     summary: !fresh && !!snapshot.summary,
     forkable: !fresh && forkable && forkSeq !== undefined,
-    sideFork: forkRefusal(snapshot),
-    sideAvailable: !fresh && localCwd !== undefined && !quick,
+    sideFork: sideOffers.sideFork,
+    sideAvailable: !fresh && sideOffers.sideHere,
     canContinue: !fresh && canContinue,
     sideSessions: opensSideSessions,
     session: !fresh && !!snapshot.sessionId,
@@ -9030,7 +9037,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
-    { canFork: forkable, throughSeq: lastForkSeq, local: localCwd !== undefined && !quick },
+    { canFork: sideOffers.sideRow, throughSeq: lastForkSeq, local: sideOffers.sideHere },
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
