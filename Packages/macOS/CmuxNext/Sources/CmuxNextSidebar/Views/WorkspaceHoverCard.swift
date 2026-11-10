@@ -182,7 +182,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if openedByRequest { startSampling(id) }
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
         updateTicker()
-        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true) { [weak body] in body?.applyColors() }
+        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
+                             cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
     }
 
     /// A group header's summary card (`GroupHoverCardSummary`): no sampling, no ticker.
@@ -317,6 +318,12 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// summary thing reflect size of ui compactness i chose"). Read at configure time, so a change applies live.
     static var tokens: SidebarHoverCardMetrics { SidebarRowTokens.current.hoverCard }
     private static var padding: CGFloat { tokens.padding }
+    /// The card's corners, concentric around its tab rows' fill: a sidebar workspace row's radius (the rows' own)
+    /// plus the gap from the card's edge to a row's fill (Lawrence 2026-11-09: "roundness needs to match roundness of
+    /// the workspace row itself").
+    static var cardCornerRadius: CGFloat {
+        SidebarDensityTokens.rowCornerRadius + max(0, padding - WorkspaceTabHoverCardRow.fillOutset)
+    }
     /// The card sizes to its content between these widths (POLISH: no
     /// blank band beside a short name); a long name wraps at the widest.
     static var cardWidth: CGFloat { tokens.width }
@@ -821,7 +828,7 @@ extension WorkspaceHoverCardView {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.
             wantsLayer = true
-            layer?.cornerRadius = HoverCardStyle.shared.cornerRadius
+            layer?.cornerRadius = Self.cardCornerRadius
             layer?.cornerCurve = .continuous
             // 0.55: as dense as the overlay rule allows a body's tint (under 0.6).
             layer?.backgroundColor = style.material == .frosted ? Palette.windowBackground.withAlphaComponent(0.55).cgColor : nil
