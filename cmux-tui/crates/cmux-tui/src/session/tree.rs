@@ -456,6 +456,12 @@ impl TreeView {
         self.surface(id).map(|tab| tab.kind).unwrap_or(SurfaceKind::Pty)
     }
 
+    /// Whether the tree lists tab `id` with a terminal that has no runtime in
+    /// the daemon yet ([`TabView::terminal_pending`]).
+    pub fn surface_terminal_pending(&self, id: SurfaceId) -> bool {
+        self.surface(id).is_some_and(|tab| tab.terminal_pending)
+    }
+
     fn location_index(&self) -> &TreeLocationIndex {
         self.location_index.get_or_init(|| TreeLocationIndex::build(self))
     }
@@ -638,6 +644,7 @@ pub fn tree_from_state_with_notifications(
                 .tabs
                 .iter()
                 .map(|sid| TabView {
+                    terminal_pending: false,
                     surface: *sid,
                     public_id: state
                         .surfaces
@@ -848,6 +855,10 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .and_then(Value::as_str)
                                 .filter(|branch| !branch.is_empty())
                                 .map(str::to_string),
+                            terminal_pending: matches!(
+                                tab.get("terminal_state").and_then(Value::as_str),
+                                Some("adopting" | "unadoptable")
+                            ),
                         })?;
                         if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);

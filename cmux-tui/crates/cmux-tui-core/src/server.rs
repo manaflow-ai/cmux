@@ -2961,9 +2961,26 @@ pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
-    mux.surface(id)
-        .filter(|surface| !surface.is_dead())
-        .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+    mux.surface(id).filter(|surface| !surface.is_dead()).ok_or_else(|| missing_surface(mux, id))
+}
+
+/// Why surface `id` has no live runtime here. A terminal tab whose host a
+/// restarted daemon still adopts (or cannot adopt) is listed in the tree and
+/// is not gone: it answers [`pending_surface_error`], which a client treats
+/// as "try again when the tree says it runs". `unknown surface N` stays the
+/// answer for a surface that is really gone, which clients retire (W6-A:
+/// a TUI that reconnected during adoption dropped those tabs for good).
+fn missing_surface(mux: &Mux, id: SurfaceId) -> anyhow::Error {
+    match mux.pending_terminal_of_tab(id) {
+        Some(pending) => anyhow::anyhow!(pending_surface_error(id, pending.state())),
+        None => anyhow::anyhow!("unknown surface {id}"),
+    }
+}
+
+/// The error text for a tab whose terminal is pending: `surface N is
+/// adopting` (or `unadoptable`). Clients match it exactly.
+pub fn pending_surface_error(id: SurfaceId, state: &str) -> String {
+    format!("surface {id} is {state}")
 }
 
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {

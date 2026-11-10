@@ -104,6 +104,24 @@ impl Mux {
         Ok(held)
     }
 
+    /// The pending state of the terminal tab `surface` shows, when it has no
+    /// runtime surface here yet: a tab whose host this daemon still adopts
+    /// (or cannot adopt) is not a missing tab. `None` for any other surface.
+    pub(crate) fn pending_terminal_of_tab(&self, surface: SurfaceId) -> Option<PendingTerminal> {
+        let terminal = self.with_state(|state| {
+            state.pane_of(surface)?;
+            match state.resource_indexes.content_ids.get(&surface)? {
+                ContentPublicId::Terminal(id) => Some(id.as_str().to_string()),
+                ContentPublicId::Browser(_) => None,
+            }
+        })?;
+        self.pending_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&terminal)
+            .map(|(_, pending)| pending.clone())
+    }
+
     /// Whether a terminal's host may run while it has no runtime here.
     pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
         self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)

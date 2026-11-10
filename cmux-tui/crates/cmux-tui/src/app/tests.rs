@@ -186,6 +186,7 @@ fn browser_completion_area(surface: SurfaceId) -> PaneArea {
 
 fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId) -> TreeView {
     let tab = |surface| TabView {
+        terminal_pending: false,
         surface,
         public_id: None,
         content_id: None,
@@ -794,6 +795,7 @@ fn notify_tree(surface: u64, unread: bool) -> TreeView {
                     active_tab: 0,
                     focused_at: 0,
                     tabs: vec![TabView {
+                        terminal_pending: false,
                         surface,
                         public_id: None,
                         content_id: None,

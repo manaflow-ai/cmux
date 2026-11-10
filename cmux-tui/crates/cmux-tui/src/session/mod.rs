@@ -139,6 +139,19 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_timeout)
 }
 
+/// Whether the daemon refused an attach to `surface` because its terminal has
+/// no runtime yet (`cmux_tui_core::server::pending_surface_error`): the tab
+/// stays, and attaches once the tree lists it running.
+pub(crate) fn is_remote_surface_pending(error: &anyhow::Error, surface: SurfaceId) -> bool {
+    let Some(error) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return false;
+    };
+    ["adopting", "unadoptable"].into_iter().any(|state| {
+        error.rejection_message()
+            == Some(cmux_tui_core::server::pending_surface_error(surface, state).as_str())
+    })
+}
+
 pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
     let expected = format!("unknown surface {surface}");
     error
@@ -1062,6 +1075,16 @@ impl Session {
             && let Some(surface) = remote.surface(id)
         {
             surface.clear_reported_size();
+        }
+    }
+
+    /// Whether the daemon's tree lists tab `id` with a terminal it is still
+    /// adopting (or cannot adopt): such a tab is not attached until the tree
+    /// lists it running. A local session has no adoption.
+    pub fn surface_terminal_pending(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.surface_terminal_pending(id),
         }
     }
 

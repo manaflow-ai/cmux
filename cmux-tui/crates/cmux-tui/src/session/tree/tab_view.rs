@@ -28,6 +28,11 @@ pub struct TabView {
     /// The git branch (or abbreviated commit when detached) of the PTY's
     /// directory, when the daemon resolved one.
     pub git_branch: Option<String>,
+    /// The tab's terminal has no runtime in the daemon yet while its host
+    /// may still run (tree `terminal_state` `adopting` after a daemon
+    /// restart, or `unadoptable`). The tab stays in the strip; the client
+    /// attaches it once the tree lists it running, never retires it.
+    pub terminal_pending: bool,
 }
 
 #[derive(Clone, Copy)]

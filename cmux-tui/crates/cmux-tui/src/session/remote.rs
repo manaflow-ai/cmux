@@ -1389,6 +1389,16 @@ impl RemoteSession {
         self.surfaces.lock().unwrap().contains_key(&id)
     }
 
+    /// Whether the cached tree lists tab `id` with a terminal the daemon has
+    /// no runtime for yet (`TreeView::surface_terminal_pending`).
+    pub(super) fn surface_terminal_pending(&self, id: SurfaceId) -> bool {
+        self.tree
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .view
+            .surface_terminal_pending(id)
+    }
+
     pub(super) fn surface(&self, id: SurfaceId) -> Option<Arc<RemoteSurface>> {
         self.surfaces.lock().unwrap().get(&id).cloned()
     }
