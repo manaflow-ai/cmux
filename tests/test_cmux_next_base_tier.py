@@ -56,6 +56,8 @@ class FakeApi:
         self.jobs: dict[int, list[dict]] = {}
         self.gets: list[str] = []
         self.covering: set[str] = set()  # base tier run shas whose commit contains the tip (compare: behind)
+        self.listed_late = False  # GitHub lists a dispatched run only after a while: the listing misses it
+        self.during_dispatch = lambda: None  # a slow dispatch POST: the time GitHub takes to answer it
 
     def open_run(self, run_id: int, sha: str, at: float, status: str = "queued",
                  jobs: list[dict] | None = None, title: str = tier.TITLE) -> None:
@@ -89,7 +91,8 @@ class FakeApi:
             self.cancelled.append(int(match.group(1)))
             return 202
         self.dispatched.append((path, body))
-        if self.dispatch_status == 204:
+        self.during_dispatch()
+        if self.dispatch_status == 204 and not self.listed_late:
             # The run the dispatch starts, titled with the branch tip when GitHub took it.
             self.runs.insert(0, {"id": 99, "status": "queued", "display_title": f"{tier.TITLE}{self.landed or self.tip}",
                                  "created_at": stamp(T0 + 10**6)})
@@ -524,16 +527,48 @@ class OneDeadline(unittest.TestCase):
                                     result)
                     self.assertEqual(len(fake.dispatched), 1 if result == TIP else 0)
 
-    def test_the_settle_after_a_late_dispatch_is_skipped_inside_the_deadline(self):
+    def test_a_dispatch_whose_settle_does_not_fit_is_not_made(self):
+        # Codex review of #40471 (P2): a dispatch that skipped its settle freed the concurrency slot before
+        # GitHub listed the new run, and the next kick, 5 s later, saw no run at the tip and dispatched
+        # again: duplicate Mac work. The settle's time is reserved before the dispatch; without it the
+        # kick dispatches nothing and says so in one line, and the next kick dispatches once.
         clock = Clock(T0 + 20 * 60)
-        deadline = quota.Deadline(tier.SETTLE_S - 1, clock=clock.now)
+        api = FakeApi([(OLD, T0)], TIP)
+        api.listed_late = True  # the next kick's listing does not show this kick's dispatch yet
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        late = quota.Deadline(tier.SETTLE_S - 1, clock=clock.now)
+        with self.assertRaises(tier.PastDeadline) as raised:
+            tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                      pushed=TIP, deadline=late)
+        self.assertEqual(len(str(raised.exception).splitlines()), 1)
+        self.assertEqual(api.dispatched, [])
+        clock.at += 5
+        self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None, pushed=TIP,
+                                   deadline=quota.Deadline(600, clock=clock.now)), TIP)
+        self.assertEqual(len(api.dispatched), 1)
+
+
+    def test_a_slow_dispatch_post_still_settles_inside_the_deadline(self):
+        # Codex review of #40520 (F1): the guard reserved only SETTLE_S, but the dispatch POST can wait up
+        # to the client's request timeout. With 21 s left and a 10 s POST that succeeds, the settle ended 9 s
+        # past the deadline. The POST's time is reserved with the settle: such a kick dispatches nothing,
+        # and one with room for both settles before the deadline even when its POST takes the whole timeout.
+        clock = Clock(T0 + 20 * 60)
         api = FakeApi([(OLD, T0)], TIP)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.during_dispatch = lambda: setattr(clock, "at", clock.at + 10)
+        short = quota.Deadline(tier.SETTLE_S + 1, clock=clock.now)
+        with self.assertRaises(tier.PastDeadline):
+            tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                      pushed=TIP, deadline=short)
+        self.assertEqual(api.dispatched, [])
+        api.during_dispatch = lambda: setattr(clock, "at", clock.at + quota.REQUEST_TIMEOUT_S)
+        room = quota.Deadline(quota.REQUEST_TIMEOUT_S + tier.SETTLE_S, clock=clock.now)
         self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
-                                   log=lambda _: None, pushed=TIP, deadline=deadline), TIP)
-        self.assertEqual(clock.slept, [])
-        self.assertEqual(api.cancelled, [])
-
+                                   log=lambda _: None, pushed=TIP, deadline=room), TIP)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertGreaterEqual(room.left(), 0)
 
 class RunDuringAWait(unittest.TestCase):
     """Codex review of #40369 (F1): after any wait the kick reads the run history again before it
