@@ -106,6 +106,19 @@ class SecretRouteBoundary(unittest.TestCase):
                 self.assertIn(name, secret_route_failures(fixture))
                 self.assertEqual(set(secret_route_failures(fixture)), {name})
 
+    def test_a_secret_job_whose_header_carries_a_comment_is_still_checked(self):
+        """`  deploy-x: # note` is a job header to GitHub. A header-line regex that misses it folds the
+        job into the one before, and its secret and its fleet route both escape the guard."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
+        name = "deploy-commented-fixture"
+        fixture = text.rstrip("\n") + (
+            f"\n\n  {name}: # split out of deploy-staging\n    runs-on: {fleet}\n"
+            "    steps:\n      - run: vercel deploy --token \"${{ secrets.VERCEL_TOKEN }}\"\n"
+        )
+        self.assertIn(name, backend_secret_jobs(fixture))
+        self.assertEqual(set(secret_route_failures(fixture)), {name})
+
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         text = path.read_text()
