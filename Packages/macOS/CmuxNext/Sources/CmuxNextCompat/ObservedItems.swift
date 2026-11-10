@@ -34,6 +34,8 @@
     /// its observation here; ids no longer listed stop theirs. `refresh` maps every item again
     /// (for a change no observation sees). Call it outside any observation tracking.
     public func items(for models: [Model], id: (Model) -> String, refresh: Bool = false) -> [Item] {
+        // Every listed model is visited (``ObservationWork`` counts them for a test).
+        ObservationWork.visited(models.count, "ObservedItems.list")
         var listed = Set<String>()
         let items = models.compactMap { model -> Item? in
             let key = id(model)
@@ -56,7 +58,12 @@
 
     private func start(_ model: Model, key: String) -> Item? {
         watches.removeValue(forKey: key)?.task.cancel()
-        let item = item
+        let map = item
+        // Each map of a model is counted (``ObservationWork``): one model's change maps that model only.
+        let item: @MainActor @Sendable (Model) -> Item? = { model in
+            ObservationWork.visited(1, "ObservedItems.map")
+            return map(model)
+        }
         // A trigger, compared with the item handed out (not the one emitted last): `refresh` moves it.
         let (first, later) = ObservationStream.current({ [weak model] in ObservationTrigger(model.flatMap(item)) },
                                                        fileID: site.fileID, line: site.line)
