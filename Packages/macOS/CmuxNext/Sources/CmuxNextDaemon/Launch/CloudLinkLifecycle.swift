@@ -1,3 +1,4 @@
+import CmuxConnectivityTelemetry
 public import Foundation
 import os
 
@@ -104,6 +105,10 @@ public final class CloudLinkLifecycle {
         guard let install = await installID() else { return .object(["error": .string("no install")]) }
         do {
             let ensured = try await linkLauncher.ensure(install: install)
+            ConnectivityTelemetry.shared.record(.cloudLink, "ensure", outcome: .success, fields: [
+                "status": .safeCode(ensured.status), "install": .text(install),
+                "pid": .text(ensured.pid.map(String.init) ?? "none"),
+            ])
             if generation != linkGeneration {
                 await linkLauncher.stop(install: install)
                 return .object(["error": .string("signed out during the ensure")])
@@ -113,7 +118,19 @@ public final class CloudLinkLifecycle {
             return .object(report)
         } catch {
             logger.error("cloud link ensure failed: \(String(describing: error), privacy: .public)")
+            ConnectivityTelemetry.shared.record(.cloudLink, "ensure", outcome: .failure, fields: [
+                "error_code": .code(Self.code(error)), "install": .text(install),
+            ], detail: String(describing: error))
             return .object(["error": .string(String(describing: error))])
+        }
+    }
+
+    /// A fixed word for an ensure failure (everyone's records carry no error text).
+    nonisolated static func code(_ error: any Error) -> String {
+        switch error as? CloudLinkLauncher.Failure {
+        case .failed?: "command_failed"
+        case .badAnswer?: "bad_answer"
+        case nil: "other"
         }
     }
 
@@ -139,6 +156,7 @@ public final class CloudLinkLifecycle {
     /// Stops this Mac's `cmux link` and tells the daemon. `install` only
     /// names the link in a failure log.
     public func stopLink(install: String? = nil) async {
+        ConnectivityTelemetry.shared.record(.cloudLink, "stop", fields: ["install": .text(install ?? "unknown")])
         await linkLauncher?.stop(install: install)
         await notifyLinkChanged()
     }
@@ -151,9 +169,13 @@ public final class CloudLinkLifecycle {
         do {
             let answer = try await connection.request(AppsLinkChangedRequest())
             logger.info("apps-link-changed: \(String(describing: answer), privacy: .public)")
+            ConnectivityTelemetry.shared.record(.cloudLink, "link_changed", outcome: .success,
+                                                detail: String(describing: answer))
             return answer
         } catch {
             logger.error("apps-link-changed failed: \(String(describing: error), privacy: .public)")
+            ConnectivityTelemetry.shared.record(.cloudLink, "link_changed", outcome: .failure,
+                                                fields: ["error_code": .code("daemon_refused")], detail: String(describing: error))
             return .object(["error": .string(String(describing: error))])
         }
     }

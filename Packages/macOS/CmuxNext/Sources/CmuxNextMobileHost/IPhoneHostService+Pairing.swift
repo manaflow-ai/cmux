@@ -1,4 +1,5 @@
 import AppKit
+import CmuxConnectivityTelemetry
 import CmuxNextAgentPane
 import CmuxNextDesign
 public import CmuxNextMobile
@@ -80,6 +81,7 @@ extension IPhoneHostService {
             ask(request)
         case .unpaired(let id):
             Self.logger.info("phone \(id.prefix(8), privacy: .public) signed out; forgetting it")
+            Self.recordPairing("unpaired", phone: id)
             revokePhone(id: id)
         default:
             break
@@ -101,6 +103,7 @@ extension IPhoneHostService {
         // pairs without the person-only prompt (IPhonePairingSeed).
         if let seed = dependencies?.pairingSeed, seed.trusts(request), pairedStore.current?.userID == account?.userID {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
+            Self.recordPairing("paired", phone: request.phoneDeviceID, via: "test_seed")
             savePaired { $0.approve(request, at: Date()) }
             return
         }
@@ -111,6 +114,7 @@ extension IPhoneHostService {
            Self.redeems(request, tokens: &pairTokens, macDeviceID: state.deviceID, pairedUserID: trusted.userID,
                         accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from this Mac's pairing code")
+            Self.recordPairing("paired", phone: request.phoneDeviceID, via: "pairing_code")
             var withoutToken = request
             withoutToken.pairToken = nil
             let allowed = withoutToken
@@ -127,6 +131,7 @@ extension IPhoneHostService {
         request.pairToken = nil
         let outcome = prompts.receive(request, at: Date())
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
+        Self.recordPairing("requested", phone: request.phoneDeviceID, via: Self.pairingWord(String(describing: outcome)))
         if outcome == .ask { announce(request) }
         showPairDialog()
     }
@@ -203,6 +208,7 @@ extension IPhoneHostService {
         prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
         if prompts.pending.isEmpty { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
+        Self.recordPairing(allow ? "allowed" : "denied", phone: request.phoneDeviceID, via: "person")
         savePaired { list in
             if allow { list.approve(request, at: Date()) } else { list.deny(request) }
         }
@@ -302,5 +308,26 @@ extension IPhoneHostService {
         let paired = pairedStore.current ?? MobileHostPairedDevices(userID: "")
         approverSync?.updatePhones(paired: Set(paired.hostdDevices.map(\.id)),
                                    listed: phonesKnown ? paired.listed(in: knownPhones) : nil)
+    }
+}
+
+extension IPhoneHostService {
+    /// One pairing step for connectivity telemetry: the step and how it was decided for
+    /// everyone, the phone's id (first 8 characters) for the cmux team only.
+    nonisolated static func recordPairing(_ step: String, phone: String, via: String? = nil) {
+        var fields: [String: ConnectivityEvent.Value] = ["phone": .text(String(phone.prefix(8)))]
+        if let via { fields["via"] = .safeCode(via) }
+        let outcome: ConnectivityEvent.Outcome = step == "denied" ? .failure : (step == "requested" ? .info : .success)
+        ConnectivityTelemetry.shared.record(.pairing, step, outcome: outcome, fields: fields)
+    }
+
+    /// A prompt outcome (`ask`, `alreadyAsked`) as one snake_case word.
+    nonisolated static func pairingWord(_ raw: String) -> String {
+        var word = ""
+        for character in raw.prefix(32) {
+            if character.isUppercase, !word.isEmpty { word.append("_") }
+            word.append(character.isLetter || character.isNumber ? Character(character.lowercased()) : "_")
+        }
+        return word
     }
 }

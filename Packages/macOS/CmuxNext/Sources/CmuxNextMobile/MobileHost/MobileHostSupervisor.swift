@@ -1,3 +1,4 @@
+import CmuxConnectivityTelemetry
 public import Foundation
 import CmuxNextCompat
 import CmuxNextWakeups
@@ -506,7 +507,13 @@ public actor MobileHostSupervisor {
         var next = state
         change(&next)
         guard next != state else { return }
+        let previous = state
         state = next
         continuation.yield(next)
+        // The phase's kind, not its reason: a retry whose message changes is the same phase.
+        if MobileHostConnectivityEvent.kind(previous.phase) != MobileHostConnectivityEvent.kind(next.phase)
+            || previous.phones.count != next.phones.count {
+            ConnectivityTelemetry.shared.record(MobileHostConnectivityEvent(next).event)
+        }
     }
 }

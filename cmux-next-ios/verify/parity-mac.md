@@ -811,3 +811,9 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Duplicate Workspace Without Browser Tabs | workspace row menu (a workspace with a page) | works | A pane of pages only goes and its split collapses, as the Mac's `withoutBrowserTabs`. |
 | Send Feedback | Settings > About > **Send feedback** | works | Opens the Mac's feedback page (a new issue). Replaces "Report a problem". |
 | Phone tab: rotate, appearance, software keyboard, volume, app switcher | — | blocked (#13742) | The simulator stream takes `button` home and lock only (`cmux-mobile-host/src/surface.rs` `BUTTONS`; the Mac's `SimulatorSurfaceServer` maps only those). Each needs a new stream input in the mobile host and the Mac's surface server. The phone's own keyboard toggle (typing into the simulator) is already in the accessory bar. |
+
+## Connectivity observability (2026-11-09)
+
+| Mac feature | Mac | Phone | State | Notes |
+| --- | --- | --- | --- | --- |
+| Connectivity telemetry, verbose for the cmux team | `ConnectivityReporting`: Cloud link, phone host phases, pairing → journal `~/Library/Application Support/cmux-next/<bundle id>/connectivity.jsonl`, unified log `com.cmuxterm.app.next`/`connectivity`, Sentry breadcrumbs and failure events | Link dial/phase/probe/drop/roam/media and agent hub → journal `Application Support/Connectivity/connectivity.jsonl`, unified log `dev.cmux.mobile`/`connectivity`, Settings > Help > **Copy Logs** | partial | Same package (`Packages/Shared/CmuxConnectivityTelemetry`) and policy on both: a `@manaflow.ai` / `@cmux.com` account records every event with free text; everyone else fixed words and numbers, sampled 1/10 for routine steps, 120 records an hour. The phone has no Sentry SDK yet, so its records stay on the device until Copy Logs. |

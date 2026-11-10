@@ -186,6 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
+        // Connectivity telemetry: journal, unified log, Sentry; verbose for the cmux team (ConnectivityReporting).
+        ConnectivityReporting.install(services: services)
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
