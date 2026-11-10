@@ -5664,7 +5664,7 @@
       "type" : "string"
     },
     "workspaceColors.indicatorStyle" : {
-      "default" : "dot",
+      "default" : "leftRail",
       "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
       "enum" : [
         "dot",

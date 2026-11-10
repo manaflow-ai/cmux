@@ -60747,7 +60747,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "dot",
+      "default" : "leftRail",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",

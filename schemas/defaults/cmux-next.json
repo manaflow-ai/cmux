@@ -914,7 +914,7 @@
     "setting.window.titlebar": "minimal",
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
-    "setting.workspaceColors.indicatorStyle": "dot",
+    "setting.workspaceColors.indicatorStyle": "leftRail",
     "setting.workspaces.autoArchive.idleDays": 3,
     "setting.workspaces.autoArchive.style": "manual",
     "setting.workspaces.autoName": true,

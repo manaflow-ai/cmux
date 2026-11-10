@@ -5691,7 +5691,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>dot</string>
+			<string>leftRail</string>
 			<key>pfm_description</key>
 			<string>How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.</string>
 			<key>pfm_name</key>

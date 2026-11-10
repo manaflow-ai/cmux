@@ -240,7 +240,7 @@ public final class SidebarModel {
     public var showsTimestamps = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
-    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,

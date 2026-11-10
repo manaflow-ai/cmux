@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: a workspace's color is a bar, not a dot before its name. Lawrence ("red dot on left feels weird", the
+  selected row "Resize Chief sandboxes"): a colored text-only workspace drew its color as a dot before its name
+  (`workspaceColors.indicatorStyle` `dot`, NEXT's default) and the dot's slot pushed that one title an icon column right.
+  The default is now classic's `leftRail`, and the bar sits in the row's leading inset (`colorRailLead` 1.5 pt in from
+  the fill) with no slot, so every title starts on the one left edge. `dot` and `fill` stay as choices. Regression:
+  `WorkspaceColorKeepsTheTitleEdgeTests`, `WorkspaceColorFillTests.aLeftRailRowsTitleStartsWithAnUncoloredRows`.
+
 - 2026-11-09: collapsing the sidebar no longer slides its + over the toolbar band. Reported (nightly
   1.0.0-nightly.4269066450801): "when the user collapses the left sidebar, the '+' (new workspace) button in the top
   titlebar/toolbar row jumps all the way to the left instead of animating; it looks weird". The titlebar row rode the

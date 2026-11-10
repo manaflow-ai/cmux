@@ -67,7 +67,7 @@ import Testing
             #expect(!red.colorRail.isHidden && red.colorRail.superview != nil, "\(density): the red row shows its color nowhere")
             let textX = red.title.frame.minX + WorkspaceRowView.labelInset
             #expect(red.colorRail.frame.width > 0 && red.colorRail.frame.minX >= 0, "\(density): the bar is \(red.colorRail.frame)")
-            #expect(red.colorRail.frame.maxX + 2 <= textX,
+            #expect(red.colorRail.frame.maxX + 1 <= textX,
                     "\(density): the bar ends at \(red.colorRail.frame.maxX), the title's text starts at \(textX)")
         }
     }
