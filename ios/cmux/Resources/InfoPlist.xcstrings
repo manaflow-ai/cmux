@@ -90,6 +90,95 @@
         }
       }
     },
+    "NSFaceIDUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Schlüssel entsperren, die du mit Face ID schützt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock SSH keys that you protect with Face ID."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desbloquea las claves SSH que proteges con Face ID."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déverrouillez les clés SSH que vous protégez avec Face ID."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sblocca le chiavi SSH che proteggi con Face ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face ID で保護している SSH 鍵のロックを解除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face ID로 보호하는 SSH 키의 잠금을 해제합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontgrendel SSH-sleutels die je met Face ID beschermt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odblokuj klucze SSH chronione przez Face ID."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desbloqueie as chaves SSH que você protege com o Face ID."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокировка SSH-ключей, защищённых Face ID."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face ID ile koruduğunuz SSH anahtarlarının kilidini açın."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解锁你用面容 ID 保护的 SSH 密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解鎖你以 Face ID 保護的 SSH 密鑰。"
+          }
+        }
+      }
+    },
     "NSLocalNetworkUsageDescription": {
       "extractionState": "manual",
       "localizations": {
