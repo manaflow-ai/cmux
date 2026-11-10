@@ -1,3 +1,4 @@
+public import AppKit
 import CCmuxMotionFFI
 public import CoreGraphics
 public import Foundation
@@ -40,7 +41,7 @@ nonisolated extension MotionPolicy {
             case .off: 2
             }
         }
-        return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: bounce == .subtle ? 1 : 0,
+        return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: 0,
                                 pane_animations: false, new_tab: enabledKinds.contains(.newTab),
                                 new_workspace: enabledKinds.contains(.newWorkspace))
     }
@@ -53,8 +54,9 @@ nonisolated extension MotionPolicy {
 }
 
 extension MotionGate {
-    /// Seconds of tween `token` in this gate's category; 0 applies at once.
-    public func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
+    /// Seconds of tween `token` in this gate's category for a motion that `window` shows; 0 applies
+    /// at once (a live resize of `window` too).
+    public func duration(_ token: MotionTween, in window: NSWindow?) -> TimeInterval { policy(in: window).duration(token) }
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app

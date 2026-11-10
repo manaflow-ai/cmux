@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1388,
+    "entries": 1389,
     "shortcuts": 188
   },
   "sections": [
@@ -2098,10 +2098,22 @@
           "command": null
         },
         {
+          "id": "divider.hide",
+          "title": "Hide Divider",
+          "shortcut": null,
+          "command": "cmux divider hide"
+        },
+        {
           "id": "increaseWorkspaceTerminalFontSize",
           "title": "Increase Workspace Font Size",
           "shortcut": "⌘=",
           "command": null
+        },
+        {
+          "id": "divider.insertNew",
+          "title": "Insert New",
+          "shortcut": null,
+          "command": "cmux divider insert"
         },
         {
           "id": "column.moveLeft",
@@ -2522,6 +2534,12 @@
           "title": "Show Artifacts",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "divider.show",
+          "title": "Show Divider",
+          "shortcut": null,
+          "command": "cmux divider show"
         },
         {
           "id": "pane.focus",
@@ -8258,18 +8276,6 @@
           "title": "Upgrade to cmux Pro",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "appearance.animations.bounce.none",
-          "title": "Use Animations Without Bounce",
-          "shortcut": null,
-          "command": "cmux settings use-animations-without-bounce"
-        },
-        {
-          "id": "appearance.animations.bounce.subtle",
-          "title": "Use Bouncy Animations",
-          "shortcut": null,
-          "command": "cmux settings use-bouncy-animations"
         },
         {
           "id": "browser.defaultEngine.chromium",

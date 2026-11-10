@@ -226,9 +226,6 @@ extension AnimationKindsSetting {
     /// `ui.animations.newWorkspace`.
     public nonisolated static let newWorkspacePath = ["ui", "animations", "newWorkspace"]
     public nonisolated static let newWorkspaceDefault = true
-    /// `ui.animations.bounce`.
-    public nonisolated static let bouncePath = ["ui", "animations", "bounce"]
-    public nonisolated static let bounceDefault: MotionBounce = .none
 }
 
 extension PaneChromeConfigParser {
