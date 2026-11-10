@@ -1,0 +1,253 @@
+/* The team board (BoardPage.tsx). One header (title, totals, filters, search), one column header,
+   one windowed list. Every row is --board-row tall and positioned by transform, so a scroll moves
+   the rows in view and nothing else: no row past the viewport is in the DOM. Text in three theme
+   inks; the attention ink only for what needs a person (an agent waiting, no owner, unknown cost). */
+html[data-cmux-page="board"],
+html[data-cmux-page="board"] body {
+  height: 100%;
+}
+
+.board-page {
+  --board-row: 52px;
+  --board-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(88px, auto) auto;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.board-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4) var(--page-edge) var(--ds-space-3);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.board-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--weight-emphasis);
+}
+
+.board-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2) var(--ds-space-6);
+}
+
+.board-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.board-stat-value {
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+.board-stat-label {
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--page-text-2);
+  white-space: nowrap;
+}
+
+.board-stat.attention .board-stat-value {
+  color: var(--ds-color-attention);
+}
+
+.board-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2) var(--ds-space-3);
+}
+
+.board-filters {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  gap: var(--ds-space-1);
+}
+
+.board-filter,
+.board-button {
+  font: inherit;
+  font-size: var(--text-body);
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.board-filter:hover,
+.board-button:hover:not(:disabled) {
+  background: var(--page-hover);
+}
+
+.board-filter[aria-pressed="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+.board-button:disabled {
+  color: var(--page-text-disabled);
+}
+
+.board-button.danger:not(:disabled) {
+  color: var(--ds-color-danger);
+}
+
+.board-search {
+  flex: 1 1 200px;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-body);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  color: inherit;
+}
+
+.board-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) var(--page-edge);
+  color: var(--ds-color-danger);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.board-columns,
+.board-row {
+  display: grid;
+  grid-template-columns: var(--board-columns);
+  column-gap: var(--ds-space-4);
+  align-items: center;
+  padding: 0 var(--page-edge);
+}
+
+.board-columns {
+  padding-top: var(--ds-space-2);
+  padding-bottom: var(--ds-space-1);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--page-text-2);
+}
+
+.board-message {
+  margin: var(--ds-space-6) var(--page-edge);
+  color: var(--page-text-2);
+}
+
+.board-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  contain: strict;
+}
+
+.board-list-body {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  contain: layout paint;
+}
+
+.board-row {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--board-row);
+  border-bottom: 1px solid var(--page-separator);
+  contain: layout paint style;
+}
+
+.board-row:hover {
+  background: var(--page-hover);
+}
+
+.board-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.board-name,
+.board-state,
+.board-sub,
+.board-owner,
+.board-origin {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-name {
+  font-size: var(--text-body);
+}
+
+.board-sub {
+  display: flex;
+  gap: var(--ds-space-2);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--page-text-2);
+}
+
+.board-origin {
+  color: var(--page-text-3);
+}
+
+.board-owner.attention,
+.board-row[data-waiting] .board-state {
+  color: var(--ds-color-attention);
+}
+
+.board-state {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  font-size: var(--text-body);
+}
+
+.board-row[data-state="failed"] .board-state {
+  color: var(--ds-color-danger);
+}
+
+.board-row[data-state="paused"] .board-state,
+.board-row[data-state="stopped"] .board-state {
+  color: var(--page-text-2);
+}
+
+.board-dot {
+  flex: none;
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.board-num {
+  align-items: flex-end;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.board-actions {
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: var(--ds-space-1);
+}
