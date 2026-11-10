@@ -122,6 +122,14 @@ const MAX_CWD_BYTES: usize = 4096;
 /// A harness spawns and answers `session/new` (a cold agent can take long).
 const NEW_TIMEOUT: Duration = Duration::from_secs(60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long the start waits for acpmux's catalog (`_acpmux/harnesses`). A starting acpmux holds
+/// that answer until its catalog is ready (`Hub::harnesses_reply` waits on `catalog_ready`): after
+/// its login shell read (`login_env::import`, up to 2 x 3 s) and the catalog reload that follows.
+/// The app restarts acpmux with a person key just before a Cloud chat's start (remote approvals),
+/// so the start's catalog read can land on an acpmux still in that wait; with [`CALL_TIMEOUT`] it
+/// was refused `agent_session.timeout` ("did not start the agent in time") while acpmux was about
+/// to answer (cmuxterm-hq run 42837396397, cloud-chat-replies-production, 2026-11-10).
+const CATALOG_TIMEOUT: Duration = Duration::from_secs(20);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
@@ -591,8 +599,9 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog =
-        link.call("_acpmux/harnesses", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let catalog = link
+        .call("_acpmux/harnesses", json!({"cwd": cwd}), CATALOG_TIMEOUT)
+        .map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
