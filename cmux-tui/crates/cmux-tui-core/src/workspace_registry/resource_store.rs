@@ -1,5 +1,4 @@
 mod events_page;
-mod hook_pending_index;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
@@ -300,7 +299,11 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
             [],
         )?;
     }
-    hook_pending_index::ensure(transaction)?;
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS resource_agent_hook_pending_by_terminal;
+         CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
+           ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
+    )?;
     screen_rows::create_column_dock_schema(transaction)?;
     migrate_tab_name_authority(transaction)
 }

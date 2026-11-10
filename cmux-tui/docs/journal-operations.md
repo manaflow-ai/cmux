@@ -37,8 +37,7 @@ read transaction open at that moment stops the checkpoint at its snapshot;
 the checkpoint ends at once and the commit does not wait for the reader. The
 rule then tries again after each further 4 MiB, and the file grows by what
 commits write until that read ends. A WAL that a previous run left large is
-checkpointed by the syncer when the registry opens (on the syncer's thread:
-the open itself runs no checkpoint and, at the current schema, no commit), and a clean stop ends
+checkpointed by the syncer when the registry opens, and a clean stop ends
 with one PASSIVE checkpoint; the WAL file is never deleted. A fully idle
 registry keeps its WAL at its size until its next commit. The syncer runs no
 TRUNCATE or RESTART checkpoint, which would hold the writer lock while it
