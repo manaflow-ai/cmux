@@ -33,4 +33,15 @@ extension HomeEngineStrings {
     static func computerOnMachine(_ chief: String) -> String {
         String(localized: "home.engine.computer.onMachine", defaultValue: "\(chief) works on a Cloud machine", table: "Home", bundle: .module)
     }
+    static var computerLocalLimit: String {
+        String(localized: "home.engine.computer.localLimit", defaultValue: "Your Chiefs on this Mac already have as many computers as they can. Try again when one ends.",
+               table: "Home", bundle: .module)
+    }
+    /// The Computer Use picker's item for the Chief's own computer (Set Up Computer in its profile).
+    static var computerOwn: String {
+        String(localized: "home.engine.computer.own", defaultValue: "Own Cloud Computer", table: "Home", bundle: .module)
+    }
+    static var computerNotOnServer: String {
+        String(localized: "home.engine.computer.notOnServer", defaultValue: "Computers aren’t available on this server yet", table: "Home", bundle: .module)
+    }
 }

@@ -109,7 +109,14 @@ extension HomeChiefProfileView {
         gateButton.target = self
         gateButton.action = #selector(gateAction)
         gateButton.setAccessibilityIdentifier("cmux.home.chief.computer.gate")
-        let note = NSStackView(views: [gateLabel, gateButton])
+        gateMoveButton.bezelStyle = .rounded
+        gateMoveButton.target = self
+        gateMoveButton.action = #selector(moveToCloud)
+        gateMoveButton.setAccessibilityIdentifier("cmux.home.chief.computer.gate.move")
+        let buttons = NSStackView(views: [gateButton, gateMoveButton])
+        buttons.orientation = .horizontal
+        buttons.spacing = Metrics.space2
+        let note = NSStackView(views: [gateLabel, buttons])
         note.orientation = .vertical
         note.alignment = .centerX
         note.spacing = Metrics.space3
@@ -130,10 +137,12 @@ extension HomeChiefProfileView {
     @objc private func gateAction() {
         switch shownGate {
         case .paywall: onUpgrade()
-        case .notSetUp: provision()
+        case .notSetUp, .noMachine: provision()
         default: onMoveToCloud()
         }
     }
+
+    @objc private func moveToCloud() { onMoveToCloud() }
 }
 
 /// The scroll view's document: rows from the top.

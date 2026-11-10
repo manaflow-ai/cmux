@@ -1572,6 +1572,270 @@
           }
         }
       }
+    },
+    "cloud.chiefComputer.remote": {
+      "comment": "Refusal when another device (a phone, another Mac) asks this Mac to drive its Chief's own computer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only this Mac drives its Chief’s computer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الـ Mac وحده يتحكم في كمبيوتر Chief الخاص به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo ovaj Mac upravlja računarom svog Chiefa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun denne Mac styrer sin Chiefs computer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur dieser Mac steuert den Computer seines Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo este Mac controla el ordenador de su Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seul ce Mac pilote l’ordinateur de son Chief."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo questo Mac controlla il computer del suo Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief のコンピュータを操作できるのはこの Mac だけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែ Mac នេះទេដែលបញ្ជាកុំព្យូទ័ររបស់ Chief របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac만 해당 Chief의 컴퓨터를 조작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare denne Macen styrer Chiefens datamaskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko ten Mac steruje komputerem swojego Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só este Mac controla o computador do seu Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управлять компьютером своего Chief может только этот Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีเพียง Mac เครื่องนี้ที่ควบคุมคอมพิวเตอร์ของ Chief ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief’inin bilgisayarını yalnızca bu Mac yönetir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише цей Mac керує комп’ютером свого Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ máy Mac này điều khiển máy tính của Chief."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有这台 Mac 能操控其 Chief 的电脑。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有這台 Mac 能操控其 Chief 的電腦。"
+          }
+        }
+      }
+    },
+    "cloud.chiefComputer.invalid": {
+      "comment": "Refusal when the Chief's computer action is missing the Chief id or names an unknown action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the Chief’s computer (chief:<id>) and one of its ops."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدد كمبيوتر Chief (chief:<id>) وإحدى عملياته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite računar Chiefa (chief:<id>) i jednu od njegovih radnji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv Chiefens computer (chief:<id>) og en af dens handlinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Computer des Chiefs (chief:<id>) und eine seiner Aktionen an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica el ordenador del Chief (chief:<id>) y una de sus operaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’ordinateur du Chief (chief:<id>) et l’une de ses opérations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica il computer del Chief (chief:<id>) e una delle sue operazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief のコンピュータ（chief:<id>）と操作を 1 つ指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជាក់កុំព្យូទ័ររបស់ Chief (chief:<id>) និងប្រតិបត្តិការមួយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief의 컴퓨터(chief:<id>)와 작업 하나를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi Chiefens datamaskin (chief:<id>) og én av handlingene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj komputer Chiefa (chief:<id>) i jedną z jego operacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o computador do Chief (chief:<id>) e uma de suas operações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите компьютер Chief (chief:<id>) и одну из его операций."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุคอมพิวเตอร์ของ Chief (chief:<id>) และการทำงานหนึ่งอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief’in bilgisayarını (chief:<id>) ve işlemlerinden birini belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажіть комп’ютер Chief (chief:<id>) і одну з його операцій."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy nêu máy tính của Chief (chief:<id>) và một thao tác của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定 Chief 的电脑（chief:<id>）及其一项操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定 Chief 的電腦（chief:<id>）及其一項操作。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

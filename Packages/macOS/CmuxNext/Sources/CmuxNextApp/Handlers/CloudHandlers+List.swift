@@ -127,6 +127,8 @@ extension CloudHandlers {
             store.effect(invocation, knows: { services.machines.session($0) != nil })
         }
         assert(bound, "cloud.computerControl is not in the action catalog")
+        // `cmux cloud chief-computer`: a Chief of this Mac drives its own computer (ChiefComputerControlClient+Act.swift).
+        _ = registry.bindEffect("cloud.chiefComputer", requires: nil) { ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).actEffect($0) }
     }
 
     /// The Chief's ask as a banner, by the agent source's notification rules (desktop, quiet hours,

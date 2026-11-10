@@ -46,14 +46,18 @@ final class ChiefComputerPageService: InternalPageProvider {
         })
     }
 
-    /// What the page and the chat's popup read: the plan and the Chief's owner route. A Chief that
-    /// does not run in the Cloud has no agent id, so its status reads as none.
+    /// The Chief's computer key: a Cloud Chief's agent id, else a Chief of this Mac's own computer (`local:<conversation>`).
+    static func computerKey(_ services: AppServices, _ conversation: String) -> String? {
+        services.home.cloudChiefs.chief(for: conversation)?.id ?? HomeChiefComputerRoute.localKey(conversation)
+    }
+
+    /// What the page and the chat's popup read: the plan and the Chief's owner route, a Chief of this Mac's own computer too.
     static func source(services: AppServices, conversation: String) -> HomeChiefComputerSection.Source {
         let service = services.home
         let id = ConversationID(conversation)
         return .init(paid: { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) },
                      chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
-                     route: HomeChiefComputerRoute(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id },
+                     route: HomeChiefComputerRoute(agent: { [weak services] in services.flatMap { computerKey($0, conversation) } },
                                                    send: ChiefComputerControlClient.feeding(service.hostedChief.brainRoute, into: services.cloud.computerControl)))
     }
 
@@ -126,7 +130,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         guard let services else { return view }
         Self.wire(view, services: services, conversation: conversation)
         // The expanded computer's control bar (Take Over / Give Back): a Cloud Chief's own sandbox.
-        view.control = services.home.cloudChiefs.chief(for: conversation).flatMap { services.chiefComputerControlSource(agent: $0.id, machine: nil) }
+        view.control = services.chiefComputerControlSource(agent: Self.computerKey(services, conversation), machine: nil)
         view.place = { [weak services] in
             services?.home.cloudChiefs.chief(for: conversation) != nil ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
         }
@@ -147,12 +151,11 @@ final class ChiefComputerPageService: InternalPageProvider {
         view.computer.source = Self.source(services: services, conversation: conversation)
         view.paid = { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) }
         view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
-        view.onProvision = { [weak services] in
-            guard let services, let agent = services.home.cloudChiefs.chief(for: conversation)?.id else {
-                throw CancellationError()  // no Cloud Chief here any more: the note shows the failure
-            }
-            try await ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).provision(agent: agent)
+        view.onProvision = { [weak services] in  // a Cloud Chief's computer, or a Chief of this Mac's own
+            guard let services, let key = computerKey(services, conversation) else { throw CancellationError() }
+            try await ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).provision(agent: key)
         }
+        view.localComputer = { HomeChiefComputerRoute.localKey(conversation).map { _ in "chief:\(conversation)" } }
         view.name = { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName }
         view.onUpgrade = { [weak services] in
             // task-owner: one Checkout start; ends when it opens

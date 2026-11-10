@@ -58,11 +58,11 @@ extension HomeHostView {
         followComputerControl()
     }
 
-    /// The control bar's computer: a Cloud Chief's own sandbox, else the Cloud machine a Chief of this Mac uses.
+    /// The control bar's computer: a Cloud Chief's own, else the Cloud machine a Chief of this Mac uses, else its own.
     func followComputerControl() {
-        let services = control.services
-        let agent = services.home.cloudChiefs.chief(for: control.conversation.rawValue)?.id
-        panel.follow(agent: agent, machine: agent == nil ? settingsView.attachedMachine : nil) { [weak services] in
+        let services = control.services, conversation = control.conversation.rawValue
+        let machine = services.home.cloudChiefs.chief(for: conversation) == nil ? settingsView.attachedMachine : nil
+        panel.follow(agent: machine == nil ? ChiefComputerPageService.computerKey(services, conversation) : nil, machine: machine) { [weak services] in
             services?.chiefComputerControlSource(agent: $0, machine: $1)
         }
     }

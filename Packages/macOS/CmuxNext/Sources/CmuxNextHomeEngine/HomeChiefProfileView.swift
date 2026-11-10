@@ -21,13 +21,26 @@ public final class HomeChiefProfileView: NSView {
         case paywall, needsCloudChief, notSetUp
         /// A Chief of this Mac that uses one of the person's Cloud machines (its desktop opens on its own).
         case machine
+        /// A Chief of this Mac with no computer of its own yet: Set Up Computer gives it one, as a Cloud Chief's
+        /// (the move to the Cloud and the Computer Use picker stay).
+        case noComputer
     }
 
-    /// The gate for a read: the plan first, since the upsell is the same wherever the Chief runs.
-    public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool, machine: Bool = false) -> Gate? {
+    /// The gate for a read: the plan first, since the upsell is the same wherever the Chief runs. A Chief of this
+    /// Mac uses the Cloud machine picked for it, else its own computer once it has one (`hasComputer`), else
+    /// `setsUp` offers one (``localComputer``).
+    public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool, machine: Bool = false, setsUp: Bool = false) -> Gate? {
         guard paid else { return .paywall }
-        guard cloudChief else { return machine ? .machine : .needsCloudChief }
+        guard cloudChief else { return machine ? .machine : hasComputer ? nil : setsUp ? .noComputer : .needsCloudChief }
         return hasComputer ? nil : .notSetUp
+    }
+
+    /// Why a Set Up Computer ask made no computer, when asking again as it is would not help.
+    public enum SetUpRefusal: Error, Equatable, Sendable {
+        /// The owner's Chiefs on their Mac hold as many computers as they may at once (`computer.local_limit`).
+        case localLimit
+        /// This server makes no computers (the route is not there, or it is not set up for them).
+        case unavailable
     }
 
     /// The panel's width beside the chat (the settings card's, which sets its rows).
@@ -67,9 +80,13 @@ public final class HomeChiefProfileView: NSView {
     /// Set Up Computer, for a Cloud Chief with none: asks the Cloud service to make it one (made in the
     /// background; the status says when it is there). Nil: the note asks the Chief to turn one on instead.
     public var onProvision: (@MainActor () async throws -> Void)? { didSet { refresh() } }
+    /// A Chief of this Mac's own computer target (engine.json's `computer`, `chief:<id>`): Set Up Computer's
+    /// ``onProvision`` gives the Chief its own computer under this id, and the card then picks it for Computer Use, so
+    /// its `cloud_computer` tool drives it. Nil: no Set Up Computer for a Chief of this Mac.
+    public var localComputer: () -> String? = { nil } { didSet { refresh() } }
     /// The Set Up Computer ask in flight, or the reason the last one failed.
     var provisionAsk: ProvisionAsk = .idle
-    enum ProvisionAsk: Equatable { case idle, asking, failed }
+    enum ProvisionAsk: Equatable { case idle, asking, failed, localLimit, unavailable }
     /// All Chief Settings…, in the expanded page's Details.
     public var onSettings: () -> Void = {}
     /// Expand, on the screen: opens the expanded page (the panel only).
@@ -92,6 +109,8 @@ public final class HomeChiefProfileView: NSView {
     let gateBox = NSView()
     let gateLabel = ThemedLabel(wrappingLabelWithString: "")
     let gateButton = NSButton(title: "", target: nil, action: nil)
+    /// Move to Cloud beside Set Up Computer, for a Chief of this Mac with no computer.
+    let gateMoveButton = NSButton(title: HomeEngineStrings.computerMove, target: nil, action: nil)
     let controlBar = HomeChiefComputerControlBar()
     let scroll = NSScrollView()
     let column = NSStackView()
@@ -224,7 +243,7 @@ public final class HomeChiefProfileView: NSView {
         computer.watchesScreen = tab == .computer
         // The app's plan read, or the Cloud service's own answer for this Chief (it holds before the app's read answers).
         let gate = Self.gate(paid: paid() || computer.entitled, cloudChief: cloudChief(), hasComputer: computer.shown != nil,
-                             machine: settings?.attachedMachine != nil)
+                             machine: settings?.attachedMachine != nil, setsUp: setsUpLocally)
         shownGate = gate
         gateBox.isHidden = gate == nil
         showGate(gate)

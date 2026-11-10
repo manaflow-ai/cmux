@@ -4,6 +4,8 @@
 // live in CloudSessionActions.xcstrings; the handler is CloudStartSession.swift.
 // `cmux cloud computer-control` (Chief computer take-over): who drives a Chief's computer on a
 // Cloud machine; the handler is in CloudHandlers+List.swift, the rules in ChiefComputerControlStore.
+// `cmux cloud chief-computer` (a Chief of this Mac's own computer): the Chief's own verbs on it, through the
+// Worker's local-Chief route; the rules are ChiefComputerControlClient+Act.swift (CmuxNextHostedChief).
 
 nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -30,7 +32,35 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         )
         // The CLI and MCP get the lease back (`status` answers it on this turn).
         control.waitsForResult = true
-        return [start, control]
+        var own = ActionDescriptor(
+            id: "cloud.chiefComputer",
+            title: String(localized: "action.cloud.chiefComputer", defaultValue: "Use Chief’s Own Computer…", table: "CloudSessionActions", bundle: .module),
+            description: "A Chief of this Mac uses its own Cloud computer (Set Up Computer in its profile; engine.json computer chief:<id>): --chief <id>, --op screenshot, windows, click, move, drag, scroll, type, key, open, control, request_human, hand_back or start, --args a JSON object of the op's fields (x, y, to_x, to_y, button, count, text, keys, direction, amount, url, reason, shot). Returns done, image (base64 PNG or JPEG), windows, screen and control; refused with computer.human_has_control while the person holds it.",
+            keywords: ["cloud", "chief", "computer", "desktop", "screenshot", "click", "type"], category: .cloud,
+            symbol: "desktopcomputer", surfaces: [.palette], arguments: [ownChief, ownOp, ownArgs],
+            cliName: "cloud chief-computer",
+            surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .pointerMenuTrim)
+        )
+        own.waitsForResult = true
+        return [start, control, own]
+    }
+
+    /// `--chief`: the Chief of this Mac whose own computer it is (`chief:<id>` or the bare id).
+    static var ownChief: ActionArgument {
+        ActionArgument(name: "chief", title: String(localized: "argument.cloud.chiefComputer.chief", defaultValue: "Chief", table: "CloudSessionActions", bundle: .module),
+                       kind: .string)
+    }
+
+    /// `--op`: one of the computer's verbs.
+    static var ownOp: ActionArgument {
+        ActionArgument(name: "op", title: String(localized: "argument.cloud.chiefComputer.op", defaultValue: "Action", table: "CloudSessionActions", bundle: .module),
+                       kind: .string)
+    }
+
+    /// `--args`: the op's fields as a JSON object.
+    static var ownArgs: ActionArgument {
+        ActionArgument(name: "args", title: String(localized: "argument.cloud.chiefComputer.args", defaultValue: "Arguments", table: "CloudSessionActions", bundle: .module),
+                       kind: .string, isRequired: false)
     }
 
     /// `--machine`: the Cloud machine id whose computer the lease is for.
