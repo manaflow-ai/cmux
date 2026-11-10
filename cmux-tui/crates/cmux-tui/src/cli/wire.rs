@@ -1146,6 +1146,14 @@ pub(super) fn report_connect_failure(socket: &Path, error: &io::Error, output: O
 }
 
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
+    // A VM command's error says `vm:ID` and `cmux vm ls`, never the app's words (vm_words.rs).
+    let respelled;
+    let error = if super::vm_words::active() {
+        respelled = super::vm_words::respell_value(error);
+        &respelled
+    } else {
+        error
+    };
     match output {
         OutputMode::Json | OutputMode::JsonLines => {
             let error = json_error_envelope(error);
@@ -1215,6 +1223,9 @@ fn human_error_lines(error: &Value) -> String {
 }
 
 pub(super) fn print_local_success(value: &Value, output: OutputMode) -> i32 {
+    if super::vm_words::active() {
+        return print_success(&super::vm_words::respell_value(value), output);
+    }
     print_success(value, output)
 }
 

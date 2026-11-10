@@ -398,9 +398,9 @@ pub(super) fn parse(
         }
         (Some(name), None) => Machine::Named(name.trim().to_owned()),
         (None, Some(target)) => {
-            let id = target.strip_prefix("machine:").unwrap_or(&target);
+            let id = super::vm_words::bare_id(&target);
             if id.is_empty() {
-                return Err(UsageError::new("--target machine:MACHINE_ID"));
+                return Err(UsageError::new("--target vm:VM_ID"));
             }
             Machine::Target(id.to_owned())
         }
@@ -454,7 +454,10 @@ impl Runner for SelfRunner {
                 return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
             }
         };
-        match cmux_process::Command::new(exe).args(&self.globals).args(args).output() {
+        // A step reads the app's own words (vm_words.rs), whatever the command prints.
+        let mut command = cmux_process::Command::new(exe);
+        command.env(super::vm_words::STEP_ENV, "1").args(&self.globals).args(args);
+        match command.output() {
             Ok(output) => Ran {
                 code: output.status.code().unwrap_or(1),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -1870,8 +1873,8 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
                 None => {
                     let machine = at(answer, "machine_id").as_str().unwrap_or_default();
                     let on = match at(answer, "machine_name").as_str() {
-                        Some(name) => format!("{name} (machine:{machine})"),
-                        None => format!("machine:{machine}"),
+                        Some(name) => format!("{name} (vm:{machine})"),
+                        None => format!("vm:{machine}"),
                     };
                     println!(
                         "{} {} on {on}.",
@@ -1885,7 +1888,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
                 }
             }
             eprintln!(
-                "machine_id {}  session_id {}  tab_id {}",
+                "vm {}  session_id {}  tab_id {}",
                 at(answer, "machine_id").as_str().unwrap_or_default(),
                 at(answer, "session_id").as_str().unwrap_or_default(),
                 at(answer, "tab_id").as_str().unwrap_or_default()

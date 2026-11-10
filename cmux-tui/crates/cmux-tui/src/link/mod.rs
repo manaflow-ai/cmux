@@ -279,7 +279,7 @@ fn required<'a>(flags: &'a Flags, name: &str) -> anyhow::Result<&'a str> {
     flags
         .get(name)
         .map(String::as_str)
-        .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))
+        .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))
 }
 
 fn state(flags: &Flags) -> anyhow::Result<LinkState> {
@@ -292,9 +292,9 @@ fn print_json(value: &serde_json::Value) {
 
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let port = match flags.get("--port") {
-        Some(port) => port
-            .parse()
-            .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
+        Some(port) => port.parse().map_err(|_| {
+            link_usage(catalog().remote_client.invalid_option_value("--port", "PORT"))
+        })?,
         None => state::DEFAULT_PORT,
     };
     // Resolve an enrollment before opening (and creating) link state. It never
@@ -368,7 +368,9 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             )?;
             let endpoint = match flags.get("--endpoint") {
                 Some(text) => Some(text.parse::<SocketAddr>().map_err(|_| {
-                    anyhow!(catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"))
+                    link_usage(
+                        catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"),
+                    )
                 })?),
                 None => None,
             };
