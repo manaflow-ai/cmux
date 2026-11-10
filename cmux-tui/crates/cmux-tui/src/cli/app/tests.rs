@@ -2064,7 +2064,8 @@ fn a_not_run_refusal_is_retried_inside_the_cli() {
 
 /// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
 /// new-terminal button opens there; a script's JSON or quiet run, a machine still starting, and
-/// every other action open nothing. The open is `cloud open-machine` on that machine.
+/// every other action open nothing. The open is Open Machine on that machine, by its action id:
+/// it is no CLI verb, and as `cloud open-machine` with `cli` the app refused it ("No CLI command").
 #[test]
 fn a_persons_new_machine_opens_the_machine_it_made() {
     let params = json!({ "action": "cloud new-machine" });
@@ -2080,7 +2081,8 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
 
     let (method, open) = call(open_created_command("machine:vm_1".to_owned()).unwrap());
     assert_eq!(method, "action.run");
-    assert_eq!(open["action"], "cloud open-machine");
+    assert_eq!(open["action"], "cloudOpenMachine");
+    assert!(open.get("cli").is_none(), "Open Machine is GUI-only as a CLI verb: {open}");
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
 }

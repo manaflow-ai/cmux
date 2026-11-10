@@ -478,3 +478,23 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
 });
+
+test("a retry names the reservation its key went with first, also from a new composer (no 409 reservation.bound)", () => {
+  const store = memoryStore();
+  const next = counter();
+  const start = { task: "2+2", home: true };
+  const first = cloudStartKeys(store, () => 1_000, next);
+  expect(first.retryOf(start)).toBeUndefined();
+  const key = first.keyFor({ ...start, reservationKey: "compose-1" });
+  // The start failed; a new page (a new composer, its own reservation) sends the same prompt again.
+  const again = cloudStartKeys(store, () => 2_000, next);
+  expect(again.retryOf(start)).toEqual({ reservationKey: "compose-1" });
+  expect(again.keyFor({ ...start, reservationKey: "compose-1" })).toBe(key);
+  expect(again.retryOf(start)).toEqual({ reservationKey: "compose-1" });
+  // A start first sent without a reservation retries without one.
+  const bare = { task: "no warm machine", home: true };
+  again.keyFor(bare);
+  expect(again.retryOf(bare)).toEqual({});
+  again.ended(start, { ok: true });
+  expect(again.retryOf(start)).toBeUndefined();
+});

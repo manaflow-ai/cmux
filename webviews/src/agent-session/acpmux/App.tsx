@@ -4538,14 +4538,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (cloudStartPending.current) return false;
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
-    const reservationKey = cloudReservation.handoff(environment);
-    const request: CloudStart = {
-      task: text,
-      attachments,
-      ...start,
-      ...(environment ? { environment } : {}),
-      ...(reservationKey ? { reservationKey } : {}),
-    };
+    const prompt: CloudStart = { task: text, attachments, ...start, ...(environment ? { environment } : {}) };
+    // A retry of a kept start names the reservation its key went with first (or none), never this
+    // composer's: the platform binds one Send to one reservation (409 reservation.bound otherwise).
+    const retry = cloudStartKeys.retryOf(prompt);
+    const reservationKey = retry ? retry.reservationKey : cloudReservation.handoff(environment);
+    const request: CloudStart = { ...prompt, ...(reservationKey ? { reservationKey } : {}) };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     void beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
     return false;

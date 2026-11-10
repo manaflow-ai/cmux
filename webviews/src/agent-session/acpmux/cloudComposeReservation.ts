@@ -78,6 +78,16 @@ export class CloudComposeReservation {
     }
     const attempt = this.attempt;
     if (!attempt || attempt.abandoned) return undefined;
+    // A reservation goes with one Send only: the platform binds it to that Send's key, and another
+    // Send naming it is refused (409 reservation.bound). A later Send gives it back instead: one the
+    // first Send never bound (refused before its bind: a home folder, an attachment) is released,
+    // and a bound one is refused there and stays that Send's. This Send goes without one.
+    if (attempt.transferred) {
+      this.attempt = undefined;
+      // After its reserve settled: a DELETE ahead of the create would leak the machine to expiry.
+      void attempt.ready.then(() => this.release(attempt));
+      return undefined;
+    }
     attempt.transferred = true;
     return attempt.key;
   }
