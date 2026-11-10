@@ -597,6 +597,70 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompts_list",
+      "params": {
+        "$ref": "#/types/PromptsListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_save",
+      "params": {
+        "$ref": "#/types/PromptsSaveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_delete",
+      "params": {
+        "$ref": "#/types/PromptsDeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_list",
+      "params": {
+        "$ref": "#/types/StashListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_push",
+      "params": {
+        "$ref": "#/types/StashPushParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_get",
+      "params": {
+        "$ref": "#/types/StashGetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_drop",
+      "params": {
+        "$ref": "#/types/StashDropParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_move",
+      "params": {
+        "$ref": "#/types/StashMoveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/memory_resolve",
       "params": {
         "$ref": "#/types/MemoryResolveParams"
@@ -4821,6 +4885,36 @@
       },
       "type": "object"
     },
+    "PromptsDeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true
+      },
+      "type": "object"
+    },
+    "PromptsListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
+      "type": "object"
+    },
+    "PromptsSaveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true,
+        "text": true
+      },
+      "type": "object"
+    },
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
@@ -6971,6 +7065,62 @@
         "cwd": true,
         "harness": true,
         "preset": true
+      },
+      "type": "object"
+    },
+    "StashDropParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true
+      },
+      "type": "object"
+    },
+    "StashMoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "to": true
+      },
+      "type": "object"
+    },
+    "StashPushParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "attachments": true,
+        "chat": true,
+        "replaces": true,
+        "text": true
       },
       "type": "object"
     },
