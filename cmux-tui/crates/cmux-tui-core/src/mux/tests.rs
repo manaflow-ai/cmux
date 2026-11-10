@@ -56,6 +56,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod session_lists;
 mod signaled_mutex;
 mod split_ratio;
 mod stack_layout;
