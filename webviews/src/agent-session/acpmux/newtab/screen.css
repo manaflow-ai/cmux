@@ -483,14 +483,19 @@
 }
 /* The right column: the model's text ends where Send's ink ends. Send's glyph stands the composer's
    inset plus half the control's spare room in from the box, and the ↑ path's ink stops 3.225 of its
-   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line); the model chip keeps its
-   own hover inset (--acpmux-row-inset), so the row takes the rest as its end padding. */
-.nt-foot .acpmux-composer-foot {
-  --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
-  padding-inline-end: calc(
-    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
-      var(--nt-send-ink-bearing) - var(--acpmux-row-inset)
-  );
+   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The model's button
+   still ends on the box's edge (the row spans the box, test/composer-side-inset.test.ts) and takes
+   that distance as its end padding, in a row with room for it: at the composer's narrow steps the
+   row keeps every pixel for its labels (at 320 px a 12 px pad pushed the mode chip off the icon
+   column). */
+@container composer (min-width: 421px) {
+  .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+    --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
+    padding-inline-end: calc(
+      var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
+        var(--nt-send-ink-bearing)
+    );
+  }
 }
 /* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
    half at the plain popup tint, as the pills did through the + menu, Leo 2026-10-31: "they show
