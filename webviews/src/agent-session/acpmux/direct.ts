@@ -1567,12 +1567,58 @@ function textOnlyContent(update: any): boolean {
   );
 }
 
+/// Each thinned record (`withoutSupersededContent`) and the seq of the update whose content made its
+/// own moot (a seq, never the record: that would hold the content again), for a cut (`cutAfter`) and
+/// the inspector.
+const thinnedRecords = new WeakMap<EventRecord, number>();
+
 /// `event` without its update's content, for a held tool call update whose call's next update
-/// carried the call's whole content again (ACP: an update's content replaces the call's).
-export function withoutSupersededContent(event: EventRecord): EventRecord {
+/// (seq `by`) carried the call's whole content again (ACP: an update's content replaces the call's).
+export function withoutSupersededContent(event: EventRecord, by: number): EventRecord {
   const params = event.msg.params;
   const { content: _superseded, ...update } = params.update;
-  return { ...event, msg: { ...event.msg, params: { ...params, update } } };
+  const thinned = { ...event, msg: { ...event.msg, params: { ...params, update } } };
+  thinnedRecords.set(thinned, by);
+  return thinned;
+}
+
+/// `events` through `lastSeq`. A call whose newest content went with the cut gets it back on its
+/// newest thinned record kept (held without its content), unless a later record kept carries content: the call still shows the whole
+/// output it had, never only its first record's (a copy cut back to what the Mac confirmed).
+export function cutAfter(events: readonly EventRecord[], lastSeq: number): EventRecord[] {
+  const kept: EventRecord[] = [];
+  // Each call's newest content among the records cut.
+  const cutContent = new Map<string, { seq: number; content: unknown }>();
+  for (const event of events) {
+    if (event.seq <= lastSeq) {
+      kept.push(event);
+      continue;
+    }
+    const update = sessionUpdate(event);
+    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    if (callId && update.content !== undefined && event.seq > (cutContent.get(callId)?.seq ?? -1))
+      cutContent.set(callId, { seq: event.seq, content: update.content });
+  }
+  if (cutContent.size === 0) return kept;
+  // The calls whose newest content kept is settled: a later record kept carries content, or took it back.
+  const settled = new Set<string>();
+  for (let index = kept.length - 1; index >= 0; index -= 1) {
+    const event = kept[index]!;
+    const update = sessionUpdate(event);
+    const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    if (!callId || settled.has(callId)) continue;
+    if (update.content !== undefined) settled.add(callId);
+    const by = thinnedRecords.get(event);
+    const content = cutContent.get(callId);
+    if (by === undefined || by <= lastSeq || !content) continue;
+    settled.add(callId);
+    const params = event.msg.params;
+    kept[index] = {
+      ...event,
+      msg: { ...event.msg, params: { ...params, update: { ...params.update, content: content.content } } },
+    };
+  }
+  return kept;
 }
 
 /// `events` with every text-only tool call update that a later text-only update of
@@ -1597,7 +1643,7 @@ export function thinStreamedOutputs(events: readonly EventRecord[]): EventRecord
       const moot = last === undefined ? undefined : events[last]!.seq < event.seq ? last : index;
       if (moot !== undefined) {
         thinned ??= [...events];
-        thinned[moot] = withoutSupersededContent(events[moot]!);
+        thinned[moot] = withoutSupersededContent(events[moot]!, moot === index ? events[last!]!.seq : event.seq);
       }
       if (moot !== index) call.last = index;
     }
@@ -2849,6 +2895,7 @@ export class AcpmuxDirectClient {
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.events = [];
+    this.streamedOutputs.clear();
     this.queue = [];
     this.drewKeptTail = false;
     this.rebuild();
@@ -3422,6 +3469,7 @@ export class AcpmuxDirectClient {
               this.peerCopy = undefined;
               this.copyLive = undefined;
               this.events = [];
+              this.streamedOutputs.clear();
               this.queue = [];
               // Those rows are off screen again, so the frame the host shows is the failure, not a
               // chat: it fades in as any first draw of a chat does.
@@ -3509,6 +3557,7 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.stoppingEnded();
     this.events = [];
+    this.streamedOutputs.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
     this.historyExhausted = false;
@@ -3852,7 +3901,7 @@ export class AcpmuxDirectClient {
     copy.attaching = false;
     this.copyLive = undefined;
     if (this.events.some((event) => event.seq > copy.lastSeq)) {
-      this.events = this.events.filter((event) => event.seq <= copy.lastSeq);
+      this.events = cutAfter(this.events, copy.lastSeq);
       this.lastSeq = Math.min(this.lastSeq, copy.lastSeq);
       this.rebuild();
     }
@@ -4094,6 +4143,7 @@ export class AcpmuxDirectClient {
     connectFailedAfterEarlyTail = early.sessionId;
     this.earlyTail = undefined;
     this.events = [];
+    this.streamedOutputs.clear();
     this.queue = [];
     this.copyLive = undefined;
     this.drewKeptTail = false;
@@ -6466,6 +6516,9 @@ export class AcpmuxDirectClient {
   /// keeps every one.
   private holdLive(event: EventRecord): void {
     this.events.push(event);
+    // A turn's end ends its calls: one that never said it finished is not tracked past it.
+    if (event.dir === "mux" && (event.kind === "turn_end" || event.kind === "turn_result" || event.kind === "turn_error"))
+      this.streamedOutputs.clear();
     if ((event.kind !== "tool_call" && event.kind !== "tool_call_update") || this.replayThrough !== undefined) return;
     const update = sessionUpdate(event);
     const callId = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -6482,7 +6535,7 @@ export class AcpmuxDirectClient {
         if (held.seq !== before) continue;
         const heldUpdate = sessionUpdate(held);
         if (held.kind === "tool_call_update" && heldUpdate?.toolCallId === callId && textOnlyContent(heldUpdate))
-          this.events[index] = withoutSupersededContent(held);
+          this.events[index] = withoutSupersededContent(held, event.seq);
         break;
       }
       call.last = event.seq;
@@ -9306,7 +9359,14 @@ export class AcpmuxDirectClient {
   }
   /** A copy of the selected session's recorded events, oldest first, for the inspector. */
   sessionEvents(): EventRecord[] {
-    return this.events.slice();
+    // A streamed update held without its content says which update's content replaced it.
+    return this.events.map((event) => {
+      const by = thinnedRecords.get(event);
+      if (by === undefined) return event;
+      const params = event.msg.params;
+      const update = { ...params.update, _cmux: { contentSupersededBySeq: by } };
+      return { ...event, msg: { ...event.msg, params: { ...params, update } } };
+    });
   }
   /** The rows message `messageId` streamed into, oldest first; empty when this session has none.
    *  A `message=<id>` link scrolls to the first one that is on screen (links.ts). */

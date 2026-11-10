@@ -7,7 +7,7 @@
 // page's number.
 import { heapStats } from "bun:jsc";
 import { expect, test } from "bun:test";
-import { AcpmuxDirectClient, thinStreamedOutputs, type EventRecord } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, cutAfter, thinStreamedOutputs, type EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const SESSION = "heap-chat";
@@ -108,6 +108,64 @@ test("a streamed call's rows end the same after a fold from the start, its earli
   expect(page.filter((event) => event.kind === "tool_call_update" && event.msg.params.update.content).length).toBe(1);
   // Nothing to thin: the same array back.
   expect(thinStreamedOutputs(page)).toBe(page);
+});
+
+test("a cut that drops a streamed call's newest update keeps the whole output it had", () => {
+  const client = AcpmuxDirectClient.fed(SESSION, () => {});
+  const { events } = batch(1, 0);
+  client.feed(events, "live");
+  const held = (client as unknown as { events: EventRecord[] }).events;
+  const updates = held.filter((event) => event.kind === "tool_call_update");
+  // Cut back to the tenth update (a copy confirmed through it): the updates after it, the newest content among them, go.
+  const cut = cutAfter(held, updates[9]!.seq);
+  let shown: AcpmuxSnapshot | undefined;
+  const reader = AcpmuxDirectClient.fed(SESSION, (snapshot) => (shown = snapshot));
+  reader.feed(cut, "snapshot");
+  const output = shown?.rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "shell-1")?.tool?.output;
+  // The call's whole output (its newest content), never its first record's (which has none) or nothing.
+  expect(output?.split("\n").length).toBe(UPDATES * LINES + 1);
+  // A cut that keeps the newest content changes nothing.
+  expect(cutAfter(held, held.at(-1)!.seq)).toEqual(held);
+});
+
+test("the inspector names the update whose content replaced a thinned one", () => {
+  const client = AcpmuxDirectClient.fed(SESSION, () => {});
+  const { events } = batch(1, 0);
+  client.feed(events, "live");
+  const shown = client.sessionEvents().filter((event) => event.kind === "tool_call_update");
+  const thinned = shown.filter((event) => event.msg.params.update._cmux?.contentSupersededBySeq !== undefined);
+  expect(thinned.length).toBe(UPDATES - 1);
+  for (const event of thinned) expect(event.msg.params.update._cmux.contentSupersededBySeq).toBeGreaterThan(event.seq);
+});
+
+test("calls that never say they finished are tracked no further than their turn", () => {
+  const client = AcpmuxDirectClient.fed(SESSION, () => {});
+  let seq = 0;
+  const record = (kind: string, msg: Record<string, unknown>, dir: "in" | "mux" = "in"): EventRecord => ({
+    sessionId: SESSION,
+    seq: ++seq,
+    at: 1_000 + seq,
+    dir,
+    kind,
+    msg,
+  });
+  const update = (value: Record<string, unknown>) =>
+    record(String(value.sessionUpdate), { method: "session/update", params: { sessionId: SESSION, update: value } });
+  for (let turn = 0; turn < 200; turn += 1) {
+    const toolCallId = `stuck-${turn}`;
+    const text = (value: string) => [{ type: "content", content: { type: "text", text: value } }];
+    client.feed(
+      [
+        record("user_message", { text: `Turn ${turn}` }, "mux"),
+        update({ sessionUpdate: "tool_call", toolCallId, kind: "execute", title: "Run", status: "in_progress" }),
+        update({ sessionUpdate: "tool_call_update", toolCallId, status: "in_progress", content: text("a") }),
+        update({ sessionUpdate: "tool_call_update", toolCallId, status: "in_progress", content: text("ab") }),
+        record("turn_end", {}, "mux"),
+      ],
+      "live",
+    );
+  }
+  expect((client as unknown as { streamedOutputs: Map<string, unknown> }).streamedOutputs.size).toBe(0);
 });
 
 test("heap per batch of records stays flat as the chat grows, near what the batch shows", () => {
