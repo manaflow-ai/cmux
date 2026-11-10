@@ -16,6 +16,8 @@
 // - a row that is not folding changed size too (a streamed reply), or a folding row has no drawn
 //   height yet;
 // - a folding row's top is above the view: holding a line in it may move the offset;
+// - the line the reader clicked (the transcript's fold hold) is in a row the ride would move: the
+//   transcript keeps that line in place by moving the offset, which a translate cannot;
 // - the mounted rows, where they are placed or moved, do not reach past the view's end: a close
 //   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view
 //   or within a screen of it,
@@ -43,6 +45,8 @@ export type FoldRideOptions = {
   height: (row: HTMLElement) => number | undefined;
   /// Places every row at its drawn height now (the transcript's one render at the fold's end).
   finish: (rows: HTMLElement[]) => void;
+  /// The disclosure line the transcript holds in place while its fold plays, if any.
+  held?: () => HTMLElement | undefined;
 };
 
 export class FoldRide {
@@ -83,6 +87,8 @@ export class FoldRide {
       return this.release();
     const rows = siblingRows(targets[0]!);
     const shiftOf = (index: number) => folds.reduce((sum, fold) => (fold.index < index ? sum + fold.delta : sum), 0);
+    const heldRow = this.options.held?.()?.closest<HTMLElement>(".acpmux-row");
+    if (heldRow && Math.abs(shiftOf(indexOf(heldRow))) >= 0.01) return this.release();
     // The last mounted row must reach past the view's end both where the transcript placed it and
     // where it rides to. Otherwise a close would show rows the virtualizer has not mounted, or the
     // transcript's end is in view, which the transcript places itself: the bottom pinned while a

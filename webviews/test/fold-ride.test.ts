@@ -66,3 +66,43 @@ test("a folding row under another fold rides that fold's change as it grows", ()
   expect(lower.style.translate).toBe("");
   expect(last.style.translate).toBe("");
 });
+
+// The reader clicks a lower disclosure while an upper fold still plays: the transcript holds the
+// clicked line by moving the offset, so the ride gives way rather than translate it away (review of
+// #39917: "it drifts, then snaps back when placement resumes").
+test("the ride gives way when it would move the line the reader clicked", () => {
+  const rows = transcript(4);
+  const [upper, , lower, last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  const toggle = lower.ownerDocument.createElement("button");
+  lower.append(toggle);
+  const placed = new Map<HTMLElement, number>(rows.map((row) => [row, 100]));
+  const height = new Map(placed);
+  let held: HTMLElement | undefined;
+  const ride = new FoldRide({
+    placed: (row) => placed.get(row),
+    height: (row) => height.get(row),
+    finish: () => {},
+    held: () => held,
+  });
+  markHeightFold(upper, 10_000);
+  height.set(upper, 140);
+  expect(ride.ride([upper])).toBe(true);
+  held = toggle;
+  height.set(upper, 160);
+  expect(ride.ride([upper])).toBe(false);
+  expect(last.style.translate).toBe("");
+  // Its own fold, with nothing folding above it, still rides.
+  markHeightFold(lower, 10_000);
+  height.set(upper, 100);
+  placed.set(upper, 100);
+  height.set(lower, 130);
+  const fresh = new FoldRide({
+    placed: (row) => placed.get(row),
+    height: (row) => height.get(row),
+    finish: () => {},
+    held: () => held,
+  });
+  expect(fresh.ride([lower])).toBe(true);
+  expect(last.style.translate).toBe("0 30px");
+  fresh.release();
+});
