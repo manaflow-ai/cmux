@@ -44,6 +44,7 @@ import {
   maxDiskMbForPlan,
   maxVcpusForPlan,
   upgradePlanForMemory,
+  type TeamEntitlementOverride,
   resolveVmEntitlements,
   type VmEntitlements,
   vmFreeAccessWindowDays,
@@ -290,32 +291,32 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
-          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
           // Resize ceilings are part of the same plan contract as the create
           // ladder. Native clients use these values to avoid offering a
           // provider-valid size that the caller's plan cannot use.
           maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
-          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
-          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
+          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
+          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
           // Ladder sizes the plan does not include, and the plan that sells
           // them, so a "new machine" dialog shows them locked with an upgrade
           // instead of hiding that larger machines exist.
-          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
-          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
-          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb
+          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).memoryOptionsMb,
+          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).upgradePlanId,
+          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).memoryOptionsMb
             .flatMap((mb) => {
-              const plan = upgradePlanForMemory(mb, listEntitlements.planId);
+              const plan = upgradePlanForMemory(mb, listEntitlements.planId, process.env, listEntitlements.entitlementOverride);
               return plan ? [[String(mb), plan]] : [];
             })),
           // vCPUs for every size above, so a client labels a size without its own table.
           vcpusByMemoryMb: vcpusByMemoryMb([
-            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
-            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
+            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).memoryOptionsMb,
           ]),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
-            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
+            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
           }),
         }
         : undefined;
@@ -380,7 +381,7 @@ export async function POST(request: Request): Promise<Response> {
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
       // typed plan error from createVm.
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey, entitlements.entitlementOverride);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -432,6 +433,7 @@ export async function POST(request: Request): Promise<Response> {
         billingTeamId: entitlements.billingTeamId,
         billingPlanId: entitlements.planId,
         maxActiveVms: entitlements.maxActiveVms,
+        entitlementOverride: entitlements.entitlementOverride,
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
@@ -834,17 +836,18 @@ async function resolveCreateMemory(
   requestedMemoryMb: number | undefined,
   request: Request,
   deferLockedPlanCheck = false,
+  override: TeamEntitlementOverride | null = null,
 ): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
-  const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
-  const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
-  const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
-  const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  const maxMemoryMb = maxMemoryMbForPlan(planId, process.env, override);
+  const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env, override);
+  const planMemoryMb = defaultMemoryMbForPlan(planId, process.env, override);
+  const locked = lockedMemoryOptionsMbForPlan(planId, process.env, override);
   const requestedLockedMemory = requestedMemoryMb !== undefined && locked.memoryOptionsMb.includes(requestedMemoryMb);
   if (
     !deferLockedPlanCheck &&
     requestedLockedMemory
   ) {
-    const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
+    const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId, process.env, override);
     if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
     setSpanAttributes(span, {
       "cmux.vm.memory_mb": requestedMemoryMb,

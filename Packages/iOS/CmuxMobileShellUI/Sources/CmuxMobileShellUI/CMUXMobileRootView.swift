@@ -1398,7 +1398,14 @@ struct CMUXMobileRootView: View {
     }
 
     private func showOnboardingPairingScanner() {
-        guard currentlyAllowsManualPairing else { return }
+        #if os(iOS)
+        let gate = MobilePairingScannerGate(
+            entry: .onboarding,
+            setupStatus: store.tailscaleSetupStatus,
+            onboardingMethod: connectionMethodStore?.method
+        )
+        guard gate.allowsScanner else { return }
+        #endif
         presentPairing(.scanner(entry: .onboardingFallback))
     }
 
@@ -1442,7 +1449,11 @@ struct CMUXMobileRootView: View {
     /// a newly selected method yet.
     private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
-        store.tailscaleSetupStatus != .notSelected
+        MobilePairingScannerGate(
+            entry: .shell,
+            setupStatus: store.tailscaleSetupStatus,
+            onboardingMethod: nil
+        ).allowsScanner
         #else
         true
         #endif
