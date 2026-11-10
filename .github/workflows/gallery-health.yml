@@ -99,6 +99,7 @@ on:
       - "schemas/layout-grid/**"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
+      - "schemas/theme/slots.json"
       - "Resources/ghostty/themes/**"
       - "Resources/cmux-themes/**"
       - "Resources/markdown-viewer/**"
@@ -121,6 +122,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
       - "web/data/model-catalog/**"
       - "release-notes/next/highlights/**"
   push:
@@ -186,6 +189,7 @@ on:
       - "schemas/layout-grid/**"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
+      - "schemas/theme/slots.json"
       - "Resources/ghostty/themes/**"
       - "Resources/cmux-themes/**"
       - "Resources/markdown-viewer/**"
@@ -208,6 +212,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
       - "web/data/model-catalog/**"
       - "release-notes/next/highlights/**"
   workflow_dispatch:
