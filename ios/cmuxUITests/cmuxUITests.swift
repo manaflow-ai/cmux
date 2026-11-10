@@ -1136,6 +1136,51 @@ final class cmuxUITests: XCTestCase {
         capture("fresh-install-03-after-skip")
     }
 
+    /// App Review signs in with the server-flagged demonstration account. Its
+    /// Demo Mac stands in for a live Mac, so the connect page is ready
+    /// ("Open Workspaces") and never offers Tailscale Only, which a reviewer
+    /// has no network for.
+    @MainActor
+    func testDemonstrationAccountOnboardingHidesTailscaleAndOpensWorkspaces() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "connect",
+        ]
+        app.launchEnvironment = [
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1",
+            "CMUX_UITEST_ONBOARDING_DEMONSTRATION_ACCOUNT": "1",
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let connectScene = element("MobileOnboardingConnectScene")
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Your Mac is connected"].waitForExistence(timeout: 4))
+        XCTAssertFalse(element("MobileOnboardingConnectionMethodPicker").exists)
+        XCTAssertFalse(app.buttons["MobileOnboardingConnectionMethodTailscale"].exists)
+        XCTAssertFalse(app.buttons["Scan Pairing Code"].exists)
+        let open = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(open.waitForExistence(timeout: 4))
+        XCTAssertTrue(open.label.contains("Open Workspaces"))
+        capture("demo-account-01-connect-ready")
+
+        open.tap()
+        XCTAssertTrue(connectScene.waitForNonExistence(timeout: 6), "Open Workspaces must leave onboarding")
+        capture("demo-account-02-after-open")
+    }
+
     /// Add Computer (the manual host:port form) is available under every
     /// connection method: entering the address where a same-account Mac is
     /// reachable IS discovery for networks Iroh may not find fast enough.
