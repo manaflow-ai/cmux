@@ -235,6 +235,7 @@ fn adds_a_secret(section: &[u8]) -> bool {
 }
 
 /// The files whose added lines in `patch` carry a private key or a well-known token shape.
+#[cfg(test)]
 fn secret_content(patch: &[u8]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for s in sections(patch) {
@@ -392,8 +393,6 @@ async fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
 fn line(bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).trim_end_matches(['\n', '\r']).to_owned()
 }
-
-/// The diff pathspecs that leave `paths` out (from the repository's top).
 
 /// Read what a run of a command in `cwd` would send. Fails, with a reason the person reads,
 /// outside a repository, without an `origin` remote or an upstream it shares a commit with, and
