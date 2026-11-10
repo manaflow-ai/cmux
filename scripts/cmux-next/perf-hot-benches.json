@@ -130,6 +130,11 @@
       "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
       "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
       "owner": "acpmux pane"
+    },
+    "workspace-list-change": {
+      "what": "one workspace made or closed (the daemon's workspace-added / workspace-closed event, DaemonStore.drain): the observers it wakes, the membership reconcile, the placement and the sidebar sections pass. Its main-thread cost must not grow with the number of workspaces of the session (826 in the person's session, 60 in the `large` one).",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
+      "owner": "WORKSPACE LIST 800"
     }
   }
 }
