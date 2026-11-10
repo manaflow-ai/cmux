@@ -513,6 +513,7 @@ jobs:
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           # Every failed or timed-out file gets its alone retry before it counts
           # as red; CMUX_WEB_TEST_RETRY_DEADLINE, not a budget, keeps the step in
           # its job. A fixed budget left contention reds unretried, and the base
@@ -542,6 +543,13 @@ jobs:
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
             ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
+          # A pull request runs the test files its change can reach (scripts/ci/webviews_affected.py:
+          # the import graph, every test that reads files from disk, and every file for a build input
+          # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
+          if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
+            CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
+            export CMUX_WEB_TEST_FILES
+          fi
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results

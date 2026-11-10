@@ -184,7 +184,34 @@ fn each_verb_carries_its_arguments() {
             "42"
         ]
     );
-    assert_eq!(agent_move_flags(None, false, None, None), ["--interrupt"]);
+    assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
+    let relay =
+        call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",
+        "sync": {"pull": true, "socket": "/old", "local": "/l", "remote": "/r1"},
+        "thenSync": {"pull": false, "socket": "/new", "local": "/l", "remote": "/r2"}}));
+    assert_eq!(
+        relay.args[11..],
+        [
+            "--interrupt",
+            "--sync",
+            "pull",
+            "--sync-socket",
+            "/old",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r1",
+            "--sync",
+            "seed",
+            "--sync-socket",
+            "/new",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r2",
+        ]
+    );
     let update =
         call(json!({"verb": "machine-update", "socket": "/s", "toBundled": true, "ifOlder": true}));
     assert_eq!(
