@@ -275,9 +275,12 @@ export function reportHostGlass(
         continue;
       }
       // A fallen-back surface is not reported: the App draws no glass under the page's own.
-      const surface =
-        applies && surfaces.length < HOST_GLASS_MAX && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
-      if (surface) {
+      const surface = applies && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
+      if (surface && surfaces.length >= HOST_GLASS_MAX) {
+        // Past what one report carries: the page's own glass, at once, never content on no glass.
+        firstShown.delete(element);
+        mark(element, "0");
+      } else if (surface) {
         // Its content shows from its first frame (marked at adopt); the App hears of it once that
         // content has been on screen for the hold, and its deadline starts then.
         mark(element, "1");
