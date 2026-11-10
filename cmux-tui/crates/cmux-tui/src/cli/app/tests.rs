@@ -2110,7 +2110,7 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
         while reader.read_line(&mut line).unwrap() > 0 {
             line.clear();
             asked += 1;
-            let since = *first.get_or_insert_with(std::time::Instant::now);
+            let since = *first.get_or_insert_with(Instant::now);
             let answer = if since.elapsed() < back_after {
                 json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
                     "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 100 } } })
@@ -2126,7 +2126,7 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
         asked
     });
     let mut stream = connect(&socket).unwrap();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let answer = request_with_retry(&mut stream, "action.run", &json!({ "action": "cloud.list" }), READ_TIMEOUT);
     let took = started.elapsed();
     drop(stream);
