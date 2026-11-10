@@ -350,8 +350,10 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         let store: DaemonStore
         let pane: PaneController
         let tab: TabModel
-        /// Terminal tabs made just before `tab`, in strip order: a close selects the tab before it (#38328), so
-        /// `before.last` is the neighbour a close of `tab` shows.
+        /// Terminal tabs made just before `tab`, in strip order. `tab` is the LAST tab of the strip and no tab here has
+        /// an opener, so a close selects the tab before it (the one close-selection rule,
+        /// /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4: the previous tab only when the closed one was the
+        /// last; it was "always the tab before", #38328): `before.last` is the neighbour a close of `tab` shows.
         let before: [TabModel]
     }
 

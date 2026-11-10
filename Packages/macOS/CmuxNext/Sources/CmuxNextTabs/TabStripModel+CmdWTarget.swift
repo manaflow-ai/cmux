@@ -2,8 +2,8 @@ import CmuxNextDesignTokens
 
 extension TabStripModel {
     /// The tab a person's Cmd-W on `id` closes: `id`, or while `id`'s close is still under way (`closing`: the daemon's
-    /// read, or its page deciding), the tab selected once it closes (``FocusAfterClose/tab(selected:old:surviving:shown:)``
-    /// over the tabs not closing: the visible one before it, else the one after it), so N quick presses close N tabs
+    /// read, or its page deciding), the tab selected once it closes (the one close-selection rule, ``TabStripModel/closeSuccessor``,
+    /// over the tabs not closing: a tab of its opener family, else the next visible one, the one before only at the end), so N quick presses close N tabs
     /// (Leo 2026-10-21), each the one the close before it selected. Nil when every other tab is closing too, or when the
     /// tab that close selects cannot close or is `skipped` (its question shows): the press then closes nothing.
     public func cmdWTarget(_ id: TabID, closing: (TabID) -> Bool, skipped: (TabID) -> Bool = { _ in false }) -> TabID? {
