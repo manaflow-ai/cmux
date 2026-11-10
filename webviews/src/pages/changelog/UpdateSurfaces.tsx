@@ -453,10 +453,11 @@ export function UpdatedCard({
 
 /** The loading change line's looks (gallery variants, Leo 2026-11-09: "for the, you know, fixed or
     whatever subtitle text individually, we can have it be, like, should have a loading indicator, like
-    an ellipsis-type thing"): three dots that breathe in turn (`dots`, shipped), a still ellipsis
-    (`still`), a bar one line tall that a light crosses (`bar`), and the words (`words`). */
-export type NoteLoadingLook = "dots" | "still" | "bar" | "words";
-export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "still", "bar", "words"];
+    an ellipsis-type thing"): three still dots (`dots`, shipped; no breathing loop, test/no-breathing-dots),
+    the ellipsis glyph (`glyph`), a bar one line tall that a light crosses (`bar`), and the words
+    (`words`). */
+export type NoteLoadingLook = "dots" | "glyph" | "bar" | "words";
+export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "glyph", "bar", "words"];
 export const SHIPPED_NOTE_LOADING: NoteLoadingLook = "dots";
 
 /** The change line while the update's notes load: the note's own box (its font, line height and
@@ -473,7 +474,7 @@ function NoteLoading({ look, label }: { look: NoteLoadingLook; label: string }) 
           <span aria-hidden="true">
             {look === "bar" ? (
               <span className="wn-note-bar" />
-            ) : look === "still" ? (
+            ) : look === "glyph" ? (
               "\u2026"
             ) : (
               <span className="wn-note-dots">

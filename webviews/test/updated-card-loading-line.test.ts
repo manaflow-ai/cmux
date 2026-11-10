@@ -65,7 +65,7 @@ await requireBrowserLane("updated-card-loading-line.test.ts", async () => {
     dark: "color-scheme:dark;--cmux-surface-background:#1e1e1e;--cmux-surface-solid:#1e1e1e;--cmux-text:#ddd",
     light: "color-scheme:light;--cmux-surface-background:#fff;--cmux-surface-solid:#fff;--cmux-text:#24292f",
   };
-  const looks = ["dots", "still", "bar", "words"] as const;
+  const looks = ["dots", "glyph", "bar", "words"] as const;
 
   const engines: [string, BrowserType][] = [
     ["chromium", chromium],

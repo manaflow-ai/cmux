@@ -620,7 +620,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "dark" },
     },
     "card-loading-dots": {
-      note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small dots in the note's quiet color that breathe in turn, on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it reads as loading, not as cut text, with the least motion of the moving looks (opacity only, no sweep across the glass), it rests still with motion off or reduced, and it never stays: the line gives up after 1.5 s and shows the host's top change. Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
+      note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
       props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "dots" },
     },
     "card-loading-dots-light": {
@@ -635,9 +635,9 @@ export default componentEntry<Props>({
       note: "The same card once the notes are in: the words take the dots' place, and nothing moves.",
       props: { surface: "card", data: leoFirstPaint, theme: "dark" },
     },
-    "card-loading-still": {
-      note: "Variant: a still ellipsis in the quiet color. The quietest, but with no motion it reads as a line cut short, not as words on their way.",
-      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "still" },
+    "card-loading-glyph": {
+      note: "Variant: the ellipsis glyph in the quiet color. As quiet as the dots, but at the note's size it reads as a line cut short, not as words on their way.",
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "glyph" },
     },
     "card-loading-bar": {
       note: "Variant: a bar the line's height that a light crosses (a skeleton line, cf. claude/live/settings-loading-skeleton). Says where the words go, but the sweep is the busiest motion on the glass for a line that loads in about a second.",
