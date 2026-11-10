@@ -62,6 +62,7 @@ type AskFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> i3
 type WaitIdleFn = unsafe extern "C" fn(*mut std::ffi::c_void, u64) -> bool;
 type PermissionFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> i32;
 type CaptureAppsFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8, usize, *mut usize) -> i32;
+type PersonEventsFn = unsafe extern "C" fn(*mut std::ffi::c_void) -> i64;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -75,6 +76,35 @@ pub struct CmuxCuHost {
     pub wait_idle: Option<WaitIdleFn>,
     pub request_permission: Option<PermissionFn>,
     pub capture_apps: Option<CaptureAppsFn>,
+    /// Added after the first release of the table: read only when the
+    /// host's `struct_size` covers it ([`CmuxCuHost::copy_from`]).
+    pub person_events: Option<PersonEventsFn>,
+}
+
+impl CmuxCuHost {
+    /// Copies the host's table: the fields its `struct_size` covers, the
+    /// rest left `None`, so a host built against an older header still works.
+    ///
+    /// # Safety
+    /// `host` is non-null and points to at least `struct_size` readable bytes
+    /// (and at least the size of `struct_size` itself).
+    unsafe fn copy_from(host: *const CmuxCuHost) -> CmuxCuHost {
+        // SAFETY: every field is an integer, a pointer or an Option of a fn
+        // pointer, for which all-zero bytes are valid (0, null, None).
+        let mut out: CmuxCuHost = unsafe { std::mem::zeroed() };
+        // SAFETY: the caller promises struct_size is readable.
+        let declared = unsafe { std::ptr::addr_of!((*host).struct_size).read_unaligned() } as usize;
+        let len = declared.min(std::mem::size_of::<CmuxCuHost>());
+        // SAFETY: len bytes are readable from host (caller) and writable in out.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                host.cast::<u8>(),
+                std::ptr::addr_of_mut!(out).cast::<u8>(),
+                len,
+            );
+        }
+        out
+    }
 }
 
 /// The host's callbacks. The host promises its context outlives the engine
@@ -123,12 +153,8 @@ impl HostServices for Host {
                                 .as_u64()
                                 .filter(|p| *p > 0 && *p <= u32::MAX as u64)?
                                 as u32;
-                            let id =
-                                r.get("id").and_then(Value::as_str).unwrap_or_default();
-                            let name = r
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default();
+                            let id = r.get("id").and_then(Value::as_str).unwrap_or_default();
+                            let name = r.get("name").and_then(Value::as_str).unwrap_or_default();
                             Some(cmux_computer_use::desktop::App {
                                 id: id.to_string(),
                                 name: name.to_string(),
@@ -262,6 +288,13 @@ impl PersonActivity for Host {
             None => true,
         }
     }
+
+    fn input_count(&self) -> Option<u64> {
+        let f = self.0.person_events?;
+        // SAFETY: plain call.
+        let n = unsafe { f(self.0.context) };
+        u64::try_from(n).ok()
+    }
 }
 
 pub struct CmuxCuEngine {
@@ -327,8 +360,8 @@ pub unsafe extern "C" fn cmux_cu_engine_create(
         set_error(error, "host is required".into());
         return std::ptr::null_mut();
     }
-    // SAFETY: non-null, caller-provided; copied.
-    let host = Host(unsafe { *host });
+    // SAFETY: non-null, caller-provided; the fields its struct_size covers are copied.
+    let host = Host(unsafe { CmuxCuHost::copy_from(host) });
     let host_arc: Arc<Host> = Arc::new(host);
     #[cfg(target_os = "macos")]
     let desktop: Arc<dyn cmux_computer_use::Desktop> =

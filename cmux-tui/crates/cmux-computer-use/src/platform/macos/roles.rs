@@ -97,9 +97,62 @@ pub fn is_secure(role: &str, subrole: Option<&str>) -> bool {
 }
 
 /// AX actions never offered to agents in the background: `AXRaise` brings a
-/// window in front of the person's work.
+/// window in front of the person's work; `AXShowMenu` opens a menu, and an
+/// open menu tracks the person's real pointer and takes their keyboard (the
+/// window server moves key focus to it) until it closes.
 pub fn is_foreground_action(ax: &str) -> bool {
-    ax == "AXRaise"
+    matches!(ax, "AXRaise" | "AXShowMenu")
+}
+
+/// Whether pressing, clicking or keyboard-activating an element of `role`
+/// opens a menu or list pop-up that takes the person's pointer and keyboard
+/// while it is open. Inside web content (`in_web`) only a pop-up button with
+/// a menu of its own (an HTML `<select>`, drawn as a native menu) does; an
+/// ARIA menu button opens DOM content in the page.
+pub fn opens_menu(role: &str, in_web: bool, has_menu: bool) -> bool {
+    if in_web {
+        return role == "AXPopUpButton" && has_menu;
+    }
+    matches!(
+        role,
+        "AXPopUpButton" | "AXMenuButton" | "AXComboBox" | "AXMenuBarItem" | "AXMenuExtra"
+    )
+}
+
+/// Keys that open a focused pop-up button or combo box.
+pub fn key_opens_menu(key: &crate::keys::Key) -> bool {
+    use crate::keys::Key;
+    matches!(key, Key::Space | Key::Return | Key::Up | Key::Down) || *key == Key::Char(' ')
+}
+
+/// Text whose typing opens a focused pop-up (a space or a newline).
+pub fn text_opens_menu(text: &str) -> bool {
+    text.contains([' ', '\n', '\r'])
+}
+
+/// Why a menu-opening element is refused in the background, and what to
+/// use instead.
+pub fn menu_refusal(role: &str) -> String {
+    let name = role_name(role, None);
+    let instead = match role {
+        "AXPopUpButton" | "AXMenuButton" => {
+            "use set_value with the title of the item to choose (it picks the item without opening the menu)"
+        }
+        "AXComboBox" => "use set_value or type_text with element_id to change its text",
+        _ => "use perform_action on the item you want if the tree shows it",
+    };
+    format!(
+        "this {name} opens a menu, and an open menu takes the person's pointer and keyboard until it closes, so it is not opened in the background; {instead}, or click it with delivery foreground"
+    )
+}
+
+/// Why a context menu (right click, control-click) is refused in the background.
+pub const CONTEXT_MENU_REFUSAL: &str = "a right click or control-click opens a context menu, and an open menu takes the person's pointer and keyboard until it closes, so it is not done in the background; use perform_action with the element's own actions (get_ui_tree lists them), or click with delivery foreground";
+
+/// Whether the case-insensitive, trimmed titles match (a menu item for a
+/// `set_value` on a pop-up).
+pub fn same_title(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
 }
 
 /// An AX action name as the plain name agents see. Custom actions

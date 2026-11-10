@@ -113,6 +113,81 @@ impl MacDesktop {
         let el = app.element("AXFocusedUIElement")?;
         el.element("AXWindow").filter(|w| w.same(&win)).map(|_| el)
     }
+
+    /// Whether the window's app is the frontmost app, where the person's
+    /// keys and caret are.
+    fn is_persons_app(&self, t: &Target) -> bool {
+        super::workspace::app_for_pid(t.window.pid).is_some_and(|a| a.active)
+    }
+
+    /// Refuses, in the background, an element whose activation opens a menu
+    /// that takes the person's pointer and keyboard ([`roles::opens_menu`]).
+    fn refuse_menu(&self, el: &Ax) -> DResult<()> {
+        if let Some(role) = menu_role(el) {
+            return Err(DesktopError::Unsupported(roles::menu_refusal(&role)));
+        }
+        Ok(())
+    }
+
+    /// Refuses a background pointer click at `at` that would land on a
+    /// menu-opening element (the app's own hit test, then a few ancestors:
+    /// the click may hit a pop-up's inner cell or text).
+    fn refuse_menu_at(&self, t: &Target, at: Point) -> DResult<()> {
+        let Some(hit) = Ax::application(t.window.pid).and_then(|app| app.element_at(at.x, at.y))
+        else {
+            return Ok(());
+        };
+        let mut el = Some(hit);
+        for _ in 0..4 {
+            let Some(current) = el else { break };
+            self.refuse_menu(&current)?;
+            el = current.element("AXParent");
+        }
+        Ok(())
+    }
+}
+
+/// Roles that might open a menu; anything else needs no further reads.
+const MENU_CANDIDATES: &[&str] =
+    &["AXPopUpButton", "AXMenuButton", "AXComboBox", "AXMenuBarItem", "AXMenuExtra"];
+
+/// The element's role when activating it opens a menu ([`roles::opens_menu`]).
+fn menu_role(el: &Ax) -> Option<String> {
+    let role = el.string("AXRole")?;
+    if !MENU_CANDIDATES.contains(&role.as_str()) {
+        return None;
+    }
+    let in_web = in_web_area(el);
+    let has_menu = menu_of(el).is_some();
+    roles::opens_menu(&role, in_web, has_menu).then_some(role)
+}
+
+/// Whether the element sits inside web content (an `AXWebArea` ancestor).
+fn in_web_area(el: &Ax) -> bool {
+    let mut current = el.element("AXParent");
+    for _ in 0..64 {
+        let Some(node) = current else { return false };
+        match node.string("AXRole").as_deref() {
+            Some("AXWebArea") => return true,
+            Some("AXWindow") | Some("AXApplication") | None => return false,
+            _ => {}
+        }
+        current = node.element("AXParent");
+    }
+    false
+}
+
+/// The menu a pop-up or menu button holds as its child, when it shows it
+/// while closed.
+fn menu_of(el: &Ax) -> Option<Ax> {
+    el.elements("AXChildren").into_iter().find(|c| c.string("AXRole").as_deref() == Some("AXMenu"))
+}
+
+/// Whether a click opens a context menu: a right click, or a left click
+/// with Control held (AppKit's context-menu gesture).
+fn opens_context_menu(spec: &ClickSpec) -> bool {
+    spec.button == Button::Right
+        || (spec.button == Button::Left && spec.modifiers.contains(&crate::keys::Modifier::Control))
 }
 
 fn click_point(
@@ -122,6 +197,9 @@ fn click_point(
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
     let at = d.point_in(t, point)?;
+    if spec.delivery == Delivery::Background {
+        d.refuse_menu_at(t, at)?;
+    }
     let route = d.pointer_route(t, spec.delivery)?;
     input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
@@ -133,11 +211,17 @@ pub(super) fn click(
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
     let t = d.target(target.window_id())?;
+    if spec.delivery == Delivery::Background && opens_context_menu(spec) {
+        return Err(DesktopError::Unsupported(roles::CONTEXT_MENU_REFUSAL.into()));
+    }
     let element_id = match target {
         PointerTarget::Point { point, .. } => return click_point(d, &t, *point, spec),
         PointerTarget::Element { element_id, .. } => element_id,
     };
     let el = d.element(&t, element_id)?;
+    if spec.delivery == Delivery::Background {
+        d.refuse_menu(&el)?;
+    }
     let semantic =
         spec.delivery == Delivery::Background && spec.modifiers.is_empty() && spec.count <= 1;
     if semantic {
@@ -217,6 +301,19 @@ pub(super) fn type_text(
             }
             return Ok(out);
         }
+        if delivery == Delivery::Background {
+            // A space or newline typed into a focused pop-up opens its menu.
+            if roles::text_opens_menu(text) {
+                d.refuse_menu(el)?;
+            }
+            // Focusing an element of the app the person is using moves their
+            // caret, and keys sent after it would follow.
+            if element_id.is_some() && el.bool("AXFocused") != Some(true) && d.is_persons_app(&t) {
+                return Err(DesktopError::Unsupported(
+                    "this element is in the app the person is using; focusing it would move their caret. Use set_value, type_text without newlines or tabs (inserted through accessibility), or delivery foreground".into(),
+                ));
+            }
+        }
         // Keys go to the focused element: focus this one first (it changes
         // focus inside the app, not which app is in front).
         if element_id.is_some()
@@ -248,6 +345,13 @@ pub(super) fn press_keys(
         flags |= keymap::FLAG_SHIFT;
     }
     let route = d.key_route(&t, delivery)?;
+    // Space, Return and the arrows open a focused pop-up's menu.
+    if delivery == Delivery::Background
+        && roles::key_opens_menu(&combo.key)
+        && let Some(focused) = d.focused_in(&t)
+    {
+        d.refuse_menu(&focused)?;
+    }
     input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
     Ok(ActionOutcome::delivered(route.name()))
 }
@@ -319,6 +423,10 @@ pub(super) fn set_value(
 ) -> DResult<ActionOutcome> {
     let t = d.target(window_id)?;
     let el = d.element(&t, element_id)?;
+    let role = el.string("AXRole").unwrap_or_default();
+    if !el.settable("AXValue") && matches!(role.as_str(), "AXPopUpButton" | "AXMenuButton") {
+        return choose_menu_item(&el, element_id, value);
+    }
     if !el.settable("AXValue") {
         return Err(DesktopError::Unsupported(format!(
             "element {element_id}'s value cannot be set; use type_text or click"
@@ -326,7 +434,6 @@ pub(super) fn set_value(
     }
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
-    let role = el.string("AXRole").unwrap_or_default();
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let read = el.value_text();
     let mut out = match &read {
@@ -335,6 +442,52 @@ pub(super) fn set_value(
     };
     if !secure && read.as_deref().is_some_and(|r| !same_value(r, value)) {
         out.note = "the element reads back a different value".into();
+    }
+    if let Some(frame) = el.frame() {
+        out = out.at(roles::center(&frame));
+    }
+    Ok(out)
+}
+
+/// Picks the item titled `value` of a closed pop-up or menu button by
+/// pressing that item's accessibility element, so the menu never opens
+/// (AppKit performs a menu item's press as `performActionForItemAtIndex:`;
+/// Chromium as a `<select>` option's default action).
+fn choose_menu_item(el: &Ax, element_id: &str, value: &str) -> DResult<ActionOutcome> {
+    let Some(menu) = menu_of(el) else {
+        return Err(DesktopError::Unsupported(format!(
+            "element {element_id} does not show its menu items while closed, so none can be chosen without opening the menu (which takes the person's pointer and keyboard); click it with delivery foreground"
+        )));
+    };
+    let items: Vec<(Ax, String)> = menu
+        .elements("AXChildren")
+        .into_iter()
+        .filter(|i| i.string("AXRole").as_deref() == Some("AXMenuItem"))
+        .filter_map(|i| {
+            let title = i.string("AXTitle").filter(|t| !t.is_empty())?;
+            Some((i, title))
+        })
+        .collect();
+    let Some((item, title)) = items.iter().find(|(_, t)| roles::same_title(t, value)) else {
+        let titles: Vec<&str> = items.iter().map(|(_, t)| t.as_str()).take(40).collect();
+        return Err(DesktopError::Unsupported(format!(
+            "element {element_id} has no item titled {value:?}; its items: {}",
+            if titles.is_empty() { "none".into() } else { titles.join(", ") }
+        )));
+    };
+    if item.bool("AXEnabled") == Some(false) {
+        return Err(DesktopError::Unsupported(format!("the item {title:?} is disabled")));
+    }
+    let before = el.value_text();
+    item.perform("AXPress").map_err(|e| ax_error(e, &format!("the item {title:?}")))?;
+    let after = el.value_text();
+    let mut out = if after.as_deref().is_some_and(|a| roles::same_title(a, title)) {
+        ActionOutcome::confirmed("ax_menu_item")
+    } else {
+        ActionOutcome::delivered("ax_menu_item")
+    };
+    if after == before && out.evidence != "confirmed" {
+        out.note = "pressed the item; the pop-up reads back its old value".into();
     }
     if let Some(frame) = el.frame() {
         out = out.at(roles::center(&frame));
@@ -370,6 +523,15 @@ pub(super) fn perform_action(
     let available = el.actions();
     let Some(ax_action) = roles::resolve_action(action, &available) else {
         if let Some((attr, value)) = roles::attribute_action(action.trim()) {
+            // Expanding a pop-up or combo box opens its menu or list.
+            if attr == "AXExpanded" && value {
+                d.refuse_menu(&el)?;
+            }
+            if attr == "AXFocused" && d.is_persons_app(&t) {
+                return Err(DesktopError::Unsupported(
+                    "this element is in the app the person is using; focusing it would move their caret. Use set_value or type_text with element_id, or a click with delivery foreground".into(),
+                ));
+            }
             return write_attribute(&el, element_id, attr, value);
         }
         let offered: Vec<String> = available
@@ -382,10 +544,17 @@ pub(super) fn perform_action(
             if offered.is_empty() { "none".into() } else { offered.join(", ") }
         )));
     };
+    if ax_action == "AXShowMenu" {
+        return Err(DesktopError::Unsupported(roles::CONTEXT_MENU_REFUSAL.into()));
+    }
     if roles::is_foreground_action(ax_action) {
         return Err(DesktopError::Unsupported(
             "raise brings the window in front of the person's work; use a click or key with delivery foreground".into(),
         ));
+    }
+    // A press (or pick) on a pop-up opens its menu.
+    if matches!(ax_action.as_str(), "AXPress" | "AXPick") {
+        d.refuse_menu(&el)?;
     }
     let before = el.value_text();
     el.perform(ax_action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;

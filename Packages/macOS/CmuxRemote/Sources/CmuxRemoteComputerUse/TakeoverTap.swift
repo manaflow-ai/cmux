@@ -26,6 +26,8 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
         var running = false
         var stop = false
         var markedSeen: UInt64 = 0
+        /// An acting call asked for the detector since the last proof attempt.
+        var proofWanted = false
     }
 
     let gate: TakeoverGate
@@ -56,6 +58,8 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
     func ensureStarted() {
         guard trusted() else { return }
         let start = state.withLock { state -> Bool in
+            // A running but unproven tap retries its proof on the next run-loop turn.
+            state.proofWanted = true
             // A thread still winding down after stop() ends first; the next call starts a new one.
             if state.running { return false }
             state.stop = false
@@ -126,9 +130,17 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
                 gate.setHealthy(false)
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            // An unproven tap tries the round trip again every 5 s; a proven one never re-posts.
+            // An unproven tap tries the round trip again, at most every 5 s and only when an
+            // acting call asked since the last try: the marked move is posted at the HID tap,
+            // where it shows a pointer macOS hid while the person types, so it never repeats on
+            // its own while the agent is idle. A proven tap never re-posts.
             let now = TakeoverGate.uptimeNanos()
-            if !healthy, CGEvent.tapIsEnabled(tap: tap), now &- lastProof >= 5_000_000_000 {
+            if !healthy, CGEvent.tapIsEnabled(tap: tap), now &- lastProof >= 5_000_000_000,
+               state.withLock({ state in
+                   let wanted = state.proofWanted
+                   state.proofWanted = false
+                   return wanted
+               }) {
                 lastProof = now
                 healthy = provenanceRoundTrips()
                 gate.setHealthy(healthy)

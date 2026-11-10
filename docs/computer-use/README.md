@@ -95,6 +95,46 @@ Never, a looser mode) need the cmux app or the person's own settings; that is
 hardening, not a boundary. To hold an agent to less, run it as another user, in
 a VM, or on a machine whose owner file pins the policy.
 
+## Background: the person's focus never moves
+
+No Computer Use call in background delivery may change the frontmost app, the
+key window, the window order, the person's pointer or where their keys go.
+
+Prevention, in the desktop (macOS):
+
+- Input is window-scoped: AX actions first, then events posted to the target
+  process (`CGEventPostToPid`) with the window's number; no activation, no raise.
+- Anything that opens a menu is refused, because an open menu tracks the real
+  pointer and the window server moves key focus to it until it closes:
+  `AXShowMenu`, a right click or control-click, a press or pixel click on a
+  pop-up button, menu button, combo box, menu bar item or menu extra (the app's
+  own hit test decides for a pixel click), Space, Return or an arrow key into a
+  focused pop-up, and `expand` on one. In web content only an HTML `<select>`
+  counts (an ARIA menu button opens page content). Each refusal says what works:
+  `set_value` with an item title picks a pop-up's item by pressing that item's
+  accessibility element, without opening the menu.
+- Focusing an element in the app the person is using (`type_text` that needs
+  keys, `perform_action focus`) is refused: it would move their caret.
+- `launch_app` opens with `activates` and `promptsUserIfNeeded` off, and returns
+  an app that already runs without an open request (a reopen event makes apps
+  show and often activate a window).
+- The approval panel and the agent cursor are non-activating panels that never
+  become key.
+
+Cure, in the engine (`engine_focus.rs`), for what apps do on their own (an app
+that calls `NSApp.activate` on launch or on a posted mouse-down, or orders a
+window over the person's): every acting call snapshots focus before acting
+(`Desktop::focus_snapshot`) and checks it after acting (for `launch_app`, every
+100 ms for 1 s) and after the settle wait. A change the person did not make is
+put back (`Desktop::restore_focus`: the person's app's `AXFrontmost`, its key
+window's `AXMain` and `AXRaise`) and reported as `focus` in the result and the
+audit log: `{"kept": true}`, `{"kept": true, "restored_from": "<id>"}`,
+`{"kept": false, "moved_by": "person", ...}` or `{"kept": false, "not_restored": ...}`.
+The takeover tap's count of the person's own inputs decides who moved it; any
+input of theirs during the call leaves focus alone. Without the tap, only a
+change to the target app or to cmux Remote is put back. Foreground delivery is
+not guarded: it raises the window because it was asked to.
+
 ## Platforms and display servers
 
 | Platform | Display server | Tree | Input | Capture | Notes |

@@ -209,6 +209,14 @@ final class TakeoverGate: Sendable {
         state.withLock { $0.stats }
     }
 
+    /// The person's deliberate inputs counted so far, or nil while nothing
+    /// watches them (no tap, or provenance unproven). The engine's focus
+    /// guard compares two readings to know whether the person moved focus
+    /// during a call, so it never puts focus back over them.
+    func personEventCount() -> UInt64? {
+        state.withLock { $0.healthy ? $0.stats.personEvents : nil }
+    }
+
     // MARK: The engine's wait_idle
 
     /// Blocks while the person is driving, up to `limit`; true when they are

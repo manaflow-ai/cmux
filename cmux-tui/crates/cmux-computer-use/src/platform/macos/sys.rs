@@ -165,6 +165,12 @@ unsafe extern "C" {
     pub fn AXUIElementCopyActionNames(e: CFTypeRef, out: *mut CFTypeRef) -> AXError;
     pub fn AXUIElementSetMessagingTimeout(e: CFTypeRef, seconds: f32) -> AXError;
     pub fn AXUIElementGetPid(e: CFTypeRef, out: *mut i32) -> AXError;
+    pub fn AXUIElementCopyElementAtPosition(
+        app: CFTypeRef,
+        x: f32,
+        y: f32,
+        out: *mut CFTypeRef,
+    ) -> AXError;
     pub fn AXUIElementGetTypeID() -> CFTypeID;
     pub fn AXValueGetTypeID() -> CFTypeID;
     pub fn AXValueGetType(v: CFTypeRef) -> u32;
