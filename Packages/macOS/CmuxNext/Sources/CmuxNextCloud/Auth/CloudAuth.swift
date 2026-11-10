@@ -292,7 +292,8 @@ public final class CloudAuth {
                                              fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
             return ImportingTokenStore(primary: own, sources: [{
                 ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
-            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() })
+            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() },
+               sourceReadFailures: { await earlier.tokenReadFailureCount() })
         }
         let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]

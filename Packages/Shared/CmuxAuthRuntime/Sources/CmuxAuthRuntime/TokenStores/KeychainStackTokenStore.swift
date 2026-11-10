@@ -56,6 +56,15 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     /// unknown, not absent.
     public func tokenReadFailureCount() async -> UInt64 { readFailures }
 
+    /// Whether a keychain status says "not readable right now" rather than
+    /// "nothing here" or a refusal that repeats on every read:
+    /// `errSecInteractionNotAllowed` (-25308, locked or no UI allowed),
+    /// `errSecAuthFailed` (-25293, the read refused in hq#8831) and
+    /// `errSecNotAvailable` (-25291, no keychain available yet).
+    static func isTransientReadFailure(_ status: Int32) -> Bool {
+        status == -25308 || status == -25293 || status == -25291
+    }
+
     /// The keychain service name auth tokens are stored under, namespaced by
     /// bundle id so tagged dev builds don't clobber the stable app's session.
     /// - Parameter bundleIdentifier: The app's bundle identifier (the caller
@@ -174,7 +183,6 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             if accessGroup != nil,
                let legacyAccount,
                !hardenLegacyTokenIfPresent(account: legacyAccount, deleteAfterHardening: true) {
-                readFailures &+= 1
                 return nil
             }
             return current
@@ -242,6 +250,15 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return query
     }
 
+    /// Counts a read that failed for a moment: the keychain answered that it
+    /// could not be read now, not that it holds nothing. A permanent refusal
+    /// (`errSecMissingEntitlement` on an ad-hoc build, a bad query) is not
+    /// counted: it answers the same on every read, so counting it would keep
+    /// a dead session signed in for good.
+    private func noteReadStatus(_ status: OSStatus) {
+        if Self.isTransientReadFailure(status) { readFailures &+= 1 }
+    }
+
     private func keychainRead(account: String) -> String? {
         var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
@@ -250,7 +267,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
-                readFailures &+= 1
+                noteReadStatus(status)
                 log.log("keychain READ status=\(status) account=\(account)")
             }
             return nil
@@ -261,7 +278,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         )
         guard migrationStatus == errSecSuccess else {
             // The item exists; withholding it is not "no session".
-            readFailures &+= 1
+            noteReadStatus(migrationStatus)
             log.log("keychain ACCESSIBILITY UPDATE status=\(migrationStatus) account=\(account)")
             return nil
         }
@@ -305,13 +322,12 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
-                readFailures &+= 1
+                noteReadStatus(status)
                 log.log("keychain legacy READ status=\(status) account=\(account)")
             }
             return nil
         }
         guard hardenLegacyTokenIfPresent(account: account, deleteAfterHardening: false) else {
-            readFailures &+= 1
             return nil
         }
         return String(data: data, encoding: .utf8)

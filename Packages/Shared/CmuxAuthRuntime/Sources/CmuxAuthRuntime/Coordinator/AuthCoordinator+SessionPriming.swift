@@ -237,6 +237,11 @@ extension AuthCoordinator {
                 do {
                     try await clock.sleep(for: delay, tolerance: nil)
                 } catch {
+                    // Cancelled mid-backoff: settle on the cached session
+                    // rather than leave the restore unfinished.
+                    if generation == sessionGeneration {
+                        preserveCachedSessionAfterValidationFailure()
+                    }
                     return
                 }
                 guard generation == sessionGeneration else { return }

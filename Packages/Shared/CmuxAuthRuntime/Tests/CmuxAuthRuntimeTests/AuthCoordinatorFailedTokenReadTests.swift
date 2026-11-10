@@ -141,4 +141,17 @@ actor FailingReadsTokenStoreAuthClient: AuthClient {
         #expect(store.bool(forKey: "has_tokens") == false)
         #expect(coordinator.lastSignOutReason == "launch restore found no stored tokens in readable storage")
     }
+
+    /// Only "not readable right now" counts as a failed read. A refusal that
+    /// repeats on every read (`errSecMissingEntitlement` -34018 on an ad-hoc
+    /// build) or "not found" (-25300) must not, or a dead session would stay
+    /// signed in for good.
+    @Test func onlyMomentaryKeychainRefusalsCountAsFailedReads() {
+        #expect(KeychainStackTokenStore.isTransientReadFailure(-25308))
+        #expect(KeychainStackTokenStore.isTransientReadFailure(-25293))
+        #expect(KeychainStackTokenStore.isTransientReadFailure(-25291))
+        #expect(!KeychainStackTokenStore.isTransientReadFailure(-25300))
+        #expect(!KeychainStackTokenStore.isTransientReadFailure(-34018))
+        #expect(!KeychainStackTokenStore.isTransientReadFailure(-50))
+    }
 }

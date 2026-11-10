@@ -35,6 +35,7 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     private let sources: [Source]
     private let sharesSessions: Bool
     private let forgetSources: (@Sendable () async -> Void)?
+    private let sourceReadFailures: (@Sendable () async -> UInt64)?
     private var importTask: Task<String?, Never>?
     /// Refresh tokens of sessions this process adopted, and the ones their refreshes replaced them with.
     /// Kept for the process only, never written anywhere.
@@ -48,12 +49,16 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     ///     sources are this app's own earlier stores: a sign-out then revokes it like any other.
     ///   - forgetSources: Clears this app's own earlier stores on a sign-out, so the next launch finds the
     ///     person signed out rather than adopting the session they signed out of. Nil for another app's.
+    ///   - sourceReadFailures: The sources' failed-read count (``tokenReadFailureCount()``), when they are
+    ///     stores of this app's that can fail a read: a source that could not be read is not "no session".
     public init(primary: any StackAuthTokenStoreProtocol, sources: [Source], sharesSessions: Bool = true,
-                forgetSources: (@Sendable () async -> Void)? = nil) {
+                forgetSources: (@Sendable () async -> Void)? = nil,
+                sourceReadFailures: (@Sendable () async -> UInt64)? = nil) {
         self.primary = primary
         self.sources = sources
         self.sharesSessions = sharesSessions
         self.forgetSources = forgetSources
+        self.sourceReadFailures = sourceReadFailures
     }
 
     /// Runs the import once per process (or not at all after an earlier write) and waits for it.
@@ -88,8 +93,12 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
         sharesSessions && adopted.contains(refreshToken)
     }
 
+    /// The primary store's failed reads plus the sources': an import whose source read failed leaves the
+    /// primary empty, and that empty answer is unknown, not "signed out".
     public func tokenReadFailureCount() async -> UInt64 {
-        await primary.tokenReadFailureCount()
+        let own = await primary.tokenReadFailureCount()
+        let sources = await sourceReadFailures?() ?? 0
+        return own &+ sources
     }
 
     public func getStoredAccessToken() async -> String? {
