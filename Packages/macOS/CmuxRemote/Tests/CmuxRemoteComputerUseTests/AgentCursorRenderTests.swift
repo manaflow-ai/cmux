@@ -72,6 +72,7 @@ import UniformTypeIdentifiers
 
     @Test func pausedAndRefusedRenderInTheirColors() throws {
         let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
+        if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         for (name, events, rgb) in Self.alertStates {
             let image = try #require(AgentCursorOverlay.render(events, label: "Claude Code", size: Self.size, scale: 2,
                                                                backdrop: Self.backdrop), "\(name)")
