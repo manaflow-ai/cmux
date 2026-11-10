@@ -455,6 +455,7 @@ fn an_app_that_is_not_here_is_not_linked() {
         claude_config_dir: None,
         codex_home: None,
         xdg_config_home: None,
+        pi_dir: None,
         exe: PathBuf::from("/opt/acpmux"),
         args: vec!["acpmux-mcp".to_owned()],
         acpmux_home: None,

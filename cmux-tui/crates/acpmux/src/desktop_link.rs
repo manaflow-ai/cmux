@@ -570,7 +570,12 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
         }
         App::Pi => {
             let path = env.config_path(app);
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                // Already gone: nothing to remove.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+            };
             if !text.contains(&pi_mark()) {
                 return Err(ForeignEntry.into());
             }
