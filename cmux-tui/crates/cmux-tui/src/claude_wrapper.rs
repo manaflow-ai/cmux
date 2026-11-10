@@ -152,9 +152,10 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
         .context("no data directory for Claude settings")?
         .join("claude-settings");
     let mut launch = args_with_hooks(args, hooks, &cache)?;
-    // cmux Computer Use, with no setup (agent_computer_use.rs). The value goes
-    // first and the `--settings` flag after it ends Claude's variadic
-    // `--mcp-config`, so a prompt is never read as a config.
+    // The cmux MCP server with cmux Computer Use behind it, with no setup
+    // (agent_computer_use.rs). The value goes first and the `--settings` flag
+    // after it ends Claude's variadic `--mcp-config`, so a prompt is never
+    // read as a config.
     if let Some(socket) = std::env::var_os("CMUX_TUI_SOCKET").filter(|s| !s.is_empty())
         && let Some(config) =
             crate::agent_computer_use::claude_mcp_config(&executable, Path::new(&socket))

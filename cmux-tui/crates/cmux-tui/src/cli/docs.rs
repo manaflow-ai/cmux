@@ -234,6 +234,37 @@ pub(super) const GUIDES: &[Guide] = &[
         `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
         browser page's own pixels are `cmux browser page screenshot`).",
     },
+    Guide {
+        topic: "Script cmux Computer Use: several app steps in one cmux_exec call",
+        keywords: &["cu", "computer", "desktop", "gui"],
+        text: "In cmux_exec, `cu.<tool>(args)` is `cmux.cu_<tool>(args)` (cmux Computer Use, \
+        built in): chain list_windows, get_ui_tree, click, type_text, press_key, set_value, \
+        scroll, wait and the rest with loops and conditions in ONE script. Each call is its own \
+        Computer Use call (its own call id, the person's settings and approval cards apply to \
+        each). In a script an acting call skips its settle screenshot unless you pass \
+        observe: true; read back with get_ui_tree or screenshot instead. A tool's result is its \
+        JSON, plus `images: [{type: \"image\", image: N}]` when it has a screenshot; only the \
+        images your script returns reach you as images (return r or r.images). A \
+        refused call (computer_use_off, app_denied, look_only, person_in_control) throws: stop \
+        and tell the person which setting in Settings > Computer Use would allow it. \
+        `cu.find(tree, {role, name})` finds an element in a get_ui_tree result (a RegExp \
+        matches, `cu.findAll` lists, `cu.elements(tree)` flattens); act on its `id` as \
+        element_id. Roles are plain: button, text_field, text, checkbox, link. \
+        Fill and submit a form: `const [w] = (await cu.list_windows({app_id: \"com.apple.Safari\"\
+        })).windows; const window_id = w.window_id; const t = await cu.get_ui_tree({window_id}); \
+        await cu.set_value({window_id, element_id: cu.find(t, {role: \"text_field\", name: \
+        /email/i}).id, value: \"ada@example.com\"}); await cu.click({window_id, element_id: \
+        cu.find(t, {role: \"button\", name: \"Submit\"}).id}); return await \
+        cu.screenshot({window_id});` (the screenshot comes back as an image) \
+        Click until a condition holds: `for (let i = 0; i < 10; i++) { const t = await \
+        cu.get_ui_tree({window_id}); if (cu.find(t, {name: \"Done\"})) return {pages: i}; const \
+        next = cu.find(t, {role: \"button\", name: \"Next\"}); if (!next) return {stuck: i}; \
+        await cu.click({window_id, element_id: next.id}); await cu.wait({window_id, ms: 300}); } \
+        return {pages: 10, done: false};` \
+        Read a value out of a window: `const t = await cu.get_ui_tree({window_id}); return \
+        cu.find(t, {role: \"text\", name: /total/i})?.value;` \
+        Return small values (the one field you need), not whole trees.",
+    },
 ];
 
 /// The guides for `query` (see [`Guide`]).

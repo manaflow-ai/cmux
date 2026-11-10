@@ -137,6 +137,11 @@ pub(super) struct Upstream {
     failed: Option<(String, Instant)>,
     /// Where lists from earlier starts are kept (`upstream_listing.rs`).
     listings: Option<PathBuf>,
+    /// The Computer Use server only: this server's client has its own
+    /// Computer Use (Codex), so the `cu_*` tools are its second choice
+    /// (acpmux `computer_use::mcp::defers_to_own_computer_use`). The bridge
+    /// cannot tell by itself: its client is this server, named `cmux`.
+    defer: bool,
 }
 
 /// Why a request has no result.
@@ -174,7 +179,27 @@ impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
         let listings = super::upstream_listing::default_dir();
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+        Self {
+            spec,
+            prefix,
+            conn: None,
+            tools: None,
+            instructions: None,
+            failed: None,
+            listings,
+            defer: false,
+        }
+    }
+
+    /// Whether this is the Computer Use server (`cu_*`).
+    pub(super) fn is_computer_use(&self) -> bool {
+        self.spec.name == acpmux::computer_use::tools::SERVER_NAME
+    }
+
+    /// Marks the `cu_*` tools second choice for a client with its own
+    /// Computer Use (only the Computer Use server takes it).
+    pub(super) fn set_defer(&mut self, defer: bool) {
+        self.defer = defer && self.is_computer_use();
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -224,7 +249,18 @@ impl Upstream {
                 return Vec::new();
             }
         }
+        if self.is_computer_use() {
+            // The rules the person's agent gets: Codex keeps its own Computer
+            // Use first (acpmux `computer_use/mcp.rs`), whatever the bridge
+            // told this server, whose client name is `cmux`.
+            self.instructions = Some(if self.defer {
+                acpmux::computer_use::mcp::DEFER_INSTRUCTIONS.to_owned()
+            } else {
+                acpmux::computer_use::tools::INSTRUCTIONS.to_owned()
+            });
+        }
         let server = self.spec.name.clone();
+        let defer_prefix = if self.defer { acpmux::computer_use::mcp::DEFER_PREFIX } else { "" };
         self.tools
             .iter()
             .flatten()
@@ -245,7 +281,10 @@ impl Upstream {
                     .filter(|r| !r.trim().is_empty())
                     .map(|r| format!("{RULES_BREAK}{server}{RULES_LABEL}{r}"))
                     .unwrap_or_default();
-                tool.set("description", json!(format!("[{server}] {description}{rules}")));
+                tool.set(
+                    "description",
+                    json!(format!("[{server}] {defer_prefix}{description}{rules}")),
+                );
                 tool.set("name", json!(name));
                 Some(tool)
             })
@@ -303,10 +342,23 @@ impl Upstream {
         self.conn = None;
         // The key before the start: a list is stored only for the command it came from.
         let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
-        let mut child = Command::new(&self.spec.command)
+        let mut command = Command::new(&self.spec.command);
+        command
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
             .env_remove(ENV)
+            .env_remove(super::TERMINAL_AGENT_ENV);
+        // The Computer Use bridge names its caller on the person's approval
+        // cards by its MCP client, which is this server ("cmux"): the agent's
+        // own name goes in its env instead, unless the spec names one.
+        let label = acpmux::computer_use::mcp::LABEL_ENV;
+        if self.is_computer_use()
+            && !self.spec.env.iter().any(|(k, _)| k == label)
+            && let Some(client) = super::chat_tools::client_name()
+        {
+            command.env(label, client);
+        }
+        let mut child = command
             .envs(self.spec.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -442,6 +494,15 @@ impl Proxied {
         }
     }
 
+    /// Marks its `cu_*` tools second choice (see [`Upstream::set_defer`]) and
+    /// lists them again.
+    pub(super) fn set_defer(&mut self, defer: bool) {
+        if let Ok(mut upstream) = self.inner.lock() {
+            upstream.set_defer(defer);
+        }
+        self.listed.clear();
+    }
+
     /// Lists its tools again, unless a call holds it: then the last list.
     pub(super) fn refresh(&mut self) {
         if let Ok(mut upstream) = self.inner.try_lock() {
@@ -529,6 +590,7 @@ impl<B: super::Backend> super::Server<B> {
         let name = params["name"].as_str()?;
         if self.config.as_ref().is_some_and(|path| super::refusal(path).is_some())
             || self.allowed.as_ref().is_some_and(|allowed| !allowed.contains(name))
+            || (self.computer_use_only && !super::code_mode::computer_use::is_tool(name))
         {
             return None;
         }
