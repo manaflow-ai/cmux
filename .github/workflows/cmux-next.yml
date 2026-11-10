@@ -2169,6 +2169,18 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
 
+      # No new raw animation duration or raw colour outside the tokens, everywhere the other motion and
+      # design-token checks do not read (shrink-only baseline: motion-tokens-baseline.tsv), and the
+      # animation-token coverage figure (motion-coverage.py) for the nightly.
+      - name: Motion and colour tokens
+        id: motion-tokens
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+          python3 -I scripts/cmux-next/check-motion-tokens.py
+          python3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json"
+          python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"
+
       # The overlay surface roles (schemas/surface-roles/surface-roles.json): their Swift and CSS
       # copies match it (Glass, never opaque: one token set for every popover, menu, card, toast and sheet).
       - name: Surface roles
@@ -2603,6 +2615,7 @@ jobs:
             ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.ui-font.outcome }}|UI font (the system font)
             ${{ steps.motion-scale.outcome }}|Motion scale
+            ${{ steps.motion-tokens.outcome }}|Motion and colour tokens
             ${{ steps.menu-metrics.outcome }}|Menu metrics
             ${{ steps.surface-roles.outcome }}|Surface roles
             ${{ steps.protected-folders.outcome }}|Protected-folder copies

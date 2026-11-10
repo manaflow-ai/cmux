@@ -192,9 +192,8 @@ export function UnreadBanner({
   ]);
   return (
     <ContextMenu items={items} asChild>
-      <div
+      <fieldset
         className="ui-glass acpmux-since-jump"
-        role="group"
         aria-label={when ? `${count} ${when}` : count}
         data-shown={shown ? "" : undefined}
         data-side={mine?.side === "below" ? "below" : "above"}
@@ -233,7 +232,7 @@ export function UnreadBanner({
         >
           {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
         </button>
-      </div>
+      </fieldset>
     </ContextMenu>
   );
 }

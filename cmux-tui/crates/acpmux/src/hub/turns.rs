@@ -1797,6 +1797,8 @@ impl Hub {
                     if status == "completed" && taught {
                         self.offer_learned(session, learned);
                     }
+                    // A chat that took several corrections, kept now (`prompt_coach.rs`).
+                    self.coach_turn_ended(session, status == "completed");
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
