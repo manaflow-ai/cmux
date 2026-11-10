@@ -64,19 +64,47 @@ struct HomeMessagesR6AttachmentsTests {
         }
     }
 
-    @Test func bytesPastTheBoundAreNotKeptAndOrphansGo() async throws {
+    /// Send path: a native composer draft of any size reaches the page: the load names it with its
+    /// size (no bytes inline), and its bytes read back in chunks by its hash.
+    @Test func aNativeDraftOfAnySizeIsHandedOverByItsHash() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-messages-r6-native-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root.appending(path: "blobs"))
+        store.start()
+        defer { store.stop() }
+        let id = HomeChiefRosterTests.ada
+        let bytes = Data(repeating: 7, count: 26_000_000)
+        let native = try await store.prepareAttachment(data: bytes, typeIdentifier: "public.plain-text")
+        store.setDraftAttachments([native], for: id)
+        let kept = HomeMessagesKept(store: store, keepLocation: { false })
+
+        let loaded = try #require(try await kept.call("attachments.load", [:]))
+        let legacy = try #require(loaded.value(at: ["legacy", id.rawValue])?.arrayValue?.first)
+        #expect(legacy.value(at: ["hash"])?.stringValue == native.ref.hash)
+        #expect(legacy.value(at: ["byteCount"])?.doubleValue == Double(bytes.count))
+        #expect(legacy.value(at: ["data"]) == nil)
+        let chunk = 3 * 1024 * 1024
+        let last = try #require(try await kept.call("attachments.read", ["hash": .string(native.ref.hash),
+                                                                         "offset": .number(Double(bytes.count - chunk)),
+                                                                         "length": .number(Double(chunk))]))
+        #expect(last.value(at: ["data"])?.stringValue.flatMap { Data(base64Encoded: $0) } == bytes.suffix(chunk))
+    }
+
+    @Test func aFileOfAnySizeIsKeptAndOrphansGo() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-messages-r6-bound-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root.appending(path: "blobs"))
         store.start()
         defer { store.stop() }
         let drafts = HomeMessagesAttachmentDrafts(store: store)
-        await #expect(throws: HomeMessagesAttachmentDrafts.Refusal.tooLarge) {
-            try await drafts.write(hash: Self.hash, offset: 0, data: Data([1]), byteCount: HomeMessagesAttachmentDrafts.maxFileBytes + 1)
-        }
+        // Send path: a staged file over 25 MB, and kept bytes past 50 MB in all, are kept too.
+        let big = String(repeating: "cd", count: 32)
+        try await drafts.write(hash: big, offset: 0, data: Data([1]), byteCount: 60_000_000)
+        try await drafts.write(hash: Self.hash, offset: 0, data: Data([1]), byteCount: 30_000_000)
         await #expect(throws: HomeMessagesAttachmentDrafts.Refusal.noHash) {
             try await drafts.write(hash: "../escape", offset: 0, data: Data([1]), byteCount: 1)
         }
+        await drafts.releaseBytes(big)
         // Bytes no entry names (their page went before it put the part) go at the next load.
         try await drafts.write(hash: Self.hash, offset: 0, data: Data([1, 2]), byteCount: 2)
         #expect(FileManager.default.fileExists(atPath: drafts.fileURL(Self.hash).path))

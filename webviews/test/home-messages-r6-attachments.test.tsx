@@ -190,6 +190,38 @@ test("F1: a restored file whose upload is older than the owner keeps it goes up 
   expect(uploaded).toEqual(["notes"]);
 });
 
+test("send path: a native composer file of any size comes over by its hash and its bytes are read in chunks", async () => {
+  // The app names the native file with its size and no bytes inline (a 40 MB draft would not fit
+  // one load), and the page reads its bytes with the keeper's chunked read.
+  const kept = parseKeptAttachments({
+    attachments: {},
+    legacy: { a: [{ hash: "n1", name: "big.mov", mimeType: "video/quicktime", byteCount: 5 }] },
+  });
+  expect(kept.legacy.a?.map((file) => file.hash)).toEqual(["n1"]);
+  const asked: string[] = [];
+  const drafts = new AttachmentDrafts({
+    load: async () => kept,
+    put: () => {},
+    remove: () => {},
+    release: () => {},
+    write: async () => true,
+    read: async (file: HomeAttachment) => {
+      asked.push(`${file.hash}:${file.byteCount}`);
+      return new File(["clip!"], file.name, { type: file.mimeType });
+    },
+  });
+  await drafts.load();
+  const uploaded: string[] = [];
+  drafts.uploadLegacy(async (_conversation, file) => {
+    uploaded.push(`${file.name}:${await file.text()}`);
+    return part("h9", 5, "big.mov");
+  }, "failed");
+  await settle();
+  await settle();
+  expect(asked).toEqual(["n1:5"]);
+  expect(uploaded).toEqual(["big.mov:clip!"]);
+});
+
 /** A client whose first send of files is refused `unknown_attachment` (the owner collected the upload). */
 function ownerClient(log: { sends: Record<string, unknown>[]; uploads: number }, refuse = 1) {
   const people = [{ id: "me", kind: "human", name: "Me", chief: false }];
