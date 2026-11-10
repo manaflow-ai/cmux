@@ -517,15 +517,14 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
 }
 
 /// A relay's bulk copy, before the chat freezes. A folder a Move to Cloud seeded from this Mac
-/// (`--sync-seed-local`) hops through this Mac's copy of it: each machine clones from GitHub and
-/// only the diffs cross this Mac (`seed_cli::hop`). A folder the hop cannot take (a conflict
-/// with this Mac's copy, say) and any other folder copy machine to machine.
+/// (`--sync-seed-local`) goes as git, machine to machine: the second machine clones from GitHub
+/// and gets the seed's diff, then the first machine's changes since (`seed_cli::hop`); this
+/// Mac's folder is never read or written. A folder the hop cannot take (one copied rather than
+/// seeded, say) and any other folder copy machine to machine.
 fn relay_bulk(sync: &Sync) -> Result<(), Failed> {
     if let (Some(local), Some(from)) = (&sync.seed_local, &sync.from_socket) {
         let from_root = sync.local.to_string_lossy();
-        let hopped = super::seed_cli::hop_reset(local, &sync.remote).and_then(|()| {
-            super::seed_cli::hop(from, &from_root, &sync.socket, &sync.remote, local)
-        });
+        let hopped = super::seed_cli::hop_bulk(from, &from_root, &sync.socket, &sync.remote, local);
         match hopped {
             Ok(()) => return Ok(()),
             Err(error) => {
@@ -571,13 +570,19 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                     format!("the folder's last changes: {e:#}"),
                 )
             };
-            // A folder the bulk pass hopped through this Mac's copy hops again ([`relay_bulk`]).
+            // A folder the bulk pass sent as git sends its last changes as git too ([`relay_bulk`]).
             if let Some(local) = &sync.seed_local
                 && super::seed_cli::hop_started(local, &sync.remote)
             {
                 let from_root = sync.local.to_string_lossy();
-                return super::seed_cli::hop(from, &from_root, &sync.socket, &sync.remote, local)
-                    .map_err(failed);
+                return super::seed_cli::hop_frozen(
+                    from,
+                    &from_root,
+                    &sync.socket,
+                    &sync.remote,
+                    local,
+                )
+                .map_err(failed);
             }
             let mut quiet = |_: sync_cli::Progress| {};
             return sync_cli::relay(
