@@ -1,0 +1,42 @@
+# Scratch (branch a-custom-sidebar-toggle only, never landed): the controller is down, so the
+# CmuxNext package (app module and tests) builds from scratch on Blacksmith macOS here.
+name: scratch custom sidebar toggle
+on:
+  push:
+    branches: [a-custom-sidebar-toggle]
+permissions:
+  contents: read
+jobs:
+  suite:
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+      - name: Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          app=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1); app=${app:-/Applications/Xcode.app}
+          echo "CMUX_CI_XCODE_APP=$app" >> "$GITHUB_ENV"
+          sudo xcode-select -s "$app/Contents/Developer"; xcodebuild -version
+      - name: Build CmuxNext with its tests and run CustomSidebarToggleTests
+        run: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext CustomSidebarToggleTests
+      - name: Rust action catalog parity
+        if: always()
+        working-directory: cmux-tui
+        run: |
+          command -v cargo || { curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; . "$HOME/.cargo/env"; }
+          cargo test -p cmux-action-catalog 2>&1 | tail -40
+          exit ${PIPESTATUS[0]}
+      - name: Regenerate the action exports
+        if: always()
+        working-directory: Packages/macOS/CmuxNext
+        run: |
+          CMUX_UPDATE_ACTION_SURFACES=1 swift test --skip-build --filter 'ActionSurfaceParityTests|LinkExportTests' || echo "::warning::parity tests exited $?"
+          cd ../../.. && git diff --binary -- plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json > "$RUNNER_TEMP/exports.patch"; wc -l "$RUNNER_TEMP/exports.patch"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: exports
+          path: ${{ runner.temp }}/exports.patch
