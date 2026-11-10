@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42793171635",
+  "recorded_at": "2026-11-10T09:51:22Z",
+  "reason": "cmux-tui e8993578f734 changes the image's cmux-tui (pinned ef0756a57759)",
+  "dry_run": false,
+  "cmux_tui": "e8993578f734d935735bff1ab40b6cacfce975f2",
+  "fixes": [
+    {
+      "sha": "e8993578f734d935735bff1ab40b6cacfce975f2",
+      "mergedAt": "2026-11-10T01:28:11-08:00",
+      "subject": "Fix the five CI guard group tip reds on feat-cmux-next (#40185)"
+    },
+    {
+      "sha": "bc570c7cf41a0b13643b5bde4ba6dbb5e70846f8",
+      "mergedAt": "2026-11-10T01:08:42-08:00",
+      "subject": "Cloud: automatic machine cleanup in the app (dates, Keep, Archive and delete, archives, cap offer, settings, CLI) (#40128)"
+    },
+    {
+      "sha": "32f5ff1e833ada43c3825b5cc2d30bc609cccd6c",
+      "mergedAt": "2026-11-10T00:55:08-08:00",
+      "subject": "cmux-action-catalog: the Feed page's Open Feed Item and GitHub action (port of #37378) (#40262)"
+    },
+    {
+      "sha": "0ab2109db08959f28efd982047292ec2ad4c9634",
+      "mergedAt": "2026-11-10T08:42:16Z",
+      "subject": "chore(next): base autofix at ef0756a57759"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T09:51:22Z",
+    "snapshot_id": "sh-7efb48cc41794b97a4cd952257d40d9a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42793171635): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ae7e6598f6c88f9db738a8024af4531aa8127f0e",
+    "image": "cloud-native-auto-e8993578-42793171635-1",
+    "revision": "ci-42793171635-1",
+    "at": "2026-11-10T09:51:22Z"
+  },
+  "rolled_back": false
+}
