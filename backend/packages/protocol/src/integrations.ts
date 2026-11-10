@@ -167,21 +167,27 @@ const Scopes = Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.is
 
 /** The longest return link a connect carries through its signed state. */
 export const CONNECT_RETURN_TO_MAX = 512
-const RETURN_ID = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
-const RETURN_VALUE = "[A-Za-z0-9._~%-]{1,128}"
-const RETURN_KEY = "(?:host|name|message)"
+const RETURN_HEX = "[0-9a-f]{32}"
+const RETURN_SESSION = "[A-Za-z0-9._-]{1,200}"
+const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
 /**
- * Where a connect started from a chat sends the person back after GitHub: a cmux deep link to that chat
- * (`cmux://session/<id>`, `cmux://agent/<harness>/<session>`, `cmux://tab/tab_<hex>`, `cmux://workspace/ws_<id>`,
- * `cmux://conversation/<id>`, `cmux://chief/<id>`; `cmux-dev://` only off production), with at most the
- * `host`, `name` and `message` query keys. Nothing else: no web origin, no other scheme, no fragment.
+ * Where a connect started from a chat sends the person back after GitHub: a cmux object link to that chat, the
+ * grammar of `plans/cmux-next/links.json` (`<scheme>://workspace|pane|tab/<prefix><32 hex>[?machine=]`,
+ * `session/<id>[?machine=][#turn-<id>]`, `agent/<harness>/<session>[?host=&name=&message=]`). Schemes: `cmux`,
+ * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
+ * no web origin, no other scheme, no other query key.
  */
 export const CONNECT_RETURN_TO = new RegExp(
-  `^cmux(?:-dev)?://(?:session/${RETURN_ID}|agent/[a-z][a-z0-9-]{0,31}/${RETURN_ID}|tab/tab_[0-9a-f]{32}|workspace/ws_[A-Za-z0-9]{8,64}|conversation/${RETURN_ID}|chief/${RETURN_ID})` +
-    `(?:\\?${RETURN_KEY}=${RETURN_VALUE}(?:&${RETURN_KEY}=${RETURN_VALUE}){0,2})?$`
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+    `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
+    `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
+    `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
+    `)$`
 )
 /** Is `s` a return link a connect may carry (the dashboard checks it again before it redirects)? */
 export const isConnectReturnTo = (s: unknown): s is string => typeof s === "string" && s.length <= CONNECT_RETURN_TO_MAX && CONNECT_RETURN_TO.test(s)
+/** A development build's link (`cmux-dev`, `cmux-dev-<tag>`): never followed on production. */
+export const isDevReturnTo = (s: string): boolean => s.startsWith("cmux-dev")
 
 export const IntegrationConnect = def({
   name: "integration.connect",
@@ -201,8 +207,9 @@ export const IntegrationConnect = def({
   }),
   /**
    * `connected: true` (no `authorize_url`): a connection this person may use already covers `repo`; nothing to open.
-   * Otherwise `authorize_url` is the one page to open: GitHub's authorize page when the App's installation already
-   * covers `repo`, that installation's configure page when it leaves `repo` out, else the install page.
+   * Otherwise `authorize_url` is the one page to open: GitHub's authorize page when the App is installed on the
+   * repository's owner (the completion answers `configure_url` if the person's link leaves `repo` out), else the
+   * install page, preselecting the owner when known.
    */
   result: Schema.Struct({ connection: Connection, authorize_url: Schema.optionalKey(Schema.String), connected: Schema.optionalKey(Schema.Literal(true)) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.limit", "policy.denied"],
@@ -224,8 +231,11 @@ export const IntegrationComplete = def({
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
     setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
   }),
-  /** `return_to`: the connect's return link, read from the verified state (never from the redirect's query). */
-  result: Schema.Struct({ ...Connection.fields, return_to: Schema.optionalKey(Schema.String) }),
+  /**
+   * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
+   * the installation's GitHub settings page when the person's link left the asked repository out (open it first).
+   */
+  result: Schema.Struct({ ...Connection.fields, return_to: Schema.optionalKey(Schema.String), configure_url: Schema.optionalKey(Schema.String) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.state_invalid", "mutation.indeterminate"],
   docs: "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
   cli: { path: "", visible: false },

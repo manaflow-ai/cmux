@@ -12,6 +12,7 @@ import {
   googleProviderOpNames,
   googleReadOpNames,
   isConnectReturnTo,
+  isDevReturnTo,
   OwnerUnreachable,
   providerOpNames,
   providerReadOpNames,
@@ -31,8 +32,8 @@ import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
-import { signState, verifyState } from "./integrations/state.ts"
-import { githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { signState, verifyState, type ConnectState } from "./integrations/state.ts"
+import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
@@ -144,6 +145,7 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
   Effect.gen(function* () {
     let frame = frameIn
     let returnTo: string | undefined
+    let verified: ConnectState | undefined
     const principal = yield* principalFor("cloud:ConnectionDO", principalIn)
     let extra: { redirect_uri?: string; state?: { conn: string; provider: string } } = {}
     if (frame.op === "integration.complete") {
@@ -163,12 +165,17 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
         }
         frame = { ...frame, params: { ...(frame.params as Record<string, unknown>), installation_id: String(st.installation) } }
       }
-      returnTo = st.return_to && (env.ENVIRONMENT !== "production" || st.return_to.startsWith("cmux://")) ? st.return_to : undefined
+      returnTo = st.return_to && !(env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
+      verified = st
     }
     const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(principal.team!))
     const reply = yield* Effect.tryPromise({ try: () => rpc<ExternalReply>(stub.external(principal.team!, principal, { ...frame, ...extra })), catch: unreachable })
-    // The return link rides on a successful completion only, read from the verified state.
-    return returnTo && reply.ok && reply.value && typeof reply.value === "object" ? { ...reply, value: { ...(reply.value as object), return_to: returnTo } } : reply
+    if (!reply.ok || !reply.value || typeof reply.value !== "object") return reply
+    // On success only, from the verified state: the chat to return to, and the configure page when the person's
+    // own link (their token, at completion) left the asked repository out of the installation.
+    const linked = reply.value as Connection
+    const configureUrl = configureAfterLink(linked.resources?.repos, verified?.repo, verified?.configure_url)
+    return returnTo || configureUrl ? { ...reply, value: { ...linked, ...(returnTo ? { return_to: returnTo } : {}), ...(configureUrl ? { configure_url: configureUrl } : {}) } } : reply
   })
 
 /** integration.connect's optional repo and return link (the op's schema already checked their shape). */
@@ -176,8 +183,8 @@ const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
   const p = (params ?? {}) as { repo?: unknown; return_to?: unknown }
   return {
     ...(typeof p.repo === "string" ? { repo: p.repo } : {}),
-    // cmux-dev:// links are for development builds: dropped on production.
-    ...(isConnectReturnTo(p.return_to) && (env.ENVIRONMENT !== "production" || p.return_to.startsWith("cmux://")) ? { return_to: p.return_to } : {})
+    // cmux-dev links are for development builds: dropped on production.
+    ...(isConnectReturnTo(p.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
   }
 }
 
@@ -413,7 +420,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const target = asked.repo && c.provider === "github"
             ? yield* Effect.tryPromise({ try: () => rpc<GithubConnectTarget>(env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(c.owner)).githubConnectTarget(c.owner, principal, asked.repo!)), catch: unreachable })
             : undefined
-          const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "covered" ? { installation: target.installation } : {}) }))
+          const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(env, impl, c.scopes_requested)
           const authorizeUrl = target ? githubConnectUrl(env, target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(env, state, scopes, callbackUrl(), c.id)))
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }

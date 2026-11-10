@@ -1,32 +1,35 @@
 import type { Env } from "../env.ts"
-import { appJwt, ghHeaders, installationToken, type Http } from "./providers.ts"
+import { appJwt, ghHeaders, type Http } from "./providers.ts"
 
 /**
  * Connect's one page for a GitHub repository (design: remote-integrations, "a connect is one inline card, one
- * tap"). Asked with the App's own key, never a person's token, and it only picks which GitHub page to open:
- * linking still needs the person's own OAuth code, which `complete` checks against `/user/installations`.
+ * tap"). Asked with the App's own key, never a person's token, and only about the repository's OWNER: whether
+ * a given repository is in an installation is decided at completion with the person's own token, so this
+ * answer never tells anyone whether a private repository exists.
  *
- * - covered: the App's installation on the repository's owner already includes the repository. GitHub's OAuth
- *   authorize page (skipped by GitHub for an App the person already authorized) brings the code back, and the
- *   signed state names the installation.
- * - configure: the installation leaves the repository out; its settings page on GitHub adds it.
+ * - installed: the App is installed on the owner. GitHub's OAuth authorize page (which GitHub skips for an App
+ *   the person already authorized) brings the code back; the signed state names the installation, the repository
+ *   and the installation's configure page. If the person's link leaves the repository out, the callback opens
+ *   that configure page instead of the chat.
  * - install: no installation on the owner; the install page, preselecting the owner when its id is known.
  *
  * Any failure answers `install` with no target, the page Connect opened before this existed.
  */
 export type GithubConnectTarget =
-  | { readonly kind: "covered"; readonly installation: number }
-  | { readonly kind: "configure"; readonly url: string }
+  | { readonly kind: "installed"; readonly installation: number; readonly configure_url: string }
   | { readonly kind: "install"; readonly target_id?: number }
 
 const GH_API = "https://api.github.com"
 const seg = encodeURIComponent
 
-type Installation = { id?: unknown; repository_selection?: unknown; account?: { login?: unknown; id?: unknown; type?: unknown } }
+/** An installation's settings page on GitHub, where repositories are added to it. */
+export const GITHUB_CONFIGURE_URL = /^https:\/\/github\.com\/(?:organizations\/[A-Za-z0-9-]{1,39}\/)?settings\/installations\/[0-9]{1,20}$/
 
-const findInstallation = async (env: Env, http: Http, owner: string, name: string): Promise<Installation | undefined> => {
+type Installation = { id?: unknown; account?: { login?: unknown; type?: unknown } }
+
+const ownerInstallation = async (env: Env, http: Http, owner: string): Promise<Installation | undefined> => {
   const headers = ghHeaders(await appJwt(env))
-  for (const path of [`/repos/${seg(owner)}/${seg(name)}/installation`, `/orgs/${seg(owner)}/installation`, `/users/${seg(owner)}/installation`]) {
+  for (const path of [`/orgs/${seg(owner)}/installation`, `/users/${seg(owner)}/installation`]) {
     const res = await http(new Request(`${GH_API}${path}`, { headers }))
     if (res.ok) return (await res.json()) as Installation
     if (res.status !== 404) throw new Error(`GitHub ${path}: ${res.status}`)
@@ -43,23 +46,17 @@ const ownerId = async (http: Http, owner: string): Promise<number | undefined> =
 }
 
 export const githubConnectTarget = async (env: Env, http: Http, repo: string): Promise<GithubConnectTarget> => {
-  const [owner, name] = repo.split("/") as [string, string]
+  const owner = repo.split("/")[0]!
   try {
-    const inst = await findInstallation(env, http, owner, name)
+    const inst = await ownerInstallation(env, http, owner)
     if (!inst) return { kind: "install", ...(await ownerId(http, owner).then((id) => (id ? { target_id: id } : {}))) }
     const id = Number(inst.id)
     const login = typeof inst.account?.login === "string" ? inst.account.login : ""
     if (!Number.isSafeInteger(id) || id < 1 || login.toLowerCase() !== owner.toLowerCase()) return { kind: "install" }
-    if (inst.repository_selection === "all") return { kind: "covered", installation: id }
-    // Selected repositories: the installation's own token reads the repository iff the installation includes it.
-    const token = await installationToken(env, http, id)
-    const res = await http(new Request(`${GH_API}/repos/${seg(owner)}/${seg(name)}`, { headers: ghHeaders(token) }))
-    if (res.ok) return { kind: "covered", installation: id }
-    if (res.status !== 404) return { kind: "install" }
-    const url = inst.account?.type === "Organization"
+    const configure_url = inst.account?.type === "Organization"
       ? `https://github.com/organizations/${seg(login)}/settings/installations/${id}`
       : `https://github.com/settings/installations/${id}`
-    return { kind: "configure", url }
+    return GITHUB_CONFIGURE_URL.test(configure_url) ? { kind: "installed", installation: id, configure_url } : { kind: "install" }
   } catch {
     return { kind: "install" }
   }
@@ -67,11 +64,17 @@ export const githubConnectTarget = async (env: Env, http: Http, repo: string): P
 
 /** The URL Connect answers for a target: never a permission beyond what the App already asks for. */
 export const githubConnectUrl = (env: Env, target: GithubConnectTarget, state: string, redirectUri: string): string => {
-  if (target.kind === "configure") return target.url
-  if (target.kind === "covered") {
+  if (target.kind === "installed") {
     const q = new URLSearchParams({ client_id: env.GITHUB_APP_CLIENT_ID!, redirect_uri: redirectUri, state })
     return `https://github.com/login/oauth/authorize?${q}`
   }
   const base = `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`
   return target.target_id ? `${base}/permissions?target_id=${target.target_id}&state=${encodeURIComponent(state)}` : `${base}?state=${encodeURIComponent(state)}`
 }
+
+/**
+ * After a completion: the configure page to open when the person's own link leaves the asked repository out.
+ * `repos` is what their token reached (null under the installation scope, where nothing more is known here).
+ */
+export const configureAfterLink = (repos: ReadonlyArray<string> | null | undefined, repo: string | undefined, configureUrl: string | undefined): string | undefined =>
+  repo && configureUrl && GITHUB_CONFIGURE_URL.test(configureUrl) && Array.isArray(repos) && !repos.some((r) => r.toLowerCase() === repo.toLowerCase()) ? configureUrl : undefined
