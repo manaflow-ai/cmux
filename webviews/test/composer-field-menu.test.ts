@@ -110,6 +110,8 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
         "Attach Files…",
         "Insert Mention",
         "✓Scroll to bottom when I send",
+        "✓All Attachments Inline",
+        "All Attachments at the Top",
       ],
       selected: "Rename the retry helper",
       undone: true,
