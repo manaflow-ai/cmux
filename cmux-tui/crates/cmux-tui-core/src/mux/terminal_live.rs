@@ -133,7 +133,7 @@ impl Mux {
         &self,
         reader: Option<&SessionJournalReader>,
         terminal: &TerminalPublicId,
-    ) -> anyhow::Result<Option<(u64, serde_json::Value)>> {
+    ) -> anyhow::Result<Option<(u64, Value)>> {
         let rows = match reader {
             Some(reader) => reader.live_terminal(terminal)?,
             None => self
