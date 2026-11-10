@@ -70,8 +70,5 @@ export function commandWaitsForTurn(
   // /mcp, which cmux's bare /mcp took the menu's place of: it still waits for the turn.
   const agentsOwn = (command: { name: string; source?: string; action?: string }) =>
     command.source !== "cmux" || (command.action === "mcp" && match?.[2] !== undefined);
-  return (
-    name !== undefined &&
-    commands.some((command) => agentsOwn(command) && command.name.toLowerCase() === name)
-  );
+  return name !== undefined && commands.some((command) => agentsOwn(command) && command.name.toLowerCase() === name);
 }
