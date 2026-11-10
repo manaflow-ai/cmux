@@ -118,6 +118,9 @@ public final class LiveCoordinator {
     @ObservationIgnored var sourcedSessions: [String: (tabID: String, macID: String, session: String?, provisional: Bool)] = [:]
     /// Where agent chats keep their newest records on this phone (each Mac's acpmux sources use it).
     @ObservationIgnored public var transcriptCache: AgentTranscriptCache? = .standard
+    /// The session each provisional chat's kept records name, once read from disk
+    /// (``PendingAgentSource``): the rebuild opens it even if the cache's memory let the entry go.
+    @ObservationIgnored var keptSessionIDs: [String: String] = [:]
     /// The account was deleted: sign-out keeps nothing of it.
     @ObservationIgnored public internal(set) var accountDeleted = false
     /// Signed out: nothing more is saved for the account.
@@ -250,14 +253,15 @@ public final class LiveCoordinator {
             // comes); with none kept, the chat loads instead of saying it hasn't started.
             if let owner, owner.tree == nil {
                 let keptKey = AgentTranscriptCache.key(accountID: scoped.accountID, macID: summary.macID, tabID: summary.id)
-                if let keptKey, let kept = self.transcriptCache?.cached(keptKey) {
-                    self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: kept.sessionID, provisional: true)
-                    return owner.acpmux.source(sessionID: kept.sessionID, summary: scoped)
+                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key] {
+                    self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: keptSession, provisional: true)
+                    return self.agentSource(owner, session: keptSession, summary: scoped)
                 }
                 self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: nil, provisional: true)
-                return PendingAgentSource(summary: scoped, cache: self.transcriptCache, keptKey: keptKey) { [weak self, weak owner] in
-                    // Its kept records are in memory now: the chat opens on its session's source.
+                return PendingAgentSource(summary: scoped, cache: self.transcriptCache, keptKey: keptKey) { [weak self, weak owner] sessionID in
+                    // Its kept records are read: the chat opens on its session's source.
                     guard self?.sourcedSessions[key]?.provisional == true, let owner, owner.tree == nil else { return }
+                    self?.keptSessionIDs[key] = sessionID
                     self?.sourcedSessions[key] = nil
                     AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
                 }
@@ -267,10 +271,18 @@ public final class LiveCoordinator {
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            return owner.acpmux.source(sessionID: session, summary: scoped)
+            return self.agentSource(owner, session: session, summary: scoped)
         }
         restoreSnapshot()
         watchNetwork()
+    }
+
+    /// The Mac's acpmux source for `session`; one that drops a kept copy too old to catch up from
+    /// gets its chat's store built again (``AcpmuxSessionSource/onReset``).
+    private func agentSource(_ owner: MacSession, session: String, summary: AgentSessionSummary) -> AcpmuxSessionSource {
+        let source = owner.acpmux.source(sessionID: session, summary: summary)
+        source.onReset = { AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID) }
+        return source
     }
 
     // MARK: Network changes
@@ -715,6 +727,9 @@ public final class LiveCoordinator {
         session.offlineTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
+        // Signed out: the unbind below ends each chat's link, which saves its kept copy; nothing
+        // of the account may be written back after sign-out deleted it.
+        if stopped { session.acpmux.transcriptCache = nil }
         Task {
             await session.workspaces.bind(nil, macID: "")
             await session.acpmux.bind(nil)
@@ -880,6 +895,8 @@ public final class LiveCoordinator {
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
         stopped = true
+        transcriptCache = nil
+        keptSessionIDs = [:]
         ChiefSources.shared.stop()
         networkTask?.cancel()
         networkTask = nil
@@ -970,19 +987,19 @@ final class PendingAgentSource: AgentSessionSource {
     let summary: AgentSessionSummary
     private let cache: AgentTranscriptCache?
     private let keptKey: String?
-    private var onKept: (@MainActor () -> Void)?
+    private var onKept: (@MainActor (String) -> Void)?
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
 
-    init(summary: AgentSessionSummary, cache: AgentTranscriptCache?, keptKey: String?, onKept: @escaping @MainActor () -> Void) {
+    init(summary: AgentSessionSummary, cache: AgentTranscriptCache?, keptKey: String?, onKept: @escaping @MainActor (String) -> Void) {
         self.summary = summary
         self.cache = cache
         self.keptKey = keptKey
         self.onKept = onKept
         guard let cache, let keptKey else { return }
         Task { [weak self] in
-            guard await cache.load(keptKey) != nil, let self, let onKept = self.onKept else { return }
+            guard let entry = await cache.load(keptKey), let self, let onKept = self.onKept else { return }
             self.onKept = nil
-            onKept()
+            onKept(entry.sessionID)
         }
     }
 

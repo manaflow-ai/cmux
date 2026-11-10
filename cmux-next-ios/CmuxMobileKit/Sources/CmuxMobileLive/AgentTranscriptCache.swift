@@ -1,3 +1,4 @@
+import CmuxConversationCore
 import CmuxMobileAgentChat
 import Foundation
 import os
@@ -116,6 +117,15 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + writeDelay) { [self] in write(key) }
     }
 
+    /// Forgets one chat's kept copy (too old to catch up from), in memory and on disk.
+    @MainActor public func forget(_ key: String) {
+        memory[key] = nil
+        recent.removeAll { $0 == key }
+        pending.withLock { _ = $0.removeValue(forKey: key) }
+        let url = file(for: key)
+        queue.async { try? FileManager.default.removeItem(at: url) }
+    }
+
     /// Sign-out: every kept chat leaves this device.
     @MainActor public func removeAll() {
         memory = [:]
@@ -148,8 +158,12 @@ public final class AgentTranscriptCache: @unchecked Sendable {
 
     /// Writes the newest entry waiting for `key`, then trims the folder to `totalBytes` (on the queue).
     private func write(_ key: String) {
-        guard let entry = pending.withLock({ $0.removeValue(forKey: key) }),
-              let data = Self.encoded(entry, recordLimit: recordLimit, entryBytes: entryBytes) else { return }
+        guard let entry = pending.withLock({ $0.removeValue(forKey: key) }) else { return }
+        guard let data = Self.encoded(entry, recordLimit: recordLimit, entryBytes: entryBytes) else {
+            // Not even the newest turn fits: an older copy must not stay behind it.
+            try? FileManager.default.removeItem(at: file(for: key))
+            return
+        }
         var directory = directory
         if !FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)) {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -160,7 +174,7 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         }
         let url = file(for: key)
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        Self.prune(directory, toBytes: totalBytes, keeping: url)
+        ConversationTranscriptCache.trim(directory, to: totalBytes, keeping: url)
     }
 
     /// The entry bounded to `recordLimit` records and `entryBytes` bytes, newest kept, starting
@@ -192,24 +206,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
 
     static func isPrompt(_ record: JSONValue) -> Bool {
         record["kind"]?.stringValue == "user_message" && record["msg"]?["steer"] != .bool(true)
-    }
-
-    /// Deletes the files written longest ago until the folder holds at most `bytes`; `keeping`
-    /// (the one just written) stays.
-    static func prune(_ directory: URL, toBytes bytes: Int, keeping: URL) {
-        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else { return }
-        var sized = files.compactMap { url -> (url: URL, size: Int, date: Date)? in
-            guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-            return (url, values.fileSize ?? 0, values.contentModificationDate ?? .distantPast)
-        }
-        var total = sized.reduce(0) { $0 + $1.size }
-        guard total > bytes else { return }
-        sized.sort { $0.date < $1.date }
-        for file in sized where total > bytes && file.url.standardizedFileURL != keeping.standardizedFileURL {
-            try? FileManager.default.removeItem(at: file.url)
-            total -= file.size
-        }
     }
 
     func file(for key: String) -> URL {
