@@ -64,32 +64,8 @@ pub(super) fn commit_workspace_rows_in_transaction(
     let terminal_batch =
         TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
     // Only rows that change are written.
-    let desired = workspaces
-        .iter()
-        .enumerate()
-        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
-        .collect::<HashMap<_, _>>();
-    let stored = {
-        let mut statement = transaction.prepare(
-            "SELECT workspace_key, numeric_id, name, group_key, position,
-                    name_source, name_revision
-             FROM workspaces WHERE tombstoned = 0",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    (
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<i64>>(4)?,
-                        (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
-                    ),
-                ))
-            })?
-            .collect::<Result<HashMap<String, StoredRow>, _>>()?
-    };
+    let desired = desired_rows(workspaces);
+    let stored = live_rows(transaction)?;
     // A key with a live row is not tombstoned: only the keys new to the
     // live set need the check (one query each, not one per workspace).
     for workspace in workspaces.iter().filter(|workspace| !stored.contains_key(&workspace.key)) {
@@ -144,6 +120,38 @@ type StoredRow = (i64, String, String, Option<i64>, (String, i64));
 
 /// The desired workspaces by key: each one's position in the desired order and itself.
 type DesiredRows<'a> = HashMap<&'a str, (usize, &'a RegistryWorkspace)>;
+
+fn desired_rows(workspaces: &[RegistryWorkspace]) -> DesiredRows<'_> {
+    workspaces
+        .iter()
+        .enumerate()
+        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
+        .collect()
+}
+
+/// Every live `workspaces` row by its key, with one statement.
+fn live_rows(transaction: &Transaction<'_>) -> anyhow::Result<HashMap<String, StoredRow>> {
+    let mut statement = transaction.prepare(
+        "SELECT workspace_key, numeric_id, name, group_key, position,
+                name_source, name_revision
+         FROM workspaces WHERE tombstoned = 0",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
+                ),
+            ))
+        })?
+        .collect::<Result<HashMap<String, StoredRow>, _>>()?;
+    Ok(rows)
+}
 
 /// The one row that a commit removes when it changes no other row but for its position.
 struct RemovedRow<'a> {
