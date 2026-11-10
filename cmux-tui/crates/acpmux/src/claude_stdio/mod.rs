@@ -564,6 +564,10 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Claude Code queued the turn's prompt line behind a turn of its own (`command_lifecycle`
+    /// `queued` for the line's uuid) and has not started it yet: a model turn's result meanwhile
+    /// is that other turn's, never the prompt's (`queued_prompt_tests.rs`).
+    prompt_queued: AtomicBool,
     /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
     renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
@@ -779,6 +783,7 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
