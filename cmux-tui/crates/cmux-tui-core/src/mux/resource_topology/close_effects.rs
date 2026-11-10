@@ -356,14 +356,18 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
         let mut effects = plan.install(&mut state, resource.revision, workspace_revision);
-        let pending = effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
+        effects.closed_pending_host = self.closed_pending_terminal_host(
+            effects.terminal_runtime.as_ref(),
+            terminal_id,
+            terminal.result.get("incarnation").and_then(Value::as_str),
+        );
         drop(state);
         self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
         self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
-        self.after_terminal_close(&public_id, terminal_id, &terminal.result, pending);
+        self.forget_terminal_end(public_id.as_str());
         Ok(Some(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
@@ -608,8 +612,20 @@ impl Mux {
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
             hook();
         }
+        // `terminal.close` names one terminal; a tab, pane, screen or
+        // workspace close skips a pending terminal (it keeps adopting).
+        let closed_terminal = (operation == ResourceOperation::TerminalClose)
+            .then(|| plan.terminal_batch.first().cloned())
+            .flatten();
         let mut effects =
             plan.install(&mut state, close.resource.revision, close.workspace_revision);
+        effects.closed_pending_host = closed_terminal.and_then(|(terminal_id, incarnation)| {
+            self.closed_pending_terminal_host(
+                effects.terminal_runtime.as_ref(),
+                &terminal_id,
+                incarnation.as_deref(),
+            )
+        });
         drop(state);
         if close.terminal_batch.closed != 0 {
             self.emit_terminal_registry_changed(&registry, close.terminal_batch.revision);
@@ -644,6 +660,12 @@ impl Mux {
         if let Some(runtime) = effects.terminal_runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
+        }
+        if let Some((terminal_id, incarnation)) = effects.closed_pending_host {
+            // Terminate over a new connection (a host takes it while an
+            // adoption also holds one); the record cleanup follows when the
+            // host does not end.
+            self.terminate_discovered_terminal_host(&terminal_id, incarnation.as_deref());
         }
         match effects.tree_publication {
             ResourceCloseTreePublication::PendingDelta(delta) => {

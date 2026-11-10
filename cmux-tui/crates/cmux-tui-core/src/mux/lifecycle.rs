@@ -114,7 +114,9 @@ impl Mux {
         self.startup_adoption_gate.wake_all();
         self.respawn_gate.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
-        // their close deadline so this owner acknowledges their exits.
+        // their close deadline so this owner acknowledges their exits. A
+        // record cleanup still retrying a host makes its last attempt now.
+        self.terminal_host_closes.begin_shutdown();
         if !self.wait_for_terminal_host_closes(
             TERMINAL_HOST_CLOSE_WAIT,
             Instant::now() + TERMINAL_HOST_CLOSE_WAIT,

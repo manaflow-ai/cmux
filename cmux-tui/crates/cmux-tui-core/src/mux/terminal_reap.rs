@@ -549,8 +549,8 @@ impl Mux {
         if !drained {
             eprintln!("cmux-tui: some ended terminal hosts had not exited by the close deadline");
         }
-        // A host that missed its close deadline is left to a detached
-        // record-cleanup retry thread, which dies when this daemon exits
+        // A host that missed its close deadline is left to a record-cleanup
+        // retry thread, which stops when this daemon exits
         // after the handoff, so the host would outlive the call. Before
         // reporting success, prove every host of this session ended.
         #[cfg(any(unix, windows))]

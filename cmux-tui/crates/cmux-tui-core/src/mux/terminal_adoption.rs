@@ -1091,6 +1091,8 @@ impl Mux {
                         break;
                     }
                     if let Ok(surface) = adopted {
+                        #[cfg(all(debug_assertions, unix))]
+                        hold_connected_adoption_for_test();
                         if mux
                             .finish_terminal_adoption(
                                 &terminal_id,
@@ -1302,6 +1304,26 @@ fn derive_template_workspace_key(session_id: &str, builder_key: &str) -> String 
         let _ = write!(key, "{byte:02x}");
     }
     key
+}
+
+/// Test seam (debug builds): `CMUX_TUI_TEST_ADOPTION_HOLD_FIFOS=<held>:<release>`
+/// holds the first adoption that connected to its host, before it finishes,
+/// so a test can close the terminal at that moment without a timer. The
+/// adoption opens the `held` FIFO to write (the open returns once the test
+/// opens it to read: the test then knows the adoption is connected), then
+/// reads the `release` FIFO to its end (the test's writer closes it).
+#[cfg(all(debug_assertions, unix))]
+fn hold_connected_adoption_for_test() {
+    use std::io::Read as _;
+    static HELD: AtomicBool = AtomicBool::new(false);
+    let Some(fifos) = std::env::var_os("CMUX_TUI_TEST_ADOPTION_HOLD_FIFOS") else { return };
+    let fifos = fifos.to_string_lossy().into_owned();
+    let Some((held, release)) = fifos.split_once(':') else { return };
+    if HELD.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    drop(std::fs::OpenOptions::new().write(true).open(held));
+    let _ = std::fs::File::open(release).and_then(|mut fifo| fifo.read_to_end(&mut Vec::new()));
 }
 
 #[cfg(test)]

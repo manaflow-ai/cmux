@@ -118,19 +118,22 @@ impl Mux {
         self.terminal_is_pending(terminal_id)
     }
 
-    /// After a committed close: forget the terminal's recorded end, and end
-    /// the host of a pending terminal (it has a host but no runtime here).
-    pub(super) fn after_terminal_close(
+    /// The host a committed terminal close must end itself: `terminal_id`
+    /// has no runtime here (`runtime` is `None`) but is pending (it adopts
+    /// after a restart, or it is unadoptable), so no runtime close sends its
+    /// Terminate. Both close entry points (`terminal.close` and the legacy
+    /// `close-terminal`) read it under the close's commit, and
+    /// `finish_resource_close` ends it. Before, only the legacy
+    /// close ended it, and the CLI's `terminal <id> close` right after an
+    /// owner start left the host and its shell running.
+    pub(super) fn closed_pending_terminal_host(
         &self,
-        public_id: &TerminalPublicId,
+        runtime: Option<&Arc<Surface>>,
         terminal_id: &str,
-        result: &Value,
-        pending: bool,
-    ) {
-        self.forget_terminal_end(public_id.as_str());
-        if pending {
-            self.terminate_discovered_terminal_host(terminal_id, result["incarnation"].as_str());
-        }
+        incarnation: Option<&str>,
+    ) -> Option<(String, Option<String>)> {
+        (runtime.is_none() && self.terminal_is_pending(terminal_id))
+            .then(|| (terminal_id.to_owned(), incarnation.map(str::to_owned)))
     }
 
     /// Drop a stale `Adopting` marker when an adoption thread ends.

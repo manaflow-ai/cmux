@@ -209,6 +209,10 @@ struct ResourceClosePlan {
 struct ResourceCloseEffects {
     removed: Vec<Arc<Surface>>,
     terminal_runtime: Option<Arc<Surface>>,
+    /// The closed terminal's host (id, incarnation) when it has no runtime
+    /// here but is pending (it adopts, or it is unadoptable): no runtime
+    /// close sends its Terminate, so `finish_resource_close` ends it.
+    closed_pending_host: Option<(String, Option<String>)>,
     closed_terminal_public_id: Option<TerminalPublicId>,
     tree_publication: ResourceCloseTreePublication,
     changed_screens: Vec<ScreenId>,
@@ -252,6 +256,7 @@ impl ResourceClosePlan {
         ResourceCloseEffects {
             removed: self.removed,
             terminal_runtime: self.terminal_runtime,
+            closed_pending_host: None,
             closed_terminal_public_id: self.closed_terminal_public_id,
             tree_publication: self.delta.map_or(
                 ResourceCloseTreePublication::PendingSnapshot,
