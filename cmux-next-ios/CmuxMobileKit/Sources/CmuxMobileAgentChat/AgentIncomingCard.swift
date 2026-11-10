@@ -98,8 +98,8 @@ struct AgentIncomingCard: View {
                 .truncationMode(.middle)
             // acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it
             // were me?"): never the person's.
-            tag(incoming.unverified ? "unverified" : "agent")
-            if incoming.edited { tag("edited") }
+            AgentIncomingChip(label: incoming.unverified ? "unverified" : "agent")
+            if incoming.edited { AgentIncomingChip(label: "edited") }
             Spacer(minLength: 4)
             Text(at, style: .time)
                 .font(.caption)
@@ -111,15 +111,6 @@ struct AgentIncomingCard: View {
                     .rotationEffect(.degrees(open ? 90 : 0))
             }
         }
-    }
-
-    private func tag(_ label: LocalizedStringKey) -> some View {
-        Text(label)
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(.quaternary, in: .capsule)
     }
 
     private func stacked(_ message: AgentIncoming.Message, index: Int) -> some View {
@@ -163,6 +154,24 @@ struct AgentIncomingCard: View {
         let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         return line.replacingOccurrences(of: #"^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+)"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
+    }
+}
+
+/// The header's small capsule ("agent", "unverified", "edited"). Its own view, never a helper
+/// method named like a `View` modifier: a `tag(_:)` helper here lost overload resolution to
+/// SwiftUI's `View.tag(_:)` (a `String` literal beats a `LocalizedStringKey` one), so the header
+/// drew the whole card again inside itself, without end, and the transcript crashed with a stack
+/// overflow on the first agent message it laid out (TestFlight 20261110000821, 2026-11-09).
+struct AgentIncomingChip: View {
+    let label: LocalizedStringKey
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(.quaternary, in: .capsule)
     }
 }
 #endif

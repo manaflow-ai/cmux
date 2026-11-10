@@ -1188,6 +1188,18 @@
       ]
     },
     {
+      "name": "feed-view-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-reports-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "cloud-inbox-reset",
       "streams": [
         "subscribe"
