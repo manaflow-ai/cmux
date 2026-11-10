@@ -26,7 +26,7 @@ public import os
     /// reports finished, or abandoned when the account or team switched mid-copy (Rust then answers it again).
     /// `claimed`: a reserve's or a claim's answer named this machine, so no warm goes out: Rust answers the copy onto
     /// that exact machine unless one onto it is in flight or given, and a start onto it waits on that copy.
-    /// Off unless `cmux.cloud.copyLoginOnClaim` is on (``CloudMoveCLI/copiesLoginOnClaim(_:)``). A claim's registration
+    /// On unless `cmux.cloud.copyLoginOnClaim` is NO (``CloudMoveCLI/copiesLoginOnClaim(_:)``). A claim's registration
     /// with Rust is pending in `claims` until Rust answers, so a start onto that machine never asks `wait-copy` first.
     public func start(claimed: String? = nil) {
         guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
@@ -65,9 +65,7 @@ public import os
         do {
             guard decision.verdict.gate, decision.verdict.transferProvider == .claude else { return false }
             decision.callerOwns = try await still()
-            try await decision.readMachine(exec: { (try? await pinned.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) {
-                await CloudMachineLogin.read(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)
-            }
+            try await decision.readMachine(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)
             guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)
@@ -76,7 +74,8 @@ public import os
                 return false
             }
             guard auth.user?.id == userID, auth.teamID == teamID else { return false }
-            let transfer = CloudCredentialTransfer(provider: .claude, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams, openTerminal: { _ in false })
+            let transfer = CloudCredentialTransfer(provider: .claude, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams,
+                                                   guestCheckedAt: decision.guestCheckedAt, openTerminal: { _ in false })
             try await transfer.run(api: api, currentTeamID: { [auth] in auth.teamID }, currentUserID: { [auth] in auth.user?.id },
                                    confirmed: true, callerOwnsVM: still, stillAllowed: gate.stillAllowed)
             decision.outcome = "installed"

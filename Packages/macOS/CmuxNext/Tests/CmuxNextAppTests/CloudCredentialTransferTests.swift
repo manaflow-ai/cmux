@@ -174,6 +174,34 @@ struct CloudCredentialTransferTests {
         #expect(slow.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 2)
     }
 
+    /// The start's guest check, passed just now beside its machine reads, is the transfer's first one: a cached login
+    /// goes out with no preflight exec of the transfer's own. One older than ``recheckAfter``, or for the creator
+    /// allowance (another program), is checked again; the owner check still runs before the write either way.
+    @Test func aGuestCheckPassedBesideTheReadsIsTheTransfersFirst() async throws {
+        let fresh = Recorder(); fresh.cached = Self.token
+        var transfer = fresh.transfer
+        transfer.guestCheckedAt = .now
+        try await transfer.run(currentTeamID: { fresh.team }, currentUserID: { fresh.user }, confirmed: true, effects: fresh.effects)
+        #expect(!fresh.commands.contains(CloudCredentialInstaller.preflight) && fresh.writes.count == 1)
+        let stale = Recorder(); stale.cached = Self.token
+        transfer = stale.transfer
+        transfer.guestCheckedAt = .now - .seconds(3)
+        try await transfer.run(currentTeamID: { stale.team }, currentUserID: { stale.user }, confirmed: true, effects: stale.effects)
+        #expect(stale.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && stale.writes.count == 1)
+        let creator = Recorder(); creator.cached = Self.token
+        var team = CloudCredentialTransfer(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", allowsCreatorTeamGuest: true, openTerminal: { _ in false })
+        team.guestCheckedAt = .now
+        try await team.run(currentTeamID: { creator.team }, currentUserID: { creator.user }, confirmed: true, effects: creator.effects)
+        #expect(creator.commands.filter { $0 == CloudCredentialInstaller.creatorTeamPreflight }.count == 1)
+        let lost = Recorder(); lost.cached = Self.token; lost.owner = false
+        transfer = lost.transfer
+        transfer.guestCheckedAt = .now
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) {
+            try await transfer.run(currentTeamID: { lost.team }, currentUserID: { lost.user }, confirmed: true, effects: lost.effects)
+        }
+        #expect(lost.writes.isEmpty)
+    }
+
     /// The owner check still runs again before the write, cached login or not: it is local and costs no round trip.
     @Test func aCachedLoginStillChecksTheOwnerBeforeTheWrite() async {
         let r = Recorder(); r.cached = Self.token

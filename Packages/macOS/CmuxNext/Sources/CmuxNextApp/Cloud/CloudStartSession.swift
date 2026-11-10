@@ -396,7 +396,9 @@ struct CloudStartSession {
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                return try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                let made = try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                CloudStartChat.warmSpare(services, claimed: made.machineID) // the create's machine gets the login copy beside the connect, as a start-chat claim's does
+                return made
             }
         } catch is CancellationError {
             throw CancellationError()

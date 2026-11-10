@@ -48,11 +48,18 @@ public import Foundation
     /// A login read within this long of the guest check that passed is delivered on that check: the second guest
     /// check runs only after a sign-in, or a Keychain read slow enough (a prompt) for the target to have changed.
     var recheckAfter: Duration = .seconds(2)
+    /// When this transfer's own guest check (``CloudCredentialInstaller/preflight``) last passed, run ahead of it
+    /// beside the start's machine reads (``guestCheck(on:machineID:)``). Within ``recheckAfter`` the transfer
+    /// takes it as its first guest check instead of running one more exec; older, or for the creator allowance
+    /// (another program), it checks again as before.
+    public var guestCheckedAt: ContinuousClock.Instant?
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
-                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, openTerminal: @escaping @MainActor (String) async -> Bool) {
+                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, guestCheckedAt: ContinuousClock.Instant? = nil,
+                openTerminal: @escaping @MainActor (String) async -> Bool) {
         self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
-        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.steps = steps; self.openTerminal = openTerminal
+        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.steps = steps
+        self.guestCheckedAt = guestCheckedAt; self.openTerminal = openTerminal
     }
 
     /// The guest check this transfer runs before and after the login.
@@ -127,15 +134,20 @@ public import Foundation
     }
 
     /// Writes the credential where the installer reads it. The file routes write as root, and a
-    /// machine's exec runs as `cmux`, which can't read a root 0600 file, so its folder is first made
-    /// `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and root can
-    /// reach it, as `deliver-secrets` stages its receiver.
+    /// machine's exec runs as `cmux`, which can't read a root 0600 file, so the file goes in 0644 into
+    /// `cmux`'s own 0700 folder: only `cmux` and root can reach it, as `deliver-secrets` stages its receiver.
+    /// The guest check that passed just before (``CloudCredentialInstaller/preflight``) made that folder and
+    /// checked it is no symlink and `cmux`'s: no exec of its own here, one round trip less on every copy.
     nonisolated static func stage(_ credential: Data, at path: String, on api: CloudAPIClient, machineID: String) async throws {
-        let folder = CloudCredentialInstaller.quote((path as NSString).deletingLastPathComponent)
-        let made = try await api.exec(machineID, command: "umask 077 && mkdir -p -- \(folder) && chmod 700 -- \(folder) && test -O \(folder) && test ! -L \(folder)",
-                                      timeoutMs: 20_000)
-        guard made.exitCode == 0 else { throw Failure.deliveryFailed }
         try await api.writeFile(machineID, path: path, data: credential, mode: 0o644)
+    }
+
+    /// Runs the owner guest check (``CloudCredentialInstaller/preflight``) once on `machineID` (`api` pinned to its
+    /// team): the instant it passed, else nil (failed, unbound, or the exec did not answer). A start runs it beside its
+    /// machine reads, after the owner check, and hands it to the transfer (``guestCheckedAt``).
+    public nonisolated static func guestCheck(on api: CloudAPIClient, machineID: String) async -> ContinuousClock.Instant? {
+        guard let result = try? await api.exec(machineID, command: CloudCredentialInstaller.preflight, timeoutMs: 20_000), result.exitCode == 0 else { return nil }
+        return .now
     }
 
     /// What cmux holds of this account's login: one, none, or a Keychain that did not answer (locked,
@@ -213,8 +225,13 @@ public import Foundation
         // No credential is acquired or read until the platform says the caller owns the machine and
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
-        let checked = ContinuousClock.now
+        let checked: ContinuousClock.Instant
+        if !allowsCreatorTeamGuest, let earlier = guestCheckedAt, earlier.duration(to: .now) <= recheckAfter {
+            checked = earlier // the same check, passed just now beside the machine reads
+        } else {
+            try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
+            checked = .now
+        }
         steps?.done("transfer.guest")
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
