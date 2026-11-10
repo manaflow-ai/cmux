@@ -253,7 +253,7 @@ class SidebarItemRowView: NSView {
             // In the multi-selection (Shift- or Cmd-click), as a selected list row draws.
             if info.isSecondarySelected, !isPressed { return Palette.secondarySelectionFill }
             // The active item is the foreground, in the content's surface (design/selected-is-foreground.md).
-            if info.isActive, !isPressed { return Palette.selectedSurface }
+            if info.isActive, !isPressed { return Palette.selectedSurface(over: Palette.surfaceOverride(.sidebar)) }
             guard style == .tile else { return ChromeHover.fillColor(state) }
             return ChromeHover.fillColor(state, rest: Palette.hoverFill)
         }

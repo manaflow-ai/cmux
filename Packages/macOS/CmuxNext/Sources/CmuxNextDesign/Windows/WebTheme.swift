@@ -125,7 +125,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let selectedOnChrome = ThemeTokens.selectedOnChrome(page, chromeShade: chromeShade)
         variables = [
             "--cmux-content-surface": Self.css(page),
-            "--cmux-chrome-shade": Self.css(ThemeRGB.black.withAlpha(chromeShade)),
+            // A style with no shade (bare, panes, flat-sidebar-line): a track or a nav on the chrome keeps the
+            // hover fill it had, rather than going clear.
+            "--cmux-chrome-shade": Self.css(chromeShade > 0 ? ThemeRGB.black.withAlpha(chromeShade) : tokens.hoverFill),
             "--cmux-selected-surface": Self.css(selectedOnChrome ?? tokens.selectionFill),
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),

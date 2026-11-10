@@ -114,6 +114,17 @@ public struct Palette {
     /// The selected folder tab (`TabCell+CornerFeet`): exactly what the content paints
     /// (``contentSurface``), since the chrome's shade is cut away under it (`ChromeShadeHoles`). Over
     /// a see-through window it is clear, and the hole shows the window's tint, as the content does.
+    /// ``selectedSurface`` for a row on a panel with its own fill (`surface`: the user's sidebar background,
+    /// `appearance.surfaces.sidebar`): the content's surface only where it stands out of that fill by
+    /// ``ThemeTokens/minimumSelectedContrast``, else `selectionFill`. nil `surface`: the row sits on the
+    /// chrome, ``selectedSurface``.
+    public static func selectedSurface(over surface: NSColor?) -> NSColor {
+        let selected = selectedSurface
+        guard let surface, let a = selected.usingColorSpace(.sRGB), let b = surface.usingColorSpace(.sRGB) else { return selected }
+        let row = ThemeRGB(red: Double(a.redComponent), green: Double(a.greenComponent), blue: Double(a.blueComponent))
+        let panel = ThemeRGB(red: Double(b.redComponent), green: Double(b.greenComponent), blue: Double(b.blueComponent))
+        return row.contrast(with: panel) >= ThemeTokens.minimumSelectedContrast ? selected : selectionFill
+    }
     public static var selectedFolderSurface: NSColor { contentSurface }
     /// The chrome's shade in the active theme: black at this alpha over the content's surface is the
     /// chrome (``Metrics/mainPaneChromeShade(isDark:)``). A list of tabs inside the content draws it

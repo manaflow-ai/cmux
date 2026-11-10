@@ -81,8 +81,13 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     /// The frame's shade over the card's surface: the main pane's separate-surface shade, so the
     /// card reads on any theme.
+    /// A style with a shade of its own (two-tone, floating, blocks) keeps it: the folder tab changes
+    /// the selection, not a style's look; a Debug override wins, as for the main pane's shade.
     @MainActor public func shade(isDark: Bool) -> CGFloat {
-        CGFloat((isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight).value)
+        let tunable = isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight
+        return tunable.override.map { CGFloat($0) }
+            ?? DesignSettings.shared.chromeStyle.separateShade(isDark: isDark)
+            ?? CGFloat(tunable.defaultValue)
     }
 }
 
@@ -132,6 +137,13 @@ public final class CornerFlushChrome: NSView {
     private var hiddenBand: CGFloat = 0
     /// The shade under the content, whose hole goes square with the leading wedge.
     private weak var shade: MainPaneChromeShadeView?
+    /// A shown tab strip runs along the card's top (the top row), as of the last ``apply``. Without one
+    /// (vertical tabs, a hidden tab bar, an app workspace, Home Chief) the card keeps its whole frame,
+    /// its four rounded corners and no wedges, and the top inset is the gutter's, so no shade or pill
+    /// line is left where no strip is. True until a strip has reported (nothing known yet).
+    private(set) var topRowHasStrip = true
+    /// The content the last ``apply`` framed, so a strip's report can tell whether the top row changed.
+    private weak var framedContent: NSView?
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -157,6 +169,7 @@ public final class CornerFlushChrome: NSView {
             if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first {
                 chrome.strips.add(strip)
                 if !chrome.isHidden { chrome.redraw() }
+                chrome.checkTopRow()
                 return true
             }
             view = ancestor.superview
@@ -182,6 +195,7 @@ public final class CornerFlushChrome: NSView {
     @discardableResult
     public func folderDidChange(_ strip: any TabStripCorner & NSView, animated: Bool, gone: Bool = false) -> CGFloat {
         strips.add(strip)
+        checkTopRow()
         let band = gone ? 0 : bandShade(for: strip)
         guard let shade, let shadeLayer = shade.layer else { return band }
         let key = ObjectIdentifier(strip)
@@ -212,6 +226,8 @@ public final class CornerFlushChrome: NSView {
     /// the sidebar's `+` sits too; nil when the flush corner is off or the tabs are at the bottom. It
     /// may be negative: the strip's own top padding then sits above the window.
     static func topInset(of root: NSView) -> CGFloat? {
+        // No strip in the top row: no pills to put on the lights' line.
+        if let chrome = root.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first, !chrome.topRowHasStrip { return nil }
         guard CornerFlush.current.isOn, DesignSettings.shared.tabBarPosition != .bottom, let window = root.window,
               let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
         let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
@@ -229,12 +245,21 @@ public final class CornerFlushChrome: NSView {
                       shade: MainPaneChromeShadeView, in root: NSView) {
         let alpha = Metrics.mainPaneChromeShade(isDark: isDark)
         var card = content.frame
-        let on = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
+        let flush = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
+        framedContent = content
+        let topRow = stripsKnown(in: root) ? topRowStrip(content: content, in: root) : true
+        if topRow != topRowHasStrip {
+            topRowHasStrip = topRow
+            root.needsLayout = true // the top inset follows (`WindowRootView.layout`, `topInset(of:)`)
+        }
+        // The frame (trimmed card, wedges, the top row's folder holes) needs a strip along the card's top.
+        let on = flush && topRow
         Self.roundBottomOnly(content, on)
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
-        hiddenBand = on && Metrics.floatingPanes ? alpha : 0
+        // Floating Panes, or a card with no top-row strip: every strip draws its own band.
+        hiddenBand = flush && (Metrics.floatingPanes || !topRow) ? alpha : 0
         guard Self.drawsFrame(on: on, alpha: alpha, radius: radius, floating: Metrics.floatingPanes), superview === root else {
             isHidden = true
             shade.update(card: card, radius: radius, alpha: alpha)
@@ -249,6 +274,31 @@ public final class CornerFlushChrome: NSView {
         drawn = (card, radius, alpha, sidebarOnLeft)
         self.shade = shade
         redraw()
+    }
+
+    /// Whether any strip of `root`'s window has reported: before one has, the top row is unknown.
+    private func stripsKnown(in root: NSView) -> Bool {
+        strips.allObjects.contains { ($0 as? NSView)?.window === root.window }
+    }
+
+    /// Whether a shown strip with a height runs along `content`'s top edge (root's unflipped coordinates).
+    /// O(strips) in the window.
+    private func topRowStrip(content: NSView, in root: NSView) -> Bool {
+        let top = content.frame.maxY
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
+            guard strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor, strip.bounds.height > 0.5 else { continue }
+            let frame = root.convert(strip.cornerFrameInWindow, from: nil)
+            if abs(frame.maxY - top) < 2, frame.width > 0.5 { return true }
+        }
+        return false
+    }
+
+    /// A strip reported: when the top row gained or lost its strip, the root lays out again and the
+    /// frame follows (``apply``).
+    private func checkTopRow() {
+        guard let root = superview, let content = framedContent else { return }
+        let topRow = stripsKnown(in: root) ? topRowStrip(content: content, in: root) : true
+        if topRow != topRowHasStrip { root.needsLayout = true }
     }
 
     /// Whether the frame draws its shade and folder holes: the flush corner on, with a shade. Any card
@@ -269,8 +319,8 @@ public final class CornerFlushChrome: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         wedges.frame = bounds
-        let square = leadingTabSelected(card: drawn.card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
-        wedges.path = Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
+        let square = leadingTabSelected(card: drawn.card, in: root)
+        wedges.path = Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
         shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
@@ -281,9 +331,9 @@ public final class CornerFlushChrome: NSView {
         }
     }
 
-    /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.
-    private func leadingTabSelected(card: CGRect, sidebarOnLeft: Bool, in root: NSView) -> Bool {
-        guard sidebarOnLeft else { return false }
+    /// Whether the shown strip at the card's top minX corner selects its first tab, whichever side the
+    /// sidebar is on (the first tab's leading fillet goes for any strip's first tab, `reportCornerLead`).
+    private func leadingTabSelected(card: CGRect, in root: NSView) -> Bool {
         for case let strip as (any TabStripCorner) in strips.allObjects {
             guard let view = strip as? NSView, view.window === root.window, !view.isHiddenOrHasHiddenAncestor else { continue }
             let frame = root.convert(strip.cornerFrameInWindow, from: nil)
@@ -304,14 +354,15 @@ public final class CornerFlushChrome: NSView {
         CATransaction.commit()
     }
 
-    /// The top corner squares (maxY is the top) less the card's rounded rect; without the
-    /// sidebar side's when `squareLeading`.
-    public static func wedgePath(card: CGRect, radius: CGFloat, squareLeading: Bool, sidebarOnLeft: Bool) -> CGPath {
+    /// The top corner squares (maxY is the top) less the card's rounded rect; without the minX one when
+    /// `squareLeading`: a strip's first tab sits on its leading (minX) edge whichever side the sidebar
+    /// is on, so that is the corner its straight side rises from (as the shade's `squareTopLeading`).
+    public static func wedgePath(card: CGRect, radius: CGFloat, squareLeading: Bool) -> CGPath {
         let r = min(radius, card.width / 2, card.height / 2)
         // A square card (`layout.paneCornerRadius` 0) has no rounded corner to fill: no wedge.
         guard r > 0 else { return CGMutablePath() }
         let corners = CGMutablePath()
-        for (x, leading) in [(card.minX, sidebarOnLeft), (card.maxX - r, !sidebarOnLeft)] where !(leading && squareLeading) {
+        for (x, leading) in [(card.minX, true), (card.maxX - r, false)] where !(leading && squareLeading) {
             corners.addRect(CGRect(x: x, y: card.maxY - r, width: r, height: r))
         }
         return corners.subtracting(CGPath(roundedRect: card, cornerWidth: r, cornerHeight: r, transform: nil))

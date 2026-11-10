@@ -36,7 +36,7 @@ extension ThemeTokens {
     /// dark content (black over Builtin Dark's #000000), would hide it, so it is nil there too
     /// (``selectedOnChrome(_:chromeShade:)``).
     public func selectedSurface(panesPaint: Bool, chromeShade: Double) -> ThemeRGB? {
-        panesPaint ? Self.selectedOnChrome(selectedSurface, chromeShade: chromeShade) : nil
+        panesPaint ? Self.selectedOnChrome(selectedSurface.withAlpha(1), chromeShade: chromeShade) : nil
     }
 
     /// The lowest WCAG contrast between a selected item in the content's surface and the chrome it

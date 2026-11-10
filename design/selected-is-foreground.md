@@ -50,6 +50,17 @@ While a tab's width moves, the folder's outline is keyframed on the same samples
 plays the same samples, with the tab's slot move folded in (`TabStripView.selectedFolderMotion`,
 `ChromeShadeHoles.FolderMotion`): the hole, the outline and the fill move together, nothing jumps.
 
+The frame around the card (trimmed under the top row, wedges, the top row's folder holes, the pills
+on the traffic lights' line) needs a shown strip along the card's top. Without one (vertical tabs, a
+hidden tab bar, an app workspace, Home Chief) the card keeps its whole frame and four rounded
+corners, and every strip draws its own band. A strip's first tab sits on its leading (minX) edge
+whichever side the sidebar is on, so that is the corner that squares. Styles with a shade of their own
+(two-tone, floating, blocks) keep it. A panel with its own fill is chrome too: the rail's open
+overlay and the hover-expanded vertical list draw the chrome's shade; a row on the user's sidebar
+colour (`appearance.surfaces.sidebar`) takes the contrast rule against that colour
+(`Palette.selectedSurface(over:)`). With no shade, `--cmux-chrome-shade` is the hover fill, so a
+track or a nav keeps its background.
+
 `selectedSurface` is the token, mapped to `contentSurface`: `ThemeTokens.selectedSurface`,
 `Palette.selectedSurface` (a row over the shade), `Palette.selectedFolderSurface` (the folder tab, =
 `Palette.contentSurface` = `paneFill`, what the content really paints),
