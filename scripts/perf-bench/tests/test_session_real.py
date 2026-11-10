@@ -147,7 +147,7 @@ class RemoveOnlyOwnFolders(Home):
 class LaunchEnd(Home):
     """`launch --saved` takes its installed session away also when the quit of the app fails."""
 
-    def launch(self, stop, steps=""):
+    def launch(self, stop, steps="", install=None, made_in_this_run=None):
         calls = []
 
         class Process:
@@ -187,7 +187,9 @@ class LaunchEnd(Home):
         self.patch("state_root", lambda home=None: os.path.join(self.home, "Library/Application Support/cmux-next/tags"))
         self.patch("app_counts", lambda sock: {"loaded": True, "workspaces": 3})
         self.patch("app_rpc", lambda *a, **k: {})
-        self.patch("install", lambda a: calls.append("install"))
+        self.patch("install", lambda a: (calls.append("install"), install and install()))
+        if made_in_this_run is not None:
+            self.patch("made_in_this_run", made_in_this_run)
         self.patch("uninstall", lambda a: calls.append("uninstall"))
         out = os.path.join(self.home, "out")
         args = argparse.Namespace(app=APP, out=out, socket_only=True, saved=self.saved, timeout=5, quit_timeout=1,
@@ -216,6 +218,17 @@ class LaunchEnd(Home):
             raise SystemExit(128 + signal.SIGTERM)
         calls, _, _ = self.launch(stop)
         self.assertEqual(calls[-1], "uninstall")
+
+    def test_a_signal_at_the_end_of_the_install_does_not_skip_the_uninstall(self):
+        """SIGTERM is held for the two renames of `install` and comes right after them: `install` does not return,
+        but the installed copy has the mark of this run, so the end of `launch` takes it away."""
+        def install():
+            raise SystemExit(128 + signal.SIGTERM)
+        calls, error, _ = self.launch(lambda: None, install=install, made_in_this_run=lambda folder: True)
+        self.assertEqual(calls[-1], "uninstall")
+        self.assertEqual(error.code, 128 + signal.SIGTERM)
+        calls, _, _ = self.launch(lambda: None, install=install, made_in_this_run=lambda folder: False)
+        self.assertNotIn("uninstall", calls)  # nothing of this run is installed: nothing is taken away
 
     def test_a_step_that_is_in_the_list_two_times_keeps_both_results(self):
         steps = {}

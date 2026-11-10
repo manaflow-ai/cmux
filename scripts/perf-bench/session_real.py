@@ -629,6 +629,11 @@ def make(args):
     seconds = time.time() - started
     settle_agents(conn, 0 if args.no_agents else mix.count("agent"), args.settle)
     after = counts(conn, app_socket)
+    # A parked tab reads as parked when its host exited (tab_park.rs): give the last batch up to 15 s before the count is judged.
+    deadline = time.time() + 15
+    while after["terminals_parked"] - before["terminals_parked"] < min(park_done, mix.count("terminal") - live_plain) and time.time() < deadline:
+        time.sleep(0.5)
+        after = counts(conn, app_socket)
     want = mix.summary()
     result = {
         "asked": want, "limit": limit_line, "make_seconds": round(seconds, 2), "batch_seconds": step_times,
@@ -1593,7 +1598,11 @@ def remove_if_mine(away):
     """Removes a taken-away installed copy only when THIS run made it (``made_in_this_run``). A copy an earlier run
     or another process installed stays, under the name ``take_away`` gave it, and is printed."""
     if made_in_this_run(away):
-        shutil.rmtree(away)
+        try:
+            shutil.rmtree(away)
+        except OSError as error:
+            print(f"session_real: the installed copy this run made is out of the tag's place but not all removed: {away}: {error}", flush=True)
+            return False
         print(f"removed the installed copy this run made ({os.path.basename(away)})", flush=True)
         return True
     print(f"session_real: NOT deleted: this run did not make the installed copy; it is now {away} "
@@ -1816,7 +1825,11 @@ def launch_end(args, app, tag, held, installed, result, failures):
             failures.append(f"the clients step ended before the launch did (exit {held.poll()})")
             return
         held.terminate()  # the PID this script started
-        code = held.wait(timeout=60)
+        try:
+            code = held.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            held.kill()  # the same PID: it did not end in 60 s
+            code = f"none in 60 s after SIGTERM (killed, exit {held.wait(timeout=10)})"
         if code:
             failures.append(f"step clients: exit {code}")
 
@@ -1841,20 +1854,23 @@ def launch_end(args, app, tag, held, installed, result, failures):
         with SignalsHeld():
             uninstall(argparse.Namespace(tag=tag, home=None, app=args.app))
 
-    if held:
-        part("the end of the clients step", end_clients)
-    before = len(failures)
-    part("the quit of the app", quit_app)
-    if len(failures) > before:
-        part("the second teardown", end_what_is_left)
-    if installed and not args.keep_installed:
+    target = os.path.join(state_root(), tag)
+    try:
+        if held:
+            part("the end of the clients step", end_clients)
         before = len(failures)
-        part("the uninstall", take_installed_away)
+        part("the quit of the app", quit_app)
         if len(failures) > before:
-            print(f"SESSION-REAL-STATE-LEFT the saved session is still installed for tag {tag}: stop the tag's processes, "
-                  f"then run `session_real.py uninstall --tag {tag}`", flush=True)
-    part("the result file", write)
-    print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps", "failures")}), flush=True)
+            part("the second teardown", end_what_is_left)
+    finally:  # also when a signal comes between two parts above
+        # `installed` is not set when a signal ended `install` right after its renames: the mark of this run says it.
+        if (installed or made_in_this_run(target)) and not args.keep_installed:
+            part("the uninstall", take_installed_away)
+            if install_mark(target) is not None:
+                print(f"SESSION-REAL-STATE-LEFT the saved session is still installed for tag {tag}: stop the tag's processes, "
+                      f"then run `session_real.py uninstall --tag {tag}`", flush=True)
+        part("the result file", write)
+        print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps", "failures")}), flush=True)
 
 
 def tag_of_app(app):
