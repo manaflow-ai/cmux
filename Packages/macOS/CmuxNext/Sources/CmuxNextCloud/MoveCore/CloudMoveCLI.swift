@@ -66,9 +66,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var socket: String
         public var local: String
         public var remote: String
+        /// Machine to machine: the source machine's link socket, and `local` is its folder there.
+        public var fromSocket: String?
 
-        public init(pull: Bool, socket: String, local: String, remote: String) {
-            (self.pull, self.socket, self.local, self.remote) = (pull, socket, local, remote)
+        public init(pull: Bool, socket: String, local: String, remote: String, fromSocket: String? = nil) {
+            (self.pull, self.socket, self.local, self.remote, self.fromSocket) = (pull, socket, local, remote, fromSocket)
         }
     }
 

@@ -1,0 +1,259 @@
+//! Move to another Cloud machine, end to end on one Linux box with real
+//! processes: a chat and its dirty checkout go from one daemon shaped like a
+//! personal Cloud VM to another, with this "Mac" as the pump between them
+//! and nothing of the folder written on its disk.
+//!
+//! - The Mac seeds a dirty working copy onto VM one (`cmux link seed push`),
+//!   and the chat runs there: its folder then gets work of the VM's own (a
+//!   staged change, an executable script, a symlink, a stash, a dependency
+//!   folder the project rebuilds).
+//! - `cmux link sync relay` copies the folder VM one to VM two, through the
+//!   two machine links.
+//! - `cmux link agent move --sync relay` moves the chat mid-turn, sending
+//!   only what the frozen chat wrote since the relay.
+//!
+//! Linux only, as a Cloud host is.
+#![cfg(target_os = "linux")]
+
+mod journey_support;
+
+use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use journey_support::*;
+use serde_json::json;
+
+const HISTORY: &str = "hello from vm one";
+const QUEUED: &str = "queued for vm two";
+const QUEUED_ID: &str = "p-relay-queued";
+const DRAFT: &str = "an unsent thought on vm one";
+
+fn dirty_repo(at: &Path, github: &Path) -> PathBuf {
+    let repo = at.join("app");
+    fs::create_dir_all(repo.join("src")).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("src/lib.txt"), "committed\n").unwrap();
+    fs::write(repo.join("Cargo.toml"), "[package]\nname = \"app\"\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let bare = github.join("acme/app.git");
+    fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "-q", "--bare"]);
+    git(&bare, &["config", "uploadpack.allowFilter", "true"]);
+    git(&repo, &["remote", "add", "origin", "https://github.com/acme/app.git"]);
+    let local = format!("url.file://{}/.insteadOf", github.display());
+    git(&repo, &["config", &local, "https://github.com/"]);
+    git(&repo, &["-c", "protocol.file.allow=always", "push", "-q", "-u", "origin", "main"]);
+    fs::write(repo.join("src/lib.txt"), "committed\nuncommitted change\n").unwrap();
+    fs::write(repo.join("notes.txt"), "untracked\n").unwrap();
+    repo
+}
+
+fn vm(root: &Path, name: &str, github: &Path) -> Machine {
+    Machine::start(
+        root,
+        name,
+        vec![
+            ("CMUX_TEST_CLOUD_ETC", cloud_etc(root).to_string_lossy().into_owned()),
+            ("CMUX_TEST_GIT_SEED_GITHUB", github.to_string_lossy().into_owned()),
+            ("CMUX_VM_ID", format!("vm-relay-{name}")),
+            ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
+        ],
+    )
+}
+
+fn relay(mac: &Machine, from: &Machine, from_folder: &Path, to: &Machine, to_folder: &Path) -> serde_json::Value {
+    let (ok, summary) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .args(["link", "sync", "relay", "--from-socket"])
+            .arg(&from.socket)
+            .arg("--socket")
+            .arg(&to.socket)
+            .arg(from_folder)
+            .arg(to_folder),
+    );
+    assert!(ok && summary["ok"] == json!(true), "relay: {summary}");
+    summary
+}
+
+#[test]
+fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let root = PathBuf::from("/tmp").join(format!("crj-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let root = fs::canonicalize(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+
+    let github = root.join("github");
+    let mac = Machine::start(&root, "mac", Vec::new());
+    let one = vm(&root, "one", &github);
+    let two = vm(&root, "two", &github);
+
+    // The folder on VM one, as Move to Cloud put it there.
+    let repo = dirty_repo(&mac.home(), &github);
+    let first = one.home().join("work/app");
+    let (ok, seeded) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .args(["link", "seed", "push", "--socket"])
+            .arg(&one.socket)
+            .arg(&repo)
+            .arg(&first),
+    );
+    assert!(ok && seeded["ok"] == json!(true), "seed push: {seeded}");
+
+    // Work of VM one's own: a commit, a staged change, a stash, an executable,
+    // a symlink inside the folder and one outside it, and a Cargo target.
+    git(&first, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "on vm one"]);
+    fs::write(first.join("src/staged.txt"), "staged on vm one\n").unwrap();
+    git(&first, &["add", "src/staged.txt"]);
+    fs::write(first.join("src/lib.txt"), "committed\nuncommitted change\nmore on vm one\n").unwrap();
+    fs::write(first.join("stashme.txt"), "to stash\n").unwrap();
+    git(&first, &["add", "stashme.txt"]);
+    git(&first, &["-c", "user.name=t", "-c", "user.email=t@t", "stash", "push", "-q", "--", "stashme.txt"]);
+    fs::write(first.join("run.sh"), "#!/bin/sh\necho hi\n").unwrap();
+    fs::set_permissions(first.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+    std::os::unix::fs::symlink("src/lib.txt", first.join("lib-link")).unwrap();
+    std::os::unix::fs::symlink("/etc/hostname", first.join("outside-link")).unwrap();
+    fs::create_dir_all(first.join("target/debug")).unwrap();
+    fs::write(first.join("target/debug/big.o"), vec![7u8; 1 << 20]).unwrap();
+    // A file big enough to be streamed part by part.
+    fs::write(first.join("data.bin"), (0..(12u32 << 20)).map(|i| (i % 251) as u8).collect::<Vec<_>>())
+        .unwrap();
+
+    // 1. The bulk: VM one's folder to VM two.
+    let second = two.home().join("work/app");
+    let bulk = relay(&mac, &one, &first, &two, &second);
+    assert!(bulk["written"].as_u64().unwrap() > 0, "{bulk}");
+    let status = ["status", "--porcelain=v2", "--branch"];
+    assert_eq!(git(&second, &status), git(&first, &status), "git status differs on VM two");
+    assert_eq!(git(&second, &["rev-parse", "HEAD"]), git(&first, &["rev-parse", "HEAD"]));
+    assert_eq!(git(&second, &["stash", "list"]), git(&first, &["stash", "list"]));
+    assert_eq!(git(&second, &["diff", "--cached"]), git(&first, &["diff", "--cached"]));
+    assert_eq!(
+        fs::read(second.join("data.bin")).unwrap(),
+        fs::read(first.join("data.bin")).unwrap(),
+        "the streamed file differs"
+    );
+    let mode = fs::metadata(second.join("run.sh")).unwrap().permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "run.sh lost its executable bit: {mode:o}");
+    assert_eq!(fs::read_link(second.join("lib-link")).unwrap(), PathBuf::from("src/lib.txt"));
+    assert!(!second.join("outside-link").exists(), "a symlink out of the folder was kept");
+    assert!(!second.join("target").exists(), "the Cargo target went too");
+    let skipped = bulk["skipped_files"].as_array().unwrap();
+    assert!(skipped.iter().any(|s| s["path"] == "target"), "{bulk}");
+    assert!(skipped.iter().any(|s| s["path"] == "outside-link"), "{bulk}");
+    // Nothing of the folder was written on the Mac.
+    let leaked = walk_names(&mac.dir).into_iter().any(|name| name == "data.bin" || name == "run.sh");
+    assert!(!leaked, "the relay wrote the folder on the Mac");
+
+    // Again, with nothing changed: nothing is written.
+    let again = relay(&mac, &one, &first, &two, &second);
+    assert_eq!(again["written"], json!(0), "{again}");
+
+    // A folder VM two already has, that no relay made, is never written over.
+    let theirs = two.home().join("work/theirs");
+    fs::create_dir_all(&theirs).unwrap();
+    fs::write(theirs.join("keep.txt"), "not ours\n").unwrap();
+    let (ok, refused) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .args(["link", "sync", "relay", "--from-socket"])
+            .arg(&one.socket)
+            .arg("--socket")
+            .arg(&two.socket)
+            .arg(&first)
+            .arg(&theirs),
+    );
+    assert!(!ok && refused["error_code"] == json!("relay.target_exists"), "{refused}");
+    assert_eq!(fs::read_to_string(theirs.join("keep.txt")).unwrap(), "not ours\n");
+
+    // 2. The chat moves mid-turn, and what its turn wrote after the bulk goes along.
+    let mut one_acpmux = one.acpmux();
+    let created = one_acpmux.call("session/new", json!({"cwd": first, "mcpServers": []}));
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    one_acpmux.call("session/prompt", prompt(&session, HISTORY, "p-relay-history"));
+    one_acpmux.send("session/prompt", prompt(&session, "until-cancel", "p-relay-running"));
+    wait_until(20, "the running turn", || {
+        one_acpmux.summary(&session).filter(|s| s["turn"].is_object()).map(|_| ())
+    });
+    one_acpmux.send("session/prompt", prompt(&session, QUEUED, QUEUED_ID));
+    wait_until(20, "the queued prompt", || {
+        one_acpmux.summary(&session).filter(|s| s["queued"].as_u64() == Some(1)).map(|_| ())
+    });
+    one_acpmux.call("_acpmux/draft_set", json!({"sessionId": session, "text": DRAFT}));
+    let surface = bound_agent_tab(&one, &session);
+    fs::write(first.join("src/turn.txt"), "written by the running turn\n").unwrap();
+    fs::remove_file(first.join("notes.txt")).unwrap();
+
+    let (ok, moved) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .args(["link", "agent", "move", "--from-socket"])
+            .arg(&one.socket)
+            .args(["--surface", &surface.to_string(), "--to-socket"])
+            .arg(&two.socket)
+            .arg("--cwd")
+            .arg(&second)
+            .arg("--interrupt")
+            .args(["--vm-kind", "owner"])
+            .args(["--sync", "relay", "--sync-from-socket"])
+            .arg(&one.socket)
+            .arg("--sync-socket")
+            .arg(&two.socket)
+            .arg("--sync-local")
+            .arg(&first)
+            .arg("--sync-remote")
+            .arg(&second)
+            .arg("--state-dir")
+            .arg(root.join("pump")),
+    );
+    assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
+    assert_eq!(moved["session_id"], json!(session), "{moved}");
+    assert_eq!(
+        fs::read_to_string(second.join("src/turn.txt")).unwrap(),
+        "written by the running turn\n",
+        "the turn's last change stayed on VM one"
+    );
+    assert!(!second.join("notes.txt").exists(), "a file the turn deleted came back on VM two");
+
+    // 3. On VM two: the chat with its history and draft, and its queue ran there once.
+    let mut two_acpmux = two.acpmux();
+    let landed = wait_until(30, "the queued prompt's turn on VM two", || {
+        let events = two_acpmux.events(&session);
+        let done =
+            events.iter().any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == QUEUED_ID);
+        done.then_some(events)
+    });
+    assert_eq!(count(&landed, "user_message", USER_TEXT, HISTORY), 1, "history: {landed:?}");
+    let draft = two_acpmux.call("_acpmux/draft_get", json!({"sessionId": session}));
+    assert_eq!(draft["draft"], json!(DRAFT), "{draft}");
+    let there = two_acpmux.summary(&session).expect("the chat is on VM two");
+    assert_eq!(there["cwd"], json!(fs::canonicalize(&second).unwrap()), "{there}");
+
+    // 4. On VM one: the chat moved away and its queue never ran there.
+    let left = one_acpmux.summary(&session);
+    assert!(left.as_ref().is_none_or(|s| s["status"] == "closed"), "still open: {left:?}");
+    let events = one_acpmux.events(&session);
+    assert_eq!(count(&events, "user_message", USER_TEXT, QUEUED), 0, "ran on VM one too");
+}
+
+/// Every file name under `dir`.
+fn walk_names(dir: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else { return names };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && !path.is_symlink() {
+            names.extend(walk_names(&path));
+        } else {
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    names
+}

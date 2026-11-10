@@ -129,14 +129,20 @@ extension AgentTabStore {
             guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
             return await services.imessage.respond(action, view: view)
         }
-        // `tabs.machineTargets` keeps its default (no target): every Cloud machine's session has the app
-        // link, a single app-owned carrier socket, and CloudMove's transfer path needs a second CLI daemon
-        // connection, so it rejects an app-linked target. Offering targets again starts with that path.
+        // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a
+        // chat a move took from here (``CloudMoveTargets``). Each goes through the Cloud move actions:
+        // this Mac's chat Move to Cloud on the machine named, a machine's chat Move to another Cloud
+        // machine (``CloudMove/startRelocate(_:context:)``), and back here Bring Back Local.
+        tabs.machineTargets = { [weak services, weak tabs] tab in
+            guard let services, let tabs else { return [] }
+            return CloudMoveTargets.targets(record: tabs.record(for: tab)?.record, machine: tab.machine, services: services)
+        }
         tabs.moveAgentToMachine = { [weak tabs] tab, machine in
             guard let tabs, let registry = tabs.actionRegistry else { return false }
+            let local = machine == AgentPaneMoveTarget.localID
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
-                                               arguments: ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
-            return registry.perform("cloudMove", invocation: invocation)
+                                               arguments: local ? [:] : ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
+            return registry.perform(local ? CloudBringBack.action : CloudMove.action, invocation: invocation)
         }
         tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)

@@ -77,6 +77,11 @@
 //! them along, so the turn goes on there with them (acpmux queues its
 //! continuation, cmuxterm-hq#5846 item 1). A sync that fails, or a pull that
 //! conflicts (`sync_conflict` with `conflicts`), gives the chat back. It runs
+//! `--sync relay --sync-from-socket SOURCE_LINK` (Move to another Cloud
+//! machine): both ends are machines, `--sync-local` is the folder on the
+//! source machine, and the copy is `cmux link sync relay`, pumped through
+//! this process. The relay runs twice: its bulk before the begin (the chat
+//! still runs), then once frozen, which sends only what changed since. It runs
 //! inside the source's lease (an unread move is aborted after
 //! `SOURCE_LEASE_SECONDS`), so the caller syncs the bulk before the move and
 //! this copies only what changed since.
@@ -108,7 +113,8 @@ use record::{Record, Records};
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
 [--ask-first] [--vm-kind KIND [--to-pid PID]] [--state-dir DIR] \
-[--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]
+[--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE] \
+[--sync relay --sync-from-socket SOURCE_LINK --sync-socket TARGET_LINK --sync-local SOURCE_FOLDER --sync-remote TARGET_FOLDER]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
 machine (its connection-snapshot event), not the machine link socket of `cmux link sync`";
 /// Bytes asked for per page (the daemon serves at most 4 MiB).
@@ -134,12 +140,16 @@ struct Args {
     sync: Option<Sync>,
 }
 
-/// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs).
+/// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs), or
+/// `--sync relay --sync-from-socket --sync-socket --sync-local --sync-remote`, where
+/// `local` is the folder on the source machine.
 struct Sync {
     way: Way,
     socket: PathBuf,
     local: PathBuf,
     remote: String,
+    /// `--sync relay`: the source machine's link socket.
+    from_socket: Option<PathBuf>,
 }
 
 /// Which way `--sync` copies.
@@ -148,6 +158,8 @@ enum Way {
     Push,
     Pull,
     Seed,
+    /// Machine to machine, through this process (`cmux link sync relay`).
+    Relay,
 }
 
 /// A move that failed, as its JSON line reports it.
@@ -254,6 +266,7 @@ fn parse(args: &[String]) -> Option<Args> {
     let (mut from, mut surface, mut to, mut cwd, mut state_dir) = (None, None, None, None, None);
     let (mut vm_kind, mut to_pid) = (None, None);
     let (mut sync, mut sync_socket, mut sync_local, mut sync_remote) = (None, None, None, None);
+    let mut sync_from_socket = None;
     let (mut interrupt, mut ask_first) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -272,12 +285,14 @@ fn parse(args: &[String]) -> Option<Args> {
                     "push" => Way::Push,
                     "pull" => Way::Pull,
                     "seed" => Way::Seed,
+                    "relay" => Way::Relay,
                     _ => return None,
                 });
             }
             "--sync-socket" => sync_socket = Some(PathBuf::from(rest.next()?)),
             "--sync-local" => sync_local = Some(PathBuf::from(rest.next()?)),
             "--sync-remote" => sync_remote = Some(rest.next()?.clone()),
+            "--sync-from-socket" => sync_from_socket = Some(PathBuf::from(rest.next()?)),
             _ => return None,
         }
     }
@@ -286,7 +301,18 @@ fn parse(args: &[String]) -> Option<Args> {
     let sync = match (sync, sync_socket, sync_local, sync_remote) {
         (None, None, None, None) => None,
         (Some(way), Some(socket), Some(local), Some(remote)) if remote.starts_with('/') => {
-            Some(Sync { way, socket, local, remote: remote.trim_end_matches('/').to_owned() })
+            // A relay names both machines and two absolute folders; no other way has a source socket.
+            let relay = way == Way::Relay;
+            if relay != sync_from_socket.is_some() || (relay && !local.is_absolute()) {
+                return None;
+            }
+            Some(Sync {
+                way,
+                socket,
+                local,
+                remote: remote.trim_end_matches('/').to_owned(),
+                from_socket: sync_from_socket,
+            })
         }
         _ => return None,
     };
@@ -375,6 +401,11 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         }
     }
     let vm_kind = target_vm_kind(args)?;
+    // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
+    // what changed since and the chat is frozen for that delta alone.
+    if let Some(sync) = args.sync.as_ref().filter(|sync| sync.way == Way::Relay) {
+        sync_frozen(sync)?;
+    }
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
     // A running turn stops for the move only where it goes on afterwards: an older source would
     // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
@@ -497,6 +528,20 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 .map_err(|e| {
                     Failed::new(
                         super::seed_cli::failure_code(&e),
+                        format!("the folder's last changes: {e:#}"),
+                    )
+                });
+        }
+        Way::Relay => {
+            let from = sync.from_socket.as_deref().ok_or_else(|| {
+                Failed::new("bad_request", "a relay names the source machine's socket".to_string())
+            })?;
+            let mut quiet = |_: sync_cli::Progress| {};
+            return sync_cli::relay(from, &sync.local.to_string_lossy(), &sync.socket, &sync.remote, &mut quiet)
+                .map(|_| ())
+                .map_err(|e| {
+                    Failed::new(
+                        sync_cli::push_failure_code(&e),
                         format!("the folder's last changes: {e:#}"),
                     )
                 });
