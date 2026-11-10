@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42783439615",
+  "recorded_at": "2026-11-10T08:43:30Z",
+  "reason": "cmux-tui 496e55ec4451 changes the image's cmux-tui (pinned 86006caef723)",
+  "dry_run": false,
+  "cmux_tui": "496e55ec4451a047e1117bd5d836cffef6098478",
+  "fixes": [
+    {
+      "sha": "496e55ec4451a047e1117bd5d836cffef6098478",
+      "mergedAt": "2026-11-10T00:15:36-08:00",
+      "subject": "History: the daemon is the only page-visit owner; the app-local fallback is gone (#38186)"
+    },
+    {
+      "sha": "480d371868bd0493e86f56a223a72a318c51b12a",
+      "mergedAt": "2026-11-10T00:13:06-08:00",
+      "subject": "Composer: a stalled Cloud start unlocks the composer and warns typing is lost on a late success (#40196)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T08:43:30Z",
+    "snapshot_id": "sh-21200416cdcc488493c978759f8ca9e6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42783439615): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "62da55823d76ba12ec803f008d75e6346df84b89",
+    "image": "cloud-native-auto-496e55ec-42783439615-1",
+    "revision": "ci-42783439615-1",
+    "at": "2026-11-10T08:43:30Z"
+  },
+  "rolled_back": false
+}
