@@ -45,6 +45,23 @@ fn agents_at_rest_after_a_reopen_the_first_report_is_a_row_and_the_next_are_not(
     reopened.stop_journal_maintenance();
     let roster_after = settled(&reopened).agent_roster.lock().unwrap().roster.entries.clone();
     assert_eq!(roster_after, roster_before, "the roster after the restart is the one before");
+    // The terminal's host lives on through a daemon restart and the daemon
+    // adopts it again. A test has no host process, so it puts a placeholder
+    // runtime in the catalog: the at-rest table keeps an entry only for a
+    // terminal the catalog holds.
+    for (index, terminal) in terminals.iter().enumerate() {
+        let runtime = Surface::exited_terminal_placeholder(
+            reopened.next_surface_id_for_test(),
+            SurfaceOptions::default(),
+            Arc::downgrade(&reopened),
+            crate::terminal_host_runtime::TerminalHostIdentity {
+                terminal_id: format!("00000000000040008000{:012x}", 0xb00 + index),
+                incarnation: format!("10000000000040008000{:012x}", 0xb00 + index),
+            },
+        )
+        .unwrap();
+        reopened.install_live_terminal_runtime_for_test(terminal, runtime).unwrap();
+    }
     for terminal in &terminals {
         let head = reopened.session_journal_head().unwrap();
         let first = hook(&reopened, terminal, "PreToolUse");
