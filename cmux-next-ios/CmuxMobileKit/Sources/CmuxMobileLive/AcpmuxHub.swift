@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
 import CmuxMobileTransport
@@ -120,6 +121,8 @@ public final class AcpmuxHub {
             self.isReady = false
             self.fullAccess = false
             self.lastError = self.lastError ?? "acpmux channel closed"
+            ConnectivityTelemetry.shared.record(.hub, "channel_closed", outcome: .failure,
+                                                fields: ["last_error": .text(self.lastError ?? "")])
             for entry in self.sources.values { entry.source?.linkDown() }
         }
         do {
@@ -144,6 +147,11 @@ public final class AcpmuxHub {
             readyWaiters = [:]
             for waiter in waiters.values { waiter.resume(returning: true) }
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
+            ConnectivityTelemetry.shared.record(.hub, "ready", outcome: .success, fields: [
+                "sessions": .number(Double(next.count)),
+                "full_access": .flag(fullAccess),
+                "capabilities": .number(Double(capabilities.count)),
+            ], detail: capabilities.sorted().joined(separator: ","))
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
             await seedPending(connection, requestTimeout: requestTimeout)
@@ -157,6 +165,13 @@ public final class AcpmuxHub {
             for entry in sources.values { entry.source?.linkDown() }
             await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
+            // A bind cancelled by a newer link is not a failure.
+            if !Task.isCancelled, !(error is CancellationError) {
+                let code: ConnectivityEvent.Value = (error as? LinkError).map { ConnectivityEvent.Value.safeCode($0.code) } ?? .code("other")
+                ConnectivityTelemetry.shared.record(.hub, "bind_failed", outcome: .failure,
+                                                    fields: ["error_code": code, "reason": .text(lastError ?? "")],
+                                                    detail: String(describing: error))
+            }
         }
     }
 
