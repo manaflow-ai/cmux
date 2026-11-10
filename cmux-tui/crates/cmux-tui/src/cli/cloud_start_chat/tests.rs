@@ -1727,7 +1727,7 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     assert!(!message.contains("plan allows"), "{message}");
     assert_eq!(error["details"]["app"]["message"], "this plan allows 5 active machines");
     assert!(
-        message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target machine:vm-a`"),
+        message.contains("api (running): `cmux cloud start-chat --target vm:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target vm:vm-a`"),
         "{message}"
     );
     assert!(message.contains("web (paused)"), "{message}");
@@ -1736,7 +1736,7 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     assert_eq!(error["details"]["cap"], "running");
     assert_eq!(
         error["details"]["machines"][1]["delete"],
-        "cmux cloud kill-machine --target machine:vm-b --confirm"
+        "cmux cloud kill-machine --target vm:vm-b --confirm"
     );
 }
 
@@ -1764,7 +1764,7 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     );
     assert!(!message.contains("limit of 20"), "{message}");
     assert!(
-        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
+        message.contains("web (paused): `cmux cloud start-chat --target vm:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target vm:vm-b --confirm`"),
         "{message}"
     );
     assert_eq!(error["details"]["cap"], "held");
