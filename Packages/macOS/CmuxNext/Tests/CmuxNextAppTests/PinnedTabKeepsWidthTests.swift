@@ -57,6 +57,7 @@ import Testing
 
     private static func withPinnedKeepsTitle(_ on: Bool, _ body: () throws -> Void) throws {
         // The store refuses a key it has no descriptor for (the app registers TabTunables.all at launch).
+        TunableStore.shared.activate(file: nil) // serves overrides, writes no file
         TunableStore.shared.register([TabTunables.pinnedKeepsTitle.descriptor])
         try #require(TunableStore.shared.set(Self.pinnedKeepsTitleKey, .bool(on)) == .bool(on))
         defer { _ = TunableStore.shared.set(Self.pinnedKeepsTitleKey, nil) }

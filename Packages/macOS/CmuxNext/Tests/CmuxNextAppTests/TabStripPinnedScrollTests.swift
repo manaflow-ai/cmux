@@ -65,6 +65,7 @@ import Testing
         DesignSettings.shared.tabOverflow = overflow
         defer { DesignSettings.shared.tabOverflow = .shrink }
         // The icon-only pinned form (`tabs.pinnedKeepsTitle` off): its fixed width is what these cases measure.
+        TunableStore.shared.activate(file: nil) // serves overrides, writes no file
         TunableStore.shared.register([TabTunables.pinnedKeepsTitle.descriptor])
         try #require(TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false)) == .bool(false))
         defer { _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, nil) }
@@ -116,6 +117,7 @@ import Testing
     @Test func pinnedTabsWiderThanTheStripScrollWithTheRest() throws {
         DesignSettings.shared.tabOverflow = .shrink
         // The icon-only pinned form (`tabs.pinnedKeepsTitle` off): its fixed width is what these cases measure.
+        TunableStore.shared.activate(file: nil) // serves overrides, writes no file
         TunableStore.shared.register([TabTunables.pinnedKeepsTitle.descriptor])
         try #require(TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false)) == .bool(false))
         defer { _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, nil) }
