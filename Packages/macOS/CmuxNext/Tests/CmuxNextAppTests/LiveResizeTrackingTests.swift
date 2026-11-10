@@ -77,15 +77,11 @@ import Testing
                 #expect(abs(screen.frame.width - root.bounds.width) < 0.5)
             }
         }
-        // The resize ended: the next layout change springs as it did before. Pinned, because another
-        // test's window can be in a resize of its own on a busy host.
-        let app = LiveResizeWindows.shared
-        let otherWindowsResizing = app.isActive
-        LiveResizeWindows.shared = LiveResizeWindows(center: NotificationCenter())
-        defer { LiveResizeWindows.shared = app }
+        // The resize ended: the next layout change springs as it did before. Another test's window
+        // in a resize of its own changes nothing here (`LiveResizePerWindowTests`).
         model.apply(screens: Self.split(0.6))
         root.syncWithModel()
-        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.panes.animatesMovement), other windows resizing \(otherWindowsResizing))")
+        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.panes.animatesMovement(in: window)))")
     }
 
     @Test func aTabStripThatStartsOverflowingMidDragFadesItsEdgeAtOnce() throws {
@@ -118,11 +114,11 @@ import Testing
         let window = Self.window(width: 800, height: 600)
         defer { window.closeAfterTest() }
         center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
-        #expect(windows.isActive)
+        #expect(windows.isResizing(window))
         center.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        #expect(!windows.isActive)
+        #expect(!windows.isResizing(window))
         center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
         center.post(name: NSWindow.willCloseNotification, object: window)
-        #expect(!windows.isActive, "a window closed mid-drag still holds every spring")
+        #expect(!windows.isResizing(window), "a window closed mid-drag stays in the tracker")
     }
 }

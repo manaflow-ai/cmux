@@ -1,23 +1,21 @@
 public import AppKit
 
 extension Motion {
-    /// Some window is in a live resize (the user drags its edge or corner):
-    /// movement snaps (`MotionPolicy.liveResize`), so pane frames, tab strips
-    /// and the sidebar follow the edge every frame and nothing springs toward
-    /// a size the next frame replaces (cx-sqj3h). Starts with the window's
-    /// `willStartLiveResize` and ends with its `didEndLiveResize` (or its close).
+    /// Whether `window` is in a live resize (the user drags its edge or corner): movement in it
+    /// snaps (`MotionPolicy.liveResize`, ``MotionGate/policy(in:)``), so its pane frames, tab
+    /// strips and sidebar follow the edge every frame and nothing springs toward a size the next
+    /// frame replaces (cx-sqj3h). Starts with the window's `willStartLiveResize` and ends with its
+    /// `didEndLiveResize` (or its close). Another window's motion is not held: it animates as usual.
     ///
-    /// A full screen enter or exit counts too (fullscreen-lag): AppKit sets
-    /// the final size at once and animates a snapshot to it, so content that
-    /// springs toward a size only shows its in-between frames late.
-    public static var isLiveResizing: Bool { LiveResizeWindows.shared.isActive }
-
-    /// Whether `window` is in a live resize or a full screen transition: the
-    /// per-window form of ``isLiveResizing`` for views that ask about their
-    /// own window (`NSView.inLiveResize` misses full screen transitions).
+    /// A full screen enter or exit of `window` counts too (fullscreen-lag; `NSView.inLiveResize`
+    /// misses it): AppKit sets the final size at once and animates a snapshot to it, so content
+    /// that springs toward a size only shows its in-between frames late.
     public static func isLiveResizing(_ window: NSWindow?) -> Bool {
+        // Read before the window: the tracker observes from the first motion decision, long
+        // before a person can drag an edge.
+        let windows = LiveResizeWindows.shared
         guard let window else { return false }
-        return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window)
+        return window.inLiveResize || windows.isResizing(window) || windows.isTransitioning(window)
     }
 
     /// Some window is between `willEnterFullScreen` and `didEnterFullScreen`
@@ -42,8 +40,8 @@ extension Motion {
 /// windows in a full screen transition (`willEnterFullScreen` to
 /// `didEnterFullScreen`, and the exit pair; a failed one ends through
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
-/// Observes every window from the first read of `Motion.basePolicy`, long before
-/// a person can drag an edge.
+/// Observes every window from the first motion decision (``Motion/isLiveResizing(_:)``), long
+/// before a person can drag an edge.
 final class LiveResizeWindows {
     /// The app's tracker. Tests put one on a private center here, instead of posting AppKit's
     /// notifications to the process-wide center (check-test-notification-centers.sh), and put the app's back.
@@ -51,7 +49,8 @@ final class LiveResizeWindows {
     private var resizing: Set<ObjectIdentifier> = []
     private var transitioning: Set<ObjectIdentifier> = []
 
-    var isActive: Bool { !resizing.isEmpty || !transitioning.isEmpty }
+    /// `window` is between its `willStartLiveResize` and its `didEndLiveResize` (or its close).
+    func isResizing(_ window: NSWindow) -> Bool { resizing.contains(ObjectIdentifier(window)) }
     /// Some window is entering or leaving full screen.
     var isFullScreenTransitionActive: Bool { !transitioning.isEmpty }
     func isTransitioning(_ window: NSWindow) -> Bool { transitioning.contains(ObjectIdentifier(window)) }

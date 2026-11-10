@@ -18,7 +18,10 @@ public final class AgentCursorStack {
     ) {
         let host = AgentCursorLayerHost(hostLayer: hostLayer, glassLayer: glassLayer, color: color, label: label,
                                         reduceTransparency: reduceTransparency)
-        let model = AgentCursorOverlayModel(resolver: resolver, host: host)
+        // The cursors glide in the host layer's window: a live resize of it lands them at once.
+        let model = AgentCursorOverlayModel(resolver: resolver, host: host, animatesMovement: { [weak hostLayer] in
+            Motion.cursor.animatesMovement(in: Motion.window(showing: hostLayer))
+        })
         self.host = host
         self.model = model
         publisher = AgentCursorPublisher(renderer: model)
