@@ -215,6 +215,26 @@ test("a failed command's warning shows its exit on the line", async () => {
   expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 2)");
 });
 
+// User, 2026-11-09: "generally in gui we should not mention stuff like \"acpmux\"". A background
+// command's end names cmux as its sender, and its opened body never shows the task's internal id or
+// the tool the model reads it with.
+test("a background command's notice never shows acpmux, its task id or bg_output", async () => {
+  const end = bgEnd("bg-b08e9de42d3e", "make test", 0, "lint: ok\ntest: 412 passed\nOK");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.name).toBe("cmux");
+  const container = await render(<IncomingMessageLine id="n-9" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  expect(line.textContent).toContain("cmux");
+  expect(line.textContent).not.toMatch(/acpmux/i);
+  await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
+  const all = container.textContent ?? "";
+  expect(all).toContain("test: 412 passed");
+  expect(all).not.toMatch(/acpmux|bg-b08e9de42d3e|bg_output/i);
+  for (const el of container.querySelectorAll("[aria-label],[title]"))
+    expect(`${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`).not.toMatch(/acpmux/i);
+});
+
 /// Notices that waited behind a busy turn go in as one (acpmux hub/digest.rs `digest_blocks`).
 function digest(...ends: { text: string; provenance: Record<string, unknown> }[]) {
   const parts = ends.map(
