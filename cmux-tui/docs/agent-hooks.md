@@ -168,8 +168,9 @@ Claude Code 2.1 reads under any config directory and beside any
   - The `SessionStart` hook writes the claim whether or not the daemon took
     the event, so a Claude that starts while the daemon is down still claims
     its terminal (its read fails, so it counts as the agent). Claude Code
-    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s,
-    and the read ends 4.5 s after the hook started. With no time left the
+    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s
+    and never past 4.5 s after the hook started, and the read ends no later
+    than 4.5 s after the hook started. With no time left the
     hook makes no read and acts as when the read fails.
 - Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
   leaves a live row. The next Claude started by hand in that terminal then

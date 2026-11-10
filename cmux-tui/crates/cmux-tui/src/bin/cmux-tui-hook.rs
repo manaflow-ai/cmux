@@ -149,12 +149,16 @@ fn deliver(
     )?;
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
+    let budget_end = started + CLAUDE_HOOK_BUDGET;
+    let handoff = if args.source == "claude" && args.native_event == "SessionStart" {
+        claude_start_handoff_wait(budget_end, Instant::now())
+    } else {
+        handoff_wait(&args.source, &args.native_event)
+    };
     let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
     // Whatever the send did: a Claude that starts while the daemon is down
     // still claims its terminal (its roster read then fails, so it counts as
     // the terminal's agent).
-    let budget_end = started + CLAUDE_HOOK_BUDGET;
     claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source, budget_end);
     match sent? {
         Handoff::Sent => Ok(Some((socket, terminal))),
@@ -483,11 +487,11 @@ pub(crate) mod plugin_copy;
 mod terminal_agent;
 
 /// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
-/// whose time budget ends at `budget_end`.
-#[allow(dead_code, reason = "W5-N3 red: the fix calls it")]
+/// whose time budget ends at `budget_end`: `CLAUDE_SESSION_START_HANDOFF_WAIT`,
+/// cut to the time left, so a slow start (payload read, tmux route) never
+/// pushes the hook past its budget. The child keeps its own deadline.
 fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
-    let _ = (budget_end, now);
-    CLAUDE_SESSION_START_HANDOFF_WAIT
+    CLAUDE_SESSION_START_HANDOFF_WAIT.min(budget_end.saturating_duration_since(now))
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
