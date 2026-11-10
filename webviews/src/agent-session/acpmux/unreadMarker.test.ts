@@ -15,7 +15,15 @@ import {
   unreadPending,
   unreadRead,
 } from "./conversation/unreadState";
-import { jumpUpShown, jumpUpTarget, newerMark, placeOffScreen, placeOffView, pressJumpUp, type ManualMark } from "./jumpUp";
+import {
+  jumpUpShown,
+  jumpUpTarget,
+  newerMark,
+  placeOffScreen,
+  placeOffView,
+  pressJumpUp,
+  type ManualMark,
+} from "./jumpUp";
 import { TRANSCRIPT_OVERLAYS, ZONE_KIND, topZoneOffset } from "./overlayLayout";
 
 beforeEach(() => resetUnreadForTest());
