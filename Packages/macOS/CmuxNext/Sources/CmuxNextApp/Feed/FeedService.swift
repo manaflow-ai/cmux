@@ -205,6 +205,8 @@ final class FeedService {
         reportsWake = nil
         reportRows.removeAll()
         model.replaceReports([])
+        // The next reader (another account) reads from the start: not known until its first page.
+        model.setReportsLoaded(false)
     }
 
     /// Reads the quiet reports alias without creating a model attachment. The
@@ -213,8 +215,14 @@ final class FeedService {
     /// retries on the shared daemon-client path (`AcpmuxMailboxReader`): a
     /// missing socket waits for its file-system event, a refusing one is paced.
     private func startReportsIfNeeded() {
-        guard auth.isSignedIn, !reports.isRunning, let socketPath = acpmuxEnvironment?.socketPath,
-              let reportsRecipient else { return }
+        guard !reports.isRunning else { return }
+        guard auth.isSignedIn, let socketPath = acpmuxEnvironment?.socketPath, let reportsRecipient else {
+            // No reader runs, so there is nothing to read: the basket's empty state is the truth.
+            model.setReportsLoaded(true)
+            return
+        }
+        // A reader starting with nothing read (a sign-in after none) is loading until its first page.
+        if reportRows.isEmpty { model.setReportsLoaded(false) }
         let wake = RetryWake(owner: "feed.reports.retry")
         reportsWake = wake
         let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: wake)

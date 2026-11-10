@@ -62,6 +62,22 @@ enum HomeStrings {
         default: nil
         }
     }
+    /// An open transcript whose first page is still being read (nothing cached to draw).
+    static var transcriptLoading: String {
+        String(localized: "home.transcript.loading", defaultValue: "Loading messages…", bundle: .module)
+    }
+    /// An open transcript whose first read failed: its messages are unknown, not empty.
+    static var transcriptLoadFailed: String {
+        String(localized: "home.transcript.loadFailed", defaultValue: "Couldn’t load messages.", bundle: .module)
+    }
+    /// An older page of the transcript failed to load.
+    static var olderLoadFailed: String {
+        String(localized: "home.transcript.olderFailed", defaultValue: "Couldn’t load earlier messages.", bundle: .module)
+    }
+    /// Reads the transcript (or its older page) again after a failure.
+    static var transcriptRetry: String {
+        String(localized: "home.transcript.retry", defaultValue: "Try Again", bundle: .module)
+    }
     static var unanswered: String {
         String(localized: "home.send.unanswered", defaultValue: "A change may not have gone through. Check your connection.",
                bundle: .module)

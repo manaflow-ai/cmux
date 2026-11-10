@@ -14,8 +14,8 @@ public struct HomeMirror: Hashable, Sendable {
     public private(set) var me: Participant? { didSet { cacheChanges.bump() } }
     public private(set) var conversations: [ConversationID: ConversationSummary] = [:] { didSet { cacheChanges.bump() } }
     public private(set) var windows: [ConversationID: TranscriptWindow] = [:] { didSet { cacheChanges.bump() } }
-    /// Moves with every write to what the client cache holds (`me`, `conversations`, `windows`);
-    /// revisions, stale marks and kept transcripts do not move it. Equality ignores it.
+    /// Moves with every write to what the client cache holds (`me`, `conversations`, `windows`,
+    /// kept transcripts); revisions and stale marks do not move it. Equality ignores it.
     public private(set) var cacheChanges = HomeChangeCount()
     public private(set) var revisions: [HomeStream: Revision] = [:]
     /// Streams known to be behind their owner (a gap, or a newer revision in
@@ -25,8 +25,9 @@ public struct HomeMirror: Hashable, Sendable {
     /// an empty transcript while the owner answers (the user, 2026-10-21: "switching between
     /// different chiefs and messages/conversations needs instant loading of messages"). Not live
     /// windows: no event or page reaches them, so ``restoreKept(_:)`` brings one back stale and
-    /// the open's read catches it up. Least recently closed first, at most ``keptLimit``.
-    private var kept: [ConversationID: TranscriptWindow] = [:]
+    /// the open's read catches it up. Least recently closed first, at most ``keptLimit``. The
+    /// client cache keeps them too (``HomeCache``), so they draw at once after a relaunch.
+    private var kept: [ConversationID: TranscriptWindow] = [:] { didSet { cacheChanges.bump() } }
     private var keptOrder: [ConversationID] = []
     /// How many closed transcripts stay in memory: the conversations a person switches between.
     public static let keptLimit = 20
@@ -61,7 +62,8 @@ public struct HomeMirror: Hashable, Sendable {
         if conversations != next { conversations = next }
         if windows.keys.contains(where: { next[$0] == nil }) { windows = windows.filter { next[$0.key] != nil } }
         keptOrder.removeAll { next[$0] == nil }
-        kept = kept.filter { next[$0.key] != nil }
+        // Assigned only when one goes: each assignment moves `cacheChanges`.
+        if kept.keys.contains(where: { next[$0] == nil }) { kept = kept.filter { next[$0.key] != nil } }
         revisions[.inbox] = snapshot.rev
         stale.remove(.inbox)
         return refetch
@@ -75,7 +77,17 @@ public struct HomeMirror: Hashable, Sendable {
         guard conversations.isEmpty, windows.isEmpty else { return }
         me = snapshot.me
         for summary in snapshot.conversations { conversations[summary.id] = summary }
-        for (id, messages) in snapshot.windows where conversations[id] != nil && !messages.isEmpty {
+        // Closed chats come back as kept transcripts, not live windows: an open draws one at once
+        // and its read catches it up (``restoreKept(_:)``); nothing is read for the others.
+        let closed = snapshot.keptIDs ?? []
+        let closedSet = Set(closed)
+        for id in closed where kept[id] == nil {
+            guard conversations[id] != nil, let messages = snapshot.windows[id], !messages.isEmpty else { continue }
+            kept[id] = TranscriptWindow(messages: messages)
+            keptOrder.append(id)
+        }
+        while keptOrder.count > Self.keptLimit { kept[keptOrder.removeFirst()] = nil }
+        for (id, messages) in snapshot.windows where conversations[id] != nil && !messages.isEmpty && !closedSet.contains(id) {
             windows[id] = TranscriptWindow(messages: messages)
             stale.insert(.conversation(id))
         }
@@ -145,6 +157,40 @@ public struct HomeMirror: Hashable, Sendable {
 
     /// A refetch failed: the stream stays stale until a later fetch succeeds.
     public mutating func markStale(_ stream: HomeStream) { stale.insert(stream) }
+
+    /// The closed transcripts kept now, least recently closed first, with their messages (the
+    /// client cache writes them beside the live windows).
+    public var keptTranscripts: [(id: ConversationID, messages: [Message])] {
+        keptOrder.compactMap { id in kept[id].map { (id, $0.messages) } }
+    }
+
+    /// The first read of `conversation` failed: a window still waiting for its first page says so
+    /// (``TranscriptWindow/FirstPage/failed``) instead of looking like an empty conversation.
+    /// Returns whether it changed.
+    @discardableResult
+    public mutating func markFirstPageFailed(_ conversation: ConversationID) -> Bool {
+        guard windows[conversation]?.firstPage == .loading else { return false }
+        windows[conversation]?.firstPage = .failed
+        return true
+    }
+
+    /// A read of `conversation` starts again after a failed first one: it is loading again.
+    /// Returns whether it changed.
+    @discardableResult
+    public mutating func retryFirstPage(_ conversation: ConversationID) -> Bool {
+        guard windows[conversation]?.firstPage == .failed else { return false }
+        windows[conversation]?.firstPage = .loading
+        return true
+    }
+
+    /// Whether the last older page of `conversation` failed; a later one clears it. Returns
+    /// whether it changed.
+    @discardableResult
+    public mutating func setOlderFailed(_ failed: Bool, in conversation: ConversationID) -> Bool {
+        guard let window = windows[conversation], window.olderFailed != failed else { return false }
+        windows[conversation]?.olderFailed = failed
+        return true
+    }
 
     @discardableResult
     public mutating func apply(_ event: HomeEvent) -> MirrorOutcome {

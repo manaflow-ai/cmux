@@ -17,6 +17,8 @@ final class FeedListPane: NSView {
     private let markAll = NSButton()
     private let emptyIcon = NSImageView(image: NSImage.icon(.inboxEmpty, size: 32))
     private let emptyText = FeedListPane.label(FeedStrings.empty, size: TypeScale.detail)
+    /// In place of the empty tray until the owner's first snapshot (``FeedSummary/loaded``).
+    private let spinner = StatusIndicatorView.spinner()
     private var colors = ReportsBasketColors()
     private var armed = false
     private(set) var shown = FeedSummary()
@@ -41,7 +43,7 @@ final class FeedListPane: NSView {
         markAll.setAccessibilityIdentifier("cmux.feed.markAllRead")
         emptyIcon.image?.isTemplate = true
         emptyText.alignment = .center
-        for view in [title, badgeGround, badge, markAll, rows, emptyIcon, emptyText] as [NSView] { addSubview(view) }
+        for view in [title, badgeGround, badge, markAll, rows, emptyIcon, emptyText, spinner] as [NSView] { addSubview(view) }
         show(shown)
     }
 
@@ -92,8 +94,13 @@ final class FeedListPane: NSView {
         badgeGround.isHidden = badgeCount == 0
         markAll.isEnabled = summary.counts.unreadNotices > 0
         rows.isHidden = summary.listIsEmpty
-        emptyIcon.isHidden = !summary.listIsEmpty
+        // Before the owner's first snapshot an empty list is loading, not "Nothing new".
+        let loading = summary.listIsEmpty && !summary.loaded
+        emptyIcon.isHidden = !summary.listIsEmpty || loading
         emptyText.isHidden = !summary.listIsEmpty
+        emptyText.stringValue = loading ? FeedStrings.loading : FeedStrings.empty
+        spinner.isHidden = !loading
+        spinner.spin(loading)
         needsLayout = true
     }
 
@@ -131,5 +138,6 @@ final class FeedListPane: NSView {
         let middle = body.midY
         emptyIcon.frame = NSRect(x: body.midX - 16, y: middle - 16 - 4 - textHeight / 2, width: 32, height: 32)
         emptyText.frame = NSRect(x: 24, y: emptyIcon.frame.maxY + 8, width: max(0, body.width - 48), height: textHeight)
+        spinner.frame = NSRect(x: body.midX - 8, y: emptyIcon.frame.midY - 8, width: 16, height: 16)
     }
 }

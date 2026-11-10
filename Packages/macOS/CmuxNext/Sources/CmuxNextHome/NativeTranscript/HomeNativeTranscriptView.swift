@@ -30,6 +30,13 @@ public final class HomeNativeTranscriptView: NSView {
     }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    /// "Loading messages…" or "Couldn't load messages." with Try Again while the first page is not
+    /// read (HomeNativeTranscriptView+LoadState.swift).
+    let loadState = HomeTranscriptLoadStateView()
+    /// Where the conversation's first page stands, as the store says (``followTranscriptLoad()``).
+    var firstPage: TranscriptWindow.FirstPage = .loaded
+    /// The last older page failed: the notice offers Try Again (``followTranscriptLoad()``).
+    var olderFailed = false
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -208,6 +215,8 @@ public final class HomeNativeTranscriptView: NSView {
         wantsLayer = true
         addSubview(transcript)
         addSubview(firstRun)
+        addSubview(loadState)
+        loadState.onRetry = { [weak self] in self?.retryTranscript() }
         noticeLabel.isHidden = true
         noticeLabel.font = Typography.caption
         noticeLabel.alignment = .center
@@ -248,6 +257,7 @@ public final class HomeNativeTranscriptView: NSView {
         followPresence()
         applyTheme()
         followTopFadeStyle()
+        followTranscriptLoad()
         updateFirstRun()
     }
 
@@ -513,6 +523,7 @@ public final class HomeNativeTranscriptView: NSView {
         let top = transcript.headerHeight + pinnedSectionClearance
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
+        if loadState.frame != panel { loadState.frame = panel }
         layoutNotice()
         followToasts()
     }
@@ -562,9 +573,17 @@ public final class HomeNativeTranscriptView: NSView {
         layoutNotice()
     }
 
-    /// The first-run panel shows only in an empty Chief conversation.
-    private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || welcomesInChat || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+    /// The first-run panel shows only in an empty Chief conversation whose first page was read: one
+    /// still loading, or whose read failed, shows the load state instead (a Chief with history whose
+    /// read failed must not look new).
+    func updateFirstRun() {
+        firstRun.isHidden = holdsFirstRun || welcomesInChat || firstPage != .loaded
+            || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+        // The store's rows, not `transcript.isEmpty`: a window without its first page counts as
+        // having older history, so the transcript never calls it empty. Events buffered meanwhile
+        // draw as rows, and the mark goes.
+        let unread = firstPage != .loaded && binding.store.transcript(for: conversationID).isEmpty
+        loadState.show(unread ? firstPage : nil)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
@@ -618,6 +637,7 @@ public final class HomeNativeTranscriptView: NSView {
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
+            loadState.applyColors(text: Palette.textSecondary, accent: Palette.accent)
         }
         drop.highlight.applyTheme()
     }

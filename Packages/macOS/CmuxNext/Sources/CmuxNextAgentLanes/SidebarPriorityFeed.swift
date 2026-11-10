@@ -120,7 +120,8 @@ public final class SidebarPriorityFeed {
             return entry
         }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
-                                    collapsed: state.collapsed, shortcut: hooks.shortcut())
+                                    collapsed: state.collapsed, shortcut: hooks.shortcut(),
+                                    loaded: !entries.isEmpty || chats.listed())
     }
 
     /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold, the bell and a

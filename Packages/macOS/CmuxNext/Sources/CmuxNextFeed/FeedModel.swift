@@ -30,8 +30,12 @@ public final class FeedModel {
     /// The last refusal, for the panel's notice; cleared on the next send.
     public private(set) var lastReject: FeedReject?
     public private(set) var revision: UInt64 = 0
-    /// True once the owner sent its first snapshot: before that the lists are not yet known.
+    /// True once the owner sent its first snapshot: before that the lists are not yet known, and
+    /// the panel shows a loading state, never "Nothing new".
     public private(set) var loaded = false
+    /// True once the reports mailbox was read, or there is none to read (signed out, no acpmux):
+    /// before that the reports basket shows a loading state, never "No agent reports yet".
+    public private(set) var reportsLoaded = false
     public private(set) var user = ""
     public private(set) var device = ""
     /// What the panel chrome shows (the badge, whether the list is empty), stored and set only when
@@ -89,6 +93,7 @@ public final class FeedModel {
     public func stop() {
         source.stop()
         reports.removeAll()
+        reportsLoaded = false
     }
 
     // MARK: - Visible state
@@ -264,11 +269,18 @@ public final class FeedModel {
             .prefix(Self.reportsLimit))
     }
 
+    /// Whether the reports basket is known: false when its reader starts over (another account),
+    /// true when no reader will run (nothing to read). A mailbox page sets it too.
+    public func setReportsLoaded(_ known: Bool) {
+        if reportsLoaded != known { reportsLoaded = known }
+    }
+
     /// Shows `rows` (the newest `reportsLimit`) and returns the ones shown, by id: the caller keeps
     /// only those, so a mailbox read from its start never holds every report it ever had.
     @discardableResult
     public func replaceReports(_ rows: [String: FeedReport]) -> [String: FeedReport] {
         replaceReports(Array(rows.values))
+        if !reportsLoaded { reportsLoaded = true }
         return Dictionary(uniqueKeysWithValues: reports.map { ($0.id, $0) })
     }
 
@@ -290,6 +302,8 @@ public final class FeedModel {
             touched.formUnion(confirmed.keys)
             connection = .connected
             loaded = true
+            // The chrome's empty state waits for this (an empty snapshot changes no row).
+            if !summary.loaded { summary.loaded = true }
         case let .event(event):
             revision = max(revision, event.revision)
             switch event.change {
@@ -337,7 +351,8 @@ public final class FeedModel {
         for listener in listeners.allObjects { listener.body?(changes) }
         guard changed else { return }
         version &+= 1
-        let next = FeedSummary(counts: ledger.counts, listIsEmpty: ledger.list.count == 0, hasUnread: ledger.unread > 0)
+        let next = FeedSummary(counts: ledger.counts, listIsEmpty: ledger.list.count == 0, hasUnread: ledger.unread > 0,
+                               loaded: loaded)
         if next != summary { summary = next }
     }
 
@@ -354,6 +369,8 @@ public nonisolated struct FeedSummary: Sendable, Equatable {
     public var counts = FeedCounts(openRequests: 0, unreadNotices: 0)
     public var listIsEmpty = true
     public var hasUnread = false
+    /// The owner's first snapshot is in (``FeedModel/loaded``): an empty list before it is loading, not empty.
+    public var loaded = false
 }
 
 /// A ``FeedModel/observeList(_:)`` registration; ends on ``cancel()`` or when released.

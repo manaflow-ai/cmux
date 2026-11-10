@@ -23,8 +23,11 @@ public import CmuxNextDaemon
 /// reports.start(reader) { [weak self] page in self?.apply(page) }
 /// ```
 public nonisolated struct AcpmuxMailboxReader: Sendable {
-    /// One mailbox wait for the rows after a cursor.
-    typealias MailboxWait = @Sendable (_ after: UInt64) async throws -> AcpmuxMailboxPage
+    /// One mailbox wait for the rows after a cursor, answered at once with what is there when
+    /// `timeoutMs` is 0.
+    typealias MailboxWait = @Sendable (_ after: UInt64, _ timeoutMs: UInt64) async throws -> AcpmuxMailboxPage
+    /// The longest a wait holds for new mail (acpmux's own bound).
+    static let waitTimeoutMs: UInt64 = 30_000
 
     private let socketPath: String
     private let wake: RetryWake
@@ -42,9 +45,9 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
     public init(socketPath: String, recipient: String, client: AcpmuxMailboxClient = AcpmuxMailboxClient(),
                 wake: RetryWake, clock: any Clock<Duration> = ContinuousClock()) {
         // A first connect's pacing: 250 ms growing to 30 s, 10 timed attempts, then events only.
-        self.init(socketPath: socketPath, wake: wake, clock: clock, policy: .firstConnect) { after in
+        self.init(socketPath: socketPath, wake: wake, clock: clock, policy: .firstConnect) { after, timeoutMs in
             // concurrency-allow: an async acpmux mailbox request (awaits the socket reply), not a semaphore/group wait; run() is @concurrent, off main
-            try await client.wait(socketPath: socketPath, recipient: recipient, after: after)
+            try await client.wait(socketPath: socketPath, recipient: recipient, after: after, timeoutMs: timeoutMs)
         }
     }
 
@@ -66,10 +69,14 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
         defer { wake.unwatch() }
         var pacer = RetryPacer(policy)
         var cursor: UInt64 = 0
+        // The first read answers at once with what the mailbox holds, an empty mailbox included, so
+        // the reports basket knows it is empty instead of loading for a whole wait; later reads wait.
+        var read = false
         // wakeup-allow: each pass is one event-driven mailbox wait (acpmux answers on new mail or its 30 s wait end); a failure waits in RetryPacer
         while !Task.isCancelled {
             do {
-                let page = try await mailboxWait(cursor)
+                let page = try await mailboxWait(cursor, read ? Self.waitTimeoutMs : 0)
+                read = true
                 pacer.reset()
                 // A reader that reads keeps no watch: the next failure arms it again.
                 wake.unwatch()

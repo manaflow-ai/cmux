@@ -12,6 +12,8 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     private var reads: [ConversationID] = []
     private var closed: [ConversationID] = []
     private var steps: [Step] = []
+    private var failingReads = false
+    private var failingHistory = false
 
     /// One read starting or returning, or one close, in the order they ran.
     public enum Step: Hashable, Sendable {
@@ -32,6 +34,17 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     public var journal: [Step] { lock.withLock { steps } }
     /// Reads waiting for `release()` now.
     public var waiting: Int { lock.withLock { held.count } }
+
+    /// Every later transcript read (`snapshot(of:tail:)`) fails while `fail` is true, as an
+    /// unreachable owner's does; it is still recorded.
+    public func failReads(_ fail: Bool) {
+        lock.withLock { failingReads = fail }
+    }
+
+    /// Every later older page (`history(of:before:limit:)`) fails while `fail` is true.
+    public func failHistory(_ fail: Bool) {
+        lock.withLock { failingHistory = fail }
+    }
 
     /// Holds every later transcript read until `release()`.
     public func hold() {
@@ -62,11 +75,13 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
             if !wait { continuation.resume() }
         }
         defer { lock.withLock { steps.append(.readReturned(conversation)) } }
+        if lock.withLock({ failingReads }) { throw HomeRejection.ownerUnreachable }
         return try await inner.snapshot(of: conversation, tail: tail)
     }
 
     public func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
-        try await inner.history(of: conversation, before: beforeSeq, limit: limit)
+        if lock.withLock({ failingHistory }) { throw HomeRejection.ownerUnreachable }
+        return try await inner.history(of: conversation, before: beforeSeq, limit: limit)
     }
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult { try await inner.submit(intent) }

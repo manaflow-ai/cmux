@@ -19,6 +19,11 @@ public struct HomeCacheSnapshot: Hashable, Sendable, Codable {
     /// The attachments in each compose field, in order. Optional: a cache
     /// written before drafts kept them still decodes.
     public var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]]?
+    /// The conversations of `windows` the reader had closed, least recently closed first: the
+    /// mirror seeds them as kept transcripts (``HomeMirror/restoreKept(_:)``), not live windows,
+    /// so they draw at once when opened after a relaunch. Optional: an older cache decodes with
+    /// none, its windows all live.
+    public var keptIDs: [ConversationID]?
     /// On disk only: the conversations whose window is in its own file beside the index
     /// (``HomeCache``), so a write touches only the windows that changed. Nil in a file written
     /// whole (an older build), whose `windows` are inline; nil in every loaded snapshot.

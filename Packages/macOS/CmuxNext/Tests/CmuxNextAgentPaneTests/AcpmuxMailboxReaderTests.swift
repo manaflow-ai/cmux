@@ -81,7 +81,7 @@ import Testing
     private func makeReader(_ socket: String, _ mailbox: Mailbox, policy: RetryPolicy = .firstConnect,
                             parked: AsyncStream<Duration?>.Continuation) -> (AcpmuxMailboxReader, RetryWake) {
         let wake = RetryWake(owner: "AcpmuxMailboxReaderTests", probe: RetryWakeProbe(parked: { parked.yield($0) }))
-        let reader = AcpmuxMailboxReader(socketPath: socket, wake: wake, clock: StoppedClock(), policy: policy) { after in
+        let reader = AcpmuxMailboxReader(socketPath: socket, wake: wake, clock: StoppedClock(), policy: policy) { after, _ in
             try mailbox.wait(after: after)
         }
         return (reader, wake)
@@ -226,6 +226,26 @@ import Testing
         #expect(wake.rebaseline() == .unwatched, "a reader that ended still watched acpmux's folder")
     }
 
+    /// The first read answers at once (an empty mailbox included), so the reports basket learns it
+    /// is empty instead of showing a loading state for a whole 30 s wait (ui-state-fixes M4); the
+    /// reads after it wait for new mail.
+    @Test func theFirstReadAnswersAtOnceAndLaterReadsWait() async throws {
+        let wake = RetryWake(owner: "AcpmuxMailboxReaderTests")
+        let (asks, asked) = AsyncStream<UInt64>.makeStream()
+        let reader = AcpmuxMailboxReader(socketPath: "/nonexistent/acpmux.sock", wake: wake, clock: StoppedClock(),
+                                         policy: .firstConnect) { _, timeoutMs in
+            asked.yield(timeoutMs)
+            return AcpmuxMailboxPage(messages: [], nextCursor: nil)
+        }
+        let run = Task { await reader.run { _ in } }
+        var timeouts = asks.makeAsyncIterator()
+        let first = await timeouts.next()
+        let second = await timeouts.next()
+        run.cancel()
+        #expect(first == 0, "the first read waited for new mail")
+        #expect(second == AcpmuxMailboxReader.waitTimeoutMs)
+    }
+
     /// A page on its way to the main actor when the owner stops the reader (a sign-out or another
     /// account in the hop) is dropped: the owner's reset runs on the main actor, and the page's
     /// reader is no longer current there. Before, cancelling the task did not stop the page, and
@@ -234,7 +254,7 @@ import Testing
         let mailbox = HeldMailbox()
         let wake = RetryWake(owner: "AcpmuxMailboxReaderTests")
         let reader = AcpmuxMailboxReader(socketPath: "/nonexistent/acpmux.sock", wake: wake, clock: StoppedClock(),
-                                         policy: .firstConnect) { _ in await mailbox.wait() }
+                                         policy: .firstConnect) { _, _ in await mailbox.wait() }
         let (pages, delivered) = AsyncStream<AcpmuxMailboxPage>.makeStream()
         let subscription = AcpmuxMailboxSubscription()
         let run = subscription.start(reader) { delivered.yield($0) }

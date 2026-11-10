@@ -30,17 +30,20 @@ struct MacScreenHomeSnapshot: Equatable {
         var access: MacScreenAccess
     }
 
-    /// Your Devices: a note (signed out, loading, none shared) or the list.
+    /// Your Devices: a note (signed out, loading, none shared), an error, or the list.
     enum Devices: Equatable {
         case note(String)
         /// Signed out of cmux: the note, then the shared Sign In button (``SignInButton``).
         case signedOut(String)
+        /// The device hub could not be reached or the list not read: the note, then Try Again
+        /// (``MacScreenHomeView/retryDevices()``).
+        case failed(String)
         case list([Device])
 
-        /// The note text this state shows (signed out or a note), or nil for the list.
+        /// The note text this state shows (signed out, an error or a note), or nil for the list.
         var note: String? {
             switch self {
-            case let .note(text), let .signedOut(text): text
+            case let .note(text), let .signedOut(text), let .failed(text): text
             case .list: nil
             }
         }
@@ -90,9 +93,8 @@ struct MacScreenHomeSnapshot: Equatable {
             if let hub = source.box.hub {
                 let shared = hub.otherDevices.filter(\.macScreenShared)
                 if shared.isEmpty {
-                    devices = .note(hub.status == .ready || hub.status == .idle
-                        ? L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
-                        : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+                    devices = Self.noDevicesShown(status: hub.status, listed: hub.devicesListed,
+                                                  listFailed: hub.devicesListError != nil)
                 } else {
                     devices = .list(shared.map { device in
                         Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
@@ -112,6 +114,23 @@ struct MacScreenHomeSnapshot: Equatable {
         }
         if let shortcuts = home.systemShortcuts {
             keyboard = Keyboard(enabled: shortcuts.enabled, needsAccessibility: shortcuts.needsAccessibility)
+        }
+    }
+
+    /// What Your Devices says with no shared device to list (ui-state-fixes M5): "None of your
+    /// other devices share Mac Screen" only once the hub is registered and the list was read; a
+    /// hub not started yet (`idle`) or starting is loading; a hub that failed to start, or a list
+    /// read that failed with nothing read, is an error with Try Again, never loading forever.
+    static func noDevicesShown(status: DeviceHub.Status, listed: Bool, listFailed: Bool) -> Devices {
+        switch status {
+        case .failed:
+            return .failed(L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
+        case .ready where listed:
+            return .note(L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac."))
+        case .ready where listFailed:
+            return .failed(L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
+        case .idle, .starting, .ready:
+            return .note(L.t("macScreen.home.devicesLoading", "Loading your devices…"))
         }
     }
 
@@ -138,6 +157,11 @@ extension MacScreenHomeView {
         switch devices {
         case let .note(text):
             content = MacScreenHomeParts.note(text)
+        case let .failed(text):
+            let retry = MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.home.devicesRetry") { [weak self] in
+                self?.retryDevices()
+            }
+            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), retry])
         case let .signedOut(text):
             let signIn = SignInButton { [weak self] in self?.actions.signIn() }
             signIn.setAccessibilityIdentifier("macScreen.home.signIn")
@@ -164,6 +188,16 @@ extension MacScreenHomeView {
             content = rows
         }
         return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
+    }
+
+    /// Try Again under a failed Your Devices: a hub that failed to start starts again; one that
+    /// is registered reads its device list again. The page redraws from the hub's state.
+    func retryDevices() {
+        guard let hub = devices?.box.hub else { return }
+        // task-owner: one hub start or list read; ends with it (the hub drops a stale generation's answer)
+        Task {
+            if case .failed = hub.status { await hub.start() } else { await hub.refreshDevices() }
+        }
     }
 
     private func deviceRow(_ device: MacScreenHomeSnapshot.Device) -> NSView {

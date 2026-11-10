@@ -1,15 +1,22 @@
+import CmuxNextDesign
 import CmuxNextIcons
 import SwiftUI
 
 /// Nothing to show: one quiet line, centered.
 struct FeedEmptyState: View {
     let text: String
+    /// Not read yet: a spinner in place of the empty tray.
+    var loading = false
     @Environment(\.feedColors) private var colors
 
     var body: some View {
         VStack(spacing: 8) {
-            // A pack drawing inks about two thirds of its box; 32 matches the 20 pt tray it replaced.
-            Icon(.inboxEmpty, size: 32).foregroundStyle(colors.tertiary)
+            if loading {
+                ThemedSpinner(size: 16).frame(width: 16, height: 16)
+            } else {
+                // A pack drawing inks about two thirds of its box; 32 matches the 20 pt tray it replaced.
+                Icon(.inboxEmpty, size: 32).foregroundStyle(colors.tertiary)
+            }
             Text(text).font(.system(size: 12)).foregroundStyle(colors.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -1,6 +1,66 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "macScreen.home.devicesFailed": {
+      "comment": "Mac Screen home, Your Devices: the device hub could not be reached or the device list not read; a Try Again button follows.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر الوصول إلى مركز الأجهزة لتحميل أجهزتك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Gerätehub war nicht erreichbar, deine Geräte konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t reach the device hub to load your devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido conectar con el centro de dispositivos para cargar tus dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de joindre le hub d’appareils pour charger vos appareils."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスハブに接続できず、デバイスを読み込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 허브에 연결할 수 없어 기기를 불러올 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到设备中心以载入你的设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到裝置中樞以載入你的裝置。"
+          }
+        }
+      }
+    },
     "devices.access": {
       "extractionState": "manual",
       "localizations": {

@@ -39,6 +39,10 @@ final class ReportsBasketView: NSView {
     private let emptyTitle = ReportsBasketText.label(FeedStrings.reportsEmpty, size: TypeScale.body)
     private let emptyHint = ReportsBasketText.label(FeedStrings.reportsEmptyHint, size: TypeScale.caption, lines: 0)
     private lazy var empty = ReportsBasketText.centered([emptyIcon, emptyTitle, emptyHint], padding: 28)
+    /// Until the mailbox was read (``FeedModel/reportsLoaded``): not "No agent reports yet".
+    private let loadingSpinner = StatusIndicatorView.spinner()
+    private let loadingTitle = ReportsBasketText.label(FeedStrings.reportsLoading, size: TypeScale.body)
+    private lazy var loading = ReportsBasketText.centered([loadingSpinner, loadingTitle], padding: 28)
     private let pickIcon = ReportsBasketText.symbol("arrow.left", size: TypeScale.body)
     private let pickTitle = ReportsBasketText.label(FeedStrings.reportsSelect, size: TypeScale.body)
     private lazy var pick = ReportsBasketText.centered([pickIcon, pickTitle], padding: 0)
@@ -62,6 +66,11 @@ final class ReportsBasketView: NSView {
 
     private func build() {
         emptyHint.alignment = .center
+        loadingSpinner.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            loadingSpinner.widthAnchor.constraint(equalToConstant: 16),
+            loadingSpinner.heightAnchor.constraint(equalToConstant: 16),
+        ])
         let titles = ReportsBasketText.stack([title, subtitle], spacing: 2)
         let header = ReportsBasketText.stack([titles], vertical: false, alignment: .centerY)
         header.edgeInsets = NSEdgeInsets(top: 13, left: 16, bottom: 13, right: 16)
@@ -104,7 +113,7 @@ final class ReportsBasketView: NSView {
     private func observe() {
         guard window != nil else { return }
         armed = true
-        withObservationTracking { _ = model.reports } onChange: { [weak self] in
+        withObservationTracking { _ = model.reports; _ = model.reportsLoaded } onChange: { [weak self] in
             // task-owner: re-arms one observation; it ends at once when the view left its window or is gone
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -130,7 +139,9 @@ final class ReportsBasketView: NSView {
             }
         }
         for row in rows { row.selected = row.item.id == selected }
-        show(reports.isEmpty ? empty : listScroll, in: content)
+        let reading = reports.isEmpty && !model.reportsLoaded
+        loadingSpinner.spin(reading)
+        show(reports.isEmpty ? (reading ? loading : empty) : listScroll, in: content)
 
         guard let report = reports.first(where: { $0.id == selected }) else {
             detail = nil
@@ -201,6 +212,7 @@ final class ReportsBasketView: NSView {
         subtitle.textColor = colors.tertiary
         emptyIcon.contentTintColor = colors.secondary
         emptyTitle.textColor = colors.secondary
+        loadingTitle.textColor = colors.secondary
         emptyHint.textColor = colors.tertiary
         pickIcon.contentTintColor = colors.tertiary
         pickTitle.textColor = colors.tertiary

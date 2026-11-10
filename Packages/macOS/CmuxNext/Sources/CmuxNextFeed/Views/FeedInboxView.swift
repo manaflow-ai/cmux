@@ -49,7 +49,10 @@ struct FeedInboxView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 header(hasUnread: items.contains(where: \.isUnread), markRead: { model.markRead(items.map(\.id)) })
-                if groups.all.isEmpty {
+                if groups.all.isEmpty && !model.loaded {
+                    // The owner has not answered: the list is not known yet, so not "Nothing new".
+                    FeedEmptyState(text: FeedStrings.loading, loading: true)
+                } else if groups.all.isEmpty {
                     FeedEmptyState(text: filter.query.isEmpty && filter.category == .all ? FeedStrings.empty : FeedStrings.noMatches)
                 } else {
                     FeedRowsHost(model: model, mode: .inbox, filter: filter)

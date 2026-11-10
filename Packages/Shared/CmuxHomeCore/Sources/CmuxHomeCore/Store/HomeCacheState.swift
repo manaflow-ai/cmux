@@ -10,6 +10,10 @@ struct HomeCacheState: Sendable {
     /// Each live window's messages, whole (the cache keeps the newest ``HomeCache/windowLimit``);
     /// an empty window is left out.
     var windows: [ConversationID: [Message]] = [:]
+    /// The conversations of `windows` that are closed (kept transcripts), least recently closed
+    /// first. The cache keeps the newest of them within ``HomeCache/keptLimit`` and
+    /// ``HomeCache/keptByteLimit`` and drops the rest.
+    var kept: [ConversationID] = []
     var sends: [HomeCachedSend] = []
     var drafts: [ConversationID: String] = [:]
     var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
@@ -22,6 +26,7 @@ struct HomeCacheState: Sendable {
         me = snapshot.me
         conversations = Dictionary(snapshot.conversations.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         windows = snapshot.windows.filter { !$0.value.isEmpty }
+        kept = (snapshot.keptIDs ?? []).filter { windows[$0] != nil }
         sends = snapshot.sends
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
@@ -39,6 +44,7 @@ struct HomeCacheState: Sendable {
         snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
         snapshot.scroll = scroll
         snapshot.windowIDs = windows.keys.sorted { $0.rawValue < $1.rawValue }
+        snapshot.keptIDs = kept.isEmpty ? nil : kept
         return snapshot
     }
 }

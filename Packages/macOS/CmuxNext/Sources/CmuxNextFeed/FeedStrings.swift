@@ -9,6 +9,8 @@ nonisolated enum FeedStrings {
 
     static var title: String { t("feed.title", "Feed") }
     static var empty: String { t("feed.empty", "Nothing new") }
+    /// Before the feed's owner answered: the list is not known yet.
+    static var loading: String { t("feed.loading", "Loading…") }
     static var markAllRead: String { t("feed.markAllRead", "Mark All Read") }
     static var github: String { t("feed.github", "GitHub") }
     static var addConnection: String { t("feed.addConnection", "Add connection") }
@@ -28,6 +30,8 @@ nonisolated enum FeedStrings {
     static var reportsTitle: String { t("reports.title", "Reports basket") }
     static var reportsSubtitle: String { t("reports.subtitle", "Human view · reports do not wake a model") }
     static var reportsEmpty: String { t("reports.empty", "No agent reports yet") }
+    /// Before the reports mailbox was read.
+    static var reportsLoading: String { t("reports.loading", "Loading reports…") }
     static var reportsEmptyHint: String {
         t("reports.emptyHint", "Deliver to reports:<person> to add one without waking a Chief.")
     }

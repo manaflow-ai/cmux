@@ -12,6 +12,10 @@ extension Strings {
     static func priorityAttentionCount(_ count: Int) -> String {
         String(localized: "sidebar.priority.attentionCount", defaultValue: "Needs attention: \(count)", bundle: .module)
     }
+    /// Before any chat list was read: the panel does not know yet whether there are chats.
+    static var priorityLoading: String {
+        String(localized: "sidebar.priority.loading", defaultValue: "Loading agent chats…", bundle: .module)
+    }
     static var priorityEmpty: String {
         String(localized: "sidebar.priority.empty", defaultValue: "No agent chats right now", bundle: .module)
     }

@@ -29,7 +29,7 @@ final class SidebarPriorityPanelView: NSView {
     /// clipping until the later move ends, as the main list's `opens` count does.
     private var placement = 0
     private var opensUntil: [ObjectIdentifier: Int] = [:]
-    private(set) var panel = SidebarPriorityPanel(entries: [])
+    private(set) var panel = SidebarPriorityPanel(entries: [], loaded: false)
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
@@ -79,6 +79,10 @@ final class SidebarPriorityPanelView: NSView {
         return panel.entries.reduce(0) { $0 + SidebarPriorityRowView.height($1) }
     }
 
+    /// The line shown with no rows ("No agent chats right now", or loading before the list was
+    /// read); nil while rows show or the panel is folded (tests).
+    var emptyNote: String? { empty.isHidden ? nil : empty.stringValue }
+
     /// The height the panel takes, at most `maximum` (its rows then scroll inside).
     func height(maximum: CGFloat) -> CGFloat {
         min(headerHeight + contentHeight + Metrics.space1, max(headerHeight, maximum))
@@ -97,6 +101,8 @@ final class SidebarPriorityPanelView: NSView {
         let attention = panel.attentionCount
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
         empty.isHidden = panel.collapsed || !panel.entries.isEmpty
+        // Before the chat list was read the panel does not know there are none.
+        empty.stringValue = panel.loaded ? Strings.priorityEmpty : Strings.priorityLoading
         fade.isHidden = panel.collapsed
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()

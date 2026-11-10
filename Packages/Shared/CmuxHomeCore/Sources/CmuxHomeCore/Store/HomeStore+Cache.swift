@@ -78,14 +78,19 @@ extension HomeStore {
     }
 
     /// The owner's state as the mirror has it (the view cache adds the client's own state). The
-    /// mirror's `me` is the store's (every assignment of `me` copies it). O(open windows + unsent
-    /// sends) on the main actor: the dictionaries and message arrays are copy-on-write copies; the
+    /// mirror's `me` is the store's (every assignment of `me` copies it). O(open and kept windows +
+    /// unsent sends) on the main actor: the dictionaries and message arrays are copy-on-write copies; the
     /// cache actor sorts, trims and encodes them.
     func ownerCacheState() -> HomeCacheState {
         var state = HomeCacheState()
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
         state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        // Closed chats' transcripts too, so they draw at once after a relaunch (the cache bounds them).
+        for (id, messages) in mirror.keptTranscripts where state.windows[id] == nil && !messages.isEmpty {
+            state.windows[id] = messages
+            state.kept.append(id)
+        }
         state.sends = log.entries.compactMap(HomeCachedSend.init)
         return state
     }

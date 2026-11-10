@@ -88,12 +88,17 @@ public nonisolated struct SidebarPriorityPanel: Hashable, Sendable {
     public var collapsed: Bool
     /// The toggle action's shortcut as the person sees it ("⌥⌘K"), for the bell's tooltip.
     public var shortcut: String?
+    /// The chat list was read: with no entries the view says there are none only then, and says
+    /// it is loading before (ui-state-fixes M6).
+    public var loaded: Bool
 
-    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil) {
+    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil,
+                loaded: Bool = true) {
         self.entries = entries
         self.shown = shown
         self.collapsed = collapsed
         self.shortcut = shortcut
+        self.loaded = loaded
     }
 
     /// The rows that need the person (the folded header's count and the bell's dot).
