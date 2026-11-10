@@ -399,6 +399,16 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
     // moves them, whatever their number (each statement that can set `workspaces.position` is
     // compiled when it runs).
     for arms in [&small, &large] {
+        // The floor of the count: the statement that tombstones the closed row always sets its
+        // position, so each close compiles one such statement or more.
+        if arms.last.sql.position_writes == 0 {
+            problems.push(format!(
+                "last of {}: 0 statements write `workspaces.position`. The tombstone of the \
+                 closed row always sets it, so 0 means that the authorizer saw nothing, and the \
+                 bound on the statements of a middle and a first close proves nothing",
+                arms.workspaces
+            ));
+        }
         for (name, cost) in [("middle", &arms.middle), ("first", &arms.first)] {
             eprintln!(
                 "position statements, {name} of {}: {} for {} later ({} for the last one)",
