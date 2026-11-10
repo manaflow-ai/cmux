@@ -1,0 +1,15 @@
+{
+ "shots": [
+  {
+   "name": "settings",
+   "entry": "pages.settings",
+   "arms": {
+    "after": ""
+   },
+   "width": 1100,
+   "height": 700,
+   "deviceScaleFactor": 1,
+   "frame": "window"
+  }
+ ]
+}
