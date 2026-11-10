@@ -114,7 +114,7 @@ fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value>
     let Some(reference) = reference else { return Ok(Ready::Reused) };
     let commit = |name: &str| git(Some(dir), ["rev-parse", "--verify", "--quiet", name]).ok();
     let head = commit("HEAD^{commit}");
-    if head.is_some() && head == commit(&format!("{reference}^{{commit}}")) {
+    if head.is_some() && head == checkout_target(reference, commit) {
         return Ok(Ready::Reused);
     }
     Err(error(
@@ -126,6 +126,22 @@ fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value>
         ),
         json!({"dir": dir, "ref": reference, "head": head}),
     ))
+}
+
+/// The commit `git checkout REFERENCE` would check out, as `commit` (a `rev-parse`) reads it:
+/// a local branch of that name first, then the name as git reads it anywhere (a tag, a commit, a
+/// full ref), then the remote branch checkout would make a local branch from.
+pub(super) fn checkout_target(
+    reference: &str,
+    commit: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    [
+        format!("refs/heads/{reference}^{{commit}}"),
+        format!("{reference}^{{commit}}"),
+        format!("refs/remotes/origin/{reference}^{{commit}}"),
+    ]
+    .iter()
+    .find_map(|name| commit(name))
 }
 
 /// Whether two remote URLs name one repository: equal once a trailing `/` and `.git` are dropped

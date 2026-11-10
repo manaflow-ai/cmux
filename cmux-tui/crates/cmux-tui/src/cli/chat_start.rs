@@ -656,7 +656,15 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     };
     let start = match route {
         // Every other argument is checked before anything is cloned.
-        Route::Here if start.repo.is_some() && here_preflight(&start).is_err() => start,
+        // So are the files `--attach` names: the start below refuses the same ones.
+        Route::Here
+            if start.repo.is_some()
+                && (here_preflight(&start).is_err()
+                    || super::agents::chat_control::checked_attachments(&start.attach)
+                        .is_err()) =>
+        {
+            start
+        }
         Route::Here => match in_repo(start, global.output) {
             Ok(start) => start,
             Err(Failure::Usage(error)) => return usage_failure(&error, global.output),

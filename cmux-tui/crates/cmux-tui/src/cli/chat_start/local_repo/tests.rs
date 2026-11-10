@@ -168,3 +168,23 @@ fn a_linked_worktree_and_an_empty_repository_are_reused() {
     assert_eq!(ensure(&empty_url, None, &empty), Ok(Ready::Cloned));
     assert_eq!(ensure(&empty_url, None, &empty), Ok(Ready::Reused));
 }
+
+#[test]
+fn a_ref_is_read_the_way_git_checkout_reads_it() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let dir = root.path().join("dir");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
+    // HEAD is main; origin/topic is the same commit and there is no local `topic` branch.
+    assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Reused));
+    // A local branch wins over a tag of the same name, as checkout picks it.
+    let pick = |names: &[(&str, &str)], reference: &str| {
+        super::checkout_target(reference, |name| {
+            names.iter().find(|(n, _)| *n == name).map(|(_, c)| (*c).to_owned())
+        })
+    };
+    let both = [("refs/heads/v1^{commit}", "branch"), ("v1^{commit}", "tag")];
+    assert_eq!(pick(&both, "v1").as_deref(), Some("branch"));
+    let remote = [("refs/remotes/origin/topic^{commit}", "remote")];
+    assert_eq!(pick(&remote, "topic").as_deref(), Some("remote"));
+}
