@@ -64,6 +64,8 @@ mod view_close_replay;
 mod viewport_columns;
 #[cfg(unix)]
 mod workspace_close_cost;
+#[cfg(unix)]
+mod workspace_close_time;
 mod workspace_materialize;
 mod workspaces;
 mod writer_lock_order;

@@ -116,7 +116,7 @@ fn workspace_key(index: usize) -> String {
 
 /// `workspaces` workspaces with one running terminal each, the second one selected (no arm closes
 /// it), and the journal's public fold seeded, as in a live session.
-fn session(workspaces: usize) -> Arc<Mux> {
+pub(super) fn session(workspaces: usize) -> Arc<Mux> {
     let mux = test_mux();
     let mut terminals = Vec::with_capacity(workspaces);
     for index in 0..workspaces {
