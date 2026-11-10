@@ -1,20 +1,7 @@
 import AppKit
-import SwiftUI
 
-/// `Image(src)`: a file inside the app bundle (never the network).
-struct AppSceneBundleImage: View {
-    let path: String?
-    @Environment(\.appBundleDirectory) private var directory
-
-    var body: some View {
-        if let image = AppBundleImageCache.shared.image(path: path, in: directory) {
-            Image(nsImage: image).resizable().scaledToFit()
-        }
-    }
-}
-
-/// Decoded bundle images, keyed by absolute path. Paths are validated to
-/// stay inside the bundle directory.
+/// Decoded bundle images for `Image(src)`, a file inside the app bundle (never the network), keyed
+/// by absolute path. Paths are validated to stay inside the bundle directory.
 @MainActor
 final class AppBundleImageCache {
     static let shared = AppBundleImageCache()
