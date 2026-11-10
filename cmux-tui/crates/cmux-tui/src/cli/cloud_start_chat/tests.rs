@@ -1936,7 +1936,8 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
 
 /// `cloud list-machines` signed in as `user` on `team`, listing `machines` by id.
 fn listed_as(user: &str, team: Option<&str>, machines: &[&str]) -> Ran {
-    let rows: Vec<Value> = machines.iter().map(|id| json!({"machine_id": id, "title": id})).collect();
+    let rows: Vec<Value> =
+        machines.iter().map(|id| json!({"machine_id": id, "title": id})).collect();
     ok(json!({"loaded": true, "account": {"signed_in": true, "user_id": user, "team_id": team},
               "machines": rows}))
 }
@@ -1991,7 +1992,11 @@ fn an_account_run_starts_and_sends_only_on_that_account() {
     assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
 
     // Without --account nothing extra is read.
-    let mut fake = Fake::new(vec![signed_in(), started(), exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n")]);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
     assert!(matches!(run(&mut fake, &request(&["--prompt", "x"])), Outcome::Done(_)));
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
 }

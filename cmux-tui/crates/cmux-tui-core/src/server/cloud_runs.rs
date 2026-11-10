@@ -526,7 +526,10 @@ mod tests {
             account_scope(&list(true, Some("u1"), Some("t1"), json!([]), json!([]))).as_deref(),
             U1_T1
         );
-        assert_eq!(account_scope(&list(true, Some("u1"), None, json!([]), json!([]))).as_deref(), U1);
+        assert_eq!(
+            account_scope(&list(true, Some("u1"), None, json!([]), json!([]))).as_deref(),
+            U1
+        );
         assert_eq!(account_scope(&list(false, None, None, json!([]), json!([]))), None);
     }
 
