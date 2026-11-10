@@ -70,8 +70,8 @@ await requireBrowserLane("session-info-resize-browser.test.ts", async () => {
 
   const toggled = (page: Page) =>
     page.evaluate(() => document.querySelector(".acpmux-session-info-toggle")?.getAttribute("aria-pressed") === "true");
-  const resizeTo = async (page: Page, width: number) => {
-    await page.setViewportSize({ width, height: 640 });
+  const resizeTo = async (page: Page, width: number, height = 640) => {
+    await page.setViewportSize({ width, height });
     await page.waitForFunction(
       (w) => Math.abs((document.querySelector<HTMLElement>(".acpmux-shell")?.clientWidth ?? 0) - w) <= 1,
       width,
@@ -104,6 +104,15 @@ await requireBrowserLane("session-info-resize-browser.test.ts", async () => {
     for (const width of [NARROW, WIDE, 420, 1400]) {
       await resizeTo(page, width);
       expect({ width, open: await toggled(page) }).toEqual({ width, open: true });
+    }
+    await page.close();
+  });
+
+  test("the window made shorter than a popover's height keeps an open Session Info open", async () => {
+    const { page } = await open("wide", WIDE, false);
+    for (const height of [400, 640, 360]) {
+      await resizeTo(page, WIDE, height);
+      expect({ height, open: await toggled(page) }).toEqual({ height, open: true });
     }
     await page.close();
   });
