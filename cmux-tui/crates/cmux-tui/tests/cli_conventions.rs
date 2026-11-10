@@ -92,7 +92,6 @@ impl Cli {
     fn run_in(&self, args: &[&str], cwd: &std::path::Path, env: &[(&str, &str)]) -> Output {
         Command::new(self.dir.join("cmux"))
             .current_dir(cwd)
-            .envs(env.iter().copied())
             .args(args)
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
@@ -102,6 +101,7 @@ impl Cli {
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .output()
             .unwrap()
