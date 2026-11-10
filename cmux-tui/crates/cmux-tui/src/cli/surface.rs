@@ -122,10 +122,12 @@ Cloud VMs through the cmux VM API (vm.cmux.dev):
   resume    Resume a paused VM
   start     Start a stopped VM
   stop      Stop a VM; its disk stays
-  rm        Delete a VM for good
+  rm        Delete a VM for good (--wait: until it is gone; --with-snapshots:
+            its snapshots too)
   exec      Run a command on a VM
   fork      Fork a VM
   snapshot  Snapshots (new, show, ls, rm)
+  snapshots The team's snapshots and whether their VM still exists (--orphaned)
   access    Short-lived access to one VM (new, ls, revoke, exec)
   key       A VM-only agent key for any process (new, status, revoke)
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)

@@ -842,7 +842,7 @@ fn run_in_process(plan: Vec<String>, scope: Scope, env: &dyn Fn(&str) -> Option<
 /// A runtime for the cmux-vm client. reqwest rides cmux's rustls without a
 /// provider of its own (cmux-vm's default-tls feature is off here): install
 /// ring, as the other HTTPS verbs do.
-fn client_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+pub(super) fn client_runtime() -> std::io::Result<tokio::runtime::Runtime> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tokio::runtime::Builder::new_multi_thread().enable_all().build()
 }
