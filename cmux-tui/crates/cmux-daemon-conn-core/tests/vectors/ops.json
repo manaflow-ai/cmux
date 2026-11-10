@@ -171,6 +171,14 @@
    "request": {"kind": "connectionClosed", "answering": false}, "expect": {"disposition": "hold", "sent": true, "bound_ms": 120000}},
   {"source": "DaemonService.intendNowReporting: a timeout from a daemon that does not answer is held as sent", "op": "offline_intent_disposition",
    "request": {"kind": "timedOut", "answering": false}, "expect": {"disposition": "hold", "sent": true, "bound_ms": 120000}},
+  {"source": "DaemonService.intendNowReporting: a timeout from a daemon that answers rejects, but as sent: the person sees the unsure words, never a certain refusal", "op": "offline_intent_disposition",
+   "request": {"kind": "timedOut", "answering": true}, "expect": {"disposition": "reject", "sent": true, "bound_ms": 120000}},
+  {"source": "DaemonStore.sweepHeldIntents: a late sweep past the bound with the daemon back gives the notice, never a late settle or replay", "op": "offline_intent_sweep",
+   "request": {"held": [{"id": "t1", "held_at_ms": 0, "sent": true}, {"id": "t2", "held_at_ms": 0}], "now_ms": 150000, "reachable": true}, "expect": {"replay": [], "expire": ["t2"], "settle": [], "unsure": ["t1"], "next_check_ms": null}},
+  {"source": "DaemonStore.sweepHeldIntents: a settle in flight is not asked for again", "op": "offline_intent_sweep",
+   "request": {"held": [{"id": "t1", "held_at_ms": 0, "sent": true, "settling": true}], "now_ms": 10000, "reachable": true}, "expect": {"replay": [], "expire": [], "settle": [], "unsure": [], "next_check_ms": null}},
+  {"source": "HeldIntents.requeue: a replay that times out goes back held as sent, its first held time kept", "op": "offline_intent_requeue",
+   "request": {"held": {"id": "t1", "held_at_ms": 1000, "replaying": true}, "kind": "timedOut"}, "expect": {"id": "t1", "held_at_ms": 1000, "replaying": false, "sent": true, "settling": false}},
   {"source": "HeldIntents.pending: the health model's words", "op": "offline_intent_text",
    "request": {"action": "close", "name": "Background task"}, "expect": {"pending": "Close Background task", "when_back": "will close Background task when back", "refusal": "cmux couldn't reach its session service; Background task wasn't closed", "unsure": "cmux couldn't reach its session service; Background task may still close when it's back"}}
  ]

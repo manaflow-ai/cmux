@@ -16,6 +16,8 @@ extension DaemonLauncher {
         public var code: String
         public var message: String?
         public var description: String { "\(message ?? "replace refused") [\(code)]" }
+        /// The app's own refusal: app health held the replace when it was about to start (``replaceUnresponsive(unlessHeld:)``).
+        public static let heldCode = "app.replace_held"
     }
 
     /// The longest a replace stays silent on stdout before its first line:
@@ -25,29 +27,50 @@ extension DaemonLauncher {
     /// Runs the app's `server ensure` with `--replace-unresponsive` and
     /// returns its result. Throws ``ReplaceRefusal`` when the owner was not
     /// stopped, and the usual ensure errors when the new owner did not start.
-    @concurrent public func replaceUnresponsive() async throws -> EnsureResult {
+    /// `held`: asked again just before the replace starts (the automatic restart passes app health's
+    /// ``AppHealth/holdsReplace``), so a restore that made progress since the caller checked is not
+    /// replaced; true refuses with ``ReplaceRefusal/heldCode``. Past that point the replace's own
+    /// probe decides: it stops only an owner that does not answer.
+    @concurrent public func replaceUnresponsive(unlessHeld held: (@Sendable () -> Bool)? = nil) async throws -> EnsureResult {
         async let reapGrace = supportsReapGrace()
         let environment = await ensureEnvironment()
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
             + ["--replace-unresponsive"]
-        // No progress line while the old owner is probed and stopped: the
-        // silence bound covers that, then restore progress bounds the rest.
-        let result = try await ProcessRunner.run(
-            executable: configuration.binary,
-            arguments: arguments,
-            environment: environment,
-            stdin: configuration.installKey?.payload,
-            timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
-            progressIdle: progress ? Self.replaceSilence : nil,
-            clock: clock
-        )
-        if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {
-            throw ReplaceRefusal(code: failure.code, message: failure.message)
+        // The new owner's restore shows as an ensure's does (``EnsureOutcome/restoring``).
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
+        // App health reads a replace as it reads an ensure (Codex's review of #39247 at 2903cec): the new
+        // owner's restore progress holds the automatic replace, and its ready or a failed start ends the hold.
+        let note = health.map(EnsureProgressNote.init)
+        do {
+            // The last moment the app decides (Codex's review of #39247 at f02e048): the caller's check ran before its claim.
+            if held?() == true { throw ReplaceRefusal(code: ReplaceRefusal.heldCode, message: "the owner is restoring and still makes progress") }
+            // No progress line while the old owner is probed and stopped: the
+            // silence bound covers that, then restore progress bounds the rest.
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: arguments,
+                environment: environment,
+                stdin: configuration.installKey?.payload,
+                timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
+                progressIdle: progress ? Self.replaceSilence : nil,
+                progressed: note.map { note in { @Sendable in note.progressed() } },
+                stdoutLine: reports?.line,
+                clock: clock
+            )
+            if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {
+                throw ReplaceRefusal(code: failure.code, message: failure.message)
+            }
+            let ensured = try Self.parseEnsure(result)
+            health?.note(.ready(pid: ensured.pid))
+            ensureOutcome.note(nil, pid: ensured.pid)
+            return ensured
+        } catch {
+            // A refused replace stopped nothing: the old owner (restoring, maybe) still runs.
+            if !(error is ReplaceRefusal) { health?.note(.exited) }
+            throw error
         }
-        let ensured = try Self.parseEnsure(result)
-        ensureOutcome.note(nil, pid: ensured.pid)
-        return ensured
     }
 
     /// ``ensure()`` for the endpoint provider, recording how it ended in ``ensureOutcome``.
@@ -108,6 +131,12 @@ public final class EnsureOutcome: Sendable {
         var observer: (@MainActor @Sendable () -> Void)?
         /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
         var watch: UnresponsiveOwnerWatch?
+        /// The running ensure's last restore progress line (``restoring``).
+        var restoring: RestoreProgressReport?
+        /// The ensure whose lines ``restoring`` takes: each ``restoreReporter()`` takes the next, so a line
+        /// or an end of an earlier one that lands late changes nothing.
+        var restoreEnsure: UInt64 = 0
+        var restoringObserver: (@MainActor @Sendable () -> Void)?
     }
 
     private let state = Mutex(State())
@@ -127,6 +156,43 @@ public final class EnsureOutcome: Sendable {
     /// ``failedInARow`` (so after every failed ensure).
     public func observe(_ observer: @escaping @MainActor @Sendable () -> Void) {
         state.withLock { $0.observer = observer }
+    }
+
+    /// The session owner the running `server ensure` waits for is restoring: its last progress line.
+    /// Nil once that ensure ended (whether or not it worked) and while no ensure reported one.
+    public var restoring: RestoreProgressReport? { state.withLock { $0.restoring } }
+
+    /// Calls `observer` on the main actor after each change of ``restoring`` (every progress line, about every
+    /// 5 s while an owner restores, and once when the ensure ends).
+    public func observeRestoring(_ observer: @escaping @MainActor @Sendable () -> Void) {
+        state.withLock { $0.restoringObserver = observer }
+    }
+
+    /// One `server ensure --restore-progress`: `line` takes each stdout line (``ProcessRunner/run``'s
+    /// `stdoutLine`) and publishes the restore progress lines in ``restoring``; `end` clears it when the
+    /// ensure ends. Only the latest ensure's lines count.
+    func restoreReporter() -> (line: @Sendable (String) -> Void, end: @Sendable () -> Void) {
+        let ensure = state.withLock { state -> UInt64 in
+            state.restoreEnsure &+= 1
+            return state.restoreEnsure
+        }
+        return ({ [weak self] line in
+            guard let report = RestoreProgressReport.parse(line) else { return }
+            self?.noteRestoring(report, ensure: ensure)
+        }, { [weak self] in
+            self?.noteRestoring(nil, ensure: ensure)
+        })
+    }
+
+    private func noteRestoring(_ report: RestoreProgressReport?, ensure: UInt64) {
+        let observer = state.withLock { state -> (@MainActor @Sendable () -> Void)? in
+            guard state.restoreEnsure == ensure, state.restoring != report else { return nil }
+            state.restoring = report
+            return state.restoringObserver
+        }
+        guard let observer else { return }
+        // task-owner: one main-actor hop per progress line (about every 5 s); the observer reads the current value
+        Task { @MainActor in observer() }
     }
 
     /// Feeds every ensure's outcome to `watch`, which restarts an owner that stays stuck.

@@ -240,8 +240,9 @@ export type QuickFamilies = {
   /// next message's target (forkHold.ts): its row is the checked one and its tab opens first, and
   /// the columns' settings show its `effort` and `fast`.
   held?: { family: string; id?: string; effort?: string; fast?: boolean };
-  /// A started chat: the chat's own tab and running model (and its provider) carry the "used
-  /// here" mark (UsedMark) in this look, whatever is held.
+  /// A started chat with another harness's model held: the chat's own tab and running model (and
+  /// its provider) carry the "used here" mark (UsedMark) in this look. Absent while nothing is
+  /// held, where the running row's check already says it.
   used?: UsedLook;
   /// Starred models: each row's star at its trailing edge shows and toggles it (the Starred tab
   /// lists them). Absent: no stars on the rows.

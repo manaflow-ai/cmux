@@ -64,16 +64,15 @@ pub(crate) async fn harness_command_ready(
     crate::login_env::build_ready(
         &mut plan,
         || harness_command(name, profile, cwd, command_line.clone(), session),
-        explicit_env,
+        |cmd| explicit_env(cmd.as_std()),
         |e| anyhow!(e),
     )
     .await
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
-pub(crate) fn explicit_env(cmd: &Command) -> Vec<(String, Option<String>)> {
-    cmd.as_std()
-        .get_envs()
+pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
+    cmd.get_envs()
         .map(|(k, v)| {
             (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
         })
@@ -83,6 +82,10 @@ pub(crate) fn explicit_env(cmd: &Command) -> Vec<(String, Option<String>)> {
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
+///
+/// Every spawn builds through [`harness_command_ready`], never this directly:
+/// the only direct callers are that function and tests that read the built
+/// command without starting it.
 pub(crate) fn harness_command(
     name: &str,
     profile: &HarnessProfile,
@@ -236,10 +239,11 @@ pub(crate) fn harness_command(
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
     }
-    // An Anthropic endpoint harness: no inherited ANTHROPIC_* or Claude
-    // provider switch (the login shell's, the daemon's) overrides its own.
-    if own_endpoint == Some(crate::byo_endpoint::Kind::Anthropic) {
-        crate::byo_endpoint::clear_inherited(&mut cmd, &env);
+    // An endpoint harness: no inherited key (CMUX_BYO_API_KEY) and, for an
+    // Anthropic one, no inherited ANTHROPIC_* or Claude provider switch (the
+    // login shell's, the daemon's) overrides its own or reaches its URL.
+    if let Some(kind) = own_endpoint {
+        crate::byo_endpoint::clear_inherited(&mut cmd, kind, &env);
     }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
@@ -281,6 +285,9 @@ pub(crate) fn harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    // The subagent mark is the daemon's to give (a workflow runner a subagent started,
+    // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
+    cmd.env_remove(crate::cli::sender::SUBAGENT_ENV);
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));

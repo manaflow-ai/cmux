@@ -174,6 +174,9 @@ pub(super) struct Fixture {
     pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
+    /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
+    pub(super) catalog_after: Option<Duration>,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -241,11 +244,16 @@ fn serve(
             }
             // acpmux's catalog lists every family it runs, opencode included, so a family with
             // no phone mode resolves and is refused by the phone floor, not the catalog.
-            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some({
+                if let Some(delay) = fixture.catalog_after {
+                    std::thread::sleep(delay);
+                }
+                json!({
                 "defaultHarness": fixture.phone.as_ref().unwrap().family,
                 "families": {"claude": {}, "codex": {}, "opencode": {}},
                 "harnesses": {},
-            })),
+                })
+            }),
             "session/set_mode" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
                 if !phone.stuck {
@@ -362,7 +370,24 @@ fn serve(
                 "overrides": {"scope": params["scope"], "text": params["text"]},
             })),
             "session/set_model" | "session/set_mode" => Some(json!({})),
+            // A side question (`/btw`): a harness with no read-only mode is refused with its reason.
+            "_acpmux/btw" if params["question"] == json!("no read-only mode") => Some(json!({
+                FAKE_ERROR: "this agent has no read-only mode",
+                FAKE_ERROR_DATA: {"reason": "btw.no_read_only_mode"}})),
+            // The folder is not trusted yet: acpmux's trust gate refuses it.
+            "_acpmux/btw" if params["question"] == json!("untrusted folder") => Some(json!({
+                FAKE_ERROR: "trust the folder first",
+                FAKE_ERROR_DATA: {"reason": "trust.pending"}})),
+            // An acpmux from before inline answers opens a lasting side session.
+            "_acpmux/btw" if params["question"] == json!("old acpmux") => {
+                Some(json!({"sessionId": "acp_side", "model": null, "readOnly": "mode"}))
+            }
+            "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" if params["agent"] == json!("grok") => {
+                Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                    "userCode": "WDJB-MJHT", "needsCode": false}))
+            }
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
                 "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
@@ -784,6 +809,7 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
         json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
                "scope":"user","text":"Read early."}),
+        json!({"id":15,"cmd":"agent-session-btw","surface":surface,"question":"why?"}),
         json!({"id":15,"cmd":"agent-session-side","surface":surface,"live":true}),
     ]
 }
@@ -1225,6 +1251,21 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
             json!({"saved": true, "restarted": true}),
         ),
+        // Gemini saves a key; Grok runs its device flow (acpmux words each refusal).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "grok", "sessionId": SESSION}),
+            json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                   "userCode": "WDJB-MJHT", "needsCode": false}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1250,6 +1291,76 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
                "sessionId":"acp_other"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish","login_id":"l",
                "code":"x".repeat(5000)}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+// MARK: Side question
+
+/// The composer's `/btw <question>` on a Cloud chat (`agent-session-btw-v1`): acpmux's inline
+/// `_acpmux/btw` on the tab's own session, its `{text}` back unchanged, its refusal as an answer
+/// with only its reason. Nothing but the question passes.
+#[test]
+fn a_side_question_goes_inline_to_the_pinned_session() {
+    let fake = FakeAcpmux::start("btw");
+    let mux = mux_with(&fake, "asa-btw");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_BTW_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "btw");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-btw","surface":surface,"question":"why?"})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (question, sent, data) in [
+        (" why did it flake? ", "why did it flake?", json!({"text": "It flaked on a timeout."})),
+        (
+            "no read-only mode",
+            "no read-only mode",
+            json!({"refused": {"reason": "btw.no_read_only_mode"}}),
+        ),
+        ("untrusted folder", "untrusted folder", json!({"refused": {"reason": "trust.pending"}})),
+    ] {
+        let reply = client
+            .request(json!({"cmd":"agent-session-btw","surface":surface,"question":question}));
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let frame = fake.frame();
+        assert_eq!(frame["method"], json!("_acpmux/btw"));
+        assert_eq!(
+            frame["params"],
+            json!({"sessionId": SESSION, "question": sent, "inline": true,
+                   "_meta": {"acpmux": {"via": "app"}}}),
+            "the tab's own session, inline, held to the app's folder-trust gate; nothing else"
+        );
+    }
+    // An older acpmux opened a lasting side session instead: it is ended, and the answer says so.
+    let reply = client
+        .request(json!({"cmd":"agent-session-btw","surface":surface,"question":"old acpmux"}));
+    assert_eq!(reply["data"], json!({"refused": {"reason": "unsupported"}}), "{reply}");
+    assert_eq!(fake.frame()["method"], json!("_acpmux/btw"));
+    let kill = fake.frame();
+    assert_eq!(kill["method"], json!("_acpmux/kill"));
+    assert_eq!(kill["params"], json!({"sessionId": "acp_side", "purge": true}));
+    for bad in [
+        json!({"cmd":"agent-session-btw","surface":surface}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
+               "_meta":{"acpmux":{"via":"app"}}}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
     }
@@ -1731,10 +1842,13 @@ fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
     fake.no_frame();
 }
 
-/// A phone on the Cloud carrier keeps its asking policy in a side chat, as in the chat itself
-/// (`agent-session-prompt`): the daemon marks the side chat's first prompt `via: cloud-mobile`.
+/// A phone on the Cloud carrier never gets a side chat with a looser asking policy than its chat:
+/// its channel reaches only hostd's adapter commands (`phone_carrier.rs`, cmux-next-ios/SECURITY.md),
+/// and `agent-session-side` is not one of them (a side chat is a fork, which that channel is
+/// refused). The side chat is refused `remote_denied` and nothing reaches acpmux. Should a phone's
+/// side chat be allowed later, `submit_prompt` already marks its first prompt `via: cloud-mobile`.
 #[test]
-fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
+fn a_phones_side_chat_is_refused_on_its_carrier_channel() {
     let fake = FakeAcpmux::start("side-phone");
     let mux = mux_with(&fake, "asa-side-phone");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -1747,14 +1861,6 @@ fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
     let _ = fake.frame();
     let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
                                       "prompt":"Try it in Rust","prompt_id":"side-p2"}));
-    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
-    let _ = fake.frame();
-    let _ = fake.frame();
-    let prompt = fake.frame();
-    assert_eq!(prompt["method"], json!("session/prompt"));
-    assert_eq!(prompt["params"]["sessionId"], json!("acp_side_1"));
-    assert_eq!(
-        prompt["params"]["_meta"],
-        json!({"acpmux": {"promptId": "side-p2", "via": "cloud-mobile"}})
-    );
+    assert_code(&reply, "remote_denied");
+    fake.no_frame();
 }

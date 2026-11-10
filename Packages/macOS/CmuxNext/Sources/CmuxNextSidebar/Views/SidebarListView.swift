@@ -23,6 +23,8 @@ final class SidebarListView: NSView {
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
     /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
     var splicedRow: SidebarRowKey?
+    /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
+    var splicedOut: (key: SidebarRowKey, moved: Bool)?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
@@ -133,12 +135,33 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
-    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
-    var openDoneFolds: Set<SidebarDoneFoldID> = []
-    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
-    var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
+    var openDoneFolds: Set<SidebarDoneFoldID> {
+        get { model.openDoneFolds }
+        set { model.openDoneFolds = newValue }
+    }
+    /// The lists whose "Show N more" row the person opened: kept on the model, as `openDoneFolds`.
+    var openShowMore: Set<SidebarDoneFoldID> {
+        get { model.openShowMore }
+        set { model.openShowMore = newValue }
+    }
     /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
     var revealFlash: SidebarRevealFlash?
+    /// The project header stuck at the top of the visible rows (`SidebarListView+StickyHeader`), nil when none is.
+    var stuckHeader: SidebarStuckHeader?
+    /// Whether an open group's header sticks at the top while its rows scroll under it (a bench compares off and on).
+    var sticksHeaders = true {
+        didSet { if sticksHeaders != oldValue { followStuckHeader() } }
+    }
+    /// Points at the clip's top the rows never show in while scrolled (the traffic lights' clip,
+    /// `ScrollEdgeFadeView.topClip`): a header sticks under them.
+    var stickyTopInset: CGFloat = 0 {
+        didSet { if stickyTopInset != oldValue { followStuckHeader() } }
+    }
+    /// Told when a header sticks (true) or none is stuck any more: the sidebar holds its top fade while one is.
+    var onStuckHeaderChange: ((Bool) -> Void)?
+    /// What the stuck header stands on (`SidebarStuckVeilView`), above the rows, under the header.
+    let stuckVeil = SidebarStuckVeilView()
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -194,6 +217,18 @@ final class SidebarListView: NSView {
     /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
     /// tab in place reports it again (`refreshHoverTab`).
     var hoverTabSent: TabID?
+    /// How long a scroll rests before the row it left under a still pointer is forwarded
+    /// (`onHoverTab`, `onHoverWorkspace`). A scroll moves the hover to a new row almost every frame,
+    /// and each forward is cross-process work (a `chat.prefetch` script into the chat page on screen,
+    /// a hibernation hover intent), so forwarding every row the scroll passed cost every scroll frame
+    /// (Leo 2026-11-10, ask-7778f8202e: "our fucking thing is too slow to scroll through the side bar").
+    /// Chromium holds hover during a scroll and sends one fake mouse move after it settles; so does this.
+    /// The hover pill still follows the rows at once; only the forward waits.
+    var scrollHoverSettle: Duration = .milliseconds(100)
+    let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
+    /// The newest scheduled or cancelled scroll forward: a fire the timer already claimed when a later
+    /// scroll frame or a pointer move replaced it does nothing, so the rested row is forwarded once.
+    var scrollHoverGeneration: UInt64 = 0
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -225,6 +260,8 @@ final class SidebarListView: NSView {
         layerContentsRedrawPolicy = .never
         decorations.autoresizingMask = [.width, .height]
         addSubview(decorations)
+        stuckVeil.isHidden = true
+        addSubview(stuckVeil)
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
@@ -401,12 +438,22 @@ final class SidebarListView: NSView {
     /// hover pill sits inside the drawn fill: `Metrics.space1` in from its top
     /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
     func hoverHit(at point: CGPoint) -> SidebarRow? {
-        displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+        // The stuck header covers the rows under it (`SidebarListView+StickyHeader`).
+        if let stuck = stuckHit(at: point) { return stuck }
+        return displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
                            cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer
     /// hovers one, so a click never lands on a row other than the lit one;
     /// otherwise the row whose tile holds `point` (clicks split the gap).
+    /// A point on the stuck header goes to its view (its + and more), never to a row under it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let stuck = stuckHeader, let view = rowViews[stuck.key], !view.isHidden, let band = stuckBand {
+            let local = convert(point, from: superview)
+            if band.contains(local) { return view.hitTest(local) ?? self }
+        }
+        return super.hitTest(point)
+    }
     func clickHit(at point: CGPoint) -> SidebarRow? {
         hoverHit(at: point) ?? displayed.row(at: point.y)
     }
@@ -415,7 +462,17 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
-        forwardHover(key)
+        scrollHoverGeneration &+= 1
+        guard hoverFollowsScroll else {
+            scrollHoverForward.cancel()
+            return forwardHover(key)
+        }
+        // A scroll moved this row under a still pointer: forward the row it rests on, once (`scrollHoverSettle`).
+        let generation = scrollHoverGeneration
+        scrollHoverForward.schedule(after: scrollHoverSettle) { @MainActor [weak self] in
+            guard let self, self.scrollHoverGeneration == generation else { return }
+            self.forwardHover(self.hoveredKey)
+        }
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

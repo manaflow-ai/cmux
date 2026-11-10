@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 import Security
@@ -40,7 +41,8 @@ public final class LocalRemoteBrowserHost {
     /// The host's stderr log (kept after exit, in the temporary directory).
     public let logURL: URL
     private let process: Process
-    private let lifeline: FileHandle
+    /// The write end of the host's stdin; its writes and its close go through the feed's queue.
+    private let lifeline: PipeFeed
     /// Kept open so a later stdout write never fails with a closed pipe.
     private let output: Pipe
     private let exits: AsyncStream<Int32>
@@ -111,7 +113,10 @@ public final class LocalRemoteBrowserHost {
         try? input.fileHandleForReading.close()
         try? output.fileHandleForWriting.close()
         try? errorLog?.close()
-        try? input.fileHandleForWriting.write(contentsOf: Data((secret + "\n").utf8))
+        // The secret goes on the feed's queue, never the main actor's thread: a pipe write can
+        // wait (the kernel's pipe memory used up), as ProcessRunner's did for 391 s (2026-11-09).
+        let lifeline = PipeFeed(input.fileHandleForWriting)
+        lifeline.write(Data((secret + "\n").utf8))
         // The start deadline: when it fires first, stopping the host ends its
         // stdout, which ends the read below. Cancelled once the host listens.
         let deadline = StartDeadline()
@@ -127,7 +132,7 @@ public final class LocalRemoteBrowserHost {
             // means the host listened or exited: never stop it then.
             guard !Task.isCancelled else { return }
             deadline.fired = true
-            try? input.fileHandleForWriting.close()
+            lifeline.close()
             process.terminate()
         }
         defer { deadlineTask.cancel() }
@@ -143,17 +148,17 @@ public final class LocalRemoteBrowserHost {
         }
         deadlineTask.cancel()
         guard let listening, !deadline.fired else {
-            try? input.fileHandleForWriting.close()
+            lifeline.close()
             if deadline.fired {
                 throw Failure.timedOut(seconds: Int(timeout.components.seconds), log: log)
             }
             throw Failure.exitedBeforeListening(log: log)
         }
-        return LocalRemoteBrowserHost(endpoint: listening.endpoint, secret: secret, process: process, lifeline: input.fileHandleForWriting,
+        return LocalRemoteBrowserHost(endpoint: listening.endpoint, secret: secret, process: process, lifeline: lifeline,
                                       output: output, exits: exits, logURL: log)
     }
 
-    private init(endpoint: RemoteRdLoopbackEndpoint, secret: String, process: Process, lifeline: FileHandle, output: Pipe,
+    private init(endpoint: RemoteRdLoopbackEndpoint, secret: String, process: Process, lifeline: PipeFeed, output: Pipe,
                  exits: AsyncStream<Int32>, logURL: URL) {
         self.endpoint = endpoint
         self.secret = secret
@@ -178,7 +183,7 @@ public final class LocalRemoteBrowserHost {
     public func stop() {
         guard !isStopped else { return }
         isStopped = true
-        try? lifeline.close()
+        lifeline.close()
     }
 
     /// The host's exit status once it exited (nil when it was already read).

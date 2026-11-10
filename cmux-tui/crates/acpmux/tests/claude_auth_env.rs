@@ -1082,6 +1082,22 @@ async fn vertex_from_the_login_shell_keeps_its_regions() {
     assert_eq!(v["cloudMlRegion"], "us-east5", "{v}");
     assert_eq!(v["vertexRegions"], json!(["VERTEX_REGION_CLAUDE_OPUS"]), "{v}");
     drop(d);
+    // Claude Code on Vertex reads the Google credentials the login shell exports: the scrub of
+    // another family's keys (`agent/foreign_login.rs`) keeps what the allow-list gives Claude.
+    let google = "export GOOGLE_API_KEY=g-login\nexport GOOGLE_GENERATIVE_AI_API_KEY=g-ai\n";
+    let dir = scratch("vertex-key", &format!("export CLAUDE_CODE_USE_VERTEX=1\n{google}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["googleKeys"], json!(["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"]), "{v}");
+    drop(d);
+    // Without the person's Vertex switch they stay Gemini's.
+    let dir = scratch("novertex-key", &format!("export ANTHROPIC_API_KEY=sk-login\n{google}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["googleKeys"], json!([]), "{v}");
+    drop(d);
     let dir = scratch("novertex", &format!("export ANTHROPIC_API_KEY=sk-login\n{regions}"));
     let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
     let (reply, _) = ask(&d, "claude").await;

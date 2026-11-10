@@ -53,6 +53,8 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+mod codex_cloud_auth;
+pub mod codex_desktop;
 pub mod complete;
 pub mod config;
 pub mod context_inventory;
@@ -65,6 +67,7 @@ mod default_harness;
 pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
+pub mod desktop_link;
 pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
@@ -86,10 +89,12 @@ pub mod harness_limits;
 pub(crate) mod heap_future;
 pub mod host_load;
 pub mod host_pressure;
+pub mod hosted_mcp;
 pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+pub mod hunk_summary;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;
@@ -153,6 +158,7 @@ pub mod route_shadow;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
+pub mod run_elsewhere;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
@@ -169,6 +175,7 @@ pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
+pub mod prompt_coach;
 pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
@@ -185,6 +192,7 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
+pub(crate) mod supervise;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;

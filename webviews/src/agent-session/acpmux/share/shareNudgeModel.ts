@@ -6,7 +6,8 @@
 //
 // Once per install is the app's to keep, like a feature tip's (design feature-tips.md): the page
 // claims the nudge (`tips.state {claim: "share-nudge"}`, the app's defaults) before the line draws,
-// which the app grants only with no other tip in the last 14 days. An app that keeps no records
+// which the app grants only with no other tip in the last 14 days. The app checks the record and
+// keeps it in one step, so two panes ending a turn at once never both show it. An app that keeps no records
 // shows none, since a line that could not stay gone must not show at all. No timer, no observer:
 // it reacts to the turn's end and to the person.
 import { useEffect, useRef, useState } from "react";
@@ -18,11 +19,18 @@ import { turnEndedBetween } from "../snapshotCache";
 /** The nudge's record id in the app's tip records (lower-case, digits and dashes). */
 export const SHARE_NUDGE_ID = "share-nudge";
 
-/** The person's own chats: not a side chat, nor one an agent or a Chief started. Archived chats
- *  count: a person who archived chats is not new here. */
+/** The person's own chats: not a side chat, nor one an agent or a Chief started, nor a lane
+ *  another chat started (`reportsTo`, as leads.ts reads it). Archived chats count: a person who archived chats is not
+ *  new here. */
 export function ownChats(sessions: readonly AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return sessions.filter(
-    (entry) => !entry.side && !entry.spawnedBy && !entry.startedBy && !entry.chiefChild && !entry.chiefTurn,
+    (entry) =>
+      !entry.side &&
+      !entry.spawnedBy &&
+      !entry.startedBy &&
+      !(entry.reportsTo && entry.reportsTo !== entry.sessionId) &&
+      !entry.chiefChild &&
+      !entry.chiefTurn,
   );
 }
 

@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextMacScreen
 import CmuxNextRemote
@@ -261,7 +262,9 @@ final class TabContentCache {
     /// the record keeps naming Chromium, so a build with CEF restores it.
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
-        claimAgentDriven(surface: tab.surface, key: key)
+        let daemon = browserTabs.daemon(for: tab)
+        claimAgentDriven(surface: tab.surface, key: key, pane: daemon.store.pane(containing: tab.surface)?.resourceID?.rawValue,
+                         machine: daemon.machineID)
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }

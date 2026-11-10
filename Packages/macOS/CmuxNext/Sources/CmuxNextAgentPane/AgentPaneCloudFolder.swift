@@ -59,7 +59,7 @@ public nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
     }
 
     /// The reply: the secret's message is the folder's `~/` spelling, which the page's words name.
-    var reply: [String: Any] {
+    public var reply: [String: Any] {
         if case .secret(let folder) = self { return AgentPaneReply.failure(code: code, message: folder) }
         return AgentPaneReply.failure(code: code, message: code)
     }

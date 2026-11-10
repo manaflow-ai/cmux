@@ -371,6 +371,41 @@ pub(crate) async fn build_ready<T, E>(
     build()
 }
 
+/// `build_ready` from synchronous code (a sign-in check on a blocking
+/// thread, or outside any runtime), waiting at most `TIMEOUT`. Free when the
+/// first build's plan takes nothing only the shell holds and no read ended
+/// meanwhile; otherwise the wait runs on a thread of its own, so it never
+/// blocks a runtime's worker.
+pub(crate) fn build_ready_blocking<T: Send, E: Send>(
+    plan: &mut ChildEnv<'_>,
+    mut build: impl FnMut() -> Result<T, E> + Send,
+    explicit: impl Fn(&T) -> Vec<(String, Option<String>)> + Send,
+    refuse: impl Fn(String) -> E + Sync,
+) -> Result<T, E> {
+    let reads = READS.load(Ordering::SeqCst);
+    let built = build();
+    plan.explicit = built.as_ref().ok().map(&explicit);
+    if !ENABLED.load(Ordering::SeqCst)
+        || (plan.blocking().is_empty() && READS.load(Ordering::SeqCst) == reads)
+    {
+        return built;
+    }
+    let refuse = &refuse;
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                let runtime =
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_time()
+                        .build()
+                        .map_err(|e| refuse(format!("cannot wait for the login shell: {e}")))?;
+                runtime.block_on(build_ready(plan, build, explicit, refuse))
+            })
+            .join()
+            .unwrap_or_else(|_| Err(refuse("the login shell wait stopped".to_owned())))
+    })
+}
+
 /// A provider base URL (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`): the
 /// `PROVIDER_KEYS` names that are not secret by name.
 fn endpoint(name: &str) -> bool {
@@ -833,6 +868,14 @@ pub fn allowed_with(
     {
         return true;
     }
+    // A provider key's own family (`foreign_login::provider_key_owner`): Codex's
+    // AZURE_OPENAI_API_KEY, Grok's XAI_API_KEY, DeepSeek's DEEPSEEK_API_KEY.
+    if family.is_some()
+        && PROVIDER_KEYS.contains(&key)
+        && crate::agent::foreign_login::provider_key_owner(key) == family
+    {
+        return true;
+    }
     match family {
         Some("claude") => {
             key.starts_with("ANTHROPIC_")
@@ -989,6 +1032,15 @@ pub(crate) fn nested_local(
         .chain(machine)
         .filter(|(key, _)| crate::config::is_nested_claude_key(key))
         .collect()
+}
+
+/// The login, vault and machine values every local child gets whatever its family (the
+/// allow-list's common part and `loginEnvAllow`), with the profile `profile` deciding the
+/// Bedrock and Vertex conditions. A family's own keys and the daemon's own env are not here.
+pub(crate) fn every_child_pairs(
+    profile: Option<&BTreeMap<String, String>>,
+) -> Vec<(String, String)> {
+    pairs_for(None, profile)
 }
 
 fn pairs_for(
@@ -1637,6 +1689,35 @@ mod machine_file_tests {
 
     /// Gemini and Muse credentials follow their ACP harness across the
     /// daemon-to-agent boundary, while staying scoped away from other agents.
+    /// A provider key with one owning family besides the multi-provider
+    /// harnesses (`foreign_login::provider_key_owner`) comes from the login
+    /// shell for that family, as it stays in the daemon's env for it, and for
+    /// no other single-agent family.
+    #[test]
+    fn a_provider_key_reaches_its_own_family_from_the_login_shell() {
+        for (key, own) in [
+            ("AZURE_OPENAI_API_KEY", "codex"),
+            ("XAI_API_KEY", "grok"),
+            ("DEEPSEEK_API_KEY", "deepseek"),
+            ("OPENAI_BASE_URL", "codex"),
+            ("ANTHROPIC_BASE_URL", "claude"),
+            ("GOOGLE_API_KEY", "gemini"),
+        ] {
+            assert!(allowed(key, "dummy", Some(own)), "{own} gets {key}");
+            for other in ["claude", "codex", "gemini", "grok", "deepseek", "muse"] {
+                if other != own && !(other == "gemini" && key.starts_with("GOOGLE_")) {
+                    assert!(!allowed(key, "dummy", Some(other)), "{other} never gets {key}");
+                }
+            }
+        }
+        // Every owned key, by the one table both sides read.
+        for key in super::PROVIDER_KEYS {
+            if let Some(own) = crate::agent::foreign_login::provider_key_owner(key) {
+                assert!(allowed(key, "dummy", Some(own)), "{own} gets {key}");
+            }
+        }
+    }
+
     #[test]
     fn provider_credentials_are_scoped_to_gemini_and_muse() {
         assert!(allowed("GEMINI_API_KEY", "secret", Some("gemini")));
@@ -1847,6 +1928,10 @@ mod machine_file_tests {
                 assert!(!allowed(key, "dummy", family), "{family:?} never gets {key}");
             }
             for family in ["chief", "unii", "cursor", "deepseek", "fake"] {
+                // DeepSeek Harness gets only its own key (`foreign_login::provider_key_owner`).
+                if family == "deepseek" && key == "DEEPSEEK_API_KEY" {
+                    continue;
+                }
                 assert!(!allowed(key, "dummy", Some(family)), "{family} never gets {key}");
             }
         }

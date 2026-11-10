@@ -56,10 +56,10 @@ fn home(name: &str, extra: Value) -> PathBuf {
         "harnesses": {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "codex": {"argv": [codex, "app-server"]},
-            // Says nothing about asking (`FAKE_NO_ASK_CLAIM`): it cannot keep a policy.
-            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_ASK_CLAIM": "1"}},
-            // The same agent, which says it asks before every tool call
-            // (`agentCapabilities._meta.acpmux.asksBeforeTools`).
+            // Says nothing about asking (`FAKE_ASK_CLAIM=0`): it cannot keep a policy.
+            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
+            // The same agent, which says it asks before every tool call (the fake's default,
+            // `agentCapabilities._meta.acpmux.asksBeforeTools`).
             "asker": {"argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
@@ -1237,6 +1237,81 @@ async fn a_policy_that_cannot_hold_never_runs_however_the_chat_gets_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+impl Client {
+    /// The records of kind `kind` in chat `id`'s log.
+    async fn records(&mut self, id: &str, kind: &str) -> Vec<Value> {
+        let r = self.call("_acpmux/events", json!({"sessionId": id, "kinds": [kind]})).await;
+        r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+    }
+}
+
+/// acpmux believes an agent's `asksBeforeTools` claim only from an agent it started from a
+/// harness entry of its own config that still launches what it started from, and logs every
+/// claim (`asks_before_tools_claim`; lead, 2026-11-09). A folder profile (the repository's
+/// `.cmux/harnesses`) that claims is not believed, so a narrow policy on it does not run; nor is
+/// an entry changed while its agent runs, so a narrower policy then stops that agent.
+#[tokio::test]
+async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_config_entry() {
+    use acpmux::config::folder_profiles;
+    let dir = home("asks-claim-trust", json!({}));
+    let (repo, gate) = folder_profile(&dir);
+    // The folder profile `acme` runs the fake, which claims.
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut app = Client::app(&daemon).await;
+
+    // A config entry that claims: believed, and logged.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "ask").await;
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["harness"], "asker", "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    // An agent that makes no claim: none is logged.
+    let (id, _) = app.chat_with_policy(&dir, "plain", "approve-all").await;
+    assert!(app.records(&id, "asks_before_tools_claim").await.is_empty());
+
+    // A folder profile that claims: not believed, so a narrow policy on it does not run.
+    let folder_chat = |policy: &str| {
+        json!({"cwd": repo, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "acme", "policy": policy}}})
+    };
+    let r = app.call("session/new", folder_chat("ask")).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    let why = r["error"]["data"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("not_a_config_entry"), "{r}");
+    // Under approve-all it runs; its claim is logged as not believed, and a narrower policy
+    // then stops its agent.
+    let r = app.call("session/new", folder_chat("approve-all")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], false, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["reason"], "not_a_config_entry", "{claims:?}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.records(&id, "policy_refused").await.len(), 1, "folder agent stopped");
+
+    // A config entry changed while its agent runs: it no longer launches what the agent started
+    // from, so the claim is not believed, and a narrower policy stops the agent.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "approve-all").await;
+    let mut cfg = daemon.config.write().await;
+    let asker = cfg.harnesses.get_mut("asker").expect("asker");
+    asker.env.insert("FAKE_CHANGED".to_owned(), "1".to_owned());
+    drop(cfg);
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let refused = app.records(&id, "policy_refused").await;
+    assert_eq!(refused.len(), 1, "changed entry's agent stopped: {refused:?}");
+    let why = refused[0]["msg"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("entry_changed"), "{refused:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The median, the 95th percentile and the largest of `ms`, sorted in place.
 fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
     ms.sort_by(f64::total_cmp);
@@ -1422,5 +1497,49 @@ async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_aski
         assert_eq!(r["error"]["data"]["policy"], policy, "{r}");
         assert!(r["error"]["data"]["hint"].as_str().is_some_and(|h| !h.is_empty()), "{r}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote chat records the launch of its config entry as the entry is written, not the
+/// canonical program path its remote start resolves (lead, 2026-11-09): a catalog reload that
+/// changes nothing never marks it for a respawn, as it never marks a local chat. `asker`'s
+/// program is the bare `python3`, which a remote start resolves to a path. The reload also
+/// changes the entry of a local control chat, `ctl`: once that one's agent started again, the
+/// sweep that judged every chat is done.
+#[tokio::test]
+async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
+    let ctl = |flag: &str| json!({"argv": ["python3", FAKE_AGENT], "env": {"CTL": flag}});
+    let dir = home("remote-respawn", json!({"webAskingModes": {"asker": ["normal"]}}));
+    let config_path = dir.join("config.json");
+    let write_ctl = |flag: &str| {
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        config["harnesses"]["ctl"] = ctl(flag);
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    write_ctl("1");
+    let daemon = hub(&dir);
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "asker").await;
+    let mut app = Client::app(&daemon).await;
+    let claims = app.records(&remote, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "the remote chat's claim: {claims:?}");
+    let (control, _) = app.chat(&dir, "ctl").await;
+
+    let mut events = daemon.subscribe();
+    write_ctl("2");
+    daemon.reload_catalog().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while app.records(&control, "asks_before_tools_claim").await.len() < 2 {
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                panic!("the hub ended");
+            }
+        }
+    })
+    .await
+    .expect("the control chat's agent started again on its changed entry");
+    let marked = app.records(&remote, "respawn_pending").await;
+    assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -11,6 +11,7 @@
 
 import { CMUX_COMMANDS } from "../cmuxCommands";
 import type { StringKey } from "../i18n";
+import { FORK_ICON } from "../icons/forkIcon";
 
 export type SendChoice = "send" | "queue" | "side" | "runOn";
 
@@ -47,7 +48,7 @@ export const SEND_LABELS: Record<SendChoice, StringKey> = {
 export const SEND_ICONS: Record<SendChoice, string> = {
   send: "composer.send",
   queue: "time.waiting",
-  side: "agent.fork",
+  side: FORK_ICON,
   runOn: "git.worktree",
 };
 
@@ -70,8 +71,8 @@ export function sendChoiceForKey(event: {
  * do now, has no row (never a disabled one):
  * - `queue` only while a turn runs and Send takes the prompt into it (`sendSteers`): otherwise Send
  *   already queues behind the turn, or there is no turn to wait for.
- * - `side` only where `/side <prompt>` forks this chat (`side`) and the draft is text alone: a side
- *   chat's prompt carries no files.
+ * - `side` only where `/side <prompt>` forks this chat (`side`): the side chat's prompt takes the
+ *   draft's files too (#40066).
  * - `runOn` (Run on several agents…, runOnAgents/) only where this chat can start runs (`runOn`)
  *   and the draft is text alone: each run's first prompt is the typed text.
  * A menu with Send alone is no menu: the slot keeps its ordinary right-click.
@@ -80,13 +81,13 @@ export function sendMenuChoices(state: {
   draft: boolean;
   sendSteers: boolean;
   side: boolean;
-  files: boolean;
+  files?: boolean;
   runOn?: boolean;
 }): SendChoice[] {
   if (!state.draft) return [];
   const choices: SendChoice[] = ["send"];
   if (state.sendSteers) choices.push("queue");
-  if (state.side && !state.files) choices.push("side");
+  if (state.side) choices.push("side");
   if (state.runOn && !state.files) choices.push("runOn");
   return choices.length > 1 ? choices : [];
 }

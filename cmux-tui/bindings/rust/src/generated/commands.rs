@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b3364f55329e5dc13123ef5f45a34f190b251c48bec2a31c411fbd9ecbbbe1e6.
+// cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3457,6 +3457,18 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetDividerVisibleRequest {
+    pub split: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+    pub visible: bool,
+}
+
+#[rustfmt::skip]
+pub type SetDividerVisibleResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetFrontendBrowserHistoryRequest {
     pub history: Nullable<T::JsonValue>,
     pub surface: T::Id,
@@ -3726,6 +3738,43 @@ pub type SetWorkspaceMetadataResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellReadRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub after: Option<u64>,
+    pub run: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub wait_ms: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ShellReadResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellRunRequest {
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub run: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scope: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ShellRunResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellStopRequest {
+    pub run: String,
+}
+
+#[rustfmt::skip]
+pub type ShellStopResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub end_terminals: Option<bool>,
@@ -3763,6 +3812,9 @@ pub struct SnapshotRequestRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
+    /// The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub around: Optional<T::Id>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5609,6 +5661,10 @@ impl CmuxClient {
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
     }
 
+    pub fn set_divider_visible(&mut self, request: SetDividerVisibleRequest) -> Result<SetDividerVisibleResult> {
+        self.execute(&SET_DIVIDER_VISIBLE_METADATA, &request)
+    }
+
     pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
         self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
@@ -5717,6 +5773,18 @@ impl CmuxClient {
         self.execute(&SET_WORKSPACE_METADATA_METADATA, &request)
     }
 
+    pub fn shell_read(&mut self, request: ShellReadRequest) -> Result<ShellReadResult> {
+        self.execute(&SHELL_READ_METADATA, &request)
+    }
+
+    pub fn shell_run(&mut self, request: ShellRunRequest) -> Result<ShellRunResult> {
+        self.execute(&SHELL_RUN_METADATA, &request)
+    }
+
+    pub fn shell_stop(&mut self, request: ShellStopRequest) -> Result<ShellStopResult> {
+        self.execute(&SHELL_STOP_METADATA, &request)
+    }
+
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {
         if request.end_terminals.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;
@@ -5745,6 +5813,10 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if !request.around.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-around-v1")?;
+        }
         if request.before.is_some() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "split-before-v1")?;

@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()
@@ -213,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
         daemonPrompts = DaemonPrompts.start(services)
+        services.healthFeeds.start() // app health: before the daemon's first ensure
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
@@ -283,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preference: { [weak services] in
                 services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
-            keyRouter: services.keyRouter) { [weak services] page in
+            keyRouter: services.keyRouter, healthFeed: services.healthFeeds.pageFeed) { [weak services] page in
             // A pane's own page (the one PageWebView.shown finds, as the applier's childWindowTab; not a nested one, the Home dock's Channels) changed the view that takes its keys (its Chromium page attached after it showed, or it moved to WebKit, its Chromium tab gone): the focus model applies again (W1, W4).
             let pane = page.window.flatMap { window in services?.windows.owner(of: window) }?.content?.panes.values.first { pane in if case .page(let view)? = pane.currentContent { PageWebView.shown(in: view.content) === page } else { (page.chromiumPage as? CEFPageChromiumPage).map { pane.currentContent?.childWindowTab === $0.tab } == true } }
             if let pane, pane.workspace?.isParked == false { pane.workspace?.focus.send(.contentPresented(pane: pane.paneKey)) }
@@ -332,7 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
-        // Before any page asks: Live Web Reload off ignores web-dev.json from the first request.
+        // Before any page asks: cmux Live off ignores web-dev.json from the first request.
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
@@ -437,6 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
+                control.service?.router.attach(health: services.healthFeeds.health) // debug.health, debug.health.inject
                 #if DEBUG
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
                 let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }

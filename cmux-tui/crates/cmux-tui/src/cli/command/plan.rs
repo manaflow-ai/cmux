@@ -29,8 +29,9 @@ pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
-    /// `terminal <t> screen read` without `--details`: human output is the
-    /// screen's `text` alone, as it shows; `--json` keeps the whole record.
+    /// `terminal <t> screen read` and `terminal <t> copy` without
+    /// `--details`: human output is the result's `text` alone, as it shows;
+    /// `--json` keeps the whole record.
     ScreenText,
     AgentRoster(AgentRosterView),
     /// `agent report`: the reported record says `ended` where the daemon
@@ -161,7 +162,7 @@ impl super::CommandPlan {
         }
     }
 
-    /// `terminal <t> screen read`: human output prints the screen text only.
+    /// `terminal <t> screen read` and `copy`: human output prints the text only.
     pub(super) fn screen_text(self) -> Self {
         match self {
             Self::Protocol(mut plan) => {

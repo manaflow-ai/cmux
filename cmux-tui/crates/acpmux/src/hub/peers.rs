@@ -1065,7 +1065,7 @@ impl Hub {
                     if m == crate::peer::REATTACHED_NOTICE =>
                 {
                     let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
-                    let _ = self.events.send(HubEvent {
+                    let _ = self.events.send_remote(HubEvent {
                         session_id: id.to_owned(),
                         record: Arc::new(EventRecord {
                             seq: 0,
@@ -1576,7 +1576,10 @@ impl Hub {
         }
     }
 
-    /// This daemon's own sessions' summaries, without retaining the JSON trees.
+    /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row
+    /// parsed back from its bytes. Tests compare with it; a list copies the bytes in their kept
+    /// order instead (`Hub::own_rows_in_order`).
+    #[cfg(test)]
     pub(super) fn visit_own_session_summaries(
         &self,
         with_tools: bool,
@@ -1587,7 +1590,8 @@ impl Hub {
         }
     }
 
-    /// Each summary once, local before remote, without retaining the JSON trees.
+    /// Each summary once, local before remote, without retaining the JSON trees (tests).
+    #[cfg(test)]
     pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
         self.visit_own_session_summaries(with_tools, &mut visit);
         self.visit_remote_rows(

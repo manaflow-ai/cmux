@@ -27,11 +27,15 @@ extension SidebarLayout {
         let start = span?.start ?? row.y, end = start + (span?.length ?? row.height)
         var lead = row.key.isBlock ? row.y : start
         var above = index - 1
-        while above >= 0, rows[above].key.isRevealHeader { lead = rows[above].y; above -= 1 }
+        // A collapsed group is a stop of its own, not a header: only the selection's own group titles it.
+        while above >= 0, rows[above].key.isRevealHeader, !rows[above].isWorkspaceStop || rows[above].group == row.group {
+            lead = rows[above].y
+            above -= 1
+        }
         // Only top items (blocks, link rows) or headers above: the list's top padding, its top items and any
         // header belong to the first stop (`SidebarItemOrder.revealsTop`: Cmd-1 to Home or the first workspace).
         if !rows[..<index].contains(where: \.isWorkspaceStop) { lead = 0 }
-        let trail = rows[(index + 1)...].contains(where: { $0.key.isRevealStop }) ? end : max(totalHeight, end)
+        let trail = rows[(index + 1)...].contains(where: { $0.key.isRevealStop || $0.isWorkspaceStop }) ? end : max(totalHeight, end)
         let fits = { (lead: CGFloat, trail: CGFloat) in trail - lead + Self.revealPadding * 2 <= height }
         let (l, t) = fits(lead, trail) ? (lead, trail) : fits(lead, end) ? (lead, end) : (start, end)
         return .init(id: id, start: l, length: t - l)
@@ -76,7 +80,7 @@ extension NSScrollView {
     func scrollContent(toY y: CGFloat, animated: Bool, moved: @escaping @MainActor () -> Void) {
         let clip = contentView
         let origin = NSPoint(x: clip.bounds.minX, y: y)
-        if animated, Motion.sidebar.animatesMovement {
+        if animated, Motion.sidebar.animatesMovement(in: window) {
             Motion.sidebar.animate(.move, in: clip, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
                 self?.reflectScrolledClipView(clip)
                 moved()

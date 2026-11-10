@@ -19,8 +19,9 @@ fn only_an_all_text_prompt_is_carried() {
 
 #[test]
 fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
-    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi").unwrap();
-    assert!(deliveries().claim("u-other".into(), "s1", "p1", "hi").is_err(), "one id, one send");
+    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi").unwrap();
+    let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi");
+    assert!(again.is_err(), "one id, one send");
     assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
@@ -32,7 +33,7 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
 /// A resend waiting on a delivery the inbox refused fails with it, never answers as a turn.
 #[tokio::test]
 async fn a_resend_of_a_delivery_that_failed_fails_too() {
-    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi").unwrap();
+    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi", "hi").unwrap();
     let waiting = tokio::spawn(turn_of(rx));
     let gone = deliveries().by_uuid.remove("u-fail").unwrap();
     gone.turn.send_replace(Some(Err("refused".into())));
@@ -206,6 +207,120 @@ async fn a_watched_chat_with_no_live_app_is_still_read_only() {
     assert!(err.unwrap_err().message.contains("watch.read_only"));
 }
 
+/// A chat its session registered keeps its name while its app is not running: the prompt is
+/// refused as retryable, so the outbox keeps it queued and tries again.
+#[tokio::test]
+async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
+    let config = scratch("registered-gone");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("closed-desktop".into());
+        for (k, v) in [("bridge", "claude"), (crate::hub::register::REGISTERED_TAG, "true")] {
+            meta.tags.insert(k.into(), crate::store::Tag { value: v.into(), expires_at: None });
+        }
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: config.join("x.jsonl"),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    // The tag alone (any client may set tags) registers nothing.
+    let err = hub
+        .prompt_with(&session, blocks.clone(), "acpmux-outbox#0", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("watch.read_only"), "tag only: {}", err.message);
+    crate::hub::register::mark_registered_for_test(&session.id);
+    let err = hub
+        .prompt_with(&session, blocks.clone(), "test", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("watch.read_only"), "a person's prompt: {}", err.message);
+    let err = hub
+        .prompt_with(&session, blocks, "acpmux-outbox#1", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("bridge.not_running"), "{}", err.message);
+    let data = err.data.unwrap();
+    assert_eq!(data["reason"], "bridge.not_running");
+    assert_eq!(data["retryable"], true, "the outbox tries it again");
+    // Repro: a client removes the tag (any client may edit tags). The daemon's record still
+    // says registered, so the chat stays on the registered path (it waits for its own
+    // registered process) and never falls back to entrypoint listing.
+    session.meta.lock().unwrap().tags.remove(crate::hub::register::REGISTERED_TAG);
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub
+        .prompt_with(&session, blocks, "acpmux-outbox#3", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("bridge.not_running"), "tag removed: {}", err.message);
+}
+
+/// A registered chat whose live process handed over no token (a restarted session that has not
+/// registered again) waits instead of opening with the undocumented peer key.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_registered_chat_with_no_token_from_its_process_waits_for_register() {
+    let config = scratch("registered-no-token");
+    let transcript = config.join("sid-r.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let inbox = fake_claude(&config, "sid-r", transcript.clone());
+    // A terminal session: an entrypoint no bridge setting lists, so only register reaches it.
+    let entry = config.join(format!("sessions/{}.json", std::process::id()));
+    let mut doc: Value = serde_json::from_slice(&std::fs::read(&entry).unwrap()).unwrap();
+    doc["entrypoint"] = json!("cli");
+    std::fs::write(&entry, doc.to_string()).unwrap();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-r".into());
+        for (k, v) in [("bridge", "claude"), (crate::hub::register::REGISTERED_TAG, "true")] {
+            meta.tags.insert(k.into(), crate::store::Tag { value: v.into(), expires_at: None });
+        }
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    crate::hub::register::mark_registered_for_test(&session.id);
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub
+        .prompt_with(&session, blocks, "acpmux-outbox#2", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("bridge.not_running"), "{}", err.message);
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing opened its inbox");
+}
+
 /// A watched chat the bridge did not list (no `bridge` tag) is refused even while its app is
 /// live and delivers: a person watching a terminal session keeps it read-only.
 #[cfg(unix)]
@@ -247,12 +362,21 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
 
 #[test]
 fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed() {
-    assert_eq!(with_reply_hint("hi", None), "hi");
-    assert_eq!(with_reply_hint("hi", Some("  ")), "hi");
-    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"));
-    assert!(hinted.starts_with("hi\n\n[From cosmic-gray/claude-sr2-coord"), "{hinted}");
+    assert_eq!(with_reply_hint("hi", None, None, false), "hi");
+    assert_eq!(with_reply_hint("hi", Some("  "), None, false), "hi");
+    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false);
+    assert!(
+        hinted.starts_with(
+            "From another agent (cosmic-gray/claude-sr2-coord), not the person:\nhi\n\n"
+        ),
+        "{hinted}"
+    );
+    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false);
+    assert!(named.starts_with("From another agent (desktop-zoe, claude), not the person:\nhi"));
+    let claimed = with_reply_hint("hi", Some("bot"), None, true);
+    assert!(claimed.starts_with("From a program that calls itself bot, not the person:\nhi"));
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
-    let quoted = with_reply_hint("hi", Some("it's"));
+    let quoted = with_reply_hint("hi", Some("it's"), None, false);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
 }
 
@@ -323,6 +447,151 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
     assert_eq!(stamped(&prompt).as_deref(), Some(session.id.as_str()));
 }
 
+#[test]
+fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
+    deliveries().claim("u-c1".into(), "sc", "pc1", "hi", "hi\n\n[hint]").unwrap();
+    deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]").unwrap();
+    assert_eq!(delivered_text("sc", "hi"), None, "the app got the hinted text");
+    assert_eq!(delivered_text("other", "hi\n\n[hint]"), None);
+    assert_eq!(delivered_text("sc", " hi\n\n[hint] "), Some(("pc1".into(), "hi".into())));
+    assert_eq!(delivered_text("sc", "hi\n\n[hint]"), Some(("pc2".into(), "hi".into())));
+    assert_eq!(delivered_text("sc", "hi\n\n[hint]"), None, "each line shows one delivery");
+}
+
+/// The Codex loop: a prompt to a watched Codex desktop chat is queued for its thread through
+/// the app-server daemon; the rollout's prompt line shows as that prompt (its text, not the
+/// reply hint the app got), its answer as the turn's answer, and the call answers at its end.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown() {
+    use crate::codex_desktop::tests as codex;
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let thread = "01a1bf30-0000-7000-8000-00000000c0de";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex_desktop", "/w", false)]);
+    let _lock = codex::hold(&home, thread);
+    let rollout = home.join("rollout.jsonl");
+    std::fs::write(&rollout, "").unwrap();
+    let written = rollout.clone();
+    let added = codex::fake_daemon(&home, move |params| {
+        let text = params["input"][0]["text"].as_str().unwrap();
+        let user = json!({"type": "response_item", "payload": {"type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": text}],
+            "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}});
+        let answer = json!({"type": "response_item", "payload": {"type": "message",
+            "role": "assistant", "phase": "final_answer",
+            "content": [{"type": "output_text", "text": "PONG"}]}});
+        let end = json!({"type": "event_msg", "payload": {"type": "task_complete"}});
+        let mut f = std::fs::OpenOptions::new().append(true).open(&written).unwrap();
+        writeln!(f, "{user}\n{answer}\n{end}").unwrap();
+    });
+
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().codex = home.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.tags
+            .insert("bridge".into(), crate::store::Tag { value: "codex".into(), expires_at: None });
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: rollout,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+
+    let opts = PromptOptions {
+        prompt_id: Some("p-codex".into()),
+        agent: Some("desktop cmux".into()),
+        ..Default::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": "ping from claude"})];
+    let reply = tokio::time::timeout(
+        Duration::from_secs(20),
+        hub.prompt_with(&session, blocks, "test", false, opts),
+    )
+    .await
+    .expect("answered within 20 s")
+    .unwrap();
+
+    assert_eq!(reply["_meta"]["acpmux"]["answered"], true, "{reply}");
+    assert_eq!(reply["_meta"]["acpmux"]["bridged"]["thread"], thread, "{reply}");
+    let added = added.lock().unwrap().clone();
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0]["threadId"], thread);
+    let sent = added[0]["input"][0]["text"].as_str().unwrap();
+    assert!(
+        sent.starts_with("From another agent (desktop cmux), not the person:\nping from claude\n\n[Answer desktop cmux"),
+        "{sent}"
+    );
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let user = events.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
+    assert_eq!(user.msg["promptId"], "p-codex");
+    assert_eq!(user.msg["text"], "ping from claude");
+    assert_eq!(user.msg["client"], "bridge");
+    assert!(events.iter().any(|e| e.kind == "agent_message_chunk"
+        && e.msg.pointer("/params/update/content/text") == Some(&json!("PONG"))));
+    assert!(events.iter().any(|e| e.kind == "turn_result" && e.msg["promptId"] == "p-codex"));
+}
+
+/// A watched Codex chat whose thread no running Codex holds stays read-only.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_watched_codex_chat_with_no_live_thread_is_still_read_only() {
+    use crate::codex_desktop::tests as codex;
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let thread = "01a1bf30-0000-7000-8000-00000000dead";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex_desktop", "/w", false)]);
+    let added = codex::fake_daemon(&home, |_| {});
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().codex = home.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.tags
+            .insert("bridge".into(), crate::store::Tag { value: "codex".into(), expires_at: None });
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: home.join("x.jsonl"),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, PromptOptions::default()).await;
+    assert!(err.unwrap_err().message.contains("watch.read_only"));
+    assert!(added.lock().unwrap().is_empty(), "nothing reached the app");
+}
+
 /// Review of #38393 (F1): a shared chat's guest prompt that waits for the owner's approval never
 /// reaches the desktop app's inbox before approval; while the chat is watched it is refused.
 #[cfg(unix)]
@@ -368,6 +637,53 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_app() {
     let err = hub.prompt_with(&session, blocks, "test", false, opts).await;
     assert!(err.unwrap_err().message.contains("watch.read_only"));
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the app");
+}
+
+/// The same for a Codex desktop chat: a guest's prompt that waits for the owner's approval is
+/// never queued for the thread.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_codex_thread() {
+    use crate::codex_desktop::tests as codex;
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let thread = "01a1bf30-0000-7000-8000-0000000a99e0";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex_desktop", "/w", false)]);
+    let _lock = codex::hold(&home, thread);
+    let added = codex::fake_daemon(&home, |_| {});
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().codex = home.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.tags
+            .insert("bridge".into(), crate::store::Tag { value: "codex".into(), expires_at: None });
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: home.join("rollout.jsonl"),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy",
+        "approval": "owner"});
+    let opts = PromptOptions { provenance: Some(guest), ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "run this"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, opts).await;
+    assert!(err.unwrap_err().message.contains("watch.read_only"));
+    assert!(added.lock().unwrap().is_empty(), "nothing reached the thread");
 }
 
 /// Review of #38393 at e63236a (F1): a bridged prompt passes the dispatch gate every prompt
@@ -416,4 +732,21 @@ async fn a_prompt_the_dispatch_gate_refuses_never_reaches_the_app() {
     assert!(!err.message.contains("watch.read_only"), "{}", err.message);
     assert!(!err.message.contains("bridge.undelivered"), "{}", err.message);
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the app");
+}
+
+/// The app answers the chat a verified session message came from, by its name, not the label
+/// the sender gave (a bridged desktop chat's label names no session).
+#[test]
+fn the_reply_goes_to_the_verified_senders_chat_by_name() {
+    let label = "Claude Code desktop on host \u{b7} 75d05154";
+    let bound = crate::prompt_provenance::session_message("chat-1", "work-f5", "chat-2");
+    let agent = Some(label.to_owned());
+    let opts = PromptOptions { agent, provenance: Some(bound), ..Default::default() };
+    assert_eq!(reply_name(&opts).as_deref(), Some("work-f5"));
+    let declared = PromptOptions { agent: Some(label.into()), ..Default::default() };
+    assert_eq!(reply_name(&declared).as_deref(), Some(label));
+    let unverified = json!({"kind": "session_message", "from": "x", "fromName": "forged"});
+    let agent = Some(label.to_owned());
+    let opts = PromptOptions { agent, provenance: Some(unverified), ..Default::default() };
+    assert_eq!(reply_name(&opts).as_deref(), Some(label));
 }

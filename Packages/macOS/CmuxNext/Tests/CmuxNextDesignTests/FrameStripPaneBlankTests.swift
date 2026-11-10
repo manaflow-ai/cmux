@@ -82,6 +82,36 @@ struct FrameStripPaneBlankTests {
         } == [false, false, true, false])
     }
 
+    /// A 200x100 light frame with a dark 6x2 "prompt" at each of `prompts`.
+    static func screen(prompts: [(x: Int, y: Int)]) -> WindowFrame {
+        var pixels: [UInt8] = []
+        for y in 0..<100 {
+            for x in 0..<200 {
+                let ink = prompts.contains { x >= $0.x && x < $0.x + 6 && y >= $0.y && y < $0.y + 2 }
+                let value: UInt8 = ink ? 20 : 250
+                pixels += [value, value, value, 255]
+            }
+        }
+        return WindowFrame(milliseconds: 0, width: 200, height: 100, pixels: pixels)
+    }
+
+    @Test func aPaneWhosePromptSlidesOutOfItsRestRectIsNotBlank() async {
+        // A close: the lower pane grows up over the closed one and its prompt slides from y 60 to y 30; the closed
+        // pane's prompt goes in the first frame. Mid-motion the lower pane's prompt is above its rest rect (y 50..<100),
+        // so that rect is flat and lost its ink, yet the screen still shows it (split-scale bottom_close: 9 such frames).
+        // A pane whose prompt is gone from the screen is still blank.
+        let upper = CGRect(x: 0, y: 0, width: 200, height: 50), lower = CGRect(x: 0, y: 50, width: 200, height: 50)
+        let before = Self.screen(prompts: [(10, 10), (10, 60)]), last = Self.screen(prompts: [(10, 60)])
+        let sliding = Self.screen(prompts: [(10, 40)]), gone = Self.screen(prompts: [])
+        let measures = await WindowFrame.measure([before, sliding, gone, last], before: before, last: last, content: lower,
+                                                 strip: nil, panes: [upper, lower])
+        #expect(measures.map { $0.panes[1].isBlank(tolerance: 0.0005) } == [false, false, true, false])
+        #expect(measures.map {
+            WindowFrame.PaneMeasure.isBlank(flatness: $0.flatness, vsBefore: $0.insideBefore, vsFinal: $0.insideFinal,
+                                            settledInk: $0.settledInk, inkKept: $0.inkKept, tolerance: 0.0005)
+        } == [false, false, true, false])
+    }
+
     @Test func paneRectsDedupeAndCap() {
         let before = [CGRect(x: 0.2, y: 0, width: 9.7, height: 10), CGRect(x: 10, y: 0, width: 10, height: 10)]
         let final = [CGRect(x: 0, y: 0, width: 10, height: 10), CGRect(x: 0, y: 0, width: 20, height: 10), .zero]

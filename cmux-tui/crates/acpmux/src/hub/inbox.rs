@@ -141,6 +141,13 @@ pub const FLUSH_MS: u64 = 10 * 60 * 1000;
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
 const WHOLE_BYTES: usize = 4 * 1024;
+/// Past [`WHOLE_BYTES`], a thread's part still holds its newest message whole (`newest`) when that
+/// message is this many bytes or less, so the transcript draws it at once instead of a first line
+/// that grows into it when the thread is read ([`render`]).
+const NEWEST_BYTES: usize = 8 * 1024;
+/// The most the parts of one notice hold of newest messages past [`WHOLE_BYTES`], in bytes: the
+/// threads past it draw their preview and read the rest, as before.
+const NEWEST_TOTAL_BYTES: usize = 32 * 1024;
 /// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
 const KEEP: usize = 500;
 /// The client a notice goes under.
@@ -738,7 +745,9 @@ pub(crate) fn relay_body(text: &str) -> &str {
 ///
 /// The parts (the notice's provenance `threads`) are what the transcript draws: per thread its
 /// id, label, senders, new messages, whether it holds a blocker, the newest one's preview and its
-/// sender's session, and the messages whole when the notice holds them.
+/// sender's session, and the messages whole when the notice holds them; past that, the newest one
+/// whole (`newest`) while it is [`NEWEST_BYTES`] or less and the notice's newest ones stay within
+/// [`NEWEST_TOTAL_BYTES`]. Only the parts carry it: the agent's text keeps its previews.
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
     for item in items {
@@ -763,6 +772,7 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         );
     }
     let mut parts = Vec::new();
+    let mut newest_left = NEWEST_TOTAL_BYTES;
     for (key, list) in &threads {
         let last = list.iter().max_by_key(|i| i.at).copied();
         // The agent's text names a self-declared sender so; the transcript's parts name it alone.
@@ -846,6 +856,9 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
                 })
                 .collect();
             part.set("messages", json!(messages));
+        } else if let Some(last) = last.filter(|i| i.text.len() <= NEWEST_BYTES.min(newest_left)) {
+            newest_left -= last.text.len();
+            part.set("newest", json!(last.text));
         }
         parts.push(part);
     }
@@ -1348,7 +1361,12 @@ impl Hub {
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
         }
+        // `resent`: a resend of one it holds or a notice carries, not a message kept now
+        // (`sender_harness::on_kept` writes no claim for it).
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread});
+        if !fresh {
+            accepted.set("resent", json!(true));
+        }
         if held {
             accepted.set(crate::cli::output::HELD_IN_INBOX, json!(true));
         }

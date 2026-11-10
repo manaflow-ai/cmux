@@ -31,6 +31,7 @@ import {
   CARD_DRAFT,
   playScriptedTurn,
   SCRIPTED_ANSWER_ID as ANSWER_ID,
+  TOGGLE_CALL_ID,
   type ScriptedTurn,
 } from "../../src/agent-session/acpmux/conversation/scriptedTurn";
 import "../../src/pages/shared/desktop.css";
@@ -123,10 +124,15 @@ export type Sample = {
   rows?: RowSample[];
   /// With `?rows=1`: the composer card's top in the viewport, px.
   composer?: number;
+  /// With `?rows=1`, once the tool-toggle turn's call is drawn: its line's top in the viewport (px),
+  /// whether it is open, and its details' box: top and height as drawn this frame (0 when none).
+  line?: { top: number; open: boolean; bodyTop: number; body: number };
   /// When the frame's step began (the scripted event that named it, on the page's clock), ms.
   eventAt: number;
   /// When the reader's scripted wheel landed, once it has (`run`'s `wheel`), ms.
   wheeledAt?: number;
+  /// When the reader scrolled back down to the latest row, once they have (`wheel.backMs`), ms.
+  backAt?: number;
   /// Finite animations running this frame, anywhere in the transcript (a looping shimmer is no motion).
   animations: number;
   /// Animations started since the run began (CSS animations and Web Animations), cumulative.
@@ -153,6 +159,9 @@ const sampleRows = query.get("rows") === "1";
 // `?tailGlide=`: how the rows under a change move (tailGlide.ts looks), for the arms' numbers.
 const tailLook = query.get("tailGlide");
 if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook);
+// `?foldLook=`: how a reader's toggle folds (fold.ts FoldLook), for the looks' numbers.
+const foldLookParam = query.get("foldLook");
+if (foldLookParam) document.documentElement.setAttribute("data-fold-look", foldLookParam);
 
 /// The rows mounted this frame (RowSample's fields).
 function rowSamples(scroller: HTMLElement): RowSample[] {
@@ -189,6 +198,20 @@ function rowSamples(scroller: HTMLElement): RowSample[] {
   return out;
 }
 
+/// The tool-toggle turn's call line and its details this frame (Sample `line`).
+function lineSample(): Sample["line"] {
+  const line = document.querySelector<HTMLElement>(`[data-tool-id="${TOGGLE_CALL_ID}"][aria-expanded]`);
+  if (!line) return undefined;
+  const body = line.closest(".acpmux-row")?.querySelector<HTMLElement>(".cv-anchored-collapse");
+  const box = body?.getBoundingClientRect();
+  return {
+    top: line.getBoundingClientRect().top,
+    open: line.getAttribute("aria-expanded") === "true",
+    bodyTop: box?.top ?? 0,
+    body: box?.height ?? 0,
+  };
+}
+
 /// Whether an animation ends on its own (a looping shimmer never does, and is no motion).
 const finite = (animation: Animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity);
 /// Animations started since the run began: every CSS animation, and every Web Animation.
@@ -205,6 +228,8 @@ let phase: Phase = "idle";
 let eventAt = 0;
 /// When the reader's scripted wheel landed (`run`'s `wheel`), on the page's clock.
 let wheeledAt: number | undefined;
+/// When the reader scrolled back down to the latest row (`run`'s `wheel.backMs`).
+let backAt: number | undefined;
 let sampling = false;
 
 // The frame callback resizes a sentinel; its ResizeObserver runs after this frame's layout, after
@@ -251,23 +276,59 @@ const sampleFrame = () => {
     length,
     eventAt,
     ...(wheeledAt !== undefined && { wheeledAt }),
+    ...(backAt !== undefined && { backAt }),
     animations: document.getAnimations().filter((animation) => animation.playState === "running" && finite(animation))
       .length,
     started,
-    ...(sampleRows && { rows: rowSamples(scroller), composer: dock }),
+    ...(sampleRows && { rows: rowSamples(scroller), composer: dock, line: lineSample() }),
   });
 };
 // A row sample reads the rows where the frame paints them: its observer comes after the
 // transcript's own (made at its mount), which places the rows under a row that grew this frame.
 if (!sampleRows) new ResizeObserver(sampleFrame).observe(sentinel);
 let lateSampler: ResizeObserver | undefined;
+/// `?load=N`: each frame's callback holds the main thread N ms, as a page under heavy load does (a
+/// long transcript's commits, other panes): frames miss their slots on the wall clock.
+const loadMs = Number(query.get("load")) || 0;
 const tick = (t: number) => {
   frameAt = t;
+  if (loadMs > 0) {
+    const until = performance.now() + loadMs;
+    while (performance.now() < until) {
+      // busy: the load
+    }
+  }
   toggle = !toggle;
   sentinel.style.width = toggle ? "2px" : "1px";
   requestAnimationFrame(tick);
 };
 requestAnimationFrame(tick);
+
+/// A pointer's click on `target` at its middle: press, release and click, as a mouse delivers them, so
+/// the transcript's press and click handlers both see it (`moved`: px the pointer travels between
+/// press and release, as a hand that drags a little does).
+export function clickLine(target: HTMLElement, moved = 0) {
+  const box = target.getBoundingClientRect();
+  const x = box.left + Math.min(40, box.width / 2);
+  const y = box.top + box.height / 2;
+  const at = (dx: number) => ({ clientX: x + dx, clientY: y, button: 0, buttons: 1, bubbles: true, cancelable: true });
+  target.dispatchEvent(new PointerEvent("pointerdown", { ...at(0), pointerType: "mouse", isPrimary: true }));
+  target.dispatchEvent(new MouseEvent("mousedown", { ...at(0), detail: 1 }));
+  if (moved) target.dispatchEvent(new PointerEvent("pointermove", { ...at(moved), pointerType: "mouse" }));
+  target.dispatchEvent(
+    new PointerEvent("pointerup", { ...at(moved), buttons: 0, pointerType: "mouse", isPrimary: true }),
+  );
+  target.dispatchEvent(new MouseEvent("mouseup", { ...at(moved), buttons: 0, detail: 1 }));
+  target.dispatchEvent(new MouseEvent("click", { ...at(moved), buttons: 0, detail: 1 }));
+}
+
+/// The tool-toggle turn's click on its call's line (scriptedTurn.ts TOGGLE_CALL_ID), or a 12 px drag
+/// across it.
+const act = (action: "toggle" | "drag") => {
+  const line = document.querySelector<HTMLElement>(`[data-tool-id="${TOGGLE_CALL_ID}"][aria-expanded]`);
+  if (line) clickLine(line, action === "drag" ? 12 : 0);
+  else console.warn("send-stream-motion: no line to toggle");
+};
 
 // fixed-wait: the harness's own pauses, each named where it waits
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -289,8 +350,9 @@ async function run({
   settleMs?: number;
   /// The reader wheels up `px` px, `afterMs` after the step `at` begins (row-arrival-settle.test.ts:
   /// their input holds every motion where it is drawn): a wheel event on the transcript, then the
-  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls.
-  wheel?: { at: string; afterMs: number; px: number };
+  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls. With `backMs`, the
+  /// reader wheels back down to the latest row that long after (chat-scroll-back-still.test.ts).
+  wheel?: { at: string; afterMs: number; px: number; backMs?: number };
 }) {
   await loadHighlightedCode();
   // fixed-wait: the history's rows measure over the first frames
@@ -298,6 +360,7 @@ async function run({
   samples.length = 0;
   started = 0;
   wheeledAt = undefined;
+  backAt = undefined;
   if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
   sampling = true;
   // fixed-wait: the frames before the turn are sampled as its rest
@@ -318,11 +381,27 @@ async function run({
           );
           scroller.scrollTop -= wheel.px;
           wheeledAt = performance.now();
+          if (wheel.backMs !== undefined)
+            // fixed-wait: the reader reads where they wheeled to, then wheels back down
+            setTimeout(() => {
+              const end = scroller.scrollHeight - scroller.clientHeight;
+              scroller.dispatchEvent(
+                new WheelEvent("wheel", {
+                  deltaY: end - scroller.scrollTop,
+                  deltaMode: 0,
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+              scroller.scrollTop = end;
+              backAt = performance.now();
+            }, wheel.backMs);
         }, wheel.afterMs);
     },
     chars,
     everyMs,
     historyTurns,
+    act,
   });
   // fixed-wait: the reveal drains (StreamReveal.finishMs) before the stream counts as drawn
   await wait(400);

@@ -1,12 +1,12 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
    across that height moves the composer with it, never in a 55px jump (Leo 2026-10-20: "the new tab area
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
-.nt-screen>*{width:100%}
+.nt-screen>*{width:100%;min-width:0;max-width:100%}
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
@@ -45,10 +45,11 @@
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
  .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
-.nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ds-space-2);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-create-strip-item .nt-row-title{flex:1;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
-/* Labels that do not all fit (createStripFit.ts) go away together: three centered icons, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
-.nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative;justify-content:center}
+/* Each action centers its icon and label in its own third, so the strip reads as three cells, not a row that starts off the rows' glyph column (Leo 2026-11-06: "this is misaligned at the left ... have them all individually centered along their things?"). The cell spans the rows' edges, so its hover fill lines up with theirs. */
+.nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;justify-content:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-create-strip-item .nt-row-title{flex:0 1 auto;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
+/* Labels that do not all fit (createStripFit.ts) go away together: three icons, still centered, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
+.nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
 .nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .nt-fix-error{flex-basis:100%;margin:0;color:var(--agent-status-error,var(--agent-muted));font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
@@ -72,6 +73,9 @@
 .nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
 .nt-card-age{font-variant-numeric:tabular-nums}
+/* An archived chat (acpmux's cold archive): a muted badge beside its age, and its preview as quiet as the age; nothing else on the card moves. */
+.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
+.nt-cards[data-variant="list"] .nt-card-badge{order:-1}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
@@ -362,7 +366,7 @@
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .nt-box:focus-within {
+  .nt-box:is(:focus-visible, :has(:focus-visible)) {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -641,10 +645,10 @@
 .nt-extra-quote{flex:1 0 100%;margin:0;color:var(--agent-soft)}
 .nt-extra-quote blockquote{margin:0;font:inherit}
 .nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-widgets{display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
+.nt-widgets{min-width:0;display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
 /* --nt-card-inset: the 6 px a widget or stage card holds its 14 px rows off its edge; its hairline rules
    run edge to edge by taking that inset back. */
-.nt-widget{--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+.nt-widget{min-width:0;--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
 .nt-widget-row{display:flex;align-items:center;gap:var(--ds-space-3);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
 button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
@@ -676,7 +680,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-layout="stage"] {
   /* The band under the composer: the page's bottom padding, and where the composer sticks (below). */
   --nt-stage-foot: var(--ds-space-4);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
   gap: 0;
   padding-top: 0;
   padding-bottom: var(--nt-stage-foot);
@@ -1343,4 +1349,45 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
     var(--acpmux-composer-shadow, var(--elevation-1));
+}
+/* App widgets (cmux.newtab.widget/1, ExtensionWidgets.tsx) sit in the widget row in its own inks and
+   type: a scene's default text is the row's muted caption, so an app's clock reads as the built-in one
+   does; a wide widget takes the row's whole width, as the greeting and the quote do. */
+.nt-ext-widget {
+  --acpmux-session-info-row-radius: var(--ds-radius-md);
+  min-width: 0;
+  color: inherit;
+}
+.nt-ext-widget[data-size="wide"],
+.nt-grid-cell-wide {
+  flex: 1 0 100%;
+}
+.nt-ext-widget .cmux-app-scene-root {
+  color: inherit;
+}
+/* A widget that failed or drew past its limits: its name and why, in the row's quiet ink. */
+.nt-ext-widget-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+/* A cell of the widget row in edit mode moves along the row: it keeps its own width. */
+.nt-extras[data-editing] {
+  align-items: center;
+  row-gap: var(--ds-space-3);
+}
+.nt-grid-frame {
+  width: auto;
+  align-items: flex-start;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+}
+/* The drop mark is the focus ring's stroke, on the side the widget lands. */
+.nt-grid-frame[data-drop="before"] {
+  box-shadow: calc(-1 * var(--cmux-focus-ring-width, 1.5px)) 0 0 var(--agent-accent, var(--agent-text));
+}
+.nt-grid-frame[data-drop="after"] {
+  box-shadow: var(--cmux-focus-ring-width, 1.5px) 0 0 var(--agent-accent, var(--agent-text));
 }

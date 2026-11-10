@@ -373,6 +373,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
+        // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
+        if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
             loadAfterAttach = nil
@@ -434,6 +436,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
+        runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
         onReadyForKeys?()
     }
@@ -455,6 +458,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
         agentRelay.browserEnded()
@@ -669,8 +673,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // A hidden page has no pointer over it (Chrome hides the bubble of a background tab).
         if !visible, linkStatus != nil { linkStatus = nil }
-        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
-        if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
+        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility). A page whose view
+        // appeared earlier in this turn (a tab switch binds it, then reveals it) takes its first-frame hold here.
+        if host.visibleTab === self {
+            if visible { host.hostView.isHidden = false; host.holdFirstFrameIfAppeared(self) } else { host.setNeedsHostVisibility() }
+        }
         // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
         devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
@@ -696,6 +703,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        runtime.arriving.ended(id)
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()

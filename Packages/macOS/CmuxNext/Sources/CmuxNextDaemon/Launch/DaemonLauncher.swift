@@ -98,6 +98,8 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
+    /// App health's sink for each ensure's facts (``DaemonHealthSink``); nil: not reported.
+    public var health: DaemonHealthSink?
     /// `configuration.rememberedSocket` until the first endpoint request of
     /// any provider of this launcher takes it: the startup loop's retries
     /// and every reconnect then ask the owner (`ensure`), so a hung daemon
@@ -142,7 +144,8 @@ public struct DaemonLauncher: Sendable {
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
-        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
+        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
+        health: DaemonHealthSink? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -158,7 +161,9 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        var launcher = DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        launcher.health = health
+        return launcher
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -309,20 +314,6 @@ public struct DaemonLauncher: Sendable {
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
     }
 
-    /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
-    /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
-    public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
-        if length > 0 {
-            var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
-                let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
-            }
-        }
-        return URL(fileURLWithPath: "/tmp", isDirectory: true)
-    }
-
     // MARK: - Ensure
 
     /// Environment for `server ensure`: the provider's, plus the state
@@ -358,7 +349,10 @@ public struct DaemonLauncher: Sendable {
         // one-shot launcher marker.
         let environment = await ensureEnvironment()
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
-           let running = await runningOwner() { return running }
+           let running = await runningOwner() {
+            health?.note(.ready(pid: running.pid))
+            return running
+        }
         async let reapGrace = supportsReapGrace()
         // The bundled binary reports restore progress (`--restore-progress`): the app
         // then waits while the owner restores, with no fixed cap, and gives up
@@ -368,18 +362,32 @@ public struct DaemonLauncher: Sendable {
         // (2026-11-08). An external binary may lack the option; the cap bounds it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
-        let result = try await ProcessRunner.run(
-            executable: configuration.binary,
-            arguments: arguments,
-            environment: environment,
-            stdin: configuration.installKey?.payload,
-            timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
-            progressIdle: progress ? ensureTimeout : nil,
-            clock: clock
-        )
-        return try Self.parseEnsure(result)
+        // App health reads each ensure (read-only; nothing here changes what the launcher does). The
+        // start counts from the first restore progress, so probing a wedged owner is no start.
+        let note = health.map(EnsureProgressNote.init)
+        do {
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: arguments,
+                environment: environment,
+                stdin: configuration.installKey?.payload,
+                timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
+                progressIdle: progress ? ensureTimeout : nil,
+                progressed: note.map { note in { @Sendable in note.progressed() } },
+                stdoutLine: reports?.line,
+                clock: clock
+            )
+            let ensured = try Self.parseEnsure(result)
+            health?.note(.ready(pid: ensured.pid))
+            return ensured
+        } catch {
+            health?.note(.exited)
+            throw error
+        }
     }
 
     /// The `server ensure` command line for `configuration`. `reapGrace`

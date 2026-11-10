@@ -83,6 +83,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
         "_acpmux/prewarm": (["harness", "cwd", "release"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
+        // New project (direct.ts newProject): the folder's name only, never a path or a root.
+        "_acpmux/project_new": (["name"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
@@ -138,12 +140,13 @@ nonisolated extension AcpmuxPaneMethods {
         // The fork's boundary (`throughSeq`, or `live` for a working chat) and `/side`'s prompt.
         "_acpmux/side_chat": (["sessionId", "throughSeq", "live", "prompt"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
-        "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
+        "_acpmux/btw": (["sessionId", "question", "model", "inline", "targetHarness"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
+        "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
         "_acpmux/review_queue": (["localOnly", "limit"], []),
         "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
         "_acpmux/audit": (["since", "until", "sessionId", "limit", "cursor"], []),
