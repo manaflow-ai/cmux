@@ -62,8 +62,27 @@ pub(crate) fn disk_bytes(dir: &Path) -> u64 {
     total
 }
 
-/// The least-squares slope of `ys` over their index: growth per sample.
+/// The growth per sample of `ys` over their index, robust to one step (a pool the allocator
+/// grows once, a compaction): the median of the slopes between every two samples (Theil-Sen).
+/// A leak raises every pair's slope, so it raises the median; one step raises only the pairs
+/// that straddle it.
 pub(crate) fn slope(ys: &[f64]) -> f64 {
+    let mut pairs = Vec::new();
+    for i in 0..ys.len() {
+        for j in i + 1..ys.len() {
+            pairs.push((ys[j] - ys[i]) / (j - i) as f64);
+        }
+    }
+    if pairs.is_empty() {
+        return 0.0;
+    }
+    pairs.sort_by(f64::total_cmp);
+    let mid = pairs.len() / 2;
+    if pairs.len() % 2 == 1 { pairs[mid] } else { (pairs[mid - 1] + pairs[mid]) / 2.0 }
+}
+
+/// The least-squares slope of `ys` over their index (printed beside the robust one).
+pub(crate) fn mean_slope(ys: &[f64]) -> f64 {
     let n = ys.len() as f64;
     if ys.len() < 2 {
         return 0.0;
@@ -96,7 +115,10 @@ pub(crate) fn assert_flat_with_size(what: &str, small: f64, god: f64, floor: f64
 #[track_caller]
 pub(crate) fn assert_no_growth(what: &str, samples: &[f64], band: f64) {
     let s = slope(samples);
-    eprintln!("STRESS {what}: slope={s:.1}/round band={band:.1} samples={samples:?}");
+    let mean = mean_slope(samples);
+    eprintln!(
+        "STRESS {what}: slope={s:.1}/round (least squares {mean:.1}) band={band:.1} samples={samples:?}"
+    );
     assert!(s <= band, "{what} grows {s:.1} per round after warm-up (band {band:.1}): {samples:?}");
 }
 
@@ -135,6 +157,9 @@ mod tests {
         assert!((slope(&[1.0, 2.0, 3.0, 4.0]) - 1.0).abs() < 1e-9);
         assert!(slope(&[5.0, 5.0, 5.0]).abs() < 1e-9);
         assert!(slope(&[4.0, 3.0, 2.0]) < 0.0);
+        // One step (a pool grown once) is not growth; a steady climb is.
+        assert!(slope(&[10.0, 20.0, 20.0, 20.0, 20.0, 20.0]).abs() < 1e-9);
+        assert!((slope(&[10.0, 11.0, 12.0, 13.0, 14.0, 15.0]) - 1.0).abs() < 1e-9);
     }
 
     #[test]
