@@ -44,9 +44,16 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// The page picks Cloud for its new chat, as the Where menu's Cloud row does (New Cloud Chat,
     /// `palette.newCloudChat`; handshake `pickCloud`). Handed out once.
     public var picksCloud: Bool
+    /// The one-time token of the page that asked for this New Cloud Chat (`/side --on cloud`,
+    /// `/cd --on cloud`; webviews commandPlace.ts), for the new page to find what it handed over.
+    /// Handed out once, with ``picksCloud``.
+    public var cloudStartHandoff: String?
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
+    /// The `revealTurn` value the new page opens scrolled to (``AgentPaneModel/pendingRevealTurn``):
+    /// the chats page's match in what was said. Handed out once.
+    public var revealTurn: String?
 
     /// An ended Sandboxed send: its task, attempt key and final receipt (`{"receipt": …}` as JSON).
     public nonisolated struct SandboxResult: Sendable, Equatable {
@@ -74,7 +81,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil, model: String? = nil,
                 host: String? = nil,
                 folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false,
-                picksCloud: Bool = false) {
+                picksCloud: Bool = false, revealTurn: String? = nil) {
+        self.revealTurn = revealTurn
         self.promptBy = promptBy
         self.showsHarnesses = showsHarnesses
         self.picksCloud = picksCloud
@@ -128,7 +136,7 @@ public final class AgentPaneSeedSource {
         return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
             && value.adopt == nil && value.surface == nil
             && value.harness == nil && value.model == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
-            && !value.picksCloud
+            && !value.picksCloud && value.cloudStartHandoff == nil
     }
 
     /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
@@ -146,6 +154,8 @@ public final class AgentPaneSeedSource {
         sandboxResult = seed.sandboxResult
     }
 
+    /// Where the page opens scrolled to (``AgentPaneSeed/revealTurn``), when the seed is already known.
+    public var revealTurn: String? { read == nil ? value?.revealTurn : nil }
     /// The seed's folder when it is already known (no read from another tab still to come).
     public var knownCwd: String? { read == nil ? value?.cwd : nil }
     /// A read from another tab is still to come: the seed's folder is not known yet.
@@ -180,6 +190,7 @@ public final class AgentPaneSeedSource {
         value?.promptAttachments = nil
         value?.showsHarnesses = false
         value?.picksCloud = false
+        value?.cloudStartHandoff = nil
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed
@@ -210,12 +221,24 @@ func agentPaneFirst<T: Sendable>(within limit: Duration, _ read: @escaping @Main
     }
 }
 
+extension AgentPaneSeed {
+    /// New Cloud Chat's own seed (`palette.newCloudChat`): picks Cloud, carrying `handoff`
+    /// (``cloudStartHandoff``).
+    public static func picksCloud(handoff: String?) -> AgentPaneSeed {
+        var seed = AgentPaneSeed(picksCloud: true)
+        seed.cloudStartHandoff = handoff
+        return seed
+    }
+}
+
 extension AgentPaneSeedSource {
     /// New Cloud Chat: what New Agent Chat's tab inherits (`inherited`), with its page picking Cloud.
-    public static func picksCloud(after inherited: AgentPaneSeedSource?) -> AgentPaneSeedSource {
+    /// `handoff`: the asking page's one-time token (``AgentPaneSeed/cloudStartHandoff``).
+    public static func picksCloud(after inherited: AgentPaneSeedSource?, handoff: String? = nil) -> AgentPaneSeedSource {
         AgentPaneSeedSource {
             var seed = await inherited?.peek() ?? AgentPaneSeed()
             seed.picksCloud = true
+            seed.cloudStartHandoff = handoff
             return seed
         }
     }

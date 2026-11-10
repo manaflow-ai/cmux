@@ -20,6 +20,14 @@ fn settings_separator_keeps_literal_confirm_with_daemon() {
 
     let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
     assert!(!daemon_settings_scope(&confirmed));
+    // `--yes` is the CLI's confirm word everywhere (docs/cli-conventions.md).
+    let yes = strings(&["settings", "set", "custom.label", "value", "--yes"]);
+    assert!(!daemon_settings_scope(&yes));
+    // `--yes` takes no value: a `--json` after it is the output mode, not its value.
+    let (global, command) =
+        parse_globals(&strings(&["settings", "reset", "a.b", "--yes", "--json"])).unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+    assert_eq!(command, strings(&["settings", "reset", "a.b", "--yes"]));
 }
 
 #[cfg(unix)]
@@ -1364,4 +1372,62 @@ fn w4j_pane_move_help_is_the_pane_help() {
     }
     let (global, _) = parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
     assert_eq!(global.output, OutputMode::Json);
+}
+
+/// W5-Q (bench r4 #10): `cmux help keys` was an unknown scope. It now prints
+/// the TUI's key bindings (the prefix and each bound action, in the
+/// person's language), on both surfaces.
+#[test]
+fn w5q_help_keys_lists_the_tui_key_bindings() {
+    for surface in [Surface::Cmux, Surface::CmuxTui] {
+        let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(&["help", "keys"]), surface)
+        else {
+            panic!("help keys must be a help topic on {surface:?}");
+        };
+        assert_eq!(topic, "keys");
+    }
+    // Fixed bindings, not the person's config: a changed `split-right` on
+    // the machine must not change this result.
+    let keys = crate::config::Keys::default;
+    let split = keys().shortcut_label(crate::config::Action::SplitRight).expect("split is bound");
+    let english =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("en_US.UTF-8"), keys);
+    assert!(english.contains("Split right"), "{english}");
+    assert!(english.contains(&split), "{split}: {english}");
+    let japanese =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("ja_JP.UTF-8"), keys);
+    assert!(japanese.contains("右に分割"), "{japanese}");
+}
+
+/// `cmux --json SCOPE …` for a scope `main` routes by its first word: `--json`
+/// lands where that scope reads it, and `acp`'s positional wrappers still see
+/// their words right after the scope (`harness run NAME --tab` opens the tab).
+#[test]
+fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
+    let hoisted = |words: &[&str]| {
+        let mut args = strings(words);
+        hoist_leading_json(&mut args);
+        args
+    };
+    assert_eq!(
+        hoisted(&["--json", "harness", "run", "aider", "--tab"]),
+        strings(&["harness", "run", "aider", "--tab", "--json"])
+    );
+    assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
+    assert_eq!(
+        hoisted(&["--json", "acp", "gh", "pr", "list"]),
+        strings(&["acp", "--json", "gh", "pr", "list"])
+    );
+    assert_eq!(
+        hoisted(&["--json", "harness", "run", "aider", "--tab", "--", "x"]),
+        strings(&["harness", "run", "aider", "--tab", "--json", "--", "x"])
+    );
+    assert_eq!(
+        hoisted(&["--json", "harness", "run", "aider"]),
+        strings(&["harness", "--json", "run", "aider"])
+    );
+    assert_eq!(hoisted(&["--json", "host", "status"]), strings(&["host", "status", "--json"]));
+    assert_eq!(hoisted(&["--json", "link", "status"]), strings(&["link", "--json", "status"]));
+    assert_eq!(hoisted(&["--json", "tab", "list"]), strings(&["--json", "tab", "list"]));
 }

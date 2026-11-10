@@ -366,6 +366,7 @@ export function ToolGroupRow({
   folded = false,
   findTitle,
   inherits,
+  closedBy,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
@@ -374,6 +375,8 @@ export function ToolGroupRow({
   folded?: boolean;
   /// The key of the run line this group's line takes the place of (TurnRows.tsx): opened, it opens this.
   inherits?: readonly string[];
+  /// The key of the run line this group's line takes the place of: closed by the reader, it closes this.
+  closedBy?: readonly string[];
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -390,14 +393,11 @@ export function ToolGroupRow({
   // A call in the group the reader opened, before or after it was grouped, keeps the group open when
   // its run finishes; a choice inside the group pins it (`pin`).
   const members = useMemo(() => callDisclosureKeys(items), [items]);
-  const [open, setOpen] = useTranscriptDisclosure(
-    disclosureKey,
-    (kind !== "edits" && !folded) || holdsThought,
-    true,
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true, {
     inherits,
-    false,
     members,
-  );
+    closedBy,
+  });
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // Whether the reader's click opened the run: only then do its rows past the window draw after the
@@ -432,9 +432,10 @@ export function ToolGroupRow({
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
-        onClick={() => {
-          if (!open) setByClick(true);
-          fold.toggle();
+        onClick={(event) => {
+          // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
+          const opening = !open;
+          if (fold.toggle(event) && opening) setByClick(true);
         }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>

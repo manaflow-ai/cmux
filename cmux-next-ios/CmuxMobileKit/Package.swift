@@ -123,7 +123,7 @@ let package = Package(
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
-            "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileArtifacts", "CmuxMobileNotifications",
+            "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -147,6 +147,8 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", "CmuxMobileRealtime",
+                // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ]

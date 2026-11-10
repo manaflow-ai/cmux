@@ -603,6 +603,18 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
   });
 
+  test("publishes each ble.sh cache seed atomically", () => {
+    // Shells that start at once must never read a half-copied seed: copy into a
+    // same-directory temp file, then rename it into place (#11348).
+    expect(bashrc).toContain('__cmux_tmp="$(mktemp "${__cmux_dst}.tmp.XXXXXX" 2>/dev/null)"');
+    expect(bashrc).toContain('cp "$__cmux_seed" "$__cmux_tmp"');
+    expect(bashrc).toContain('mv -f "$__cmux_tmp" "$__cmux_dst"');
+    expect(bashrc).not.toContain('cp "$__cmux_seed" "$__cmux_dst"');
+    // A failed attempt removes only the temp file it made, never a stale value.
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeGreaterThan(-1);
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeLessThan(bashrc.indexOf('if mkdir -p "${__cmux_dst%/*}"'));
+  });
+
   test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
     // freestyle/ubuntu is Ubuntu 24.04; the reference recipe builds on the
     // same distro so its package names, the Ghostty .deb and the desktop
@@ -779,7 +791,9 @@ test "$daemon_pid" = fixture
     const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
     expect(workUser).toContain("91-cmux-work-user");
     expect(workUser).toContain("NOPASSWD:ALL");
-    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiServiceInstallCommand");
+    // An in-place upgrade installs the service too, through its install script.
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiUpgradeInstallScript");
+    expect(readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiUpgradeInstall.ts"), "utf8")).toContain("cmuxTuiServiceInstallCommand()");
   });
 
   test("the cmux-tui units never give up after repeated failed starts", () => {

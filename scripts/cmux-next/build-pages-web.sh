@@ -37,6 +37,7 @@ cloud
 cloud-progress
 coderouter
 debug-settings
+feed
 files
 github
 group-editor
@@ -54,6 +55,7 @@ overlay
 passwords
 server-cards
 settings
+setup-card
 stash
 stats
 tasks
@@ -70,7 +72,7 @@ PAGES="$PAGES bookmark-edit"
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
 # Pages that render the agent pane's Markdown, whose code blocks import shiki.
-SHIKI_PAGES="home-channels"
+SHIKI_PAGES="home-channels home-messages"
 # Pages with their own shiki (src/pages/<page>/shiki): the GitHub page's inline diffs on
 # @pierre/diffs, drawn as plain text, need Shiki's core but none of the pane's grammars.
 OWN_SHIKI_PAGES="github"
@@ -105,6 +107,8 @@ for page in $PAGES; do
     *" $page "*) shiki="$src/shiki" ;;
   esac
   bun scripts/agent-pane/bundle.mjs "$src/main.tsx" "$shiki" "$WORK/$page/app.js"
+  # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
+  if [ -f "$WORK/$page/app.css" ]; then bun scripts/postcss/gate-css.mjs "$WORK/$page/app.css"; fi
   loader=""
   case " $SPLIT_STRINGS " in
     *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;

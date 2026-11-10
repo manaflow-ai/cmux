@@ -2,9 +2,10 @@
 //! (plans/cmux-next/close-focus.md; formal model closefocus.tla): one pure
 //! function per kind. The focus reducer runs the pane rule ([`pane`]); the
 //! app's tab selection, the daemon's active tab and the cmux-tui client run
-//! [`tab`], and window and sidebar selection run [`workspace`]. Nothing else
-//! decides a successor. ([`live_openers`] keeps the browser's opener tree for
-//! where a link's new tab goes; it no longer picks a close successor.)
+//! [`tab`] (Chrome's rule), and window and sidebar selection run
+//! [`workspace`]. Nothing else decides a successor. ([`live_openers`] keeps
+//! the browser's opener tree, for where a link's new tab goes and for
+//! [`tab`]'s opener steps.)
 //!
 //! Shared contract (the model checks in this crate's tests):
 //! - C1 a focus that survives stays (closing an unfocused item, or a close
@@ -106,20 +107,161 @@ pub fn pane<T: Eq + Hash + Clone>(
     entry(next, history).cloned()
 }
 
-/// The tab a pane selects after `selected` closed: the shown tab before it
-/// in strip order (left in a strip, above in a vertical list), else the
-/// shown tab after it (Lawrence 2026-11-08: "it should always focus the tab
-/// before it if it exists"). One rule for every tab kind and every way a tab
-/// closes (Cmd-W, the close button, a middle click, the menus, the CLI, a
-/// terminal that exits, a batch close): the app's tab selection, the
-/// daemon's active tab and the cmux-tui client all call this. `old` is the
-/// strip order before the close (pinned tabs first, so closing the first
-/// unpinned tab selects the last pinned one), `surviving` the tabs left and
-/// `shown` the surviving tabs that are not hidden (a collapsed group's
-/// members are hidden and skipped). When no shown tab survives, the
-/// surviving tab before it, else after it (its group then expands). A
-/// surviving selection stays.
-pub fn tab<T: Eq + Hash + Clone>(
+/// [`pane`] with cmux classic's fallback (issue 38194): under `MostRecent`,
+/// when no surviving pane of `history` other than `focused` is left (a tree
+/// whose remaining panes were never focused, as after a relaunch), the
+/// closed pane's `sibling`, the first pane of the subtree that takes its
+/// space (Bonsplit's `closePaneRecursively`), when it survives. Otherwise
+/// exactly [`pane`].
+pub fn pane_or_sibling<T: Eq + Hash + Clone>(
+    focused: Option<&T>,
+    before: &[Vec<T>],
+    after: &[Vec<T>],
+    history: &[T],
+    sibling: Option<&T>,
+    policy: CloseFocusPolicy,
+) -> Option<T> {
+    if policy == CloseFocusPolicy::MostRecent
+        && let Some(focused) = focused
+        && let Some(sibling) = sibling
+    {
+        let surviving: HashSet<&T> = after.iter().flatten().collect();
+        let recent = history.iter().any(|id| id != focused && surviving.contains(id));
+        if !surviving.contains(focused) && !recent && surviving.contains(sibling) {
+            return Some(sibling.clone());
+        }
+    }
+    pane(focused, before, after, history, policy)
+}
+
+/// What Chrome's close rule reads besides the strip order: each link tab's
+/// opener (child to opener; relations through tabs that are gone are
+/// followed, as Chrome's `FixOpeners` keeps them) and each grouped tab's
+/// group. Both empty: the rule is positional only (the daemon, the cmux-tui
+/// client).
+#[derive(Debug, Clone)]
+pub struct TabRelations<T, G = u32> {
+    /// Child to the tab that opened it.
+    pub opener: HashMap<T, T>,
+    /// A grouped tab to its group; an ungrouped tab is absent.
+    pub group: HashMap<T, G>,
+}
+
+impl<T, G> Default for TabRelations<T, G> {
+    fn default() -> Self {
+        Self { opener: HashMap::new(), group: HashMap::new() }
+    }
+}
+
+/// The tab a pane selects after `selected` closed, as Chrome's
+/// `TabStripModel::DetermineNewSelectedIndex` picks it
+/// (chrome/browser/ui/tabs/tab_strip_model.cc; close-focus.md, Tab). Only a
+/// surviving, shown tab (not a member of a collapsed group) qualifies, in
+/// this order:
+///
+/// 1. a tab `selected` opened, the nearest after it, else before it
+///    (`GetIndexOfNextWebContentsOpenedBy`);
+/// 2. a tab opened by `selected`'s opener (a sibling), nearest after, else
+///    before (`GetIndexOfNextWebContentsOpenedByOpenerOf`);
+/// 3. `selected`'s opener;
+/// 4. in `selected`'s group, the surviving tab right after it, else right
+///    before it (shown or not: the group was not collapsed);
+/// 5. the nearest shown tab after it, else before it
+///    (`GetNextExpandedActiveTab`);
+/// 6. none shown: the surviving tab after it, else before it (its group then
+///    expands).
+///
+/// So with no relations, closing the selected tab selects the tab to its
+/// right, else the one to its left. One rule for every tab kind and every
+/// way a tab closes (Cmd-W, the close button, a middle click, the menus, the
+/// CLI, a terminal that exits, a batch close). `old` is the strip order
+/// before the close (pinned tabs first), `surviving` the tabs left, `shown`
+/// the surviving tabs that are not hidden. A surviving selection stays
+/// (closing a tab that is not selected never moves the selection); no
+/// selection takes the first shown survivor.
+pub fn tab<T: Eq + Hash + Clone, G: Eq>(
+    selected: Option<&T>,
+    old: &[T],
+    surviving: &[T],
+    shown: &HashSet<T>,
+    relations: &TabRelations<T, G>,
+) -> Option<T> {
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(selected) = selected else {
+        return surviving
+            .iter()
+            .find(|id| shown.contains(*id))
+            .or_else(|| surviving.first())
+            .cloned();
+    };
+    if live.contains(selected) {
+        return Some(selected.clone());
+    }
+    let eligible = |id: &T| live.contains(id) && shown.contains(id);
+    if let Some(family) = chrome_relations(selected, old, &live, relations, eligible) {
+        return Some(family);
+    }
+    neighbor(selected, old, true, eligible)
+        .or_else(|| surviving.iter().find(|id| shown.contains(*id)))
+        .or_else(|| neighbor(selected, old, true, |id| live.contains(id)))
+        .or_else(|| surviving.first())
+        .cloned()
+}
+
+/// Steps 1 to 4 of [`tab`]: a child of `closed`, a sibling, its opener,
+/// then its group's neighbor. None when no step picks (or `closed` is not in
+/// `old`).
+fn chrome_relations<T: Eq + Hash + Clone, G: Eq>(
+    closed: &T,
+    old: &[T],
+    live: &HashSet<&T>,
+    relations: &TabRelations<T, G>,
+    eligible: impl Fn(&T) -> bool,
+) -> Option<T> {
+    if !old.contains(closed) {
+        return None;
+    }
+    if !relations.opener.is_empty() {
+        // The relations among the tabs left and the closed one, through tabs
+        // that left with it (`FixOpeners`).
+        let present: Vec<T> =
+            old.iter().filter(|id| *id == closed || live.contains(id)).cloned().collect();
+        let opener = live_openers(&relations.opener, &present);
+        // `GetIndexOfNextWebContentsOpenedBy`: the nearest after, else before.
+        let opened_by = |parent: &T| -> Option<T> {
+            let (mut after, mut before) = around(closed, old)?;
+            let child = |id: &&T| opener.get(*id) == Some(parent) && eligible(id);
+            after.find(child).or_else(|| before.find(child)).cloned()
+        };
+        if let Some(child) = opened_by(closed) {
+            return Some(child);
+        }
+        if let Some(parent) = opener.get(closed) {
+            if let Some(sibling) = opened_by(parent) {
+                return Some(sibling);
+            }
+            if eligible(parent) {
+                return Some(parent.clone());
+            }
+        }
+    }
+    // In its group: the surviving tab right after it, else right before it.
+    let group = relations.group.get(closed)?;
+    let (mut after, mut before) = around(closed, old)?;
+    let in_group = |id: &T| relations.group.get(id) == Some(group);
+    after
+        .find(|id| live.contains(id))
+        .filter(|id| in_group(id))
+        .or_else(|| before.find(|id| live.contains(id)).filter(|id| in_group(id)))
+        .cloned()
+}
+
+/// The rule of 2026-11-08 ("always the tab before it"): the shown tab before
+/// `selected`, else the shown tab after it. Kept only for the pinned app
+/// FFI's `cmux_close_focus_tab`, so a re-pin does not change the app's
+/// selection before the app moves to `cmux_close_focus_tab_chrome`; goes
+/// with that symbol at the next ABI change.
+pub fn tab_before<T: Eq + Hash + Clone>(
     selected: Option<&T>,
     old: &[T],
     surviving: &[T],

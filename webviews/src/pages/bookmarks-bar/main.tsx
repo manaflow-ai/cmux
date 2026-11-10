@@ -1,11 +1,11 @@
 // Boots the bookmarks bar (`cmux-page://cmux.bookmarks-bar/`), one page per bookmarks bar on
 // screen: CmuxNextBookmarks' BookmarksBarPages lends it to the browser tab whose bar is in a window
 // and takes it back when that tab hides, so the pages follow the bars in sight, not the tabs. The
-// host relays `cmux.bookmarks.*` to the daemon (the bar may read `children` and apply on a gesture),
-// serves the profile, icons and opening (`cmux.bookmarkPage.*`) and the native menus
-// (`cmux.bookmarksBar.*`).
+// host relays `cmux.bookmarks.*` reads to the daemon, serves the profile, icons and opening
+// (`cmux.bookmarkPage.*`), and the native menus and the bar's writes (`cmux.bookmarksBar.*`). The
+// bar lays out from its own rendered width.
 import "../shared/desktop";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
@@ -31,17 +31,10 @@ export function mountBookmarksBarPage(root: HTMLElement, client: PageClient | nu
   };
   function Bar() {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-    const [width, setWidth] = useState(() => window.innerWidth);
-    useEffect(() => {
-      const resize = () => setWidth(window.innerWidth);
-      window.addEventListener("resize", resize);
-      return () => window.removeEventListener("resize", resize);
-    }, []);
     return (
       <BookmarksBar
         snapshot={snapshot}
         words={words}
-        width={width}
         onOpen={(node, disposition) => store.open(node, disposition)}
         onFolder={(node, anchor) => void store.openFolder(node, anchor, node.title)}
         onOverflow={(shown, anchor) => void store.openOverflow(shown, anchor, words.more)}

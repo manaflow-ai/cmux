@@ -89,6 +89,7 @@ final class HomeService {
     @ObservationIgnored var homeWorkspaceStep = "not started"
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
+    @ObservationIgnored let chiefHomes = HomeChiefHomes() // each Home's turn actions; Start now on a queued agent
     @ObservationIgnored let dock = HomeDock() // the Home dock's page tab and links (cx-ebm.59.5, cx-ebm.59.6)
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
@@ -199,6 +200,8 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
+    /// Bumped when a Home list source deletes conversations or lists them all again: every Messages page's source reads the deleted set again.
+    var hiddenRevision = 0
     /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (its React page).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
     @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsService(store: chatColors, design: .shared)

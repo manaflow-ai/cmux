@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::super::terminal_talk::{self, roster, send};
+use super::super::terminal_talk::{self, roster_names, send};
 use super::agent_wait_tool::{Progress, Ticker};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -22,21 +22,27 @@ const DEFAULT_SEND_SECONDS: f64 = 300.0;
 
 const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (Claude Code, \
     Codex, or any program that reports OSC 7501 status), as `cmux terminal list --agents`: \
-    {items: [{terminal, harness, status, state, title, workspace_id, workspace, cwd, \
-    updated_at_ms, age_ms, source}]}. status is blocked (a permission dialog, a question or an \
-    error waits), done (a turn finished and nobody has viewed the terminal yet), working, idle \
-    or unknown, and null for an ended session. state keeps the older words: busy, idle, \
-    waiting-for-input or ended. Blocked first, then done, working, idle, unknown, ended; \
+    {items: [{terminal, name, harness, status, state, title, workspace_id, workspace, cwd, \
+    updated_at_ms, age_ms, source, tab_id, tab_name, pane_id, last_reply}]}. status is blocked \
+    (a permission dialog, a question or an error waits), done (a turn finished and nobody has \
+    viewed the terminal yet), working, idle or unknown, and ended for an ended session. state \
+    is a deprecated alias of status. Blocked first, then done, \
+    working, idle, unknown, ended; \
     newest first. A shell without an agent is not listed. Changes nothing: reading does not \
     clear done.";
 
 const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux terminal and \
     get its answer, as `cmux terminal <t> send`: types text as one bracketed paste (a \
     multi-line message stays one message), presses Enter, waits, and answers {terminal, \
-    harness, state, timed_out, waited_ms, anchored, output}. output is only what the terminal \
-    printed after the message, less the harness's input box. wait idle (default): until no \
+    harness, status, state, timed_out, waited_ms, anchored, reply, reply_source, output}. \
+    reply is the agent's own last message from its hooks (reply_source hook) when they gave \
+    it after the send, else the output (reply_source screen). status is the word \
+    agents_terminal_list says for the same turn (idle, done when the finished turn is not \
+    viewed yet, blocked, working, ended); state is the wait's own word. output is only what \
+    the terminal printed after the message, less the harness's input box. wait idle (default): until no \
     fresh hook or status says working and the screen has been still for settle_seconds \
-    (default 3); state is idle, or waiting-for-input when the agent stopped on a dialog. wait \
+    (default 3); state is idle, or blocked when the agent stopped on a dialog (working when \
+    the wait timed out). wait \
     prompt: until the shell shows its prompt. wait none: send and answer at once. A wait that \
     passes timeout_seconds (default 300, at most 900) answers timed_out true with the output \
     so far. An agent that already waits on a dialog is refused unless force is true, since \
@@ -173,11 +179,11 @@ pub(super) fn call_list<B: Backend>(backend: &B, arguments: &Map<String, Value>)
     match send::snapshot(backend, session.as_deref()) {
         Ok(snapshot) => {
             let now = terminal_talk::now_ms();
-            let rows = roster::agent_rows(&snapshot);
-            success(
-                json!({"items": rows.iter().map(|row| row.to_json(now)).collect::<Vec<_>>()}),
-                false,
-            )
+            let rows = roster_names::rows(&snapshot);
+            let facts = roster_names::facts(&snapshot);
+            let items: Vec<Value> =
+                rows.iter().map(|row| roster_names::row_json(row, &facts, now)).collect();
+            success(json!({"items": items}), false)
         }
         Err(failure) => failure_result(failure),
     }

@@ -121,6 +121,19 @@ expect(1, "r2-key", "cmux-binaries", "nightly/appcast.xml")
 expect(1, "r2-key", "cmux-binaries", f"{prefix}appcast.xml")
 expect(1, "r2-key", bucket, "nightly/appcast.xml")
 expect(1, "r2-key", bucket, f"{prefix}../nightly/appcast.xml")
+# The rollback drill writes only its own folder, and nothing else writes it.
+DRILL = {**ENV, "GITHUB_WORKFLOW_REF":
+         "manaflow-ai/cmux/.github/workflows/nightly-next-rollback-drill.yml@refs/heads/nightly-next"}
+expect(0, "r2-key", bucket, "nightly-next/drill/appcast-arm64.xml", env=DRILL)
+expect(0, "r2-key", bucket, "nightly-next/drill/pulled.json", env=DRILL)
+expect(1, "r2-key", bucket, "nightly-next/appcast-arm64.xml", env=DRILL)
+expect(1, "r2-key", bucket, "nightly-next/next/pulled.json", env=DRILL)
+expect(1, "r2-key", bucket, "nightly-next/drill/../appcast-arm64.xml", env=DRILL)
+expect(1, "r2-key", bucket, "nightly-next/drill/appcast-arm64.xml")
+expect(1, "r2-key", bucket, "nightly-next/drill/appcast-arm64.xml", env={**ENV, "GITHUB_WORKFLOW_REF":
+       "manaflow-ai/cmux/.github/workflows/nightly-next-rollback.yml@refs/heads/nightly-next"})
+expect(0, "r2-key", bucket, "nightly-next/appcast-arm64.xml", env={**ENV, "GITHUB_WORKFLOW_REF":
+       "manaflow-ai/cmux/.github/workflows/nightly-next-rollback.yml@refs/heads/nightly-next"})
 
 if failures:
     print("FAIL: nightly-next guard\n  " + "\n  ".join(failures))

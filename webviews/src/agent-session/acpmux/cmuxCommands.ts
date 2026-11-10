@@ -1,4 +1,5 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
+import { commandPlace } from "./commandPlace";
 import type { StringKey } from "./i18n";
 import { goesAsText, type SlashCommand } from "./slashCommands";
 
@@ -104,7 +105,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
-    hint: "<prompt>",
+    // `--on=cloud` (or `--on cloud`) opens a new Cloud chat with the prompt (commandPlace.ts).
+    hint: "[--on=cloud] <prompt>",
     source: "cmux",
     action: "side",
   },
@@ -119,18 +121,20 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "cd",
     description: "",
     descriptionKey: "composer.slashCd",
-    hint: "<folder>",
+    // `--on=cloud` (or `--on cloud`) picks Cloud for the new chat, as `cmux chat --on cloud` does
+    // (commandPlace.ts).
+    hint: "[--on=cloud] <folder>",
     source: "cmux",
     action: "cd",
   },
   // Claude Code's own /resume and /login need its terminal UI; these are the GUI's (Lawrence:
   // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search;
-  // `/resume <session id>` resumes that chat (resumeCommand.ts).
+  // `/resume <session-id>` resumes that chat (resumeCommand.ts).
   {
     name: "resume",
     description: "",
     descriptionKey: "composer.slashResume",
-    hint: "[session id]",
+    hint: "[session-id]",
     source: "cmux",
     action: "resume",
   },
@@ -252,14 +256,18 @@ export function composerCommand(
   }
 }
 
+/// The commands that take `--on here|cloud` before their arguments (commandPlace.ts): the ones that
+/// start a chat. `/side` and `/cd` start theirs in Cloud; `/fork` and `/continue` say why they can't.
+export const PLACED_ACTIONS: ReadonlySet<CmuxCommand["action"]> = new Set(["side", "cd", "fork", "continue"]);
+
 /** The same refusal policy is used before either composer dispatches a command. */
 export function cmuxCommandRefusal(
   command: CmuxCommand,
-  args: string | undefined,
+  typedArgs: string | undefined,
   state: {
     summary: boolean;
     forkable: boolean;
-    /// Why `/side` cannot fork the chat now (`forkRefusal`), undefined when it can: unlike `/fork`,
+    /// Why `/side` cannot fork the chat now (`sideChatRefusal`), undefined when it can: unlike `/fork`,
     /// a working chat forks as it is now and its own turn goes on (#38042).
     sideFork?: "unavailable" | "nothingYet";
     sideAvailable: boolean;
@@ -272,8 +280,28 @@ export function cmuxCommandRefusal(
     cwd?: string;
     /// New Tab, whose own project chip picks its folder.
     newTab?: boolean;
+    /// The chat runs in Cloud: `--on cloud` is where its `/side` and `/cd` already start.
+    inCloud?: boolean;
+    /// This pane can open New Cloud Chat for a started chat's `--on cloud` (not Quick Chat).
+    cloudStart?: boolean;
   },
 ): StringKey | undefined {
+  const placed = PLACED_ACTIONS.has(command.action) ? commandPlace(typedArgs) : undefined;
+  if (placed && "refused" in placed) return "composer.cmuxOnPlace";
+  if (placed?.place === "cloud" && !state.inCloud) {
+    // `/cd --on cloud`: a chat with no turn yet picks the folder and Cloud in this composer; a
+    // started one opens New Cloud Chat in the folder. `/side --on cloud` opens New Cloud Chat with the
+    // prompt: a new chat, not a fork. /fork and /continue take this chat with them.
+    if (command.action === "cd") {
+      if (state.newTab) return "composer.cmuxCdNewTab";
+      if (state.session && !state.cloudStart) return "composer.cmuxUnavailable";
+      return !placed.rest || cdFolder(placed.rest, state.cwd) ? undefined : "composer.cmuxCdPath";
+    }
+    if (command.action === "side")
+      return state.session && !state.newTab && state.cloudStart ? undefined : "composer.cmuxSideUnavailable";
+    return "composer.cmuxOnCloudCarries";
+  }
+  const args = placed ? placed.rest : typedArgs;
   switch (command.action) {
     case "import":
     case "model":

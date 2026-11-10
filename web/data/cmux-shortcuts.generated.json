@@ -2804,7 +2804,7 @@
             "zh-TW": "下一個空間"
           },
           "shortcut": {
-            "key": "",
+            "key": "l",
             "modifiers": [
               "ctrl",
               "opt",
@@ -2813,6 +2813,19 @@
           },
           "chord": null,
           "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            },
             {
               "keys": [
                 {
@@ -2853,7 +2866,7 @@
             "zh-TW": "上一個空間"
           },
           "shortcut": {
-            "key": "",
+            "key": "h",
             "modifiers": [
               "ctrl",
               "opt",
@@ -2862,6 +2875,19 @@
           },
           "chord": null,
           "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            },
             {
               "keys": [
                 {
@@ -8691,27 +8717,27 @@
         {
           "id": "appearance.uiScale.increase",
           "title": {
-            "en": "Increase Interface Scale",
-            "ar": "Increase Interface Scale",
-            "bs": "Increase Interface Scale",
-            "da": "Increase Interface Scale",
-            "de": "Increase Interface Scale",
-            "es": "Increase Interface Scale",
-            "fr": "Increase Interface Scale",
-            "it": "Increase Interface Scale",
-            "ja": "Increase Interface Scale",
-            "km": "Increase Interface Scale",
-            "ko": "Increase Interface Scale",
-            "no": "Increase Interface Scale",
-            "pl": "Increase Interface Scale",
-            "pt-BR": "Increase Interface Scale",
-            "ru": "Increase Interface Scale",
-            "th": "Increase Interface Scale",
-            "tr": "Increase Interface Scale",
-            "uk": "Increase Interface Scale",
-            "vi": "Increase Interface Scale",
-            "zh-CN": "Increase Interface Scale",
-            "zh-TW": "Increase Interface Scale"
+            "en": "Increase App Zoom",
+            "ar": "زيادة تكبير التطبيق",
+            "bs": "Povećaj zum aplikacije",
+            "da": "Forøg appzoom",
+            "de": "App-Zoom erhöhen",
+            "es": "Aumentar zoom de la app",
+            "fr": "Augmenter le zoom de l’app",
+            "it": "Aumenta zoom dell’app",
+            "ja": "アプリのズームを拡大",
+            "km": "បង្កើនការពង្រីកកម្មវិធី",
+            "ko": "앱 확대",
+            "no": "Øk appzoom",
+            "pl": "Zwiększ powiększenie aplikacji",
+            "pt-BR": "Aumentar zoom do app",
+            "ru": "Увеличить масштаб приложения",
+            "th": "เพิ่มการซูมแอป",
+            "tr": "Uygulama Yakınlaştırmasını Artır",
+            "uk": "Збільшити масштаб застосунку",
+            "vi": "Tăng thu phóng ứng dụng",
+            "zh-CN": "放大应用",
+            "zh-TW": "放大 App"
           },
           "shortcut": {
             "key": "=",
@@ -8727,27 +8753,27 @@
         {
           "id": "appearance.uiScale.decrease",
           "title": {
-            "en": "Decrease Interface Scale",
-            "ar": "Decrease Interface Scale",
-            "bs": "Decrease Interface Scale",
-            "da": "Decrease Interface Scale",
-            "de": "Decrease Interface Scale",
-            "es": "Decrease Interface Scale",
-            "fr": "Decrease Interface Scale",
-            "it": "Decrease Interface Scale",
-            "ja": "Decrease Interface Scale",
-            "km": "Decrease Interface Scale",
-            "ko": "Decrease Interface Scale",
-            "no": "Decrease Interface Scale",
-            "pl": "Decrease Interface Scale",
-            "pt-BR": "Decrease Interface Scale",
-            "ru": "Decrease Interface Scale",
-            "th": "Decrease Interface Scale",
-            "tr": "Decrease Interface Scale",
-            "uk": "Decrease Interface Scale",
-            "vi": "Decrease Interface Scale",
-            "zh-CN": "Decrease Interface Scale",
-            "zh-TW": "Decrease Interface Scale"
+            "en": "Decrease App Zoom",
+            "ar": "تقليل تكبير التطبيق",
+            "bs": "Smanji zum aplikacije",
+            "da": "Formindsk appzoom",
+            "de": "App-Zoom verringern",
+            "es": "Reducir zoom de la app",
+            "fr": "Réduire le zoom de l’app",
+            "it": "Riduci zoom dell’app",
+            "ja": "アプリのズームを縮小",
+            "km": "បន្ថយការពង្រីកកម្មវិធី",
+            "ko": "앱 축소",
+            "no": "Reduser appzoom",
+            "pl": "Zmniejsz powiększenie aplikacji",
+            "pt-BR": "Diminuir zoom do app",
+            "ru": "Уменьшить масштаб приложения",
+            "th": "ลดการซูมแอป",
+            "tr": "Uygulama Yakınlaştırmasını Azalt",
+            "uk": "Зменшити масштаб застосунку",
+            "vi": "Giảm thu phóng ứng dụng",
+            "zh-CN": "缩小应用",
+            "zh-TW": "縮小 App"
           },
           "shortcut": {
             "key": "-",
@@ -8763,27 +8789,27 @@
         {
           "id": "appearance.uiScale.reset",
           "title": {
-            "en": "Reset Interface Scale",
-            "ar": "Reset Interface Scale",
-            "bs": "Reset Interface Scale",
-            "da": "Reset Interface Scale",
-            "de": "Reset Interface Scale",
-            "es": "Reset Interface Scale",
-            "fr": "Reset Interface Scale",
-            "it": "Reset Interface Scale",
-            "ja": "Reset Interface Scale",
-            "km": "Reset Interface Scale",
-            "ko": "Reset Interface Scale",
-            "no": "Reset Interface Scale",
-            "pl": "Reset Interface Scale",
-            "pt-BR": "Reset Interface Scale",
-            "ru": "Reset Interface Scale",
-            "th": "Reset Interface Scale",
-            "tr": "Reset Interface Scale",
-            "uk": "Reset Interface Scale",
-            "vi": "Reset Interface Scale",
-            "zh-CN": "Reset Interface Scale",
-            "zh-TW": "Reset Interface Scale"
+            "en": "Reset App Zoom",
+            "ar": "إعادة تعيين تكبير التطبيق",
+            "bs": "Vrati zum aplikacije",
+            "da": "Nulstil appzoom",
+            "de": "App-Zoom zurücksetzen",
+            "es": "Restablecer zoom de la app",
+            "fr": "Réinitialiser le zoom de l’app",
+            "it": "Ripristina zoom dell’app",
+            "ja": "アプリのズームをリセット",
+            "km": "កំណត់ការពង្រីកកម្មវិធីឡើងវិញ",
+            "ko": "앱 확대/축소 재설정",
+            "no": "Tilbakestill appzoom",
+            "pl": "Resetuj powiększenie aplikacji",
+            "pt-BR": "Redefinir zoom do app",
+            "ru": "Сбросить масштаб приложения",
+            "th": "รีเซ็ตการซูมแอป",
+            "tr": "Uygulama Yakınlaştırmasını Sıfırla",
+            "uk": "Скинути масштаб застосунку",
+            "vi": "Đặt lại thu phóng ứng dụng",
+            "zh-CN": "重置应用缩放",
+            "zh-TW": "重設 App 縮放"
           },
           "shortcut": {
             "key": "0",

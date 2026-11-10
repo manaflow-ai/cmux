@@ -15,10 +15,8 @@ public import CmuxNextDesign
 @MainActor
 public final class HomeNativeFixture {
     public let container = NSView()
-    /// With `compose`, the Home split's chat column the transcript sits in, under its compose button.
-    private let column: HomeChatColumnView?
-    /// The view the transcript fills: the container, or with `compose` the chat column's content.
-    private var host: NSView { column?.content ?? container }
+    /// The view the transcript fills.
+    private var host: NSView { container }
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
@@ -26,6 +24,11 @@ public final class HomeNativeFixture {
     private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
+    /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
+    /// the Agent Messages Playground hand it the pill menu's registered Start now row (HomeChiefHomes's `startsOwnAgents`).
+    public var onShow: ((HomeNativeTranscriptView) -> Void)? {
+        didSet { if let view { onShow?(view) } }
+    }
     /// The shown conversation and its Chief (set once the view shows).
     private var shown: (conversation: ConversationID, chief: ParticipantID)?
     /// The Chief's streamed turn (`debugStream`) and its last draft seq.
@@ -61,18 +64,10 @@ public final class HomeNativeFixture {
     }
     #endif
 
-    /// With `compose`, the transcript sits in the Home split's chat column (`HomeChatColumnView`) under its
-    /// round compose button, as in the real Home tab (captures of what floats over the chat's top-left).
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false) {
-        column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
         self.attachments = attachments
         self.openPanel = openPanel
         store = HomeStore(source: source)
-        if let column {
-            column.autoresizingMask = [.width, .height]
-            column.showsCompose = true
-            container.addSubview(column)
-        }
         store.start()
         loading = Task { [weak self] in await self?.load() }
     }
@@ -111,6 +106,7 @@ public final class HomeNativeFixture {
         // Start now on a queued agent: the mock Chief starts it at once (its session shows, so it says Working).
         let store = store
         view.onStartAgent = { peer in store.agentsStarted([peer]); return true }
+        onShow?(view)
         self.view = view
         shown = (id, chief)
         await view.binding.opened()

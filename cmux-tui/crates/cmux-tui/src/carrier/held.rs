@@ -227,7 +227,7 @@ impl Slot {
                 }
                 None => {}
             }
-            let Dialed { connection, multiplexer, mux, vmk } = dial()
+            let Dialed { connection, multiplexer, mux, vmk, .. } = dial()
                 .await
                 .map_err(|failure| Refused { dialed: true, ..Refused::waiting(failure) })?;
             let held = Arc::new(Held {
@@ -285,16 +285,13 @@ async fn on_held(
         Ok(Ok(mux)) => {
             Ok(Stream { mux, vmk: held.vmk, lease, dialed: false, opened: Duration::ZERO })
         }
-        Ok(Err(error)) => {
+        // The session is gone (the daemon lost it) or gave up resuming
+        // (`client::RESUME_DEADLINE`): it takes no new stream, and the
+        // caller dials a fresh session for this one.
+        Ok(Err(_)) => {
+            held.retired.store(true, Ordering::Release);
             lease.end().await;
-            if held.alive() {
-                Err(Some(Failure::fatal(
-                    Step::Handshake,
-                    format!("the daemon did not open its mux control stream: {error}"),
-                )))
-            } else {
-                Err(None)
-            }
+            Err(None)
         }
         // The session is resuming (the relay or the machine is away) and did
         // not come back before this connection's deadline.

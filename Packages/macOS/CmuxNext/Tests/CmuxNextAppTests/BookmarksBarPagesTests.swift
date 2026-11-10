@@ -155,26 +155,11 @@ struct BookmarksBarPagesTests {
         second.removeFromSuperview()
     }
 
-    /// A host that records the bar's writes (the app's own is the daemon's `bookmarks.apply`).
-    @MainActor final class BarHost: BookmarksBarHost {
-        var applied: [BookmarkRoutedClient.Op] = []
-        func bookmarkProfile(ofTab key: String) -> String { "default" }
-        func bookmarkRows(_ ids: [String], profile: String) async throws -> [BookmarkNode] { [] }
-        func bookmarkChildren(of id: String, profile: String) async throws -> [BookmarkNode] { [] }
-        var bookmarkFolderIconsSupported: Bool { false }
-        func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage? { nil }
-        func bookmarkFolderIcon(_ node: BookmarkNode, side: CGFloat) -> NSImage? { nil }
-        var bookmarkIconRevision: Int { 0 }
-        func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String) {}
-        func bookmarkBarContextMenu(bookmark: String?, profile: String, isFolder: Bool, icon: String?) -> NSMenu? { nil }
-        func bookmarkBarApply(_ op: BookmarkRoutedClient.Op, profile: String) async throws { applied.append(op) }
-        func bookmarkBarRefused(_ message: String) {}
-    }
-
     /// A drop or a move on the bar goes through the app's bookmark write, as the daemon's op on
     /// the bar root: one write per gesture, none without one.
     @Test func aBarWriteGoesThroughTheAppOncePerGesture() async throws {
-        let services = BarHost()
+        let services = FakeBarHost()
+        services.rows["default"] = [BookmarkNode(id: "bm_folder", parent: BookmarkRoot.bar.rawValue, kind: .folder, title: "Work")]
         let host = BookmarkPageHostProvider(host: services, tabKey: "")
         host.profileOverride = { "default" }
         let provider = BookmarksBarProvider(host: services, pageHost: host)
@@ -227,4 +212,362 @@ struct BookmarksBarPagesTests {
         await #expect(throws: PageError.self) { try await services.bookmarkBarApply(drop, profile: "default") }
         #expect(bookmarks.lastFolder["default"] == BookmarkRoot.bar.rawValue)
     }
+
+    /// A page lent to another bar of the same profile reports nothing new (its row is the same):
+    /// the new bar takes the page's last report, so its item frames are right at once.
+    @Test func aPageLentToAnotherBarOfTheSameProfileKeepsItsLayout() async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = BookmarksBarHostView(tabKey: "tab-a", pages: pages, profile: { "default" })
+        let second = BookmarksBarHostView(tabKey: "tab-b", pages: pages, profile: { "default" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        content.addSubview(first)
+        let provider = try #require(first.page?.bar)
+        _ = try await provider.call(BookmarksBarProvider.prefix + "layout", params: .object([
+            "profile": .string("default"),
+            "visible": .array([.object(["id": .string("bm_a"), "title": .string("GitHub"), "x": .number(2), "width": .number(70)])]),
+            "overflow": .array([]),
+        ]), context: PageCallContext(page: PageDescriptor.bookmarksBar.id))
+        first.removeFromSuperview()
+        #expect(first.visibleTitles.isEmpty, "a bar without its page shows nothing")
+        content.addSubview(second)
+        #expect(second.page?.bar === provider)
+        #expect(second.visibleTitles == ["GitHub"])
+        #expect(second.itemFrameOnScreen("bm_a")?.width == 70)
+        second.removeFromSuperview()
+    }
+
+    /// The bar writes only its own row: a move of a node elsewhere (Other Bookmarks, another
+    /// profile's bar) or to a slot past the row is refused and never reaches the app's write.
+    @Test func aMoveOfANodeOffThisBarIsRefused() async throws {
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let a = BookmarkNode(parent: BookmarkRoot.bar.rawValue, kind: .url, title: "A", url: url)
+        let b = BookmarkNode(parent: BookmarkRoot.bar.rawValue, kind: .url, title: "B", url: url, index: 1)
+        let other = BookmarkNode(parent: BookmarkRoot.other.rawValue, kind: .folder, title: "Elsewhere")
+        let foreign = BookmarkNode(parent: BookmarkRoot.bar.rawValue, kind: .url, title: "X", url: url)
+        host.rows["default"] = [a, b, other]
+        host.rows["p2"] = [foreign]
+        let pageHost = BookmarkPageHostProvider(host: host, tabKey: "tab")
+        pageHost.profileOverride = { "default" }
+        let provider = BookmarksBarProvider(host: host, pageHost: pageHost)
+        var event: TimeInterval = 0
+        func apply(_ op: [String: CmuxNextSettings.JSONValue]) async throws {
+            event += 1
+            _ = try await provider.call(BookmarksBarProvider.prefix + "apply", params: .object(["op": .object(op)]),
+                                        context: PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: event))
+        }
+        let move = { (id: String, index: Double) -> [String: CmuxNextSettings.JSONValue] in
+            ["op": .string("move"), "bookmark": .string(id), "parent": .string("bar"), "index": .number(index)]
+        }
+        for (id, index) in [(other.id, 0.0), (foreign.id, 0), (a.id, 2)] {
+            await #expect(throws: PageError.self, "move \(id) to \(index)") { try await apply(move(id, index)) }
+        }
+        await #expect(throws: PageError.self, "a create past the row") {
+            try await apply(["op": .string("create"), "parent": .string("bar"), "index": .number(3),
+                             "title": .string("New"), "url": .string("https://new.example/")])
+        }
+        #expect(host.applied.isEmpty)
+        try await apply(move(a.id, 1))
+        #expect(host.applied == [.move(id: a.id, parent: BookmarkRoot.bar.rawValue, index: 1)])
+    }
+
+    /// A pick in a bar menu opens nothing once the bar's page shows another tab or profile.
+    @Test func aBarMenuPickOpensNothingAfterTheBarMovedOn() throws {
+        _ = NSApplication.shared
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let node = BookmarkNode(parent: BookmarkRoot.bar.rawValue, kind: .url, title: "A", url: url)
+        var current = true
+        let menu = BookmarksBarMenu(host: host, profile: "default", tabKey: "tab", rows: [.bookmark(node)], title: "Work") { current }
+        menu.menuNeedsUpdate(menu.menu)
+        menu.menu.performActionForItem(at: 0)
+        #expect(host.opened == [node.id])
+        current = false
+        menu.menu.performActionForItem(at: 0)
+        #expect(host.opened == [node.id], "the tab or profile changed: the pick is dropped")
+    }
+
+    /// A folder whose read was cut short shows what was read, asks for its own rows as its submenu
+    /// opens (once), and shows them; an answer that lands after the bar moved on changes nothing.
+    @Test func aCutFolderReadsItsRowsWhenItOpens() async throws {
+        _ = NSApplication.shared
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let archive = BookmarkNode(id: "archive", parent: "", kind: .folder, title: "Archive")
+        let read = BookmarkNode(id: "read", parent: "", kind: .url, title: "Read", url: url)
+        let late = BookmarkNode(id: "late", parent: "", kind: .url, title: "Late", url: url)
+        var asked: [String] = []
+        var current = true
+        let menu = BookmarksBarMenu(host: host, profile: "default", tabKey: "tab",
+                                    rows: [.folder(archive, [.bookmark(read)], partial: true), .folder(archive, [], partial: true)],
+                                    title: "Other", isCurrent: { current }) { folder in
+            asked.append(folder)
+            return [.bookmark(read), .bookmark(late)]
+        }
+        menu.menuNeedsUpdate(menu.menu)
+        let submenu = try #require(menu.menu.item(at: 0)?.submenu)
+        let child = try #require(submenu.delegate as? BookmarksBarMenu)
+        child.menuNeedsUpdate(submenu)
+        #expect(submenu.items.map(\.title) == ["Read"], "what was read shows at once")
+        await child.loading?.value
+        #expect(asked == ["archive"])
+        #expect(submenu.items.map(\.title) == ["Read", "Late"])
+        child.menuNeedsUpdate(submenu)
+        #expect(child.loading == nil, "read once")
+        #expect(submenu.items.map(\.title) == ["Read", "Late"])
+
+        // Nothing read yet: a placeholder until the answer, which a bar that moved on drops.
+        let emptySubmenu = try #require(menu.menu.item(at: 1)?.submenu)
+        let emptyChild = try #require(emptySubmenu.delegate as? BookmarksBarMenu)
+        emptyChild.menuNeedsUpdate(emptySubmenu)
+        #expect(emptySubmenu.items.map(\.title) == ["…"])
+        current = false
+        await emptyChild.loading?.value
+        #expect(emptySubmenu.items.map(\.title) == ["…"])
+    }
+
+    /// A folder's rows from the page's `rows` keep its `partial` mark.
+    @Test func aPartialFolderRowKeepsItsMark() {
+        let rows = BookmarksBarMenu.rows([
+            .object(["kind": .string("folder"), "id": .string("a"), "title": .string("A"), "children": .array([]), "partial": .bool(true)]),
+            .object(["kind": .string("folder"), "id": .string("b"), "title": .string("B"), "children": .array([])]),
+        ])
+        let marks = rows.map { row -> Bool? in if case .folder(_, _, let partial) = row { partial } else { nil } }
+        #expect(marks == [true, false])
+    }
+
+    /// A page returned before its new profile's row landed reports that row while it waits as a
+    /// spare: the next bar of the first profile must not show it (the cached report and the
+    /// profile it drew are one record).
+    @Test func aReportMadeWhileSpareKeepsTheNextBarOfTheOldProfileHidden() async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let work = BookmarksBarHostView(tabKey: "tab-work", pages: pages, profile: { "work" })
+        let personal = BookmarksBarHostView(tabKey: "tab-personal", pages: pages, profile: { "personal" })
+        let workAgain = BookmarksBarHostView(tabKey: "tab-work-2", pages: pages, profile: { "work" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+
+        content.addSubview(work)
+        let provider = try #require(work.page?.bar)
+        try await Self.reportEmpty(provider, profile: "work")
+        work.removeFromSuperview()
+        content.addSubview(personal)
+        personal.removeFromSuperview()
+        // The personal row lands after the page went back to the pool.
+        try await Self.reportEmpty(provider, profile: "personal")
+        #expect(provider.drawnProfile == "personal")
+
+        content.addSubview(workAgain)
+        let view = try #require(workAgain.pageView)
+        #expect(workAgain.page?.bar === provider)
+        #expect(view.alphaValue == 0, "the page shows the personal row: hidden until it reports work")
+        try await Self.reportEmpty(provider, profile: "work")
+        #expect(view.alphaValue == 1)
+        workAgain.removeFromSuperview()
+    }
+
+    /// A middle click on the bar's page is the person's gesture: the bar opens a link in a
+    /// background tab on it, and the host takes the open only with a gesture behind it.
+    @Test func aMiddleClickOnTheBarIsAGesture() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bar = BookmarksBarHostView(tabKey: "tab-middle", pages: pages, profile: { "default" })
+        bar.frame = NSRect(x: 0, y: 0, width: 800, height: BookmarksBarHostView.height)
+        let window = Self.window()
+        defer { window.close() }
+        window.contentView?.addSubview(bar)
+        let view = try #require(bar.pageView)
+        #expect(view.recentUserGestureEvent() == nil)
+        let event = try #require(NSEvent.mouseEvent(with: .otherMouseDown, location: NSPoint(x: 10, y: 10), modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        view.webView.otherMouseDown(with: event)
+        #expect(view.recentUserGestureEvent() != nil)
+        bar.removeFromSuperview()
+    }
+
+    /// The bar opens on the middle release: a press held past the gesture window still opens,
+    /// since the release is a gesture of its own.
+    @Test func aHeldMiddleClickOnTheBarIsAGestureAtTheRelease() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bar = BookmarksBarHostView(tabKey: "tab-held", pages: pages, profile: { "default" })
+        bar.frame = NSRect(x: 0, y: 0, width: 800, height: BookmarksBarHostView.height)
+        let window = Self.window()
+        defer { window.close() }
+        window.contentView?.addSubview(bar)
+        let view = try #require(bar.pageView)
+        func middle(_ type: NSEvent.EventType, at uptime: TimeInterval) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 10, y: 10), modifierFlags: [],
+                                            timestamp: uptime, windowNumber: window.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        let pressed: TimeInterval = 100
+        let released = pressed + 3 // held well past the one-second window
+        view.webView.otherMouseDown(with: try middle(.otherMouseDown, at: pressed))
+        #expect(view.recentUserGestureEvent(now: released) == nil, "the press alone has expired by the release")
+        view.webView.otherMouseUp(with: try middle(.otherMouseUp, at: released))
+        #expect(view.recentUserGestureEvent(now: released) == released)
+        bar.removeFromSuperview()
+    }
+
+    /// An open whose bookmark is read from the daemon acts for the tab it was accepted in: the
+    /// page lent to another tab meanwhile opens nothing, for open and Open All.
+    @Test func anOpenHeldOnTheOwnersReadOpensNothingAfterATabSwitch() async throws {
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let folder = BookmarkNode(parent: BookmarkRoot.bar.rawValue, kind: .folder, title: "Work")
+        let link = BookmarkNode(parent: folder.id, kind: .url, title: "A", url: url)
+        host.rows["default"] = [folder, link]
+        let pageHost = BookmarkPageHostProvider(host: host, tabKey: "tab-1")
+        var event: TimeInterval = 0
+        func held(_ op: String, _ params: [String: CmuxNextSettings.JSONValue], moveOn: @MainActor () -> Void) async {
+            host.holdRead = true
+            event += 1
+            let context = PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: event)
+            let call = Task { try await pageHost.call(BookmarkPageHostProvider.prefix + op, params: .object(params), context: context) }
+            // Bounded: the call reaches the held read within a few turns, or the test fails.
+            for _ in 0..<1_000 where host.waiting.isEmpty { await Task.yield() }
+            #expect(!host.waiting.isEmpty, "\(op) waits on the owner's read")
+            moveOn()
+            host.releaseRead()
+            await #expect(throws: PageError.self, "\(op) after the page moved on") { _ = try await call.value }
+        }
+        await held("open", ["bookmark": .string(link.id), "disposition": .string("newTab")]) {
+            pageHost.tabKey = "tab-2"
+        }
+        await held("openAll", ["folder": .string(folder.id)]) { pageHost.relend() }
+        #expect(host.opened.isEmpty)
+
+        // Not moved on: the same open goes to the tab it came from.
+        host.holdRead = false
+        event += 1
+        _ = try await pageHost.call(BookmarkPageHostProvider.prefix + "open",
+                                    params: .object(["bookmark": .string(link.id), "disposition": .string("newTab")]),
+                                    context: PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: event))
+        #expect(host.opened == [link.id])
+        #expect(host.openedFrom == ["tab-2"])
+    }
+
+    /// A lend or a give-back ends every lease taken before it, even for the same tab.
+    @Test func everyLendEndsTheLeasesTakenBeforeIt() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bar = BookmarksBarHostView(tabKey: "tab-same", pages: pages, profile: { "default" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        content.addSubview(bar)
+        let pageHost = try #require(bar.page?.host)
+        let lease = pageHost.lease()
+        #expect(pageHost.isCurrent(lease))
+        bar.removeFromSuperview()
+        #expect(!pageHost.isCurrent(lease), "given back")
+        content.addSubview(bar)
+        #expect(bar.page?.host === pageHost)
+        #expect(!pageHost.isCurrent(lease), "lent again to the same tab: still a new lend")
+        bar.removeFromSuperview()
+    }
+
+    /// A menu's rows read before the page was lent again (even to a tab of the same profile) or
+    /// for another profile are refused; the page learns each lend from the host's events.
+    @Test func aMenuReadBeforeALendIsRefused() throws {
+        let host = FakeBarHost()
+        let pageHost = BookmarkPageHostProvider(host: host, tabKey: "tab-a")
+        let provider = BookmarksBarProvider(host: host, pageHost: pageHost)
+        let menu = { (profile: String, lend: Int) -> CmuxNextSettings.JSONValue in
+            .object(["profile": .string(profile), "lend": .number(Double(lend))])
+        }
+        let lend = pageHost.lendGeneration
+        #expect(provider.acceptsMenu(menu("default", lend)))
+        #expect(!provider.acceptsMenu(menu("p2", lend)))
+        #expect(!provider.acceptsMenu(.object(["profile": .string("default")])), "a menu with no lend")
+        pageHost.tabKey = "tab-b"
+        #expect(!provider.acceptsMenu(menu("default", lend)), "lent to a tab of the same profile")
+        #expect(provider.acceptsMenu(menu("default", pageHost.lendGeneration)))
+    }
+
+    /// A pane parked with `isHidden` keeps its chrome in the window: its bar gives its page back all
+    /// the same, and takes one again when the pane shows. Parked panes hold no pages.
+    @Test func aBarUnderAHiddenAncestorGivesItsPageBack() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let panes = (0..<3).map { _ in NSView(frame: content.bounds) }
+        let bars = (0..<3).map { BookmarksBarHostView(tabKey: "tab-\($0)", pages: pages, profile: { "default" }) }
+        for (pane, bar) in zip(panes, bars) {
+            pane.addSubview(bar)
+            content.addSubview(pane)
+        }
+        #expect(pages.lent == 3)
+        panes[0].isHidden = true
+        panes[1].isHidden = true
+        #expect(pages.lent == 1, "two parked panes: their bars gave their pages back")
+        #expect(bars[0].pageView == nil && bars[1].pageView == nil && bars[2].pageView != nil)
+        panes[0].isHidden = false
+        #expect(pages.lent == 2 && bars[0].pageView != nil)
+        #expect(pages.made == 3, "shown again: it took the spare, not a new page")
+        panes.forEach { $0.removeFromSuperview() }
+        #expect(pages.lent == 0)
+    }
+}
+
+/// A bar host that records what the bar asks of the app; its reads answer from `rows`, each
+/// profile's rows as the home daemon stores them.
+@MainActor
+private final class FakeBarHost: BookmarksBarHost {
+    var rows: [String: [BookmarkNode]] = [:]
+    var applied: [BookmarkRoutedClient.Op] = []
+    var opened: [String] = []
+    var openedFrom: [String] = []
+    /// While set, the next daemon read waits for ``releaseRead()`` (once: the flag clears).
+    var holdRead = false
+    var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func releaseRead() {
+        let held = waiting
+        waiting = []
+        held.forEach { $0.resume() }
+    }
+
+    private func read(_ profile: String) async -> [BookmarkNode] {
+        if holdRead {
+            holdRead = false
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        return rows[profile] ?? []
+    }
+
+    func bookmarkProfile(ofTab key: String) -> String { "default" }
+    func bookmarkRows(_ ids: [String], profile: String) async throws -> [BookmarkNode] {
+        let all = await read(profile)
+        return ids.compactMap { id in all.first { $0.id == id } }
+    }
+    func bookmarkChildren(of id: String, profile: String) async throws -> [BookmarkNode] {
+        await read(profile).filter { $0.parent == id }.sorted { $0.index < $1.index }
+    }
+    var bookmarkFolderIconsSupported: Bool { false }
+    func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage? { nil }
+    func bookmarkFolderIcon(_ node: BookmarkNode, side: CGFloat) -> NSImage? { nil }
+    var bookmarkIconRevision: Int { 0 }
+    func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String) {
+        opened.append(node.id)
+        openedFrom.append(key)
+    }
+    func bookmarkBarContextMenu(bookmark: String?, profile: String, isFolder: Bool, icon: String?) -> NSMenu? { nil }
+    func bookmarkBarRefused(_ message: String) {}
+    func bookmarkBarApply(_ op: BookmarkRoutedClient.Op, profile: String) async throws { applied.append(op) }
 }

@@ -1,9 +1,10 @@
 name: What's New gallery pictures
 
-# Each What's New highlight that names a webview gallery state (`gallery:` and, for an improvement,
-# `before:`; release-notes/next/WRITING.md) gets those states rendered and put on pr-media, where
-# the next nightly's signed notes find them (scripts/cmux-next/media/whats-new-gallery.py,
-# release-notes.py add_gallery_media). Leo, 2026-10-20: "vids and before/afters for our techincal
+# Each New or Improved What's New highlight gets its webview gallery state rendered and put on
+# pr-media, where the next nightly's signed notes find them (scripts/cmux-next/media/whats-new-gallery.py,
+# release-notes.py add_gallery_media): the state its `gallery:` line names, else one picked from the
+# gallery files its commit changed; for an improvement, its `before:` state, else the same state
+# rendered at the commit before the highlight's (release-notes/next/WRITING.md). Leo, 2026-10-20: "vids and before/afters for our techincal
 # stuff is p important". It publishes only the states a highlight names (#21400 took out the
 # automatic publishing of every state a pull request touches), gates nothing and is not a check.
 #
@@ -34,7 +35,7 @@ jobs:
   render:
     if: ${{ github.repository_owner == 'manaflow-ai' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     outputs:
       count: ${{ steps.plan.outputs.count }}
     steps:
@@ -59,7 +60,7 @@ jobs:
           entries=$(python3 scripts/cmux-next/media/whats-new-gallery.py plan $ALL --out "$RUNNER_TEMP/plan.json")
           echo "count=$(jq length "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
           echo "entries=${entries// /,}" >> "$GITHUB_OUTPUT"
-          jq -r '.[] | "- \(.id) \(.role): \(.state)"' "$RUNNER_TEMP/plan.json" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- \(.id) \(.role): \(.state // "picked from \(.sources | join(", "))")\(if .parent then " at \(.parent[:12])" else "" end)"' "$RUNNER_TEMP/plan.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Bun
         if: ${{ steps.plan.outputs.count != '0' }}
@@ -92,18 +93,42 @@ jobs:
           cp "$RUNNER_TEMP/plan.json" "$out/plan.json"
           cd webviews
           bun install --frozen-lockfile
-          bun scripts/gallery/manifest.ts --entries "$ENTRIES" --themes pair --widths normal \
+          # No ENTRIES: a state is still to be picked, from every entry's cases.
+          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
             --frame component --out "$RUNNER_TEMP/cases.json"
-          python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$RUNNER_TEMP/plan.json" \
-            --cases "$RUNNER_TEMP/cases.json" --out "$RUNNER_TEMP/manifest.json"
+          # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
+          bun scripts/gallery/notes.ts --out "$RUNNER_TEMP/notes.json"
+          # Picks the states no line names and writes them into the plan publish reads.
+          python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
+            --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" --out "$RUNNER_TEMP/manifest.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
-          cd ../scripts/gallery-matrix
-          bun install --frozen-lockfile
+          (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
           "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
-          # A failed play check still writes its picture; publish skips a state with none.
-          bun runner.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 \
-            || echo "::warning::the render exited $?; publish takes the states that rendered"
+          render() {
+            # A failed play check still writes its picture; publish skips a state with none.
+            (cd "$GITHUB_WORKSPACE/scripts/gallery-matrix" && bun runner.ts --manifest "$1" --gallery-dir "$2" \
+              --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0) \
+              || echo "::warning::the render exited $?; publish takes the states that rendered"
+          }
+          render "$RUNNER_TEMP/manifest.json" "$RUNNER_TEMP/gallery"
+          # An improvement's before with no `before:` line: the same state at the commit before the
+          # highlight's, from a checkout there. At most 4 commits a run; the next push plans the rest.
+          for parent in $(python3 ../scripts/cmux-next/media/whats-new-gallery.py parents --plan "$out/plan.json" --limit 4); do
+            at="$RUNNER_TEMP/at-$parent"
+            {
+              # The same sparse tree as this checkout (.github/checkout-lean.json).
+              git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
+              git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
+              git -C "$at" reset -q --hard &&
+              (cd "$at/webviews" && bun install --frozen-lockfile &&
+                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
+                  --out "$RUNNER_TEMP/cases-$parent.json") &&
+              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
+                --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
+              (cd "$at/webviews" && CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
+              render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent"
+            } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"
+          done
 
       - name: Keep the pictures for publish
         if: ${{ steps.plan.outputs.count != '0' }}

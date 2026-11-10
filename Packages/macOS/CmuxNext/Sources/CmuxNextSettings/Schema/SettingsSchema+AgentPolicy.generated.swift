@@ -36,7 +36,7 @@ extension SettingsSchema {
         "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
-        "sidebar.controlsOnHover",
+        "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
         "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -272,6 +272,8 @@ extension SettingsSchema {
         "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
         "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
+        // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.
+        "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.
         "agents.hiddenChats.discard", "agents.hiddenChats.discardAfterMinutes",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.

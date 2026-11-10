@@ -9,9 +9,9 @@
 // - a chevron (`disclosure.*`) is drawn only inside something that clicks;
 // - a disabled button never takes a hover background (a rule's `:hover` that would match it), so
 //   what cannot be clicked never looks as if it could.
-// A background task's row opens its terminal in a chat on this Mac; a peer's (SSH) or Cloud chat's
-// has none, so the row shows the Bash call that started it, or, with no call to show, is not a
-// button at all and says why (cmux#24116's audit).
+// A background task's row opens its terminal in a chat on this Mac or a Cloud chat (on its machine);
+// a peer's (SSH) chat's has none, so the row shows the Bash call that started it, or, with no call
+// to show, is not a button at all and says why (cmux#24116's audit).
 // Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
 // session-info-compact-default.test.tsx's.
 import { afterAll, expect, setSystemTime, test } from "bun:test";
@@ -391,10 +391,7 @@ async function tasksOf(place: Partial<NonNullable<SessionInfoProps["summary"]>>,
   return { container, root, row };
 }
 
-for (const [label, place] of [
-  ["an SSH peer's", { peer: "huge-blue", host: "huge-blue" }],
-  ["a Cloud", { host: "cloud-vm-1", hostKind: "cloud" as const }],
-] as const)
+for (const [label, place] of [["an SSH peer's", { peer: "huge-blue", host: "huge-blue" }]] as const)
   test(`${label} chat's background task row shows its Bash call, or is not clickable and says why`, async () => {
     const calls: string[] = [];
     native.length = 0;
@@ -416,27 +413,33 @@ for (const [label, place] of [
     await act(async () => root.unmount());
   });
 
-test("a local chat's background task row opens its terminal, else its Bash call", async () => {
-  const calls: string[] = [];
-  native.length = 0;
-  const { root, row } = await tasksOf({}, calls);
-  await act(async () => row("pytest -x").click());
-  await settle();
-  expect(native).toContain("chat.processTerminal");
-  expect(calls).not.toContain("onShowCall");
-  // Its call not loaded, it still tries the terminal.
-  expect(row("cargo watch").disabled).toBe(false);
-  // The host refuses (no hook): the row shows the call instead.
-  terminalOpens = false;
-  try {
+// "Whatever works on a local chat should work on a Cloud chat" (Leo, cmuxterm-hq#7856): a Cloud
+// chat's terminal opens on its machine (AgentPaneProcessViewer `onChatMachine`).
+for (const [label, place] of [
+  ["a local", {}],
+  ["a Cloud", { host: "cloud-vm-1", hostKind: "cloud" as const }],
+] as const)
+  test(`${label} chat's background task row opens its terminal, else its Bash call`, async () => {
+    const calls: string[] = [];
+    native.length = 0;
+    const { root, row } = await tasksOf(place, calls);
     await act(async () => row("pytest -x").click());
     await settle();
-    expect(calls).toContain("onShowCall");
-  } finally {
-    terminalOpens = true;
-  }
-  await act(async () => root.unmount());
-});
+    expect(native).toContain("chat.processTerminal");
+    expect(calls).not.toContain("onShowCall");
+    // Its call not loaded, it still tries the terminal.
+    expect(row("cargo watch").disabled).toBe(false);
+    // The host refuses (no hook): the row shows the call instead.
+    terminalOpens = false;
+    try {
+      await act(async () => row("pytest -x").click());
+      await settle();
+      expect(calls).toContain("onShowCall");
+    } finally {
+      terminalOpens = true;
+    }
+    await act(async () => root.unmount());
+  });
 
 test("the tray's command line opens the terminal, else the Bash call, else says it opened nothing", async () => {
   native.length = 0;

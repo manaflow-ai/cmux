@@ -37,8 +37,9 @@ export interface BarWords {
 export interface BookmarksBarProps {
   snapshot: BarSnapshot;
   words: BarWords;
-  /** The bar's width in CSS px. */
-  width: number;
+  /** The bar's width in CSS px when the host knows it (tests); otherwise the bar lays out from its
+   * own rendered width, so the layout and the box it sits in always agree. */
+  width?: number;
   look?: BarLook;
   /** A title's width in CSS px at the bar's font (a canvas in the page, a stand-in in tests). */
   measure?: (text: string) => number;
@@ -81,9 +82,22 @@ function anchorOf(element: Element): Anchor {
 }
 
 export function BookmarksBar(props: BookmarksBarProps) {
-  const { snapshot, words, width, look = "parity", onLayout, onIcons } = props;
+  const { snapshot, words, look = "parity", onLayout, onIcons } = props;
   const metrics = metricsFor(look);
   const probe = useRef<HTMLSpanElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  const [rendered, setRendered] = useState(0);
+  useLayoutEffect(() => {
+    const element = bar.current;
+    if (props.width !== undefined || !element) return;
+    const read = () => setRendered(element.getBoundingClientRect().width);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(read);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.width]);
+  const width = props.width ?? rendered;
   const [measured, setMeasured] = useState<((text: string) => number) | null>(null);
   // The bar's font is read once it is on screen; a test passes its own measure.
   useLayoutEffect(() => {
@@ -116,7 +130,8 @@ export function BookmarksBar(props: BookmarksBarProps) {
   // the report, so a page lent to another profile's bar always reports its new row.
   const reported = useRef("");
   useLayoutEffect(() => {
-    if (!snapshot.loaded || !onLayout) return;
+    // Not measured yet (the first commit): the report waits for the real width.
+    if (!snapshot.loaded || !onLayout || width <= 0) return;
     const laidOut: LaidOut = {
       profile: snapshot.profile,
       visible: visible.map((node, index) => ({
@@ -169,11 +184,14 @@ export function BookmarksBar(props: BookmarksBarProps) {
   // The page fills its host (`--bb-height: 100vh`); the gallery draws the native height.
   return (
     <div
+      ref={bar}
       className="bb-bar"
       role="toolbar"
       tabIndex={-1}
       aria-label={words.barTitle}
       data-look={look}
+      // The title and URL tooltip is taller than the 28 px bar: the system draws it, past the view.
+      data-native-title=""
       data-ready={snapshot.loaded ? "" : undefined}
       style={{ height: `var(--bb-height, ${barHeight(metrics)}px)` }}
       onContextMenu={onBarMenu}
@@ -258,12 +276,36 @@ interface ItemProps {
 
 function BarItem({ node, title, frame, metrics, icon, onOpen, onFolder, onContextMenu }: ItemProps) {
   const folder = node.kind === "folder";
+  // A middle press acts once on its release. Older WebKit sends no auxclick, so the release is
+  // also heard as pointerup and mouseup; whichever comes first acts and the others find it done.
+  const middle = useRef<"pressed" | "done" | null>(null);
+  const middleDown = (event: MouseEvent) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    if (middle.current !== "pressed") middle.current = "pressed";
+  };
+  const middleUp = (event: MouseEvent, isAuxClick = false) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    if (middle.current === "done") {
+      // auxclick is the last event of a press: the next press starts clean.
+      if (isAuxClick) middle.current = null;
+      return;
+    }
+    // An auxclick with no press heard (none came to this item) still acts once.
+    if (middle.current === null && !isAuxClick) return;
+    middle.current = isAuxClick ? null : "done";
+    // A middle click acts as a click on a folder (its menu), as the native bar's did.
+    if (folder) onFolder(node, anchorOf(event.currentTarget));
+    else onOpen(node, disposition(event, true));
+  };
   const tip = !folder && node.url ? `${title}\n${node.url}` : title;
   return (
     <button
       type="button"
       className="bb-item"
       draggable
+      // tooltip-allow: the native bar's title and URL tooltip, drawn by the system (data-native-title)
       title={tip}
       aria-label={title}
       aria-haspopup={folder ? "menu" : undefined}
@@ -278,12 +320,14 @@ function BarItem({ node, title, frame, metrics, icon, onOpen, onFolder, onContex
         if (folder) onFolder(node, anchorOf(event.currentTarget));
         else onOpen(node, disposition(event));
       }}
-      onAuxClick={(event) => {
-        if (event.button !== 1) return;
-        event.preventDefault();
-        // A middle click acts as a click on a folder (its menu), as the native bar's did.
-        if (folder) onFolder(node, anchorOf(event.currentTarget));
-        else onOpen(node, disposition(event, true));
+      onPointerDown={middleDown}
+      onMouseDown={middleDown}
+      onPointerUp={(event) => middleUp(event)}
+      onMouseUp={(event) => middleUp(event)}
+      onAuxClick={(event) => middleUp(event, true)}
+      onPointerLeave={() => {
+        // A press that leaves the item is not a click on it.
+        if (middle.current === "pressed") middle.current = null;
       }}
       onContextMenu={(event) => {
         event.preventDefault();

@@ -101,15 +101,18 @@ public final class BookmarksBarPages {
             page = fresh
         }
         lent += 1
-        // The new tab's bar gets no gesture made in the last one's (it gates the bar's writes).
+        // The new tab's bar gets no gesture made in the last one's (it gates the bar's writes),
+        // and no call accepted for the last one acts in it.
         page.view.forgetUserActivation()
         page.host.tabKey = tabKey
+        page.host.relend()
         return page
     }
 
     func giveBack(_ page: BookmarksBarPage) {
         lent -= 1
         page.view.forgetUserActivation()
+        page.host.relend()
         page.bar.onLayout = nil
         page.view.removeFromSuperview()
         guard spare.count < Self.maxSpare else { return page.view.close() }
@@ -151,7 +154,24 @@ public final class BookmarksBarHostView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { borrow() } else { giveBack() }
+        followVisibility()
+    }
+
+    // A parked pane hides its chrome (`isHidden`) without leaving the window: that bar gives its
+    // page back too, so pages follow the bars a person can see. AppKit calls these for a hidden or
+    // shown ancestor as well.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        followVisibility()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        followVisibility()
+    }
+
+    private func followVisibility() {
+        if window != nil, !isHiddenOrHasHiddenAncestor { borrow() } else { giveBack() }
     }
 
     /// The page this bar shows now, nil while its tab is hidden (diagnostics and tests).
@@ -176,13 +196,17 @@ public final class BookmarksBarHostView: NSView {
         self.page = page
         // Another profile's row must not show for a frame: the page shows once it laid out this
         // tab's row (the strip's fill stands in, as the native bar's did before its tree loaded).
-        page.view.alphaValue = page.bar.drawnProfile == profile ? 1 : 0
+        // A page that last drew this profile reports nothing new (its row did not change): the
+        // bar takes its last report, so item frames and menu anchors are this page's. The report
+        // is the one record of what the page drew, kept while the page waits as a spare too.
+        let drawnHere = page.bar.drawnProfile == profile
+        page.view.alphaValue = drawnHere ? 1 : 0
+        if drawnHere, let last = page.bar.lastLayout { shown = last }
         page.bar.onLayout = { [weak self, weak page] layout in
             // A report for the profile the page drew before it came here is stale: the page stays
             // hidden until it reports this tab's profile.
             guard let self, let page, self.page === page, let drawn = layout.profile, drawn == self.profile() else { return }
             shown = layout
-            page.bar.drawnProfile = drawn
             page.view.alphaValue = 1
         }
         page.view.frame = bounds
@@ -193,17 +217,20 @@ public final class BookmarksBarHostView: NSView {
     private func giveBack() {
         guard let page else { return }
         self.page = nil
+        shown = BookmarksBarProvider.Layout()
         pages.giveBack(page)
     }
 }
 
 /// Serves `cmux.bookmarksBar.*` to one bar page:
 ///
-/// - `menu {title, anchor: {x, y, width, height}, rows}`: a folder's native menu under `anchor`
+/// - `menu {profile, lend, title, anchor: {x, y, width, height}, rows}`: a folder's native menu under `anchor`
 ///   (CSS px). Rows are `{kind: "bookmark", id, title, url, favicon_key?}`, `{kind: "folder", id,
-///   title, icon?, children}`, `{kind: "openAll", folder, title}`, `{kind: "empty", title}` and
-///   `{kind: "separator"}`; a submenu is filled when it opens. A picked row opens from the tab
-///   the bar is in (a native menu choice is the person's own act).
+///   title, icon?, children, partial?}`, `{kind: "openAll", folder, title}`, `{kind: "empty", title}` and
+///   `{kind: "separator"}`; a submenu is filled when it opens. A `partial` folder (its read was cut
+///   short) shows what was read and asks the page for its rows as it opens (`folderRows`, host to
+///   page, `{profile, lend, folder}` → `{rows}`). A picked row opens from the tab the bar is in (a
+///   native menu choice is the person's own act).
 /// - `contextMenu {bookmark?, kind?, icon?, point: {x, y}}`: the registry's Bookmark menu (its rows
 ///   follow the drawn row's kind and icon), or the Bookmarks Bar menu for the bar's empty area.
 /// - `layout {profile, visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows
@@ -216,6 +243,8 @@ public final class BookmarksBarHostView: NSView {
 @MainActor
 public final class BookmarksBarProvider: PageProvider {
     public static let prefix = "cmux.bookmarksBar."
+    /// Host to page: a `partial` folder's rows, read when its submenu opens.
+    static let folderRowsOp = prefix + "folderRows"
 
     public struct Item: Equatable, Sendable {
         public var id: String
@@ -235,9 +264,12 @@ public final class BookmarksBarProvider: PageProvider {
     private weak var host: (any BookmarksBarHost)?
     private let pageHost: BookmarkPageHostProvider
     public weak var page: PageWebView?
-    /// The profile whose row the page drew last (set by the bar view on each layout).
-    public var drawnProfile: String?
     var onLayout: (@MainActor (Layout) -> Void)?
+    /// The page's last layout report, held or spare (the page sends one only when its row changes):
+    /// the one record of what the page drew.
+    public private(set) var lastLayout: Layout?
+    /// The profile whose row the page drew last (its last layout report's).
+    public var drawnProfile: String? { lastLayout?.profile }
     /// The menu on screen and its rows' folders (kept while it is open).
     private var openMenu: BookmarksBarMenu?
     /// The gesture the last write spent (one write per key or pointer event).
@@ -266,15 +298,52 @@ public final class BookmarksBarProvider: PageProvider {
         }
     }
 
+    /// Whether `operation` keeps to the bar whose items are `bar` (the profile's own, read from the daemon,
+    /// never the page's word): a create at a slot of it, or a move of one of its items to another.
+    static func staysOnBar(_ operation: BookmarkRoutedClient.Op, bar: [BookmarkNode]) -> Bool {
+        let op = operation.json
+        guard op["parent"]?.stringValue == BookmarkRoot.bar.rawValue, let index = op["index"]?.intValue else { return false }
+        switch op["op"]?.stringValue {
+        case "create":
+            return index <= bar.count
+        case "move":
+            guard let id = op["bookmark"]?.stringValue else { return false }
+            return bar.contains { $0.id == id } && index < bar.count
+        default:
+            return false
+        }
+    }
+
+    /// Whether a `menu` call's rows were read for this page's profile, on its current lend.
+    func acceptsMenu(_ params: JSONValue) -> Bool {
+        params["profile"]?.stringValue == pageHost.profile && params["lend"]?.intValue == pageHost.lendGeneration
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let host else { throw PageError.closed }
         switch op {
         case Self.prefix + "menu":
-            guard let page, let anchor = params["anchor"],
+            // Rows read for the profile the page drew before it was lent here would open that
+            // profile's bookmarks in this tab: dropped.
+            // So would rows read before the page was lent again, to a tab of the same profile.
+            guard let page, let anchor = params["anchor"], acceptsMenu(params),
                   let rows = params["rows"]?.arrayValue.map(BookmarksBarMenu.rows) else { return .object([:]) }
             let number = { (key: String) in CGFloat(anchor[key]?.doubleValue ?? 0) }
-            let menu = BookmarksBarMenu(host: host, profile: pageHost.profile, tabKey: pageHost.tabKey, rows: rows,
-                                        title: params["title"]?.stringValue ?? "")
+            let lease = pageHost.lease()
+            // The page may be lent to another tab while the menu is open: a pick then does nothing.
+            let isCurrent: @MainActor () -> Bool = { [weak pageHost] in pageHost?.isCurrent(lease) ?? false }
+            let ask = params
+            // A cut folder's rows come from the page, for the profile and lend its menu was read on.
+            let load: BookmarksBarMenu.Load = { [weak page] folder in
+                guard let page, isCurrent() else { return nil }
+                let reply = try? await page.router.callPage(Self.folderRowsOp, params: .object([
+                    "profile": ask["profile"] ?? .null, "lend": ask["lend"] ?? .null, "folder": .string(folder),
+                ]))
+                guard isCurrent(), let rows = reply?["rows"]?.arrayValue else { return nil }
+                return BookmarksBarMenu.rows(rows)
+            }
+            let menu = BookmarksBarMenu(host: host, profile: lease.profile, tabKey: lease.tabKey, rows: rows,
+                                        title: params["title"]?.stringValue ?? "", isCurrent: isCurrent, load: load)
             openMenu = menu
             defer { if openMenu === menu { openMenu = nil } }
             await page.presentMenu(menu.menu, atPagePoint: CGPoint(x: number("x"), y: number("y") + number("height") + 2))
@@ -298,18 +367,25 @@ public final class BookmarksBarProvider: PageProvider {
                             width: CGFloat(item["width"]?.doubleValue ?? 0))
             }
             layout.overflow = (params["overflow"]?.arrayValue ?? []).compactMap(\.stringValue)
+            lastLayout = layout
             onLayout?(layout)
             return .object([:])
         case Self.prefix + "apply":
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
             }
-            let profile = pageHost.profile
-            guard let operation = params["op"].flatMap({ Self.operation($0, profile: profile) }) else {
-                throw PageError.invalidParams("a create or a move on the bookmarks bar")
+            let lease = pageHost.lease()
+            guard let operation = params["op"].flatMap({ Self.operation($0, profile: lease.profile) }) else {
+                throw PageError.invalidParams("a create on the bookmarks bar, or a move of one of its items along it")
             }
             spentGesture = event
-            try await host.bookmarkBarApply(operation, profile: profile)
+            // The bar's own row, read from the daemon (never the page's word), bounds the write.
+            let bar = try await host.bookmarkChildren(of: BookmarkRoot.bar.rawValue, profile: lease.profile)
+            try pageHost.requireCurrent(lease, op)
+            guard Self.staysOnBar(operation, bar: bar) else {
+                throw PageError.invalidParams("a create on the bookmarks bar, or a move of one of its items along it")
+            }
+            try await host.bookmarkBarApply(operation, profile: lease.profile)
             return .object([:])
         case Self.prefix + "refused":
             host.bookmarkBarRefused(params["message"]?.stringValue ?? "")
@@ -327,7 +403,8 @@ public final class BookmarksBarProvider: PageProvider {
 final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     indirect enum Row {
         case bookmark(BookmarkNode)
-        case folder(BookmarkNode, [Row])
+        /// A folder and its rows; `partial` when its read was cut short (the rest is read on open).
+        case folder(BookmarkNode, [Row], partial: Bool = false)
         case openAll(String, title: String)
         case empty(String)
         case separator
@@ -336,15 +413,29 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     private weak var host: (any BookmarksBarHost)?
     private let profile: String
     private let tabKey: String
-    private let rows: [Row]
+    /// Whether the bar that opened the menu still shows `profile` in tab `tabKey`.
+    private let isCurrent: @MainActor () -> Bool
+    /// Reads a folder's rows from the page (nil: the read failed or the bar moved on).
+    typealias Load = @MainActor (String) async -> [Row]?
+
+    private var rows: [Row]
     private var children: [BookmarksBarMenu] = []
+    /// The folder whose rows were cut short, read once when this menu first opens.
+    private var partial: String?
+    private let load: Load?
+    /// The read of `partial`'s rows under way (awaited by tests).
+    private(set) var loading: Task<Void, Never>?
     let menu: NSMenu
 
-    init(host: any BookmarksBarHost, profile: String, tabKey: String, rows: [Row], title: String) {
+    init(host: any BookmarksBarHost, profile: String, tabKey: String, rows: [Row], title: String,
+         partial: String? = nil, isCurrent: @escaping @MainActor () -> Bool = { true }, load: Load? = nil) {
         self.host = host
         self.profile = profile
         self.tabKey = tabKey
+        self.isCurrent = isCurrent
         self.rows = rows
+        self.partial = partial
+        self.load = load
         menu = NSMenu(title: title)
         super.init()
         menu.delegate = self
@@ -363,7 +454,7 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
             case "folder":
                 guard let id = value["id"]?.stringValue else { return nil }
                 return .folder(BookmarkNode(id: id, parent: "", kind: .folder, title: title, icon: value["icon"]?.stringValue),
-                               rows(value["children"]?.arrayValue ?? []))
+                               rows(value["children"]?.arrayValue ?? []), partial: value["partial"]?.boolValue ?? false)
             case "openAll":
                 guard let folder = value["folder"]?.stringValue else { return nil }
                 return .openAll(folder, title: title)
@@ -378,9 +469,30 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        fill(menu)
+        // A cut folder shows what was read at once and its whole level once the page answers.
+        guard let folder = partial, let load, loading == nil else { return }
+        loading = Task { [weak self] in
+            let rows = await load(folder)
+            guard let self else { return }
+            loading = nil
+            guard let rows, isCurrent() else { return }
+            partial = nil
+            self.rows = rows
+            fill(self.menu)
+        }
+    }
+
+    private func fill(_ menu: NSMenu) {
         menu.removeAllItems()
         children.removeAll()
         guard let host else { return }
+        if rows.isEmpty, partial != nil {
+            // Nothing of a cut folder was read yet: its rows land here when the page answers.
+            let item = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
         let side = Metrics.smallIconSize
         for row in rows {
             switch row {
@@ -394,10 +506,11 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
                 item.image = host.bookmarkFavicon(node, profile: profile).map { NSImage(cgImage: $0, size: NSSize(width: side, height: side)) }
                     ?? NSImage.icon(.browser, size: side)
                 menu.addItem(item)
-            case .folder(let node, let rows):
+            case .folder(let node, let rows, let partial):
                 let item = NSMenuItem(title: node.title, action: nil, keyEquivalent: "")
                 item.image = host.bookmarkFolderIcon(node, side: side) ?? NSImage.icon(.folder, size: side)
-                let child = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows, title: node.title)
+                let child = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows, title: node.title,
+                                             partial: partial ? node.id : nil, isCurrent: isCurrent, load: load)
                 children.append(child)
                 item.submenu = child.menu
                 menu.addItem(item)
@@ -421,13 +534,14 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func open(_ sender: NSMenuItem) {
-        guard let host, let id = sender.representedObject as? String, let node = links.first(where: { $0.id == id }) else { return }
+        guard let host, isCurrent(), let id = sender.representedObject as? String,
+              let node = links.first(where: { $0.id == id }) else { return }
         host.openBookmark(node, profile: profile, disposition: .from(NSApp.currentEvent?.modifierFlags ?? []), fromTab: tabKey)
     }
 
     /// Every link directly in the folder: the first in a new tab, the rest behind it.
     @objc private func openAll(_ sender: NSMenuItem) {
-        guard let host else { return }
+        guard let host, isCurrent() else { return }
         for (index, node) in links.enumerated() {
             host.openBookmark(node, profile: profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: tabKey)
         }

@@ -8,9 +8,9 @@
 // acpmux also weighs the task whose end started the turn, from the task's own event (Leo,
 // 2026-11-03: "there's like... background tasks worth responding to and not worth responding
 // to"; acpmux hub/background_cause.rs): a step, an interim stop or a monitor tick (`silent`) draws
-// no line whatever its reply, which goes onto the call that started the task; a final result
-// (`result`) goes onto that call too, marked new, and its reply draws as today when it has
-// something to say; a failure always draws. backgroundReaction.experiment.ts holds the looks.
+// no line; a final result (`result`) goes onto the call that started the task, marked new; a
+// failure always draws. Whatever the turn said is the agent's own message, never the call's
+// (direct.ts `settleReaction`). backgroundReaction.experiment.ts holds the looks.
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxBackgroundCause, AcpmuxBackgroundTurn, AcpmuxBackgroundWeight, AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
@@ -67,10 +67,21 @@ export function backgroundWeight(turn: AcpmuxBackgroundTurn): AcpmuxBackgroundWe
 /// Whether a background turn's line stands for its rows: while it runs, and once it ended quiet.
 /// One that ended with something to say draws its rows as they came, with no line.
 /// A silent one always folds: whatever it said goes with its task's call.
+/// One whose call took its task's end and that said something (`ownTurn`) never folds, whatever its
+/// weight: its rows are the agent's own turn.
 export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.kind === BACKGROUND_TURN &&
   row.background !== undefined &&
+  row.background.ownTurn !== true &&
   (row.background.running || row.background.quiet === true || backgroundWeight(row.background) === "silent");
+
+/// Whether a background turn's reply says nothing: only dots, middle dots, bullets or an ellipsis
+/// ("·", ".", "…"), which Claude answers a task's end with (Leo, 2026-11-02: "why do you still do
+/// these"). Such a reply is never the agent's own turn: its task's call keeps its mark and the turn
+/// folds as quiet (direct.ts `settleReaction`).
+export function saysNothing(reply: string): boolean {
+  return /^[\s.·•…]*$/u.test(reply);
+}
 
 /// Whether a background turn draws its line: one that folds, while it runs or once it has a row of
 /// its own to open to. A quiet one that ended with none has nothing to show (Leo, 2026-11-03: "these

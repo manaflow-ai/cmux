@@ -1,15 +1,15 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chats-window-query": {
+      "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
+      "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",
+      "owner": "acpmux"
+    },
     "daemon-request": {
       "what": "the app's daemon-request probe on every request to the daemon (DaemonRequestLatency.record: one bucket lookup and three relaxed atomics)",
       "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",
       "owner": "PL-daemon"
-    },
-    "feed-live-event": {
-      "what": "one Feed owner event while the Feed list is open: FeedOrderedIndex.apply (binary search per moved id, one array move per inserted or removed row, for the list and the timeline) and the changed rows. FeedOrder.sortedNewest is not on this path: only FeedInboxGroups(items:) and tests call it; the live Inbox groups the ledger's ordered sections with no sort (FeedInboxGroups(sections:filter:now:)).",
-      "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
-      "owner": "Feed"
     },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
@@ -115,6 +115,11 @@
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
       "owner": "agent chat composer"
+    },
+    "session-list-change": {
+      "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
+      "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
+      "owner": "acpmux pane"
     }
   }
 }

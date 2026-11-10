@@ -114,6 +114,17 @@ const INTER_TUNED: Record<(typeof STEPS)[number], string> = {
   heading: "-0.0167em",
 };
 
+/// The letter-spacing table `font` sets on the type scale's steps, or null when it sets none.
+const trackingTable = (font: ChatUiFont) =>
+  font === "system-ui-tight" ? TIGHT : font === "inter-tuned" ? INTER_TUNED : null;
+
+/// The letter-spacing `font` gives a type-scale step, in em: what chatUiFontVariables sets on
+/// `--text-STEP--letter-spacing`, 0 for a step it has none for and for the faces with none.
+export function chatUiTracking(font: ChatUiFont, step: string): number {
+  const table = trackingTable(font);
+  return table && step in table ? Number.parseFloat(table[step as (typeof STEPS)[number]]) : 0;
+}
+
 /// The page's variables for `font`; a null value removes the variable (the stylesheet's own: the
 /// system font with no letter-spacing). `--cv-tracking` is the reply text's spacing (conversation.css).
 export function chatUiFontVariables(font: ChatUiFont): Record<string, string | null> {
@@ -121,7 +132,7 @@ export function chatUiFontVariables(font: ChatUiFont): Record<string, string | n
   for (const step of STEPS) variables[`--text-${step}--letter-spacing`] = null;
   if (font === DEFAULT_CHAT_UI_FONT) return variables;
   variables["--font-ui"] = STACKS[font];
-  const table = font === "system-ui-tight" ? TIGHT : font === "inter-tuned" ? INTER_TUNED : null;
+  const table = trackingTable(font);
   variables["--cv-tracking"] = font === "system-ui-tight" ? TIGHT.body : "0px";
   for (const step of STEPS) variables[`--text-${step}--letter-spacing`] = table ? table[step] : "0em";
   return variables;

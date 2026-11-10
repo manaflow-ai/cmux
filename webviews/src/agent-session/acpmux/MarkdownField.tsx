@@ -15,6 +15,7 @@ import {
   inlineIds,
   inlinePlugin,
   insertInline,
+  type InlinePlace,
   orderInline,
   placeTokensIn,
   removeInline,
@@ -29,7 +30,11 @@ import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
-import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
+import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
+import { iconMaskUrl } from "./icons/iconMask";
+import { subscribeIconFamily } from "./icons/iconPack";
+import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
@@ -58,6 +63,28 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+
+/// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
+/// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
+function draftLinkTitles(): DeeplinkTitles | undefined {
+  const look = experimentArm(cmuxLinkLook);
+  if (look === "link") return undefined;
+  return {
+    known: knownCmuxLink,
+    // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
+    subscribe: (listener) => {
+      const offLinks = subscribeCmuxLinks(listener);
+      const offFamily = subscribeIconFamily(listener);
+      return () => {
+        offLinks();
+        offFamily();
+      };
+    },
+    label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
+    // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
+    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+  };
+}
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
 export type MarkdownFieldHandle = {
@@ -117,8 +144,10 @@ export type MarkdownFieldHandle = {
   insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet). `replace`: the person's paste or drop, which
-  /// takes the selection's place; otherwise nothing typed is replaced.
-  insertInline(ids: readonly string[], replace?: boolean): boolean;
+  /// takes the selection's place; otherwise nothing typed is replaced. `at` "start": at the start of
+  /// the prompt's first line that can hold them, the selection kept; "restore": there, as no undo
+  /// step of its own (inlineNode.ts `insertInline`).
+  insertInline(ids: readonly string[], replace?: boolean, at?: InlinePlace): boolean;
   /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
   removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
@@ -993,6 +1022,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                     return false;
+                  // The input method can emit paragraph input without a keydown. Its candidate
+                  // confirmation is still composition, even when this event omits isComposing.
+                  if (input.isComposing || composing.current) {
+                    event.preventDefault();
+                    return true;
+                  }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
                   else returnInput();
@@ -1362,8 +1397,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
-        // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
-        .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
+        // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
+        .use($prose(() => deeplinkTokensPlugin()))
+        // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
+        .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1589,10 +1626,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           insertPlain(view.current, text);
         },
-        insertInline: (ids, replace) => {
+        insertInline: (ids, replace, at) => {
           if (!view.current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids, replace);
+          return insertInline(view.current, ids, replace, at);
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);

@@ -60,7 +60,21 @@ public final class BookmarkPageHostProvider: PageProvider {
     /// The tab the page serves; a bookmarks bar page moves between tabs (``BookmarksBarPages``),
     /// and re-reads its state when the new tab's profile differs.
     public var tabKey: String {
-        didSet { if tabKey != oldValue { pageShown() } }
+        didSet {
+            lendGeneration &+= 1
+            post("lend")
+            if tabKey != oldValue { pageShown() }
+        }
+    }
+    /// Bumped on every move of the page to a tab or back to the pool (``relend()``, `tabKey`): a
+    /// call accepted before it acts for nobody.
+    public private(set) var lendGeneration = 0
+
+    /// Who a host call acts for: the page's tab and profile, and the lend, when it was accepted.
+    public struct Lease: Equatable, Sendable {
+        public let generation: Int
+        public let tabKey: String
+        public let profile: String
     }
     /// A top page names its profile (its window's workspace); a tab page uses the tab's.
     public var profileOverride: (@MainActor () -> String)?
@@ -78,6 +92,24 @@ public final class BookmarkPageHostProvider: PageProvider {
 
     public var profile: String { profileOverride?() ?? host?.bookmarkProfile(ofTab: tabKey) ?? "default" }
 
+    /// The lease of a call accepted now. Every host op that awaits takes one first and acts only
+    /// while ``isCurrent(_:)`` holds, so no answer lands in a tab the page has left.
+    public func lease() -> Lease { Lease(generation: lendGeneration, tabKey: tabKey, profile: profile) }
+
+    /// Whether the page still serves `lease`'s tab and profile, on the same lend.
+    public func isCurrent(_ lease: Lease) -> Bool { lease == self.lease() }
+
+    /// The page was lent again or given back (even to the same tab): earlier calls act for nobody.
+    public func relend() {
+        lendGeneration &+= 1
+        post("lend")
+    }
+
+    /// Throws when the page moved on since `lease` was taken.
+    func requireCurrent(_ lease: Lease, _ op: String) throws {
+        guard isCurrent(lease) else { throw PageError(code: "cmux.bookmarkPage.moved", message: "\(op): the page moved to another tab") }
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let host else { throw PageError.closed }
         switch op {
@@ -88,6 +120,7 @@ public final class BookmarkPageHostProvider: PageProvider {
                 "browser_profile_id": .string(profile), "bar_title": .string(BookmarkStrings.barTitle),
                 "other_title": .string(BookmarkStrings.otherBookmarks),
                 "can_set_folder_icons": .bool(host.bookmarkFolderIconsSupported),
+                "lend": .number(Double(lendGeneration)),
             ])
         case Self.prefix + "icons":
             let ids = Array((params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []).prefix(Self.maxIcons))
@@ -95,29 +128,32 @@ public final class BookmarkPageHostProvider: PageProvider {
             return icons(try await owner { try await host.bookmarkRows(ids, profile: profile) })
         case Self.prefix + "open":
             try spendGesture(context)
+            let lease = lease()
             // The page shows the daemon's rows: the row is read from there, never from a copy.
-            let id = params["bookmark"]?.stringValue ?? "", profile = profile
-            let rows = try await owner { try await host.bookmarkRows([id], profile: profile) }
+            let id = params["bookmark"]?.stringValue ?? ""
+            let rows = try await owner { try await host.bookmarkRows([id], profile: lease.profile) }
+            try requireCurrent(lease, op)
             guard let node = rows.first, !node.isFolder else { throw PageError(code: "cmux.bookmarkPage.not_found", message: op) }
             let disposition: BookmarkOpenDisposition = switch params["disposition"]?.stringValue {
             case "newTab": .newTab
             case "backgroundTab": .backgroundTab
             default: .currentTab
             }
-            host.openBookmark(node, profile: profile, disposition: disposition, fromTab: tabKey)
+            host.openBookmark(node, profile: lease.profile, disposition: disposition, fromTab: lease.tabKey)
             return .object([:])
         case Self.prefix + "openAll":
             try spendGesture(context)
+            let lease = lease()
             // Open All reads the folder's children from the daemon, never a lagging copy.
-            let profile = profile
             guard let id = params["folder"]?.stringValue,
-                  try await owner({ try await host.bookmarkRows([id], profile: profile) }).first?.isFolder == true else {
+                  try await owner({ try await host.bookmarkRows([id], profile: lease.profile) }).first?.isFolder == true else {
                 throw PageError(code: "cmux.bookmarkPage.not_found", message: op)
             }
-            let children = try await owner { try await host.bookmarkChildren(of: id, profile: profile) }
+            let children = try await owner { try await host.bookmarkChildren(of: id, profile: lease.profile) }
+            try requireCurrent(lease, op)
             // The first in a new tab, the rest behind it, as the bar's Open All.
             for (index, node) in children.filter({ !$0.isFolder }).enumerated() {
-                host.openBookmark(node, profile: profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: tabKey)
+                host.openBookmark(node, profile: lease.profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: lease.tabKey)
             }
             return .object([:])
         default:
@@ -235,7 +271,9 @@ public final class BookmarkPageHostProvider: PageProvider {
             let reasons = pending
             pending.removeAll()
             for reason in reasons.sorted() {
-                for listener in listeners.values { listener(.object(["reason": .string(reason)])) }
+                // Every event names the current lend, so a page knows when it moved (`lend`).
+                let event = JSONValue.object(["reason": .string(reason), "lend": .number(Double(lendGeneration))])
+                for listener in listeners.values { listener(event) }
             }
         }
     }

@@ -255,8 +255,16 @@ pub(crate) fn fold(state: &State, q: &LedgerQuery, person: &str) -> (LedgerReply
             }
         })
         .collect();
-    out_rows
-        .sort_by(|a, b| b.last_at.cmp(&a.last_at).then_with(|| a.session_id.cmp(&b.session_id)));
+    // Ranked by cost before the cut, as the rollups are: a page of the top `limit` never drops
+    // the biggest spender for a newer, cheaper chat. Ties go to the newer chat.
+    out_rows.sort_by(|a, b| {
+        b.totals
+            .cost_usd
+            .partial_cmp(&a.totals.cost_usd)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.last_at.cmp(&a.last_at))
+            .then_with(|| a.session_id.cmp(&b.session_id))
+    });
     out_rows.truncate(q.limit);
     let mut out_rollups = serde_json::Map::new();
     for dim in &q.dims {

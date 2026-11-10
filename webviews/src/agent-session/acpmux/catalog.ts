@@ -1,5 +1,6 @@
 import { keepPreviousData, notifyManager, QueryClient, QueryClientContext, useQuery } from "@tanstack/react-query";
 import { useContext, useMemo, useSyncExternalStore } from "react";
+import { isDefaultChoice } from "./defaultChoice";
 import type { AcpmuxSnapshot } from "./model";
 
 // TanStack Query holds acpmux server state the pane reads on request: today the
@@ -61,7 +62,7 @@ export class HarnessCatalogCache {
     const merged = fresh
       .filter((entry) => !entry.folder)
       .map((entry) =>
-        entry.models.length > 0 || !cached.get(entry.id)?.models.length
+        probedModels(entry) || !cached.get(entry.id) || !probedModels(cached.get(entry.id)!)
           ? entry
           : { ...entry, models: cached.get(entry.id)!.models },
       );
@@ -73,6 +74,13 @@ export class HarnessCatalogCache {
     }
     return profiles.length > 0 ? [...merged, ...profiles] : merged;
   }
+}
+
+/// Whether acpmux has a real list for the harness: until an agent's probe ends it reports only its
+/// default placeholder (`[{id: "default"}]`), which must not replace the list cached last time
+/// (OpenCode's picker read empty on every launch).
+function probedModels(entry: HarnessCatalog[number]): boolean {
+  return entry.models.some((model) => !isDefaultChoice(model));
 }
 
 function defaultStorage(): Storage | undefined {

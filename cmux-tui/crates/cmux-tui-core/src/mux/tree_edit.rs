@@ -54,12 +54,68 @@ pub(super) fn stamp_changed_active_pane(mux: &Mux, state: &mut State, previous: 
     }
 }
 
-pub(super) fn most_recent_pane(state: &State, panes: &[PaneId]) -> Option<PaneId> {
+/// The pane that takes focus when the focused pane closes, as cmux classic's
+/// Bonsplit picks it (`SplitViewController.closePane`, issue 38194): the most
+/// recently focused of `panes` (focus only, as Zellij and tmux return to the
+/// pane used last), else `sibling`, the closed pane's sibling that absorbs
+/// its space, for a tree whose remaining panes were never focused.
+pub(super) fn close_focus_successor(
+    state: &State,
+    panes: &[PaneId],
+    sibling: Option<PaneId>,
+) -> Option<PaneId> {
     panes
         .iter()
-        .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.active_at)))
-        .max_by_key(|(_, active_at)| *active_at)
+        .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.focused_at)))
+        .filter(|(_, focused_at)| *focused_at > 0)
+        .max_by_key(|(_, focused_at)| *focused_at)
         .map(|(id, _)| id)
+        .or(sibling.filter(|pane| panes.contains(pane)))
+        .or_else(|| panes.first().copied())
+}
+
+/// The first pane of the subtree that takes `pane`'s space when it closes
+/// (Bonsplit's `closePaneRecursively` focus target), in the screen's layout
+/// before the close: the split sibling's first pane; in a stack, the pane the
+/// stack expands after it. A column's only pane has no sibling in its column:
+/// the column to the left takes the focus, else the one to the right, as the
+/// app's close rule enters the neighbouring column.
+pub(super) fn close_sibling(screen: &Screen, pane: PaneId) -> Option<PaneId> {
+    if !screen.layout_columns_active() {
+        return sibling_of(&screen.root, pane);
+    }
+    let columns = &screen.layout_columns;
+    let index = columns.iter().position(|column| column.root.contains(pane))?;
+    let (before, rest) = columns.split_at_checked(index)?;
+    let (column, after) = rest.split_first()?;
+    sibling_of(&column.root, pane).or_else(|| {
+        let first = |column: &LayoutColumn| column.root.pane_ids_vec().first().copied();
+        before.iter().rev().find_map(first).or_else(|| after.iter().find_map(first))
+    })
+}
+
+fn sibling_of(node: &Node, target: PaneId) -> Option<PaneId> {
+    let first = |node: &Node| node.pane_ids_vec().first().copied();
+    match node {
+        Node::Leaf(_) => None,
+        Node::Split { a, b, .. } => {
+            if matches!(**a, Node::Leaf(id) if id == target) {
+                first(b)
+            } else if matches!(**b, Node::Leaf(id) if id == target) {
+                first(a)
+            } else if a.contains(target) {
+                sibling_of(a, target).or_else(|| first(b))
+            } else if b.contains(target) {
+                sibling_of(b, target).or_else(|| first(a))
+            } else {
+                None
+            }
+        }
+        Node::Stack { panes, expanded } => {
+            let mut remaining = panes.iter().copied().filter(|pane| *pane != target);
+            if *expanded == target { remaining.next_back() } else { Some(*expanded) }
+        }
+    }
 }
 
 pub(super) fn clamp_split_ratio(ratio: f32) -> f32 {
@@ -496,11 +552,17 @@ pub(super) fn remove_surface(
     let old_order = pane.tabs.clone();
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
-        // The app's rule, from the one place it lives: the tab before the
-        // closed one, else the one after it; an unselected close keeps it.
+        // The app's rule, from the one place it lives (Chrome's, positional
+        // here: the daemon keeps no opener): the tab after the closed one,
+        // else the one before it; an unselected close keeps it.
         let shown: HashSet<SurfaceId> = pane.tabs.iter().copied().collect();
-        let pick =
-            cmux_focus_core::close_focus::tab(selected.as_ref(), &old_order, &pane.tabs, &shown);
+        let pick = cmux_focus_core::close_focus::tab(
+            selected.as_ref(),
+            &old_order,
+            &pane.tabs,
+            &shown,
+            &cmux_focus_core::close_focus::TabRelations::<SurfaceId>::default(),
+        );
         pane.active_tab =
             pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);
@@ -512,20 +574,21 @@ pub(super) fn remove_surface(
     let Some((wi, si)) = screen_location else {
         return (removed, false);
     };
-    let (was_active, screen_remains) = {
+    let (was_active, screen_remains, sibling) = {
         let screen = &mut state.workspaces[wi].screens[si];
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
         }
+        let sibling = close_sibling(screen, pane_id);
         let screen_remains = remove_pane_from_screen_layout(mux, screen, pane_id);
-        (was_active, screen_remains)
+        (was_active, screen_remains, sibling)
     };
     if screen_remains {
         let next_active = if was_active {
             let mut ids = Vec::new();
             state.workspaces[wi].screens[si].root.pane_ids(&mut ids);
-            most_recent_pane(state, &ids)
+            close_focus_successor(state, &ids, sibling)
         } else {
             None
         };
@@ -557,20 +620,21 @@ pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId)
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
     };
-    let (was_active, screen_remains) = {
+    let (was_active, screen_remains, sibling) = {
         let screen = &mut state.workspaces[wi].screens[si];
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
         }
+        let sibling = close_sibling(screen, pane_id);
         let screen_remains = remove_pane_from_screen_layout(mux, screen, pane_id);
-        (was_active, screen_remains)
+        (was_active, screen_remains, sibling)
     };
     if screen_remains {
         let next_active = if was_active {
             let mut ids = Vec::new();
             state.workspaces[wi].screens[si].root.pane_ids(&mut ids);
-            most_recent_pane(state, &ids)
+            close_focus_successor(state, &ids, sibling)
         } else {
             None
         };

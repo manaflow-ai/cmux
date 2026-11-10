@@ -14,7 +14,15 @@ and git ls-remote (no network) and checks what it does to the run:
 - glaeda-gh down (exit 3) gives one round of gh run watch, then glaeda-gh again;
 - rounds are spaced, so a waiter that returns at once does not spin on the API;
 - --cancel-on-timeout cancels at the deadline;
-- Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not.
+- Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not;
+- a dispatch that gets HTTP 5xx is tried again (3 tries), a run GitHub created anyway is adopted,
+  and when every try fails the script says no run was created;
+- a 404 or 500 on the first read of the new run is not a failure: the script names the run,
+  waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
+- one open run per commit, mode and filter: while a run this script dispatched for the same
+  commit and filter is still open, it does not dispatch, names that run and exits 4; an open
+  run of another filter or another commit, or a finished run, does not stop a dispatch.
+  About 37 cmux-tui runs queued on 2026-11-09, often several for one commit.
 """
 
 from __future__ import annotations
@@ -35,8 +43,35 @@ RUN_ID = "4242"
 GH_STUB = r"""#!/usr/bin/env bash
 echo "gh $*" >> "$STUB_DIR/calls.log"
 case "$*" in
-  api*) echo __RUN_ID__ ;;
-  *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "$(cat "$STUB_DIR/head")" "$(cat "$STUB_DIR/branch")" ;;
+  api*)
+    # FAKE_DISPATCH_FAILS: how many dispatches answer HTTP 502 (FAKE_DISPATCH_CODE) first.
+    n=$(cat "$STUB_DIR/dispatches" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$STUB_DIR/dispatches"
+    if (( n < ${FAKE_DISPATCH_FAILS:-0} )); then
+      echo "gh: Server Error (HTTP ${FAKE_DISPATCH_CODE:-502})" >&2
+      exit 1
+    fi
+    echo __RUN_ID__ ;;
+  "run list"*--commit*)
+    # The open-run lookup: one run per line, "id<TAB>status<TAB>title<TAB>url" (the
+    # script's --jq asks for @tsv). The test writes the lines to $STUB_DIR/open-runs.
+    if [[ "${FAKE_OPEN_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
+    cat "$STUB_DIR/open-runs" 2>/dev/null || true ;;
+  "run list"*)
+    if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
+    # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
+    if [[ "${FAKE_LIST_FINDS:-0}" == 1 ]]; then echo __RUN_ID__; fi ;;
+  *headSha*)
+    # FAKE_IDENTITY_FAILS: how many identity reads fail first (FAKE_IDENTITY_CODE, default 404:
+    # GitHub answers 404 or 500 for a few seconds after it creates a run). FAKE_IDENTITY_SHA
+    # answers another commit (a run of another revision).
+    n=$(cat "$STUB_DIR/identity-reads" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$STUB_DIR/identity-reads"
+    if (( n < ${FAKE_IDENTITY_FAILS:-0} )); then
+      echo "failed to get run: HTTP ${FAKE_IDENTITY_CODE:-404}: Not Found (https://api.github.com/repos/manaflow-ai/cmux/actions/runs/__RUN_ID__)" >&2
+      exit 1
+    fi
+    printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_IDENTITY_SHA:-$(cat "$STUB_DIR/head")}" "$(cat "$STUB_DIR/branch")" ;;
   *status,conclusion*)
     n=$(cat "$STUB_DIR/views" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$STUB_DIR/views"
@@ -120,7 +155,7 @@ class Sandbox:
 
     def start(self, args: list[str], **env: str) -> subprocess.Popen[str]:
         # Fast defaults a case may override.
-        full_env = {**self.env, "CMUX_TUI_HOSTED_ROUND_SECONDS": "1",
+        full_env = {**self.env, "CMUX_TUI_HOSTED_ROUND_SECONDS": "1", "CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS": "1",
                     "CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS": "5", **env}
         process = subprocess.Popen(["bash", f"scripts/{SCRIPT.name}", *args], cwd=self.repo, env=full_env,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -145,6 +180,25 @@ class Sandbox:
     def count(self, prefix: str) -> int:
         return sum(1 for line in self.calls() if line.startswith(prefix))
 
+    def head(self) -> str:
+        return (self.dir / "head").read_text(encoding="utf-8").strip()
+
+    def dispatched_request_id(self, args: list[str]) -> str:
+        """Run the script once and return the request_id it dispatched, then forget the calls."""
+        self.run(args, FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        found = [part.split("=", 1)[1] for line in self.calls() for part in line.split()
+                 if part.startswith("inputs[request_id]=")]
+        assert len(found) == 1, self.calls()
+        for name in ("calls.log", "dispatches", "views"):
+            (self.dir / name).unlink(missing_ok=True)
+        return found[0]
+
+    def open_runs(self, *runs: tuple[str, str, str]) -> None:
+        """Runs of this commit that the run list shows: (id, status, title) each."""
+        lines = [f"{run_id}\t{status}\t{title}\thttps://github.com/manaflow-ai/cmux/actions/runs/{run_id}\n"
+                 for run_id, status, title in runs]
+        (self.dir / "open-runs").write_text("".join(lines), encoding="utf-8")
+
     def close(self) -> None:
         for group in self.groups:  # stub sleeps a killed waiter left behind
             try:
@@ -165,6 +219,41 @@ def scenario(failures: list[str], name: str, test) -> None:
         test(failures, name, box)
     finally:
         box.close()
+
+
+def dispatch_server_error_is_retried(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="2",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 3 and box.count("gh run download") >= 1
+          and "HTTP 502" in out, box, out)
+
+
+def dispatch_server_errors_give_up_and_say_no_run(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 3 and "no run was created" in out
+          and box.count("glaeda-gh wait run") == 0, box, out)
+
+
+def dispatch_error_with_a_created_run_adopts_it(failures: list[str], name: str, box: Sandbox) -> None:
+    # A 5xx can come after GitHub created the run: it is found by its request id, never dispatched twice.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="1", FAKE_LIST_FINDS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1 and box.count("gh run download") >= 1, box, out)
+
+
+def dispatch_lookup_failure_does_not_dispatch_again(failures: list[str], name: str, box: Sandbox) -> None:
+    # The run list fails in the same incident: the run may exist, so no second dispatch, and say how to check.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9", FAKE_LIST_FAILS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 1 and "gh run list --repo" in out
+          and "HTTP 503" in out, box, out)
+
+
+def dispatch_client_error_is_not_retried(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9",
+                        FAKE_DISPATCH_CODE="422", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 1 and "HTTP 422" in out, box, out)
 
 
 def deadline_does_not_cancel(failures: list[str], name: str, box: Sandbox) -> None:
@@ -217,6 +306,97 @@ def cancel_on_timeout_flag_cancels(failures: list[str], name: str, box: Sandbox)
     check(failures, name, code == 1 and box.count("gh run cancel") == 1, box, out)
 
 
+def open_run_of_same_commit_and_filter_refuses(status: str):
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+        box.open_runs(("9001", status, f"cmux-tui focused {request_id} @ {box.head()}"))
+        code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                            CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        check(failures, name, code == 4 and box.count("gh api -X POST") == 0
+              and "https://github.com/manaflow-ai/cmux/actions/runs/9001" in out
+              and box.count("glaeda-gh wait run") == 0, box, out)
+    return test
+
+
+def open_full_run_of_same_commit_refuses(failures: list[str], name: str, box: Sandbox) -> None:
+    request_id = box.dispatched_request_id(["--full"])
+    box.open_runs(("9002", "queued", f"cmux-tui full {request_id} @ {box.head()}"))
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 4 and box.count("gh api -X POST") == 0
+          and "https://github.com/manaflow-ai/cmux/actions/runs/9002" in out, box, out)
+
+
+def open_run_of_another_filter_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    other = box.dispatched_request_id(["--filter", "beta_test"])
+    box.open_runs(("9003", "queued", f"cmux-tui focused {other} @ {box.head()}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1 and "runs/9003" not in out, box, out)
+
+
+def open_run_of_another_mode_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    other = box.dispatched_request_id(["--full"])
+    box.open_runs(("9004", "queued", f"cmux-tui full {other} @ {box.head()}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def open_run_of_another_commit_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+    other_sha = "0" * 40 if box.head() != "0" * 40 else "1" * 40
+    box.open_runs(("9005", "queued", f"cmux-tui focused {request_id} @ {other_sha}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def finished_run_of_same_commit_and_filter_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+    box.open_runs(("9006", "completed", f"cmux-tui focused {request_id} @ {box.head()}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def open_run_lookup_failure_still_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    # The lookup only saves Mac time; a failed list must not block verification.
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1", FAKE_OPEN_LIST_FAILS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def first_run_read_failure_waits_on_the_run(code_name: str):
+    """Run 42688604218 (2026-11-09): the dispatch created the run, the first read of it
+    answered HTTP 404, and the script exited 1 with the run still going. Run 42688525295
+    (#39820) got HTTP 500 the same way. The script now names the run, hands the wait to
+    glaeda-gh wait run, and checks the run's revision once it can read it."""
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                            FAKE_IDENTITY_CODE=code_name, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        check(failures, name, box.count("gh api -X POST") == 1
+              and box.count(f"glaeda-gh wait run manaflow-ai/cmux/{RUN_ID}") >= 1
+              and box.count("gh run download") >= 1 and box.count("gh run cancel") == 0
+              and f"actions/runs/{RUN_ID}" in out, box, out)
+    return test
+
+
+def unreadable_run_is_refused_before_download(failures: list[str], name: str, box: Sandbox) -> None:
+    # The revision is never confirmed: no artifact from that run is accepted.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="99",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("glaeda-gh wait run") >= 1
+          and box.count("gh run download") == 0 and box.count("gh run cancel") == 0
+          and f"actions/runs/{RUN_ID}" in out, box, out)
+
+
+def late_read_of_another_revision_is_refused(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                        FAKE_IDENTITY_SHA="f" * 40, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh run download") == 0
+          and "is not this revision" in out, box, out)
+
+
 def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: int):
     def test(failures: list[str], name: str, box: Sandbox) -> None:
         process = box.start(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="60",
@@ -246,6 +426,12 @@ def main() -> int:
         return 1
     failures: list[str] = []
     for name, test in [
+        ("a dispatch that gets HTTP 5xx is tried again", dispatch_server_error_is_retried),
+        ("three 5xx dispatches give up and say no run was created", dispatch_server_errors_give_up_and_say_no_run),
+        ("a 5xx dispatch whose run GitHub did create is adopted, not dispatched twice",
+         dispatch_error_with_a_created_run_adopts_it),
+        ("a failed run lookup after a 5xx does not dispatch again", dispatch_lookup_failure_does_not_dispatch_again),
+        ("a 4xx dispatch is not tried again", dispatch_client_error_is_not_retried),
         ("at the deadline the run is not cancelled and the script exits 3", deadline_does_not_cancel),
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
         ("a run cancelled by the CI rescue and re-run is followed", rescue_rerun_is_followed),
@@ -256,12 +442,32 @@ def main() -> int:
         ("Ctrl-C cancels the run", signal_case(signal.SIGINT, True, 1, 130)),
         ("SIGTERM does not cancel the run", signal_case(signal.SIGTERM, False, 0, 143)),
         ("SIGHUP does not cancel the run", signal_case(signal.SIGHUP, False, 0, 129)),
+        ("a queued run of the same commit and filter: no dispatch, exit 4",
+         open_run_of_same_commit_and_filter_refuses("queued")),
+        ("an in-progress run of the same commit and filter: no dispatch, exit 4",
+         open_run_of_same_commit_and_filter_refuses("in_progress")),
+        ("a waiting run of the same commit and filter: no dispatch, exit 4",
+         open_run_of_same_commit_and_filter_refuses("waiting")),
+        ("an open full run of the same commit: no second full dispatch, exit 4", open_full_run_of_same_commit_refuses),
+        ("an open run of another filter does not stop a dispatch", open_run_of_another_filter_dispatches),
+        ("an open full run does not stop a focused dispatch", open_run_of_another_mode_dispatches),
+        ("an open run of another commit does not stop a dispatch", open_run_of_another_commit_dispatches),
+        ("a finished run of the same commit and filter does not stop a dispatch",
+         finished_run_of_same_commit_and_filter_dispatches),
+        ("a failed open-run lookup still dispatches", open_run_lookup_failure_still_dispatches),
+        ("a 404 on the first read of the new run: wait on it, do not exit 1",
+         first_run_read_failure_waits_on_the_run("404")),
+        ("a 500 on the first read of the new run: wait on it, do not exit 1",
+         first_run_read_failure_waits_on_the_run("500")),
+        ("a run whose revision is never read is refused before download", unreadable_run_is_refused_before_download),
+        ("a late read that shows another revision is refused", late_read_of_another_revision_is_refused),
     ]:
         scenario(failures, name, test)
     if failures:
         print("\n\n".join(f"FAIL: {f}" for f in failures), file=sys.stderr)
         return 1
-    print("ok: verify-cmux-tui-hosted.sh leaves its run alone unless Ctrl-C or --cancel-on-timeout says otherwise")
+    print("ok: verify-cmux-tui-hosted.sh leaves its run alone unless Ctrl-C or --cancel-on-timeout says otherwise,"
+          " and keeps one open run per commit, mode and filter")
     return 0
 
 

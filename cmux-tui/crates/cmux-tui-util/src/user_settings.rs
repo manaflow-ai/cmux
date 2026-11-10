@@ -200,6 +200,32 @@ pub fn resume_agents() -> bool {
     }
 }
 
+/// Settings-file `remote.ultraMode` ("Ultra Connection Mode"): whether the
+/// WireGuard tunnels this Mac starts (Cloud, `wg hub`, the terminal client)
+/// send repair data so a lossy network costs no time, at about 2-3x the
+/// bytes (cmux-wg `UltraMode::SETTING`). Off by default; anything but
+/// `true`, and a file that does not parse, is off.
+pub fn ultra_mode_from_config_text(text: &str) -> bool {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else { return false };
+    document.pointer("/remote/ultraMode").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// [`ultra_mode_from_config_text`] of the settings file, read when a tunnel
+/// starts (a change applies to the next connection with no reload); off
+/// without a file, and always off in unit tests.
+pub fn ultra_mode() -> bool {
+    if cfg!(test) {
+        return false;
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| ultra_mode_from_config_text(&text))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
 /// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
 /// outside strings (the dialect the app's `JSONC` parser reads).
 pub fn strip_jsonc(text: &str) -> String {
@@ -302,6 +328,20 @@ mod tests {
         assert!(!resume_agents("{\n  // off\n  \"sessions\": {\"resumeAgents\": false,},\n}"));
         assert!(!resume_agents(r#"{"sessions": {"resumeAgents": "yes"}}"#), "not a boolean");
         assert!(!resume_agents("{not json"), "an unreadable file never runs a resume");
+    }
+
+    #[test]
+    fn ultra_mode_is_on_only_when_the_file_says_true() {
+        use super::ultra_mode_from_config_text as ultra;
+        assert!(!ultra(""));
+        assert!(!ultra("{}"));
+        assert!(!ultra(r#"{"remote": {"endSharingOnQuit": true}}"#));
+        assert!(ultra(r#"{"remote": {"ultraMode": true}}"#));
+        assert!(ultra("{\n  // lossy hotel Wi-Fi\n  \"remote\": {\"ultraMode\": true,},\n}"));
+        assert!(!ultra(r#"{"remote": {"ultraMode": false}}"#));
+        assert!(!ultra(r#"{"remote": {"ultraMode": "on"}}"#), "not a boolean");
+        assert!(!ultra("{not json"));
+        assert!(!super::ultra_mode(), "unit tests never read the developer's file");
     }
 
     #[test]

@@ -37,15 +37,17 @@ function longRow(count = 5_000): Bookmark[] {
   }));
 }
 
-function BarFixture({ look = "parity", width = 640, items = barRow(), hasOther = true, loaded = true }: Props) {
+function BarFixture({ look = "parity", width = 640, items = barRow(), hasOther, loaded = true }: Props) {
   const [said, setSaid] = useState("");
   const snapshot: BarSnapshot = {
     loaded,
     profile: "default",
     otherTitle: "Other Bookmarks",
     revision: 1,
+    otherRevision: 1,
     items,
-    hasOther,
+    // Loading is the strip alone: nothing is known about Other Bookmarks yet.
+    hasOther: hasOther ?? loaded,
     icons: {},
   };
   const say = (what: string) => () => setSaid(what);
@@ -55,7 +57,6 @@ function BarFixture({ look = "parity", width = 640, items = barRow(), hasOther =
         <BookmarksBar
           snapshot={snapshot}
           words={words}
-          width={width}
           look={look}
           onOpen={(node, disposition) => setSaid(`open ${node.title || node.url} (${disposition})`)}
           onFolder={(node) => setSaid(`folder menu: ${node.title}`)}

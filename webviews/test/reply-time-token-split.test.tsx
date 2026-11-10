@@ -47,7 +47,7 @@ test("a multi-call Claude turn: its input is counted once, uncached apart from c
   expect(split.calls).toBe(58);
   expect(tokenRows(t, "en", split)).toEqual([
     "Output 23.7K",
-    "Input across calls 124.7K\u00a0uncached · 4.5M\u00a0cached",
+    "Input 124.7K\u00a0uncached · 4.5M\u00a0cached",
     "Context at end 125.3K",
     "Model calls 58",
   ]);
@@ -87,7 +87,7 @@ test("a Codex turn: acpmux takes the cached part out of its input, and its conte
   expect(split.calls).toBeUndefined();
   expect(tokenRows(t, "en", split)).toEqual([
     "Output 4K",
-    "Input across calls 314.9K\u00a0uncached · 3M\u00a0cached",
+    "Input 314.9K\u00a0uncached · 3M\u00a0cached",
     "Context at end 170.7K",
   ]);
 });
@@ -96,7 +96,7 @@ test("a turn an older acpmux recorded draws no context and no call count", () =>
   const { contextTokens: _context, modelCalls: _calls, inputExcludesCache: _mark, ...older } = CLAUDE_58;
   expect(tokenRows(t, "en", resultTokenSplit(older, CLAUDE_CHAT)!)).toEqual([
     "Output 23.7K",
-    "Input across calls 124.7K\u00a0uncached · 4.5M\u00a0cached",
+    "Input 124.7K\u00a0uncached · 4.5M\u00a0cached",
   ]);
 });
 
@@ -108,7 +108,7 @@ test("an older acpmux's Codex turn counts its cached input once: 314.9K uncached
   const old = resultTokenSplit(OLD_CODEX, CODEX_CHAT)!;
   expect(uncachedTokens(old)).toBe(314_899);
   expect(cachedTokens(old)).toBe(3_021_696);
-  expect(tokenRows(t, "en", old)).toEqual(["Output 4K", "Input across calls 314.9K\u00a0uncached · 3M\u00a0cached"]);
+  expect(tokenRows(t, "en", old)).toEqual(["Output 4K", "Input 314.9K\u00a0uncached · 3M\u00a0cached"]);
   // Another family's ACP record (Gemini's) is read the same way.
   expect(uncachedTokens(resultTokenSplit(OLD_CODEX, { harness: "gemini", family: "gemini" })!)).toBe(314_899);
   // The marked record of that turn already left the cache out: it is not taken out again.
@@ -135,7 +135,7 @@ test("an unmarked record that names no harness and no Claude model can never cou
 
 test("the reply time's tooltip: its time, then one count per row", () => {
   expect(replyTimeDetail(t, "en", ["Worked for 1m 16s"], resultTokenSplit(CLAUDE_58))).toBe(
-    "Worked for 1m 16s\nOutput 23.7K\nInput across calls 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
+    "Worked for 1m 16s\nOutput 23.7K\nInput 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
   );
   expect(replyTimeDetail(t, "en", [undefined, undefined], undefined)).toBeUndefined();
   const row: AcpmuxRow = {
@@ -149,9 +149,11 @@ test("the reply time's tooltip: its time, then one count per row", () => {
     tokens: resultTokenSplit(CLAUDE_58),
   };
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
-  const title = /<time class="cv-turn-time"[^>]*title="([^"]*)"/.exec(markup)?.[1];
+  // The title is the exact time (as a prompt's is); Worked for and the token rows are its detail line.
+  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="[A-Z][a-z]{2} \d{1,2}, \d{4}, /);
+  const title = /<time class="cv-turn-time"[^>]*data-tooltip-detail="([^"]*)"/.exec(markup)?.[1];
   expect(title).toBe(
-    "Worked for 1m 16s\nOutput 23.7K\nInput across calls 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
+    "Worked for 1m 16s\nOutput 23.7K\nInput 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
   );
   expect(title).not.toContain("4.7M");
 });
@@ -172,7 +174,7 @@ test("at a narrow width each count wraps with its words, never apart from them, 
   const input = (language: string) => tokenRows(translatorFor(language as any), language as any, split)[1]!;
   // The tooltip is plain text, so the count and its words are held by no-break spaces; the line
   // may still break between the label and the counts, and around the " · ".
-  expect(input("en")).toBe("Input across calls 124.7K uncached · 4.5M cached");
+  expect(input("en")).toBe("Input 124.7K uncached · 4.5M cached");
   expect(input("pl")).toContain(" spoza pamięci podręcznej ·");
   for (const language of ["de", "fr", "it", "ja", "ru", "zh-Hans"])
     for (const part of input(language).split(" · "))

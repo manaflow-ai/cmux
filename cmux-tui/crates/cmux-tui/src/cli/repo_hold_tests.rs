@@ -67,6 +67,15 @@ fn a_head_with_harness_start_settings_is_never_marked() {
     assert_eq!(settled(&repo, "ready"), "ready");
 }
 
+/// A project `.mcp.json` starts its servers when the harness starts, outside the tool gate,
+/// so a head that has one is never marked: they would run on a partial checkout.
+#[test]
+fn a_head_with_project_mcp_servers_is_never_marked() {
+    let (_dir, repo) = checkout();
+    std::fs::write(repo.join(".mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
+    assert!(!head_allowed(&repo));
+}
+
 /// Review F1 (cmux#38099, c64fa326f5b): a `CLAUDE.md` linked into a folder the head left out
 /// would start a harness with no instructions, so such a head is never marked.
 #[test]

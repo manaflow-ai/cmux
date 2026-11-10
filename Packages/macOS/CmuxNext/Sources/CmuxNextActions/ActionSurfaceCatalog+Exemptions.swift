@@ -114,7 +114,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft", "palette.forkAgentConversationNewRow",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
-        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
+        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudMoveToMachine", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
@@ -173,7 +173,7 @@ nonisolated extension ActionSurfaceCatalog {
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
             "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
-            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize", "appearance.personalize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",

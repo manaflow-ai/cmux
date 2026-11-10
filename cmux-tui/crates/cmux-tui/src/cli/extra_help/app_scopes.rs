@@ -134,8 +134,18 @@ const ACTION_LIST_USAGE: &str =
 
 const EVENTS_HELP: &str = "\
 usage: cmux events [--after <seq>] [--name <name>]... [--category <category>]...
-       [--no-heartbeats]
-Prints one JSON line per app event until interrupted.";
+       [--no-heartbeats] [--timeout <duration>]
+       [--until <name>|<prefix>*] [--match <path>=<value>]...
+Prints one JSON line per app event until interrupted.
+--timeout 30s|5m|1500ms|<seconds>  stop then: exit 124; --json/--jsonl print a
+  last line {\"type\":\"timeout\",\"timed_out\":true,\"waited_ms\":...}.
+--until <name>  wait for one event and print only it, then exit 0: an exact
+  name (action.catalog.changed) or a prefix ending in * (mobile.*). Waits on
+  workspaces and agents: cmux agents events --until workspace.changed.
+--match <path>=<value>  (repeatable, with or without --until) the event's
+  field at a dotted path equals value: payload.state=ready, seq=3.
+A wait has no default timeout: agents pass --timeout. Start the wait before
+the action it waits for, or pass --after <seq> so replayed events count.";
 
 const HISTORY_HELP: &str = "\
 usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]

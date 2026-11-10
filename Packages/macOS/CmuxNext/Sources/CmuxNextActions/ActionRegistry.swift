@@ -120,6 +120,10 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument whose values are not read yet (a list the daemon has not answered):
+    /// the load that answers them, which the palette's step awaits under its loading state instead
+    /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
+    @ObservationIgnored public var argumentSuggestionsLoad: (@MainActor (String) -> (@MainActor () async -> [ActionEnumCase])?)?
     /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
     @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
@@ -189,6 +193,10 @@ public final class ActionRegistry {
         // A new hook drops the old one's queued work: ask again through the new one.
         didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
     }
+    /// The icon pack's drawing that stands in for an SF Symbol at a point size, or nil to draw the symbol: catalog
+    /// rows (``rowIcon(_:)``) then draw the glyph the palette and hand-built menus draw (Leo 2026-11-09, of the fork:
+    /// "and this fork symbol is so bad"). The App passes `NSImage.packOverride`; this core target cannot read the pack.
+    @ObservationIgnored public var symbolOverride: (@MainActor (String, CGFloat) -> NSImage?)?
     /// A warm is queued and has not run yet: further changes need no second one.
     @ObservationIgnored private var bindingTableWarmQueued = false
 

@@ -37,7 +37,7 @@ package final class ChildProcess: Sendable {
     private let input: Data?
     private let stderrLog: URL?
 
-    /// A bounded secret is written before launch; inherited Native sockets use start(inheritedInput:).
+    /// A bounded secret is fed after launch (``PipeFeed``); inherited Native sockets use start(inheritedInput:).
     /// `stderrLog` also keeps the child's stderr in that file (never its stdin or stdout).
     package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
                  input: Data? = nil, stderrLog: URL? = nil) {
@@ -69,6 +69,7 @@ package final class ChildProcess: Sendable {
         let bytes = Array((line + "\n").utf8)
         return state.withLock { state in
             guard let input = state.input else { return false }
+            // concurrency-allow: the held stdin is O_NONBLOCK (startHoldingInput): a full pipe fails the write, never waits
             return bytes.withUnsafeBytes { Darwin.write(input.fileDescriptor, $0.baseAddress, $0.count) } == bytes.count
         }
     }
@@ -81,15 +82,30 @@ package final class ChildProcess: Sendable {
 
     package func start() throws {
         let stdin = input.map { _ in Pipe() }
-        if let stdin, let input {
-            // The read end remains ours and the payload fits the pipe's 16 KB
-            // buffer, so this pre-launch write cannot block or raise SIGPIPE.
-            guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
-            let writer = stdin.fileHandleForWriting
-            defer { try? writer.close() }
-            try writer.write(contentsOf: input)
+        if let input { guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) } }
+        guard let stdin, let input else {
+            try launch(standardInput: FileHandle.nullDevice)
+            return
         }
-        try launch(standardInput: stdin?.fileHandleForReading ?? FileHandle.nullDevice)
+        // Close-on-exec on both ends: no other child of this app inherits a copy of the secret's pipe.
+        _ = fcntl(stdin.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        // The secret goes in after launch on the feed's own queue, never this caller's thread
+        // (main-actor code): a pipe write can wait however few the bytes (ProcessRunner's
+        // two-token write before launch held the NIGHTLY main thread 391 s, 2026-11-09).
+        let feed = PipeFeed(stdin.fileHandleForWriting)
+        defer { try? stdin.fileHandleForReading.close() }
+        do {
+            try launch(standardInput: stdin.fileHandleForReading)
+        } catch {
+            feed.close()
+            throw error
+        }
+        // The child holds its own read end now: drop ours first, so a child that exits without
+        // reading fails the write (EPIPE) instead of leaving it waiting.
+        try? stdin.fileHandleForReading.close()
+        feed.write(input)
+        feed.close()
     }
 
     /// A private socket inherited as stdin, for the owned Native link only.
@@ -212,6 +228,9 @@ package final class ChildProcess: Sendable {
         let data = state.withLock { $0.stderrTail }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// The tasks waiting in ``waitForExit()`` now.
+    package var exitWaiterCount: Int { state.withLock { $0.exitWaiters.count } }
 
     package func waitForExit() async -> Int32 {
         await withCheckedContinuation { waiter in

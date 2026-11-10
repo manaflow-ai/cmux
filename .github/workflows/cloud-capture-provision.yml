@@ -15,6 +15,13 @@ name: Cloud capture account provision
 # hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production). The log names the
 # account's Stack user id (not a secret). grant_email never runs against production.
 #
+# With `target: production-team`, the same for a second production account (cmux-cloud-capture-prod-team@manaflow.dev),
+# sealed to cmuxterm-hq cloud-capture as CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL and _PASSWORD: the probe's shared-team
+# row (cmuxterm-hq cloud-chat-replies-production-team), which joins a shared team the probe account must stay out of.
+# The run also makes that account a member of the company team "cmux" with the production server key and reads the
+# membership back (no hand invitation, and no person's account standing in). `team_only: true` with that target does
+# only the membership step: no rotation, nothing sealed or uploaded, and the account must already exist.
+#
 # With `target: journey-production`, the same for the production Cloud journey's own account
 # (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 # CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml and backend.yml journey-production).
@@ -22,6 +29,11 @@ name: Cloud capture account provision
 # With `target: journey-guest`, the same steps make the second staging account (cmux-cloud-capture-guest@manaflow.dev,
 # "Capture Guest"), sealed to this repository's cmux-next-vm-image-dev environment as CMUX_DOGFOOD_GUEST_STACK_EMAIL
 # and _PASSWORD: the guest side of two-account tests such as a chat share (cloud-chat-proof.yml signin_account).
+#
+# With `target: platform-staging` or `platform-production`, cmux-platform's own journey accounts
+# (cmux-cloud-capture-platform@ and -platform-prod@manaflow.dev), sealed to manaflow-ai/cmux-platform's repository
+# secrets (no environment) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*: the journeys after its deploys.
+# `put` then needs write access to that repository's secrets.
 #
 # With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
 # e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
@@ -34,10 +46,15 @@ on:
         required: false
         default: ""
       target:
-        description: "capture: the staging capture account. production: the production probe account. journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests"
+        description: "capture: the staging capture account. production: the production probe account. production-team: the production probe's shared-team account. journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests. platform-staging, platform-production: cmux-platform's deploy journeys"
         type: choice
-        options: [capture, production, journey-production, journey-guest]
+        options: [capture, production, production-team, journey-production, journey-guest, platform-staging, platform-production]
         default: capture
+      team_only:
+        description: "With target production-team: only make the existing account a member of the company team (no rotation, no bundle)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -52,7 +69,7 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each target's own server key: the script refuses a key whose project is not the target's.
-    environment: ${{ (inputs.target == 'production' || inputs.target == 'journey-production') && 'cloud-vm-production' || 'cloud-vm-staging' }}
+    environment: ${{ (inputs.target == 'production' || inputs.target == 'production-team' || inputs.target == 'journey-production' || inputs.target == 'platform-production') && 'cloud-vm-production' || 'cloud-vm-staging' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -65,7 +82,7 @@ jobs:
           sparse-checkout-cone-mode: true
 
       - name: libsodium
-        if: inputs.grant_email == ''
+        if: inputs.grant_email == '' && !inputs.team_only
         run: |
           set -euo pipefail
           if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
@@ -74,7 +91,7 @@ jobs:
           fi
 
       - name: Grant the operator plan only
-        if: inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'journey-production'
+        if: inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'production-team' && inputs.target != 'journey-production' && inputs.target != 'platform-production'
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -82,8 +99,17 @@ jobs:
           GRANT_EMAIL: ${{ inputs.grant_email }}
         run: python3 scripts/ci/cloud_capture_provision.py --grant-only "$GRANT_EMAIL"
 
+      - name: Join the company team only
+        if: inputs.grant_email == '' && inputs.team_only
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          TARGET: ${{ inputs.target || 'capture' }}
+        run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --team-only
+
       - name: Provision and seal
-        if: inputs.grant_email == ''
+        if: inputs.grant_email == '' && !inputs.team_only
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -92,7 +118,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets.json"
 
       - name: Upload the sealed bundle (ciphertext only)
-        if: inputs.grant_email == ''
+        if: inputs.grant_email == '' && !inputs.team_only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets

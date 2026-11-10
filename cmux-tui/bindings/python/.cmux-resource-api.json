@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "154a7c364bd86de362350a59cedc5c9409f419b62b27631210e856399d1b3b3d",
+  "catalog_sha256": "b5dcbeb4f0ce37525f0bb57ec2b883f8d3ac940070f3802e5db8320b029dd1bb",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -137,6 +137,12 @@
       "class": "mutation"
     },
     "chief.stop": {
+      "class": "mutation"
+    },
+    "classic_import.plan": {
+      "class": "read"
+    },
+    "classic_import.record": {
       "class": "mutation"
     },
     "client.cell_pixels.set": {
@@ -492,6 +498,9 @@
     },
     "pane.list": {
       "class": "read"
+    },
+    "pane.move": {
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "class": "read"

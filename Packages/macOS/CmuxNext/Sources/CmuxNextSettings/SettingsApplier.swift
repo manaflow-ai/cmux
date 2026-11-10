@@ -74,6 +74,7 @@ public final class SettingsApplier {
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
+        if design.hoverCardDelayIsSet != snapshot.hoverCards.delayIsSet { design.hoverCardDelayIsSet = snapshot.hoverCards.delayIsSet }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
         if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
         let groupHoverCard = snapshot.hoverCards.groupCardOptions

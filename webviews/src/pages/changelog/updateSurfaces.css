@@ -342,6 +342,12 @@
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
+/* The doodle card's change line keeps two lines' room (its longest; the line stops at two), so the
+   loading line and the words that replace it, one line or two, stand at one height (review F1 of
+   #39934; Leo 2026-11-09: no blank stage and no jump when the notes load). */
+.wn-card[data-decoration="doodle"] .wn-card-note {
+  min-height: 2.6em;
+}
 .wn-card[data-decoration="doodle"][data-glass] {
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
@@ -436,6 +442,55 @@
 }
 .wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
 
+/* The change line while the update's notes load (UpdateSurfaces.tsx NoteLoading; Leo 2026-11-09: "it
+   should have the updated to Nightly already loaded in, instead of just having a blank glass bit ...
+   should have a loading indicator, like an ellipsis-type thing"). It is the note's own box, and its
+   marks are inline on the note's baseline, no taller than its capitals: the line keeps the note's
+   strut, so its trimmed box (cap to baseline, above) is the words' and they swap in with no jump. The
+   shipped look is three still dots in the note's quiet color: no loop, since a dot that breathes or
+   blinks forever is the look Leo had removed (2026-10-21, test/no-breathing-dots.test.ts), and the
+   line lasts at most the 1.5 s settle. Gallery looks: the ellipsis glyph, a bar one line tall that a
+   light crosses, the words.
+   The label is for VoiceOver: clipped to nothing and out of the line. */
+.wn-card-note-loading { position: relative; }
+.wn-note-label {
+  position: absolute;
+  inset-inline-start: 0;
+  white-space: nowrap;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+.wn-note-dots > span {
+  display: inline-block;
+  width: 0.24em;
+  height: 0.24em;
+  margin-inline-end: 0.2em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  vertical-align: baseline;
+}
+.wn-note-bar {
+  display: inline-block;
+  width: 9em;
+  max-width: 70%;
+  height: 0.7em;
+  border-radius: 0.35em;
+  vertical-align: baseline;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, currentColor 18%, transparent) 50%, transparent 100%) 0 0 / 200% 100%,
+    color-mix(in srgb, currentColor 12%, transparent);
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-bar {
+  animation: wn-note-bar var(--cmux-shimmer-period, 2.8s) linear infinite;
+}
+@keyframes wn-note-bar {
+  from { background-position: 100% 0, 0 0; }
+  to { background-position: -100% 0, 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-note-bar { animation: none !important; }
+}
+
 /* The hover preview (UpdatedCardPreview): above the card's two lines, in the same glass, with the
    composer's hairline between them as its stack draws one between parts. Closed it is clipped to
    nothing; open it is the list's height (at most PREVIEW_MAX_PX), and the list stands on the
@@ -461,11 +516,12 @@
    their motion still shows (Leo 2026-11-08: "I feel like we should be able to keep it as glass
    though, right?"). */
 /* The one structural move, on the card's own curve (Leo 2026-11-08: "the animation also seems like
-   it's a little bit slow"): a fast start that settles long, 265ms, the native glass's twin
+   it's a little bit slow"): a fast start that settles, 180ms (Leo 2026-11-09: "the animations end to end need to
+   just resolve faster"), the native glass's twin
    (Motion.web.animateCard). On the shared gate (WebTheme's data-cmux-motion: "reduced" keeps
    only fades, so the preview is simply there). */
 .wn-updated {
-  --wn-preview-motion: 265ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
+  --wn-preview-motion: 180ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
   --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {
@@ -769,7 +825,123 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew):focus-visible {
+/* The Debug looks of the changes (UpdatedNotesLooks.tsx; Lawrence 2026-11-09, "make and show me more
+   versions of this ui"). `sections` above ships until one is picked. */
+/* `digest`: one line per area; open, its pills under it. */
+.wn-notes-list[data-look="digest"] { display: flex; flex-direction: column; gap: calc(var(--grid-base, 4px) / 2); }
+.wn-notes-digest-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-digest-head:hover { background: var(--page-hover); }
+.wn-notes-digest-head .wn-notes-area-icon { padding-top: calc(var(--grid-base, 4px) / 2); }
+.wn-notes-digest-text { display: grid; min-width: 0; }
+.wn-notes-digest-name { display: flex; gap: var(--ds-space-2); align-items: baseline; font-weight: var(--weight-emphasis); }
+.wn-notes-digest-peek {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-digest-chevron { margin-top: calc(var(--grid-base, 4px) / 2); color: var(--page-text-3, var(--page-text-2)); transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.wn-notes-digest[data-open] .wn-notes-digest-chevron { transform: rotate(90deg); }
+.wn-notes-digest[data-open] .wn-notes-rows { padding-left: var(--ds-space-5); }
+@media (prefers-reduced-motion: reduce) { .wn-notes-digest-chevron { transition: none; } }
+/* `chips`: the areas as filter chips, held at the top while the list scrolls under them. */
+.wn-notes-chips {
+  position: sticky;
+  top: calc(-1 * var(--ds-space-1));
+  z-index: var(--layer-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  background: var(--composer-material-tint, var(--page-bg));
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+.wn-notes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  cursor: default;
+}
+.wn-notes-chip:hover { background: var(--page-hover); color: var(--page-text); }
+.wn-notes-chip[aria-pressed="true"] { background: var(--page-selection, var(--page-hover)); color: var(--page-text); box-shadow: none; }
+.wn-notes-chip .wn-notes-area-icon svg { width: 12px; height: 12px; }
+/* `headline`: the first changes at full size, their details whole; then See all changes. */
+.wn-notes-list[data-look="headline"] { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.wn-notes-list[data-look="headline"] .wn-notes-row { gap: calc(var(--grid-base, 4px) / 2); padding-block: var(--ds-space-3); }
+.wn-notes-list[data-look="headline"] .wn-notes-row-title { font-size: var(--text-title); line-height: var(--text-title--line-height); font-weight: var(--weight-emphasis); }
+.wn-notes-headline-area {
+  color: var(--cmux-accent, var(--page-text-2));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.wn-notes-headline-detail {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-seeall {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-top: 1px solid var(--page-separator);
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-seeall:hover { background: var(--page-hover); }
+/* `ledger`: one line per change, the area a quiet label in its own column. */
+.wn-notes-list[data-look="ledger"] .wn-notes-row {
+  grid-template-columns: 84px minmax(0, 1fr);
+  column-gap: var(--ds-space-3);
+  padding-block: var(--ds-space-1);
+}
+.wn-notes-list[data-look="ledger"] li + li .wn-notes-row:has(.wn-notes-ledger-area:not(:empty)) {
+  margin-top: var(--ds-space-2);
+}
+.wn-notes-ledger-area {
+  color: var(--page-text-3, var(--page-text-2));
+  font-size: var(--text-detail);
+  line-height: var(--text-body--line-height);
+  overflow-wrap: anywhere;
+}
+:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew, .wn-notes-digest-head, .wn-notes-chip, .wn-notes-seeall):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }

@@ -345,6 +345,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(m) = &args.mode {
                 meta["mode"] = json!(m);
             }
+            if args.require_asking {
+                // A daemon that does not list it would start the session unchecked.
+                if !client.daemon_lists(crate::hub::require_asking::FEATURE) {
+                    anyhow::bail!(
+                        "the running acpmux daemon is older than this CLI and cannot refuse a \
+                         start that would not ask, so nothing started; run `acpmux daemon \
+                         restart`, then try again"
+                    );
+                }
+                meta.set(crate::hub::require_asking::FIELD, json!(true));
+            }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
@@ -486,7 +497,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .first_prompt(&args, &v)
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = first_prompt_id(&args);
                     let accepted = before_deadline(
                         deadline,
                         route_id,
@@ -522,7 +533,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // is interrupted while the app is opening its workspace.
             let queue_before_open = args.detach && !one_shot;
             if queue_before_open && let Some(text) = &first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = first_prompt_id(&args);
                 let accepted = before_deadline(
                     deadline,
                     route_id,
@@ -535,7 +546,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Err(mut open_error) = show() {
                 if !queue_before_open && let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = first_prompt_id(&args);
                     if let Err(error) = before_deadline(
                         deadline,
                         route_id,
@@ -602,7 +613,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if let Some(text) = first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = first_prompt_id(&args);
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
@@ -813,6 +824,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let relay_from = crate::cli::send_relay::sender(prompt_id.from_agent.as_deref(), |k| {
                 std::env::var(k).ok()
             });
+            // The Claude Code subagent this shell runs for (the Bash hook's mark), a label only.
+            let relay_sub = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
+            let relay_from =
+                crate::cli::send_relay::RelaySender::new(relay_from, relay_sub.as_ref());
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
@@ -875,7 +890,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let id = before_deadline(deadline, &session, resolve_id(&client, &session)).await?;
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
-                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id}))).await?;
+                // Read from a peer chat's mirrored row while its link's rows are current (`ROW_WILL_DO`).
+                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id, "row": true}))).await?;
                 // A session only the mesh hub reaches answers its info through the hub
                 // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
                 // the hub as one to a name nobody here runs (below).
@@ -948,7 +964,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         &relay,
                         &relay_session,
                         &relay_text,
-                        relay_from.as_deref(),
+                        &relay_from,
                         attaching,
                         json_out,
                         deadline,
@@ -1400,8 +1416,9 @@ async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
     let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
         return false;
     };
-    let info =
-        |key: &str| client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}));
+    let info = |key: &str| {
+        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false, "row": true}))
+    };
     let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
         return false;
     };
@@ -1451,6 +1468,17 @@ fn team_receipt_line(receipt: &Value) -> String {
     let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
     let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
     format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+}
+
+/// The id of a `new`'s first prompt: it names the Claude Code subagent that sends it
+/// (`naming_this_caller`), and the sender `--from` names, whose message it then is
+/// (`fromAgent`): never the person's words, whatever the connection declared (a guest's `new`,
+/// `acpmux_mcp_guest.rs`).
+fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
+    let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
+    prompt.from_agent =
+        args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    prompt
 }
 
 /// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY]` as the daemon reads

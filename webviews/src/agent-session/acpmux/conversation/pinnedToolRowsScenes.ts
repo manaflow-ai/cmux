@@ -1,9 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
 // The tool-group entry's regroup scenes (ToolGroupSize.gallery.ts): a running turn, the reader
-// scrolled up to a call and opened it, then the agent's next call arrives and regroups the run's
-// folds. The call stays open and stays where it was on screen (Leo, 2026-11-08: "if i have a tool
-// call expanded, the auto folding situation shouldn't collapse it when a new tool call comes in and
-// the folds reformat"). test/pinned-tool-rows-browser.test.ts plays both in Chromium.
+// scrolled up to a call and opened it, then the agent's next call arrives (a second read groups a
+// lone one under "Read 2 files"; a command joins the run). The call stays open and stays where it
+// was on screen (Leo, 2026-11-08: "if i have a tool call expanded, the auto folding situation
+// shouldn't collapse it when a new tool call comes in and the folds reformat"). A running turn
+// never folds its run into a line (turns.ts `codexRuns`, cmux#38339): the group scene ends the turn
+// too, and the call stays open and in place through the turn's end fold (turnEndFold.ts, the rows
+// in the parked reader's view held open by turnEndHold.ts). test/pinned-tool-rows-browser.test.ts
+// plays them in Chromium.
 import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity } from "../model";
@@ -34,7 +38,7 @@ const reply = (version: number) =>
     version,
   });
 
-const snapshot = (items: AcpmuxActivity[], version: number) =>
+const snapshot = (items: AcpmuxActivity[], version: number, isWorking = true) =>
   chat(
     [
       ...head,
@@ -44,7 +48,7 @@ const snapshot = (items: AcpmuxActivity[], version: number) =>
     ],
     {
       title: "Retry loop",
-      isWorking: true,
+      isWorking,
     },
   );
 
@@ -53,7 +57,10 @@ type Scene = {
   after: AcpmuxActivity[];
   opens: string[];
   call: string;
+  /// The line of the group or run that holds the call once the next call arrived.
   line: RegExp;
+  /// The turn then ends: its run folds once (turnEndFold.ts) and the opened call stays open and in place.
+  ends?: true;
   /// The reader reads the text above, the opened call 100 px under the view's foot (its row still
   /// drawn): the regroup moves the call, never the view.
   below?: true;
@@ -67,13 +74,15 @@ const lone: Scene = {
   call: "pin-c1",
   line: /^Read 2 files$/,
 };
-/// "Read 2 files" opened, its first read opened; a command joins and the group becomes the run's line.
+/// "Read 2 files" opened, its first read opened; a command joins the running turn's run (its group
+/// stays "Read 2 files": a running turn never folds the run into one line), then the turn ends.
 const group: Scene = {
   before: [read("pin-g1", "fetch.ts"), read("pin-g2", "retry.ts")],
   after: [read("pin-g1", "fetch.ts"), read("pin-g2", "retry.ts"), command("pin-g3", "bun test fetch")],
   opens: ["Read 2 files"],
   call: "pin-g1",
-  line: /^read 2 files and ran a command$/i,
+  line: /^Read 2 files$/,
+  ends: true,
 };
 
 const scroller = (ctx: Parameters<Play>[0]) => ctx.document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -122,6 +131,8 @@ declare global {
       fromEnd: number;
       scrollBefore: number;
       scrollAfter: number;
+      /// After the turn ended and its fold played (scenes that end the turn).
+      ended?: { after: number; open: boolean; scrollAfter: number };
     };
   }
 }
@@ -156,10 +167,15 @@ function scene(which: Scene): Play {
       [...ctx.document.querySelectorAll(`[data-row-id="${ROW}"] button.is-run`)].some((each) =>
         which.line.test(each.querySelector(".cv-tool__summary")?.textContent?.trim() ?? ""),
       );
-    await settle(ctx, regrouped);
+    // A scene whose group keeps its line (the command joins the running run) waits for the new call itself.
+    const next = which.after.at(-1)!.tool!.id;
+    const arrived = () =>
+      regrouped() &&
+      (!which.ends || ctx.document.querySelector(`[data-row-id="${ROW}"] [data-tool-id="${next}"]`) !== null);
+    await settle(ctx, arrived);
     const node = scroller(ctx);
     const opened = call(ctx, which.call);
-    const seen = {
+    const seen: NonNullable<Window["cmuxPinnedToolRows"]> = {
       before,
       after: opened?.getBoundingClientRect().top ?? Number.NaN,
       open: opened?.getAttribute("aria-expanded") === "true",
@@ -175,6 +191,25 @@ function scene(which: Scene): Play {
         fail("a regroup under the view moved the text the reader was reading", seen);
     } else if (!(Math.abs(seen.after - seen.before) <= 1))
       fail("the opened call moved when the next call arrived", seen);
+    if (!which.ends) return;
+    // The turn ends: its work folds once (turnEndFold.ts), and the call the reader opened, in their
+    // view, stays open and where it was.
+    view.cmuxAcpmuxBridge?.receive(structuredClone(snapshot(which.after, 3, false)));
+    await settle(
+      ctx,
+      () =>
+        !ctx.document.querySelector('[data-row-id="thinking-live"]') &&
+        !ctx.document.querySelector(".acpmux-thread[data-turn-end-folding]"),
+    );
+    const ended = call(ctx, which.call);
+    seen.ended = {
+      after: ended?.getBoundingClientRect().top ?? Number.NaN,
+      open: ended?.getAttribute("aria-expanded") === "true",
+      scrollAfter: scroller(ctx).scrollTop,
+    };
+    view.cmuxPinnedToolRows = seen;
+    if (!seen.ended.open) fail("the opened call closed when the turn ended", seen);
+    if (!(Math.abs(seen.ended.after - seen.before) <= 1)) fail("the opened call moved when the turn ended", seen);
   };
 }
 
@@ -190,7 +225,7 @@ export const pinnedVariants = {
     play: scene({ ...lone, below: true }),
   },
   "pinned-group": {
-    note: "Play: “Read 2 files” opened and its first read opened; a command joins and the group becomes the run's line. Both stay open and the read stays where it was.",
+    note: "Play: “Read 2 files” opened and its first read opened; a command joins the running turn, then the turn ends and its run folds. The group and the read stay open and the read stays where it was.",
     snapshot: snapshot(group.before, 1),
     play: scene(group),
   },

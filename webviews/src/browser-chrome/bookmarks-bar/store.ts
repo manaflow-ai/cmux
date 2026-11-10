@@ -18,13 +18,21 @@ import {
   type IconsResult,
   type StateResult,
 } from "../../pages/bookmarks/types";
-import { createOnBar, groupChildren, menuRows, moveOnBar, type MenuRow, type MenuWords } from "./model";
+import {
+  completeFolders,
+  createOnBar,
+  groupChildren,
+  menuRows,
+  moveOnBar,
+  type MenuRow,
+  type MenuWords,
+} from "./model";
 
 export const BarOps = {
   /** `{browser_profile_id, parent, depth?, limit?}` → `{bookmarks_revision, bookmarks, total, truncated}`. */
   children: "cmux.bookmarks.children",
-  /** `{title, anchor: {x, y, width, height}, rows}`: the host pops a native menu under `anchor`
-   * and opens what the person picks there. */
+  /** `{profile, lend, title, anchor: {x, y, width, height}, rows}`: the host pops a native menu
+   * under `anchor` and opens what the person picks there; it drops one for a profile or lend it left. */
   menu: "cmux.bookmarksBar.menu",
   /** `{bookmark?, kind?, icon?, point: {x, y}}`: the registry's Bookmark (or Bookmarks Bar) menu at
    * `point`; `kind` and `icon` say which rows that menu has (a folder's icon rows, a link's Copy). */
@@ -36,6 +44,9 @@ export const BarOps = {
   apply: "cmux.bookmarksBar.apply",
   /** `{message}`: the owner refused a drop or a move; the app says why (its refusal toast). */
   refused: "cmux.bookmarksBar.refused",
+  /** Host to page, `{profile, lend, folder}` → `{rows}`: a `partial` folder's rows, read when its
+   * submenu opens; `rows` is null for a profile or lend the page left. */
+  folderRows: "cmux.bookmarksBar.folderRows",
 } as const;
 
 /** Most rows one folder menu reads (`MAX_CHILDREN_LIMIT` in bookmarks_routed.rs). */
@@ -67,10 +78,21 @@ export interface BarSnapshot {
   loaded: boolean;
   profile: string;
   otherTitle: string;
+  /** The tree revision the bar's row was read at. */
   revision: number;
+  /** The revision Other Bookmarks' count was read at: its own, since the two reads are separate. */
+  otherRevision: number;
   items: readonly Bookmark[];
   hasOther: boolean;
   icons: Readonly<Record<string, BarIcon | null>>;
+}
+
+interface MenuRead {
+  profile: string;
+  lend: number | null;
+  groups: Map<string, Bookmark[]>;
+  /** The folders whose contents `groups` holds whole. */
+  complete: ReadonlySet<string>;
 }
 
 export interface Anchor {
@@ -93,6 +115,7 @@ const EMPTY: BarSnapshot = {
   profile: "default",
   otherTitle: "",
   revision: -1,
+  otherRevision: -1,
   items: [],
   hasOther: false,
   icons: {},
@@ -108,6 +131,12 @@ export class BookmarksBarStore {
   private followingPending = false;
   /** Bumped by each stop: a subscription that lands after it is dropped. */
   private session = 0;
+  /** Cancels a profile reload (`reload`) superseded by a newer one or a stop. */
+  private profileGeneration = 0;
+  /** The host's lend of this page (it moves between tabs): a menu read across a lend is dropped. */
+  private lend: number | null = null;
+  /** Cancels a row read (`read`) superseded by a newer one or a stop. A row read never cancels a
+   * profile reload, so a change event during a tab switch cannot strand the bar on the old profile. */
   private generation = 0;
   private readonly asking = new Set<string>();
 
@@ -141,10 +170,12 @@ export class BookmarksBarStore {
     };
     for (const subscribe of [
       () => subscribePageStreams(client, { onConnection }),
+      async () => client.handle(BarOps.folderRows, (params) => this.folderRows(params)),
       () =>
         client.subscribe<HostChangedEvent>(HostOps.changed, (event) => {
+          if (typeof event?.lend === "number") this.lend = event.lend;
           if (event?.reason === "icons") this.forgetMissingIcons();
-          else void this.reload();
+          else if (event?.reason !== "lend") void this.reload();
         }),
     ]) {
       try {
@@ -168,8 +199,10 @@ export class BookmarksBarStore {
     try {
       const stop = await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
         if (event?.resync) return void this.read();
-        const { profile, revision } = this.snapshot;
-        if (event?.browser_profile_id === profile && (event.bookmarks_revision ?? 0) > revision) void this.read();
+        // Newer than either read: one of them may be stale, so both are read again.
+        const { profile, revision, otherRevision } = this.snapshot;
+        const changed = event?.bookmarks_revision ?? 0;
+        if (event?.browser_profile_id === profile && (changed > revision || changed > otherRevision)) void this.read();
       });
       if (session === this.session) this.following = stop;
       else stop();
@@ -183,6 +216,7 @@ export class BookmarksBarStore {
   stop(): void {
     this.started = false;
     this.session += 1;
+    this.profileGeneration += 1;
     this.generation += 1;
     this.followingPending = false;
     this.following?.();
@@ -194,26 +228,28 @@ export class BookmarksBarStore {
   /** Reads the profile (the tab the bar is in), then its row. */
   async reload(): Promise<void> {
     if (!this.client) return;
-    const generation = ++this.generation;
+    const generation = ++this.profileGeneration;
     let state: StateResult;
     try {
       state = await this.client.call<StateResult>(HostOps.state, {});
     } catch {
       return;
     }
-    if (generation !== this.generation) return;
+    if (generation !== this.profileGeneration) return;
+    if (typeof state.lend === "number") this.lend = state.lend;
     if (state.browser_profile_id !== this.snapshot.profile) {
       // Another profile's row must not show for a frame: nothing until its own read lands.
       this.set({ ...EMPTY, profile: state.browser_profile_id, otherTitle: state.other_title });
     } else if (state.other_title !== this.snapshot.otherTitle) {
       this.set({ otherTitle: state.other_title });
     }
-    await this.read(generation);
+    await this.read();
   }
 
   /** Re-reads the bar's row and Other Bookmarks' count of the page's profile. */
-  async read(generation = ++this.generation): Promise<void> {
+  async read(): Promise<void> {
     if (!this.client) return;
+    const generation = ++this.generation;
     const profile = this.snapshot.profile;
     try {
       const [bar, other] = await Promise.all([
@@ -223,7 +259,8 @@ export class BookmarksBarStore {
       if (generation !== this.generation || profile !== this.snapshot.profile) return;
       this.set({
         loaded: true,
-        revision: Math.max(bar.bookmarks_revision, other.bookmarks_revision),
+        revision: bar.bookmarks_revision,
+        otherRevision: other.bookmarks_revision,
         items: bar.bookmarks,
         hasOther: other.total > 0,
       });
@@ -263,49 +300,83 @@ export class BookmarksBarStore {
   open(node: Bookmark, disposition: Disposition): void {
     void this.client
       ?.call(HostOps.open, { bookmark: node.id, url: node.url ?? undefined, disposition })
-      .catch(() => undefined);
+      // A refused open (no gesture behind it, an unknown bookmark) is not silent.
+      .catch((error: unknown) => console.warn("cmux bookmarks bar: open refused", error));
   }
 
   /** A folder's native menu under `anchor`: its subtree read now, so the menu is the stored one. */
   async openFolder(folder: Bookmark, anchor: Anchor, title: string): Promise<void> {
-    const groups = await this.subtree(folder.id);
-    if (!groups) return;
-    await this.showMenu(title, anchor, menuRows(groups, folder.id, this.words));
+    const read = await this.subtree(folder.id);
+    if (!read) return;
+    await this.showMenu(read, title, anchor, menuRows(read.groups, folder.id, this.words, [], read.complete));
   }
 
   /** Other Bookmarks' menu. */
   async openOther(anchor: Anchor): Promise<void> {
-    const groups = await this.subtree("other");
-    if (!groups) return;
-    await this.showMenu(this.snapshot.otherTitle, anchor, menuRows(groups, "other", this.words));
+    const read = await this.subtree("other");
+    if (!read) return;
+    const rows = menuRows(read.groups, "other", this.words, [], read.complete);
+    await this.showMenu(read, this.snapshot.otherTitle, anchor, rows);
   }
 
-  /** The chevron's menu: the bar items past the first `shown`, folders with their contents. The
-   * subtree is read on the click, so a bar longer than one read's rows lists them all. */
+  /** The chevron's menu: the bar items past the first `shown`, folders with their contents. */
   async openOverflow(shown: number, anchor: Anchor, title: string): Promise<void> {
-    const groups = await this.subtree("bar");
-    if (!groups) return;
-    const hidden = (groups.get("bar") ?? []).slice(shown);
-    await this.showMenu(title, anchor, menuRows(groups, null, this.words, hidden));
+    const read = await this.subtree("bar");
+    if (!read) return;
+    const hidden = (read.groups.get("bar") ?? []).slice(shown);
+    await this.showMenu(read, title, anchor, menuRows(read.groups, null, this.words, hidden, read.complete));
   }
 
-  private async subtree(parent: string): Promise<Map<string, Bookmark[]> | null> {
-    if (!this.client) return null;
+  /** `parent`'s subtree in the bar's profile, or null when the read failed or the page moved to
+   * another tab meanwhile (a lend, even to a tab of the same profile): its menu would act there.
+   * `parent`'s own children come from a separate one-level read, so a folder whose descendants
+   * fill the depth-first read never drops a sibling after it; `complete` names the folders the
+   * read holds whole, and the host reads any other one when its submenu opens (`folderRows`). */
+  private async subtree(parent: string): Promise<MenuRead | null> {
+    const client = this.client;
+    if (!client) return null;
+    const profile = this.snapshot.profile;
+    const lend = this.lend;
+    const children = (depth: number) =>
+      client.call<ChildrenResult>(BarOps.children, { browser_profile_id: profile, parent, depth, limit: MENU_LIMIT });
     try {
-      const reply = await this.client.call<ChildrenResult>(BarOps.children, {
-        browser_profile_id: this.snapshot.profile,
-        parent,
-        depth: MAX_DEPTH,
-        limit: MENU_LIMIT,
-      });
-      return groupChildren(reply.bookmarks);
+      const [deep, own] = await Promise.all([children(MAX_DEPTH), children(1)]);
+      if (this.snapshot.profile !== profile || this.lend !== lend) return null;
+      const groups = groupChildren(deep.bookmarks);
+      groups.set(parent, groupChildren(own.bookmarks).get(parent) ?? []);
+      return { profile, lend, groups, complete: completeFolders(deep.bookmarks, deep.truncated) };
     } catch {
       return null;
     }
   }
 
-  private async showMenu(title: string, anchor: Anchor, rows: MenuRow[]): Promise<void> {
-    await this.client?.call(BarOps.menu, { title, anchor, rows }).catch(() => undefined);
+  /** The host's ask for a `partial` folder's rows as its submenu opens: one level, read now, for the
+   * profile and lend the menu was read on (null once the page left either). Its subfolders are
+   * partial in turn, each read when it opens. */
+  async folderRows(params: unknown): Promise<{ rows: MenuRow[] | null }> {
+    const { profile, lend, folder } = (params ?? {}) as { profile?: unknown; lend?: unknown; folder?: unknown };
+    const client = this.client;
+    const current = () => profile === this.snapshot.profile && lend === this.lend;
+    if (!client || typeof folder !== "string" || !current()) return { rows: null };
+    const reply = await client.call<ChildrenResult>(BarOps.children, {
+      browser_profile_id: profile,
+      parent: folder,
+      depth: 1,
+      limit: MENU_LIMIT,
+    });
+    if (!current()) return { rows: null };
+    return { rows: menuRows(groupChildren(reply.bookmarks), folder, this.words, [], new Set()) };
+  }
+
+  /** The host drops a menu for a profile or a lend it left (the page may not have heard yet). */
+  private async showMenu(
+    read: { profile: string; lend: number | null },
+    title: string,
+    anchor: Anchor,
+    rows: MenuRow[],
+  ): Promise<void> {
+    const { profile, lend } = read;
+    await this.client?.call(BarOps.menu, { profile, lend, title, anchor, rows }).catch(() => undefined);
   }
 
   contextMenu(bookmark: string | null, point: { x: number; y: number }): void {

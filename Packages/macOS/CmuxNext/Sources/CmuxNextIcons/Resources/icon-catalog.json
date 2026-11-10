@@ -243,8 +243,11 @@
   {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "sf": "arrow.triangle.branch",
-   "family": "agent"
+   "sf": "arrow.branch",
+   "family": "agent",
+   "overrides": [
+    "arrow.branch"
+   ]
   },
   {
    "name": "agent.handoff",
@@ -394,7 +397,11 @@
    "name": "browser",
    "meaning": "Browser / web page / site",
    "sf": "globe",
-   "family": "browser"
+   "family": "browser",
+   "overrides": [
+    "globe",
+    "globe.badge.chevron.backward"
+   ]
   },
   {
    "name": "browser.extensions.manage",
@@ -1936,7 +1943,10 @@
    "name": "terminal",
    "meaning": "Terminal",
    "sf": "terminal",
-   "family": "terminal"
+   "family": "terminal",
+   "overrides": [
+    "terminal"
+   ]
   },
   {
    "name": "terminal.copymode",

@@ -58,7 +58,7 @@ const link = (index: number, kind: Bookmark["kind"] = "url"): Bookmark => ({
   created_ms: 0,
 });
 
-async function render(items: Bookmark[], width: number, hasOther = false, profile = "default") {
+async function render(items: Bookmark[], width: number | undefined, hasOther = false, profile = "default") {
   const events: string[] = [];
   const layouts: unknown[] = [];
   const host = dom.window.document.getElementById("root")!;
@@ -74,6 +74,7 @@ async function render(items: Bookmark[], width: number, hasOther = false, profil
         profile,
         otherTitle: "Other Bookmarks",
         revision: 1,
+        otherRevision: 1,
         items,
         hasOther,
         icons: {},
@@ -149,4 +150,77 @@ test("a middle click on a folder opens its menu; on a link it opens a background
   expect(events).toContain("folder bm_1 number");
   expect(events).toContain("open bm_0 backgroundTab");
   act(() => root.unmount());
+});
+
+test("with no width given, the bar lays out from its own box: nothing past it or under Other Bookmarks", async () => {
+  const proto = dom.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const width = this.classList.contains("bb-bar") ? 360 : 0;
+    return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 28, width, height: 28, toJSON: () => ({}) };
+  };
+  try {
+    const items = Array.from({ length: 40 }, (_, index) => link(index));
+    const { host, root, layouts } = await render(items, undefined, true);
+    const other = host.querySelector<HTMLElement>(".bb-other")!;
+    const otherLeft = 360 - Number.parseFloat(other.style.right) - Number.parseFloat(other.style.width);
+    const ends = Array.from(host.querySelectorAll<HTMLElement>(".bb-item:not(.bb-other)")).map(
+      (item) => Number.parseFloat(item.style.left) + Number.parseFloat(item.style.width),
+    );
+    expect(ends.length).toBeGreaterThan(1);
+    expect(Math.max(...ends)).toBeLessThanOrEqual(otherLeft);
+    expect((layouts.at(-1) as { overflow: string[] }).overflow.length).toBeGreaterThan(0);
+    act(() => root.unmount());
+  } finally {
+    proto.getBoundingClientRect = original;
+  }
+});
+
+test("a middle press opens once on its release, with or without an auxclick after it", async () => {
+  const { host, root, events } = await render([link(0), link(1, "folder")], 640);
+  const [first, folder] = Array.from(host.querySelectorAll<HTMLElement>(".bb-item"));
+  const fire = (target: HTMLElement, type: string) =>
+    act(async () => void target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 1 })));
+  const opens = () => events.filter((event) => event === "open bm_0 backgroundTab").length;
+
+  // Current WebKit: pointer and mouse events, then auxclick.
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "auxclick"]) await fire(first!, type);
+  expect(opens()).toBe(1);
+  // Older WebKit: no auxclick, and the pointer events may be missing too.
+  for (const type of ["mousedown", "mouseup"]) await fire(first!, type);
+  expect(opens()).toBe(2);
+  // A release with no press on the item (dragged in from elsewhere) opens nothing.
+  await fire(first!, "mouseup");
+  expect(opens()).toBe(2);
+  // A folder's middle press opens its menu once.
+  for (const type of ["pointerdown", "pointerup", "mouseup", "auxclick"]) await fire(folder!, type);
+  expect(events.filter((event) => event === "folder bm_1 number")).toHaveLength(1);
+  act(() => root.unmount());
+});
+
+test("a bar link keeps its title and URL for the system's tooltip; the page draws none", async () => {
+  const { installTooltips } = await import("../src/ui/titleTooltips");
+  const doc = dom.window.document;
+  const uninstall = installTooltips(doc, { delay: 0 });
+  const { host, root } = await render([link(0)], 640);
+  const outside = doc.createElement("button");
+  outside.title = "Elsewhere";
+  doc.body.append(outside);
+  try {
+    const item = host.querySelector<HTMLElement>(".bb-item")!;
+    const hover = (element: Element) =>
+      act(async () => void element.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true })));
+    // The layer takes a title over on the hover itself (it moves `title` to `data-tooltip`).
+    await hover(item);
+    expect(item.getAttribute("title")).toBe("Item 0\nhttps://item-0.example/");
+    expect(item.hasAttribute("data-tooltip")).toBe(false);
+    expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden).toBe(true);
+    // The layer is live in this document: an element outside the bar has its title taken over.
+    await hover(outside);
+    expect(outside.hasAttribute("title")).toBe(false);
+  } finally {
+    outside.remove();
+    act(() => root.unmount());
+    uninstall();
+  }
 });

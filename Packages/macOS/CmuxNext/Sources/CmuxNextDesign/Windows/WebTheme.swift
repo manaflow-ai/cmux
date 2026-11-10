@@ -61,19 +61,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
         /// neither cmux.json nor the Ghostty config names one.
         public let fontFamily: String?
+        /// Ghostty's configured fallback chain, after the selected family.
+        public let fallbackFamilies: [String]
 
-        init(_ tokens: ThemeTokens, fontFamily: String?) {
+        init(_ tokens: ThemeTokens, fontFamily: String?, fallbackFamilies: [String]) {
             type = tokens.isDark ? "dark" : "light"
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
             palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
             selectionBackground = WebTheme.hex(tokens.textSelection)
             self.fontFamily = fontFamily
+            self.fallbackFamilies = fallbackFamilies
         }
 
         var json: [String: Any] {
             ["type": type, "background": background, "foreground": foreground, "palette": palette,
-             "selectionBackground": selectionBackground, "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
+             "selectionBackground": selectionBackground, "fontFamily": fontFamily.map { $0 as Any } ?? NSNull(),
+             "fallbackFamilies": fallbackFamilies]
         }
     }
 
@@ -165,7 +169,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
-        terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
+        terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily,
+                            fallbackFamilies: DesignSettings.shared.terminalConfigFontFamilies)
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)

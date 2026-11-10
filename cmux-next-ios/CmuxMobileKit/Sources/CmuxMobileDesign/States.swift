@@ -97,7 +97,7 @@ public struct ShimmerModifier: ViewModifier {
                 }
                 .mask(content)
                 .onAppear {
-                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false).unlessReduceMotion) {
                         phase = 1.0
                     }
                 }
@@ -119,16 +119,28 @@ public struct SkeletonList: View {
     let rows: Int
     let leadingSquare: CGFloat?
     let delay: Duration
+    /// Says what loads ("Loading workspaces…"), above the rows and as their
+    /// spoken label; nil keeps the plain "Loading".
+    let caption: LocalizedStringKey?
     @State private var isVisible = false
 
-    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay) {
+    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay,
+                caption: LocalizedStringKey? = nil) {
         self.rows = min(rows, 6)
         self.leadingSquare = leadingSquare
         self.delay = delay
+        self.caption = caption
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let caption {
+                Text(caption)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
             ForEach(0..<rows, id: \.self) { _ in
                 HStack(spacing: 12) {
                     if let leadingSquare {
@@ -157,10 +169,10 @@ public struct SkeletonList: View {
         .task {
             guard delay > .zero else { return }
             try? await Task.sleep(for: delay)
-            withAnimation(theme.motion.snap.animation) { isVisible = true }
+            withAnimation(theme.motion.snap.animation.unlessReduceMotion) { isVisible = true }
         }
         .accessibilityElement()
-        .accessibilityLabel(Text("Loading"))
+        .accessibilityLabel(caption.map { Text($0) } ?? Text("Loading"))
     }
 }
 
@@ -340,7 +352,7 @@ private struct BannerHost: View {
                 ConnectionBanner(state, retry: retry)
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
-                        withAnimation(theme.motion.snappy.animation) { dismissed = state }
+                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissed = state }
                     }
                     .padding(.top, 8)
                     .padding(.bottom, 8)
@@ -348,7 +360,7 @@ private struct BannerHost: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .animation(theme.motion.snappy.animation, value: state)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
         .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
     }
 }
@@ -396,7 +408,7 @@ private struct ToastHost: View {
                 }
             }
         }
-        .animation(theme.motion.snappy.animation, value: toast)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: toast)
     }
 }
 
@@ -423,7 +435,7 @@ public struct StatusDot: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .animation(theme.motion.snap.animation, value: state)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: state)
     }
 
     private var color: CmuxMobileColorToken {

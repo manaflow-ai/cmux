@@ -22,7 +22,7 @@ import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
-import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
@@ -262,7 +262,6 @@ export const ToolRow = memo(function ToolRow({
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}
-          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

@@ -110,7 +110,13 @@ pub(super) async fn check(
     // folder, which the remote guard made canonical: that folder answers.
     let fork_cwd = params.get("cwd").and_then(Value::as_str).filter(|_| m == method::SESSION_FORK);
     let cwd = fork_cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
-    let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+    // A guest from another harness (`_acpmux/btw` with `targetHarness`, hub/btw.rs) starts that
+    // harness's agent in the folder: its family's answer counts, before anything starts.
+    let target = params.get("targetHarness").and_then(Value::as_str).map(str::trim);
+    let family = match target.filter(|h| m == method::MUX_BTW && !h.is_empty()) {
+        Some(target) => resolve_family(hub, target).await,
+        None => meta.family.clone().unwrap_or_else(|| meta.harness.clone()),
+    };
     let answered = folder_answered(paths, cwd, family, web).await;
     // A fork, a side session and a handoff start an agent of their own: not a running chat's.
     let same_agent = matches!(

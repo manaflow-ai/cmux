@@ -171,7 +171,9 @@ jobs:
     needs: build
     if: needs.build.outputs.published != 'true'
     name: publish the web bundles to files.cmux.com
-    environment: artifacts
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:
@@ -224,7 +226,9 @@ jobs:
     needs: [build, publish]
     if: ${{ always() && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     name: sign the web update pointer
-    environment: artifacts
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:

@@ -8,7 +8,6 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
-import CmuxNextImportCards
 import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -130,8 +129,8 @@ final class AppControl {
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract), and the import note's capture stand-in.
-        service.router.register([budget.method(registry: registry), .mainActor("debug.import_note") { call in .value(ImportSuggestionsCenter.shared.debugImportNote(call.params)) }])
+        // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
+        service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
@@ -200,9 +199,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+            .async("debug.home") { [weak services] _ in
+                guard let services else { return .null }
+                return await DebugHome.reportWithPages(services: services)
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
@@ -306,9 +305,9 @@ final class AppControl {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
-            .mainActor("debug.home.drive") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.drive(call.params, services: services))
+            .async("debug.home.drive") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugHomeNativeFixture.drive(call.params, services: services)
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -391,16 +390,16 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already; `compose`: under the chat column's compose button.
+                // `new`: one more fixture tab, also when the window lists one already.
                 let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false, fresh: fresh))
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
-            // a real drop, paste or pick (HomeNativeTranscriptView.attachFiles).
-            .mainActor("debug.home.attach") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.attach(call.params, services: services))
+            // a real drop, paste or pick (HomeComposerIntake: a native transcript's or the Messages page's).
+            .async("debug.home.attach") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugHomeNativeFixture.attach(call.params, services: services)
             },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }

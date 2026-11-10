@@ -108,6 +108,10 @@ contains(' <key> ') matches whole keys only:
   app compile, release-compile) joins CASCADE_RUNS, so it takes a free
   Blacksmith slot instead of the minis' queue.
 
+PLACEMENT=app-compile judges only the PR app compile's gateway, before the PR
+quiet period ends (app_compile_gateway()); macos-placement then places the Mac
+jobs after the quiet period from its own reading.
+
 PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
 mini's label. When the dedicated nightly labels are supplied, its idle state
 is preferred for Release compile and Blacksmith is the immediate overflow.
@@ -876,6 +880,45 @@ def rerun_fleet_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]
     return 0
 
 
+def app_compile_gateway(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the gateway label a pull request's app-compile-fleet takes now, why), or ("", why).
+
+    cmux-next.yml's app-compile-placement runs this before the PR quiet period ends (Leo, 2026-11-08,
+    option A: the Linux checks start at once and only the Mac jobs wait). app-compile-fleet's runner only
+    hands the commit to the build fleet, so it starts at once too, on GATEWAY_LABEL (or a wider class of
+    it) while a runner there is idle for each of GATEWAY_JOBS, as gateway_route() judges it for
+    macos-placement. macos-placement reads the runners again once the quiet period ends, so the Mac jobs
+    are placed from that fresh reading and see this job's runner as busy. Attempt 1 only: a re-run's
+    gateway jobs skip (rerun_main() writes no gateway either), and their Mac fallback cascades.
+    """
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    if attempt != "1":
+        return "", f"attempt {attempt} takes no gateway (a re-run's build-fleet compile skips)"
+    label = (env.get("GATEWAY_LABEL") or "").strip()
+    gateway = gateway_route(env, runners)
+    if gateway:
+        return gateway, f"app-compile-fleet takes idle `{gateway}`"
+    why = ("no gateway label" if not label else "owned runners unread" if runners is None
+           else f"no idle `{label}` runner (or a wider class's)")
+    return "", f"{why}, so app-compile-fleet skips and the Mac Release compile takes the cascade"
+
+
+def app_compile_gateway_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write app_compile_gateway()'s reading in macos-placement's names: gateway_runner, gateway_attempt."""
+    gateway, why = app_compile_gateway(env, runners)
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    print(f"app compile placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway else ''}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### App compile placement\n\n{why}\n")
+    return 0
+
+
 def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
              live: Mapping[str, int] | None, waiting: Mapping[str, int] | None, seen: Any) -> tuple[str, str]:
     """(the label the fast tier takes when its build-fleet client hands it back, why).
@@ -943,6 +986,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         return rerun_fleet_main(env, runners)
     if (env.get("PLACEMENT") or "").strip() == "handback":
         return handback_main(env, runners)
+    if (env.get("PLACEMENT") or "").strip() == "app-compile":
+        return app_compile_gateway_main(env, runners)
     if cascade.bot_rerun(env):
         return rerun_main(env, runners)
     # The pool snapshot and Blacksmith's queues, read once: the light fast route and the GUI routes are

@@ -23,6 +23,8 @@ final class SidebarListView: NSView {
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
     /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
     var splicedRow: SidebarRowKey?
+    /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
+    var splicedOut: (key: SidebarRowKey, moved: Bool)?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
@@ -133,10 +135,16 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
-    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
-    var openDoneFolds: Set<SidebarDoneFoldID> = []
-    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
-    var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
+    var openDoneFolds: Set<SidebarDoneFoldID> {
+        get { model.openDoneFolds }
+        set { model.openDoneFolds = newValue }
+    }
+    /// The lists whose "Show N more" row the person opened: kept on the model, as `openDoneFolds`.
+    var openShowMore: Set<SidebarDoneFoldID> {
+        get { model.openShowMore }
+        set { model.openShowMore = newValue }
+    }
     /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
     var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
@@ -144,7 +152,17 @@ final class SidebarListView: NSView {
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
-    var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// Runs a group editor row's action; a group header's + and Unpin and the empty group's + exist only with it.
+    /// Live rows take a new one at once (as `contextMenuProvider` does): the rows wire it on dequeue, and a row
+    /// realized before it was set would keep no + (its header lays the + out on its next layout).
+    var onGroupEditorItem: ((GroupID, String) -> Void)? {
+        didSet {
+            for (key, view) in rowViews {
+                wire(view, key: key)
+                view.needsLayout = true
+            }
+        }
+    }
     /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
     var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
@@ -184,6 +202,18 @@ final class SidebarListView: NSView {
     /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
     /// tab in place reports it again (`refreshHoverTab`).
     var hoverTabSent: TabID?
+    /// How long a scroll rests before the row it left under a still pointer is forwarded
+    /// (`onHoverTab`, `onHoverWorkspace`). A scroll moves the hover to a new row almost every frame,
+    /// and each forward is cross-process work (a `chat.prefetch` script into the chat page on screen,
+    /// a hibernation hover intent), so forwarding every row the scroll passed cost every scroll frame
+    /// (Leo 2026-11-10, ask-7778f8202e: "our fucking thing is too slow to scroll through the side bar").
+    /// Chromium holds hover during a scroll and sends one fake mouse move after it settles; so does this.
+    /// The hover pill still follows the rows at once; only the forward waits.
+    var scrollHoverSettle: Duration = .milliseconds(100)
+    let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
+    /// The newest scheduled or cancelled scroll forward: a fire the timer already claimed when a later
+    /// scroll frame or a pointer move replaced it does nothing, so the rested row is forwarded once.
+    var scrollHoverGeneration: UInt64 = 0
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -200,6 +230,9 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Makes a row of a workspace's drive indicator menu from a registered action (filled by the App;
+    /// ``SidebarView/driveMenuItem``). Nil, or nil for a row, leaves the row out.
+    var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem?)?
     /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
     /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
     var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in
@@ -402,7 +435,17 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
-        forwardHover(key)
+        scrollHoverGeneration &+= 1
+        guard hoverFollowsScroll else {
+            scrollHoverForward.cancel()
+            return forwardHover(key)
+        }
+        // A scroll moved this row under a still pointer: forward the row it rests on, once (`scrollHoverSettle`).
+        let generation = scrollHoverGeneration
+        scrollHoverForward.schedule(after: scrollHoverSettle) { @MainActor [weak self] in
+            guard let self, self.scrollHoverGeneration == generation else { return }
+            self.forwardHover(self.hoveredKey)
+        }
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

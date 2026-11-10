@@ -62,6 +62,7 @@ pub(super) async fn serve_stream(
         socket_peer,
         None,
         None,
+        None,
     )
     .await;
 }
@@ -81,7 +82,23 @@ async fn read_lines<R: AsyncRead + Unpin>(
     let max = limits.line;
     // The codec counts a line's `\r` with it and strips it after, so it holds one byte more.
     let mut lines = FramedRead::new(rd, LinesCodec::new_with_max_length(max.saturating_add(1)));
+    let mut first = true;
     while let Some(line) = lines.next().await {
+        // An HTTP request (a WebSocket upgrade, perhaps with the Cloud carrier's header) is for
+        // the carrier socket, never this one (`carrier.rs`): no header here names anyone.
+        if std::mem::take(&mut first)
+            && let Ok(line) = &line
+            && http_request_line(line)
+        {
+            tracing::warn!("closing a socket connection that sent an HTTP request");
+            let error = RpcError::new(
+                -32600,
+                "this is acpmux's JSON-RPC socket; HTTP and WebSocket upgrades are refused here",
+            )
+            .with_data(json!({"reason": super::carrier::WRONG_SOCKET}));
+            let _ = last.send(Message::err(Value::Null, error).to_line());
+            break;
+        }
         let line = match line {
             Ok(line) if line.len() <= max => line,
             Ok(_) | Err(LinesCodecError::MaxLineLengthExceeded) => {
@@ -113,6 +130,17 @@ async fn read_lines<R: AsyncRead + Unpin>(
             break;
         }
     }
+}
+
+/// Whether `line` is an HTTP request line (`GET /path HTTP/1.1`), which no JSON-RPC line is.
+fn http_request_line(line: &str) -> bool {
+    let line = line.trim_end_matches('\r');
+    let mut parts = line.split(' ');
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some(m), Some(_), Some(v), None)
+            if m.bytes().all(|b| b.is_ascii_uppercase()) && !m.is_empty() && v.starts_with("HTTP/")
+    )
 }
 
 /// Writes each line `out_rx` gives to `wr` until the queue closes, or until a `last` line comes:

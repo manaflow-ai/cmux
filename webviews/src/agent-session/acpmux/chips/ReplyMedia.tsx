@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 
+import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Close, Expand, OpenTab, PlayTriangle } from "../conversation/icons";
 import { callChipHost } from "./host";
@@ -276,6 +277,8 @@ export function VideoViewer({
 }) {
   const t = useT();
   const close = useRef<HTMLButtonElement>(null);
+  // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
+  const below = belowTabRowStyle(useTabRow());
   return (
     <Dialog
       open
@@ -285,6 +288,7 @@ export function VideoViewer({
       label={name || t("media.player")}
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
+      style={below}
       initialFocus={close}
     >
       <div className="acpmux-image-viewer-body">

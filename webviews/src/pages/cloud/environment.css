@@ -13,6 +13,14 @@
   line-height: var(--text-body--line-height);
 }
 .cloud-environment-sheet.ui-glass { background: var(--glass-tint); }
+/* The heading and the Cancel/Save row stay put; only the fields scroll between them, so a long list of
+   secrets (each unfolding its delivery) never pushes the actions out of the sheet. */
+/* `clip`, not `hidden`: a hidden box can still be scrolled by script (a scrollIntoView, a focus), which
+   slid the whole form, heading and actions too, out of the sheet. Only .env-scroll scrolls. */
+.cloud-environment-sheet.ui-sheet { display: flex; flex-direction: column; overflow: clip; }
+.cloud-environment-sheet > form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: clip; }
+.env-heading, .env-actions { flex: none; }
+.env-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .env-heading { display: flex; align-items: center; gap: 12px; padding: 24px; }
 .env-heading h2 { margin: 0; font-size: var(--text-heading); font-weight: 600; line-height: var(--text-heading--line-height); }
 .env-close { margin-inline-start: auto; }
@@ -59,7 +67,7 @@
 .env-language { border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 12px; padding: 4px 8px; }
 .env-file { position: relative; margin-inline-start: auto; overflow: hidden; }
 .env-file input { position: absolute; inset: 0; opacity: 0; width: 100%; }
-.env-file:focus-within { outline: 2px solid var(--cmux-focus-ring-color, Highlight); outline-offset: 2px; }
+.env-file:is(:focus-visible, :has(:focus-visible)) { outline: 2px solid var(--cmux-focus-ring-color, Highlight); outline-offset: 2px; }
 .env-code { display: flex; height: min(34vh, 20em);
   min-height: 12em; }
 .env-code pre, .cloud-environment-sheet .env-code textarea { font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); font-size: var(--text-body); line-height: 1.6; }
@@ -67,3 +75,26 @@
 .env-code textarea { resize: none; border: 0; border-radius: 0; padding: 12px 8px; background: transparent; }
 .env-editor-foot { padding: 8px 12px; border-block-start: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); }
 .env-link { align-self: flex-start; border: 0; background: transparent; padding: 0; color: inherit; font: inherit; text-decoration: underline; }
+/* A secret's delivery (design/environment-sheet.md "Secret row"): hosts under the value, then the header
+   line and its fields, each folding by its own height so the rows below travel with it. */
+.env-secret { display: flex; flex-direction: column; gap: 8px; }
+.env-secret-hosts { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding-inline-end: 36px; }
+.env-secret-hosts > span, .env-disclosure-mark { color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 65%, transparent)); }
+.env-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.env-fold[data-open] { grid-template-rows: 1fr; opacity: 1; transition-duration: var(--cmux-motion-standard, 180ms), var(--cmux-motion-micro, 120ms); }
+.env-fold-body { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+.env-disclosure { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: start; }
+.env-disclosure-mark { display: inline-block; width: 12px; transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.env-disclosure[aria-expanded="true"] .env-disclosure-mark { transform: rotate(90deg); }
+.env-header-summary { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); }
+.env-header-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding-inline-end: 36px; }
+.env-secret .env-error { margin: 0; }
+:root[data-cmux-motion="reduced"] .env-fold, :root[data-cmux-motion="off"] .env-fold { transition: none; }
+@media (prefers-reduced-motion: reduce) { .env-fold, .env-disclosure-mark { transition: none; } }

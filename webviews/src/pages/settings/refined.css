@@ -84,7 +84,7 @@
   background: var(--polish-hover);
 }
 
-:root[data-settings-look="refined"] .settings .search-input:not(.ui-input):focus {
+:root[data-settings-look="refined"] .settings .search-input:not(.ui-input):focus-visible {
   border-color: var(--polish-edge);
   box-shadow: none;
   background: var(--polish-hover);

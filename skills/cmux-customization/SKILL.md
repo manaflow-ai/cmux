@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux-next.json (or classic cmux.json) actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, Ghostty-backed terminal preferences, or a view of their own (a sidebar or Session Info section built as the customize app, such as the PRs from the last 24h)."
+description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar or Session Info section built as the customize app)."
 ---
 
 # cmux Customization
@@ -173,6 +173,9 @@ install click.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
+- A section whose script failed shows the error with its `main.js:line` and a Reload button. A save
+  mounts it again by itself; `cmux apps reload` (palette: Reload Custom Views) runs every local view
+  again from its saved files without a restart.
 - Adding a view: keep every existing implementation and render function. A taken
   slot gets the new view inside its existing render; add each new name to the one
   `__cmuxAppExports` object.

@@ -247,6 +247,19 @@ fn pool_dir() -> PathBuf {
     agent_host::pool_dir(&agent_host::hosts_dir())
 }
 
+/// The `agents.promptSuggestions` switch a pooled agent of `spawn` reads once as its host starts
+/// (Claude Code's `initialize`, the Codex app-server translator), as `enabled` reads it now;
+/// `None` for a harness that reads none, so a change there never discards it.
+fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) -> Option<bool> {
+    let reads = spawn.kind == crate::config::HarnessKind::ClaudeStdio
+        || crate::codex_app_server::is_profile_launch(&spawn.argv);
+    reads.then(enabled)
+}
+
+#[cfg(test)]
+#[path = "suggestions_tests.rs"]
+mod suggestions_tests;
+
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
@@ -348,6 +361,10 @@ impl Hub {
             auth: format!("{:016x}", h.finish()),
             account,
             machine: crate::login_env::machine_stamp(),
+            prompt_suggestions: suggestions_at_start(
+                &spawn,
+                crate::claude_stdio::prompt_suggestions::enabled_in_settings,
+            ),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
@@ -406,8 +423,13 @@ impl Hub {
             policy: r.defaults.policy,
             remote: false,
         });
-        draft.cmux_preset_prompt =
-            crate::context_inventory::preset_override(&draft, &*self.config.read().await);
+        {
+            let cfg = self.config.read().await;
+            draft.cmux_preset_prompt = crate::context_inventory::preset_override(&draft, &cfg);
+            // The rules a new chat captures go on its command line (`launch_args`): a pooled
+            // agent started with the same ones has the same key, so the chat can take it.
+            draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
+        }
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
     }
 
@@ -918,6 +940,8 @@ impl Hub {
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
         }
+        // What it says about asking before its tools, and whether acpmux believes it.
+        self.note_asks_claim(session).await;
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());

@@ -36,3 +36,33 @@ test("a last prompt that only starts like a relay label titles the chat as writt
     '[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"] the parser is fixed [end of message 1234abcd]';
   expect(sessionTitle({ ...chat, lastPrompt: relayed }, t)).toBe("the parser is fixed");
 });
+
+// cmux#38642 review (F3): acpmux cuts `lastPrompt` to 200 characters and an ellipsis (hub/turns.rs
+// `short_text(&line, 200)`), and a relayed head with a long sender runs past that, so the cut ends
+// inside the head. The whole-message reader no longer knows it for one and the cut head became the
+// chat's title. A prompt cut at that limit reads as a preview: a head cut inside itself holds none of
+// the message, and the chat is titled as any chat with no prompt is.
+test("a last prompt cut inside a long relay head never titles the chat with the head", () => {
+  const t = (key: string) => key;
+  const chat = { sessionId: "d", name: "codex", harness: "codex" };
+  const sender = `vm-1/${"a-very-long-lane-session-name-".repeat(4)}x`;
+  const whole = `[message 1234abcd from ${sender} (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"] the parser is fixed [end of message 1234abcd]`;
+  const cut = `${whole.slice(0, 200)}…`;
+  expect(sessionTitle({ ...chat, lastPrompt: cut }, t)).toBe("sidebar.newChat");
+  // A cut prompt past a whole head still titles the chat by the message.
+  const short = `[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"] ${"the parser is fixed ".repeat(10)}`;
+  expect(sessionTitle({ ...chat, lastPrompt: `${short.slice(0, 200)}…` }, t)).toStartWith("the parser is fixed");
+  // An opaque name still beats it, as it beats no prompt.
+  expect(sessionTitle({ ...chat, name: "cloud-item-14", lastPrompt: cut }, t)).toBe("cloud-item-14");
+});
+
+// cmux#38791 review: acpmux's limit counts characters (Rust `chars`), not UTF-16 units. A whole
+// prompt under it that ends with its own "…" is not a cut however many units its emoji take, so
+// words that only start like a label still title the chat.
+test("a whole last prompt of wide characters ending in an ellipsis is not a cut", () => {
+  const t = (key: string) => key;
+  const chat = { sessionId: "e", name: "codex", harness: "codex" };
+  const own = `[message 1234abcd from ${"🙂".repeat(100)}…`;
+  expect(own.length).toBeGreaterThan(200);
+  expect(sessionTitle({ ...chat, lastPrompt: own }, t)).toBe(own);
+});
