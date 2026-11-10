@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample drafts, prompts and errors), not shipped UI.
-// The skill offer card (SkillOfferCard.tsx) in three looks. References: cmux-design-references
-// `aside/web/human-approval-card` (enough source context to decide, one clear primary action),
-// `codex/web/skills-library` and `codex/web/skill-selector` (a skill reads as a mono name and one
-// line of when to use it), and the memory inbox card's hairline box, which this one matches.
+// The skill offer card (SkillOfferCard.tsx) in three looks. References: the design references'
+// approval card (enough source context to decide, one clear primary action), Codex's skills
+// library and skill selector (a skill reads as a mono name and one line of when to use it), and
+// the memory inbox card's hairline box, which this one matches.
 //
 // - compact (shipped): the question, the skill's name and when to use it, its SKILL.md behind
 //   "Show steps", and Not now, Edit and Save. At rest it is about the memory card's height, so a
