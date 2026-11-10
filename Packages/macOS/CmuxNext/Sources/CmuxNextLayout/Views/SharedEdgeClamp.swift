@@ -53,7 +53,7 @@ struct SharedEdgeClamp {
     /// toward its target, never back.
     func push(on screen: ScreenContentView) { // perf-hot: 4ms motion-frame
         guard let line = line(on: screen), let anchor = anchorState(on: screen), (line.left - anchor.left) * free < floor - 0.001 else { return }
-        // The push takes at most the line's own leftover: an anchor that overshoots its target (a bouncy spring) does not
+        // The push takes at most the line's own leftover: an anchor past its target (no spring takes it there) does not
         // carry the line past the clamp. At the clamp the line keeps the speed it has; short of it, it takes the anchor's
         // when the anchor is faster.
         let push = min(floor - (line.left - anchor.left) * free, -line.left * free)

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "274d7383200bcb999be1aaaf04fa508db94c9ec2dd87c36140bb68785ae0fc69";
+inline constexpr std::string_view kProtocolIrSha256 = "ba1ea0eac628452e4d44bf36bdbb7b20b34766dbdbbb531f7bbbe07db8d60c67";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -539,6 +539,7 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
+struct SetDividerVisibleRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
 struct SetLayoutSizesRequest;
@@ -2555,6 +2556,7 @@ struct ConversationSnapshotResult {
 };
 
 struct ConversationTabSplit {
+    Field<Id> around{};
     std::string direction{};
     Field<std::string> pane_id{};
     Field<std::string> split_id{};
@@ -5364,6 +5366,13 @@ struct SetDefaultColorsRequest {
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
 };
 
+struct SetDividerVisibleRequest {
+    Id split{};
+    Field<std::uint64_t> transaction{};
+    bool visible{};
+    friend bool operator==(const SetDividerVisibleRequest&, const SetDividerVisibleRequest&) = default;
+};
+
 struct SetFrontendBrowserHistoryRequest {
     std::optional<JsonValue> history{};
     Id surface{};
@@ -5665,6 +5674,7 @@ struct SnapshotRequestResult {
 };
 
 struct SplitRequest {
+    Field<Id> around{};
     std::optional<bool> before{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
@@ -9590,6 +9600,12 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetDividerVisibleRequest> {
+    static Result<Json> encode(const SetDividerVisibleRequest& value);
+    static Result<SetDividerVisibleRequest> decode(const Json& value);
 };
 
 template <>

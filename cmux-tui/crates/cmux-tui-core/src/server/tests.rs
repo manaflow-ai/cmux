@@ -541,6 +541,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
 mod activity_roster_replay;
 mod agent_reply_append;
 mod detach_and_browser;
+mod divider_menu;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;

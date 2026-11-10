@@ -165,7 +165,16 @@ import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
 import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
-import { jumpUpShown, jumpUpTarget, placeOffScreen, pressJumpUp, type JumpBack, type ManualMark } from "./jumpUp";
+import {
+  jumpUpShown,
+  jumpUpTarget,
+  lastOwnPrompt,
+  placeOffScreen,
+  pressJumpUp,
+  type JumpBack,
+  type ManualMark,
+  type PromptScan,
+} from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
 import { experimentArm } from "../../experiments/experiment";
@@ -1002,32 +1011,6 @@ function indexOfRow(rows: readonly AcpmuxRow[], id: string | undefined, hint: { 
   return at;
 }
 
-/// What `lastOwnPrompt` read last: how many rows, the last one's id, and the prompt it found.
-type PromptScan = { length: number; lastId?: string; found?: { id: string; at: number } };
-
-/// The person's newest own prompt (not another agent's incoming message). The transcript mostly
-/// appends: when the rows read last are still the head of these, only the rows after them are
-/// scanned, so a render costs O(new rows); otherwise (another chat, a rebuild) one scan back from
-/// the end, which stops at the first prompt.
-function lastOwnPrompt(
-  rows: readonly AcpmuxRow[],
-  scan: { current: PromptScan },
-): { id: string; at: number } | undefined {
-  const last = scan.current;
-  const appended = last.length > 0 && rows.length >= last.length && rows[last.length - 1]?.id === last.lastId;
-  const from = appended ? last.length : 0;
-  let found = appended ? last.found : undefined;
-  for (let i = rows.length - 1; i >= from; i--) {
-    const row = rows[i]!;
-    if (row.kind === "user" && !row.incoming) {
-      found = { id: row.id, at: row.at };
-      break;
-    }
-  }
-  scan.current = { length: rows.length, lastId: rows[rows.length - 1]?.id, found };
-  return found;
-}
-
 /// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
 function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
   return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
@@ -1201,6 +1184,7 @@ function TranscriptView({
   loading = false,
   afterLatest,
   sinceKey,
+  promptAuthor,
   onJumpToSince,
   showMinimap = true,
   endReserve: cardReserve = 0,
@@ -1304,6 +1288,9 @@ function TranscriptView({
   /// The key of "New since you looked" in these rows, if any: Jump to new shows over the top while
   /// it is out of view (conversation/SinceDivider.tsx), and `onJumpToSince` brings it in.
   sinceKey?: string;
+  /// The author id this pane sends as (multiplayer/presenceClient.ts `selfId`): Jump up's "sent"
+  /// mark is this author's newest prompt, never another person's in a shared chat (jumpUp.ts).
+  promptAuthor?: string;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -4990,7 +4977,7 @@ function TranscriptView({
   const unreadView = useSyncExternalStore(subscribeUnread, readUnread, readUnread);
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
-  const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan) : undefined;
+  const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
   const upTarget = jumpButton
     ? jumpUpTarget(
         sinceRow && unreadPending(sinceKey, unreadView) ? SINCE_DIVIDER : undefined,
