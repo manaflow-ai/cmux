@@ -36,7 +36,10 @@ use crate::{Mux, ResourceSelectors};
 
 pub(crate) use committed_snapshot::CommittedSnapshots;
 #[cfg(test)]
-pub(crate) use committed_snapshot::{route_wait_times_on_this_thread, route_waits_on_this_thread};
+pub(crate) use committed_snapshot::{
+    route_wait_times_on_this_thread, route_waits_on_this_thread,
+    set_route_wait_start_hook_on_this_thread,
+};
 
 #[cfg(test)]
 thread_local! {
@@ -591,7 +594,7 @@ fn session_snapshot_with_journal_head(
     run_snapshot_before_projection_hook();
     // No registry lock and no state lock across this walk: the durable rows are one committed revision
     // (`committed_snapshot.rs`), the live surfaces are the published route tables, loaded after the rows and
-    // never older than a commit the rows show.
+    // never older than a commit of the rows that changed a route in its state hold.
     (|| -> anyhow::Result<(Value, u64)> {
         // The answer of an earlier indeterminate registry commit owes a state update (cx-g1fa.3). The read
         // settled it while it pinned the state; it still does, but only when one is owed: the rows of that

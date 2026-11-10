@@ -687,19 +687,25 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
         .recv_timeout(Duration::from_secs(20))
         .expect("setup: the mutator committed under the pinned state");
 
-    let (answered, answered_receiver) = std::sync::mpsc::channel();
+    // `true`: the read answered. `false`: the read started its wait for the mutator. A read that proves the routes
+    // of its rows sends `false` first; a read that sends `true` first answered in the window.
+    let (step, step_receiver) = std::sync::mpsc::channel::<bool>();
     let reader = {
         let mux = mux.clone();
         std::thread::spawn(move || {
+            let waits = step.clone();
+            crate::resource_api::set_route_wait_start_hook_on_this_thread(move || {
+                let _ = waits.send(false);
+            });
             let cut = read_cut(&mux);
-            let _ = answered.send(());
+            let _ = step.send(true);
             (cut, crate::resource_api::route_waits_on_this_thread())
         })
     };
-    // A read that proves the routes of its rows waits for the mutator here. A
-    // read that answers here answered in the window.
-    let in_window = answered_receiver.recv_timeout(Duration::from_millis(500)).is_ok();
+    let in_window = step_receiver.recv_timeout(Duration::from_secs(20));
     release.send(()).unwrap();
+    let in_window =
+        in_window.expect("setup: the read answered or started its wait for the mutator");
     mutator.join().unwrap();
     let ((snapshot, _, _, commits), waits) = reader.join().unwrap();
     let size = size_of(&snapshot);

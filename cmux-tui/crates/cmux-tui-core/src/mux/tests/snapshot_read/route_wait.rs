@@ -5,7 +5,13 @@
 //! waits for that hold, so the wait has the length of the state lock holds of the session. This test runs real
 //! mutators (a workspace create with a terminal and a split through the request path, an empty workspace create)
 //! beside a thread that reads the snapshot in a loop, and prints the number and the length of the waits and the
-//! holds of the state lock by site. Run it alone:
+//! holds of the state lock by site.
+//!
+//! What it does not show: there is ONE mutator thread and the 826 workspaces are empty, so a hold can end inside
+//! the reader's build and the try finds the lock free (a daemon in use has more and longer holders); most reads
+//! of the loop are cache reads, which make no try; "reads after a new commit" counts loop turns that saw the
+//! commit count move, not builds; the holds by site are from the start of the session, with the 826 setup
+//! creates in them; a reader that waits behind the builder mutex is not counted. Run it alone:
 //! `cargo test -p cmux-tui-core --lib -- snapshot_route_wait_at_826 --ignored --nocapture --test-threads 1`
 
 use std::sync::atomic::AtomicBool;

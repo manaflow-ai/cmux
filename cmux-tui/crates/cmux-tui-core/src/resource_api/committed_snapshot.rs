@@ -10,7 +10,9 @@
 //! registry writer's commit count, read before the rows, so the rows are never older than their key. A reader that
 //! finds the key unchanged runs no statement and takes no registry lock and no state lock: it takes the short mutex
 //! of the commit count (`WalDurability::counts`) and makes one atomic load. The reader that builds tries the state
-//! lock once after its rows, with no walk under it (`routes_of_committed_rows_are_published`).
+//! lock once after its rows, with no walk under it (`routes_of_committed_rows_are_published`). Two cases take
+//! more: with the input lane off (`CMUX_TUI_RDS_INPUT=0`) each read takes the state lock for its routes, and an
+//! in-memory registry has no cache, so each read takes the registry lock and makes the one try.
 //!
 //! The key is a correctness key: the count must move inside every COMMIT that writes rows on the registry's
 //! connection (the WAL hook, `workspace_registry/wal_durability.rs` `note_commit`). `mux/tests/snapshot_read.rs`
@@ -69,6 +71,15 @@ impl CommittedSnapshots {
 thread_local! {
     static ROUTE_WAITS: std::cell::RefCell<Vec<std::time::Duration>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    static ROUTE_WAIT_START_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// `hook` runs on this thread each time a snapshot read here starts a wait for a mutator, before the wait (test
+/// hook: a test releases its stopped mutator on this signal, not after a fixed time).
+#[cfg(test)]
+pub(crate) fn set_route_wait_start_hook_on_this_thread(hook: impl Fn() + 'static) {
+    ROUTE_WAIT_START_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
 /// How many times a snapshot read on this thread waited for a mutator before it loaded its routes (test hook).
@@ -84,7 +95,7 @@ pub(crate) fn route_wait_times_on_this_thread() -> Vec<std::time::Duration> {
 }
 
 /// Called after the rows are read and before the caller loads the published routes: when it returns, the routes
-/// of every commit in the rows are published.
+/// of every commit in the rows that changed a route table in the state hold of its COMMIT are published.
 ///
 /// A mutator that changes a route table and commits in one hold of the state lock (a terminal respawn, an
 /// adoption at daemon start) publishes its routes when its state guard drops, after its COMMIT. A read between
@@ -94,18 +105,31 @@ pub(crate) fn route_wait_times_on_this_thread() -> Vec<std::time::Duration> {
 /// show has dropped its guard: one try, no wait, no walk under it. If a thread holds the state lock now, the read
 /// waits for it once (an O(1) hold of its own), as the read under the state lock did before. Routes newer than
 /// the rows are harmless: the read walks the rows.
+///
+/// Not covered, because the state lock is free between the COMMIT and the route change: a terminal create
+/// (`mux/surface_spawn.rs`) commits its host row as running with the registry lock only and puts the surface in
+/// the routes in a later state hold. The snapshot does not show that terminal before its later projection commit
+/// (it has no `resource_terminals` row and no tab row until then), and that commit is made after the insert. An
+/// app terminal shows as launching, never as running, before its identity is in the table
+/// (`mux/app_terminals.rs`).
 fn routes_of_committed_rows_are_published(mux: &Mux) {
     if matches!(mux.state.try_lock(), Err(std::sync::TryLockError::WouldBlock)) {
         #[cfg(test)]
         let waited_from = std::time::Instant::now();
+        #[cfg(test)]
+        ROUTE_WAIT_START_HOOK.with(|slot| {
+            if let Some(hook) = slot.borrow().as_ref() {
+                hook();
+            }
+        });
         drop(mux.state.lock());
         #[cfg(test)]
         ROUTE_WAITS.with(|waits| waits.borrow_mut().push(waited_from.elapsed()));
     }
 }
 
-/// The committed rows as of now: the cached ones when no commit landed since they were read. The routes of every
-/// commit in the returned rows are published (see [`routes_of_committed_rows_are_published`]).
+/// The committed rows as of now: the cached ones when no commit landed since they were read. The routes of the
+/// commits in the returned rows are published, as [`routes_of_committed_rows_are_published`] says.
 pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnapshot>> {
     let Some(snapshots) = &mux.committed_snapshots else {
         let built = Arc::new(super::read_committed_registry(mux, |connection, ids| {

@@ -135,24 +135,33 @@ fn read_in_the_window(
             "setup: the mutator did not stop between its COMMIT and the drop of its state guard"
         );
     }
-    let (answered, answered_receiver) = std::sync::mpsc::channel();
+    // `true`: the read answered. `false`: the read started its wait for the mutator. The first of the two says
+    // whether the read answered in the window; no fixed time decides it.
+    let (step, step_receiver) = std::sync::mpsc::channel::<bool>();
     let reader = {
         let mux = mux.clone();
         std::thread::spawn(move || {
+            let waits = step.clone();
+            crate::resource_api::set_route_wait_start_hook_on_this_thread(move || {
+                let _ = waits.send(false);
+            });
             let snapshot = read(&mux);
-            let _ = answered.send(());
+            let _ = step.send(true);
             (snapshot, crate::resource_api::route_waits_on_this_thread())
         })
     };
-    let in_window = answered_receiver.recv_timeout(Duration::from_millis(500)).is_ok();
+    let in_window = step_receiver.recv_timeout(Duration::from_secs(20));
     release.send(()).unwrap();
+    let in_window =
+        in_window.expect("setup: the read answered or started its wait for the mutator");
     mutator.join().unwrap();
     let (snapshot, waits) = reader.join().unwrap();
     (snapshot, in_window, waits)
 }
 
-/// The real respawn. The host of a placed terminal is lost: the exit commit, the respawn decision of that commit
-/// (`plan_terminal_respawn_locked`, which takes the dead runtime out of the tabs), the reopen of the row
+/// The real respawn. The host of a placed terminal is lost: the exit commit, the respawn decision
+/// (`plan_terminal_respawn_locked`, which takes the dead runtime out of the tabs; the daemon makes it in the hold
+/// of the exit commit, `mux/terminal_exit.rs`, this test in a hold of its own after it), the reopen of the row
 /// (`begin_terminal_respawn`), a new host at the terminal's slot, then `install_respawned_runtime`. The worker's
 /// steps after the install (the journal gap, the Activate frame, the pre-fill) come after the window.
 #[test]
