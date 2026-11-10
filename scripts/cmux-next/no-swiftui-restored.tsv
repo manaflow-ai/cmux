@@ -1,4 +1,7 @@
 # Files an earlier commit deleted that came back unchanged (check-no-swiftui.py, finding 3).
+# A row is a claim, not a proof: the check only compares the file with the blob the row names (CI has no
+# history to look the blob up in). A reviewer of a new row runs `git rev-parse <deleting commit>^:<path>`
+# and compares it with the blob id.
 # path<TAB>git blob id<TAB>why. Port the file to AppKit and delete its row and its allowlist line.
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift	075f1e5b541d35540d83c22afb77b0cf53ed0409	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift	682c2a967847da0607edf673e73c1500a5ee7485	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
