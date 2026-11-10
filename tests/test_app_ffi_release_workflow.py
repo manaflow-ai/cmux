@@ -92,18 +92,19 @@ def render(text: str, context: dict) -> str:
     return re.sub(r"\$\{\{(.*?)\}\}", lambda match: str(evaluate(match.group(1), context) or ""), str(text))
 
 
-def condition(expression: str | None, context: dict, failed: bool) -> bool:
-    """A step's `if:` with the status functions GitHub adds (success() when none is named)."""
+def condition(expression: str | None, context: dict, failed: bool, cancelled: bool = False) -> bool:
+    """A step's `if:` with the status functions GitHub adds (success() when none is named). A cancelled job (a
+    timeout included) has failure() and success() false."""
     if expression is None:
-        return not failed
+        return not failed and not cancelled
     text = str(expression).strip()
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
     named = re.search(r"\b(always|failure|success|cancelled)\(\)", text)
-    text = (text.replace("always()", "true").replace("cancelled()", "false")
-            .replace("failure()", "true" if failed else "false")
-            .replace("success()", "false" if failed else "true"))
-    return bool(evaluate(text, context)) and (bool(named) or not failed)
+    text = (text.replace("always()", "true").replace("cancelled()", "true" if cancelled else "false")
+            .replace("failure()", "true" if failed and not cancelled else "false")
+            .replace("success()", "false" if failed or cancelled else "true"))
+    return bool(evaluate(text, context)) and (bool(named) or not (failed or cancelled))
 
 
 class PublishJob(unittest.TestCase):
@@ -457,7 +458,13 @@ class RePinPublication(unittest.TestCase):
             for command in ("git", "gh"):
                 executable(bin_dir / command, REPIN_FAKE)
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
-            executable(scripts / "repin-app-ffi.sh", "#!/bin/sh\nexit 0\n")
+            executable(scripts / "repin-app-ffi.sh", "#!/usr/bin/env python3\n" + textwrap.dedent('''\
+                import json, os, sys
+                path = os.environ["STATE"]
+                state = json.load(open(path))
+                state.setdefault("repins", []).append(sys.argv[1:])
+                json.dump(state, open(path, "w"))
+                '''))
             executable(scripts / "check-app-ffi-pin.sh",
                        '#!/bin/sh\n[ "$1" = --list-inputs ] && echo cmux-tui/crates/cmux-app-ffi/src\nexit 0\n')
             # The current pin, read as the check reads it.
@@ -776,26 +783,50 @@ class RePinPublication(unittest.TestCase):
     # an open PR that pins something else stayed open, stale.
     PR_PIN = "4" * 40  # the pin at the head of the open re-pin PR
 
-    def test_an_open_re_pin_pr_that_pins_the_picked_inputs_is_left_alone(self):
+    def test_an_open_re_pin_pr_that_pins_the_picked_inputs_keeps_its_pin(self):
         for name, same in {"the same inputs": [[self.PR_PIN, self.NEWEST]], "the picked release itself": []}.items():
-            with self.subTest(name):
-                pr_pin = self.PR_PIN if same else self.NEWEST
-                result, state = self.run_repin(same_inputs=same, pr_files={
-                    "Packages/macOS/CmuxNext/Package.swift": pr_pin})
+            pr_pin = self.PR_PIN if same else self.NEWEST
+            files = {"Packages/macOS/CmuxNext/Package.swift": pr_pin}
+            with self.subTest(name, head="young, no failed check"):
+                result, state = self.run_repin(same_inputs=same, pr_files=files, head_age_min=20)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["writes"], 0)
                 self.assertEqual(state["prs"]["1"], "open")
-                self.assertIn("left alone", result.stdout)
+                self.assertIn("kept #1", result.stdout)
+            # Review 3 of #40150: a head that must move (a failed check, past the hold) or a closed PR is still rebuilt
+            # or replaced, with the release it already pins: no checksum churn, and the pin keeps an owner.
+            for head, options in {"a failed check": {"head_age_min": 20, "checks": ("failure",)},
+                                  "past the hold": {}, "the PR is closed": {"closed": True}}.items():
+                with self.subTest(name, head=head):
+                    result, state = self.run_repin(same_inputs=same, pr_files=files, **options)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(state["repins"], [[pr_pin, "0" * 64]])
+                    self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                    self.assertIn("verified open", result.stdout)
+                    if options.get("closed"):
+                        self.assertEqual(state["prs"].get("2"), "open")
 
     def test_an_open_re_pin_pr_is_closed_when_the_picked_release_has_the_base_inputs(self):
         result, state = self.run_repin(same_inputs=[[self.PINNED, self.NEWEST]], pr_files={
-            "Packages/macOS/CmuxNext/Package.swift": self.PR_PIN})
+            "Packages/macOS/CmuxNext/Package.swift": self.PR_PIN}, ancestry=[(self.PR_PIN, self.NEWEST)])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state.get("closes"), ["1"])
+        self.assertIn("closed #1", result.stdout)
         self.assertEqual(state["published"], [])
         self.assertEqual(state["writes"], 0)
+        # Review 3 of #40150: only a PR whose pin is older than the picked release closes. newest_app_ffi_release.py
+        # falls back to the current pin when a newer release reads as unpublished (one 404), and a PR that pins a newer
+        # release must not close then.
+        for name, options in {"no newer release picked": {"current_pin": self.NEWEST},
+                              "the PR pins a commit after the picked release": {}}.items():
+            with self.subTest(name):
+                same = [[options.get("current_pin", self.PINNED), self.NEWEST]]
+                result, state = self.run_repin(same_inputs=same, head_age_min=20, pr_files={
+                    "Packages/macOS/CmuxNext/Package.swift": self.PR_PIN}, **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("closes", state)
         # A PR that already pins the base's pin, or no re-pin branch at all, is not closed.
         for options in ({"pr_files": {"Packages/macOS/CmuxNext/Package.swift": self.PINNED}}, {"refs": {}}):
             with self.subTest(**options):
@@ -825,6 +856,8 @@ class RePinPublication(unittest.TestCase):
             context = {"github": {"ref": "refs/heads/feat-cmux-next", "event_name": event}}
             with self.subTest(path.name, event=event):
                 self.assertEqual(condition(step.get("if"), context, failed=True), starts)
+                # A timeout cancels the job: the step runs then too.
+                self.assertEqual(condition(step.get("if"), context, failed=False, cancelled=True), starts)
                 self.assertFalse(condition(step.get("if"), context, failed=False))
             with tempfile.TemporaryDirectory() as temp:
                 bin_dir = Path(temp) / "bin"
