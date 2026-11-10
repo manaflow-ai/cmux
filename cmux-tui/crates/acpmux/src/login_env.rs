@@ -243,6 +243,13 @@ pub async fn import() -> bool {
             tracing::info!("shell startup files changed during the read; reading them again");
         }
     }
+    if outcome() == Outcome::Failed {
+        // A read that failed (a shell slower than TIMEOUT, at the daemon's start too) settled
+        // nothing: the next spawn's check reads again (`refresh`, at most every RECHECK), as it
+        // would after an edit. Kept, the fingerprint made every later check see "no change", so
+        // every agent of this daemon started without the login env until an edit or a restart.
+        STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
+    }
     READS.fetch_add(1, Ordering::SeqCst);
     READ_ENDED.notify_waiters();
     changed
@@ -541,12 +548,9 @@ fn refresh(throttled: bool) {
     STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(now);
     rt.spawn(async {
         tracing::info!("shell startup files changed; reading the login environment again");
+        // A failed read clears the fingerprint itself (`import`): a later spawn or edit tries again.
         import().await;
         let failed = outcome() == Outcome::Failed;
-        if failed {
-            // Try again at a later spawn or edit.
-            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
-        }
         REFRESHING.store(false, Ordering::SeqCst);
         if !failed {
             // An edit after the read's last check found REFRESHING set.

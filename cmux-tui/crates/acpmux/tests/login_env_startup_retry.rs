@@ -38,7 +38,7 @@ fn scratch() -> PathBuf {
     // Slow while `~/slow` exists: a condition of the machine, not an edit of a startup file.
     std::fs::write(
         root.join("home/.zshrc"),
-        "[ -f \"$HOME/slow\" ] && sleep \"$(cat \"$HOME/slow\")\"\nexport ACPMUX_RETRY_PROBE=from-login\n",
+        "[ -f \"$HOME/slow\" ] && sleep \"$(cat \"$HOME/slow\")\"\nexport OPENAI_BASE_URL=http://127.0.0.1:9/v1\n",
     )
     .unwrap();
     root
@@ -52,7 +52,7 @@ async fn a_login_read_that_failed_at_start_is_read_again_at_a_later_check() {
         std::env::set_var("ACPMUX_HOME", root.join("acpmux"));
         std::env::set_var("HOME", root.join("home"));
         std::env::set_var("SHELL", root.join("loginsh"));
-        std::env::remove_var("ACPMUX_RETRY_PROBE");
+        std::env::remove_var("OPENAI_BASE_URL");
     }
     let _ = HERMETIC;
     // The daemon starts while the shell is slower than the read's limit.
@@ -76,6 +76,6 @@ async fn a_login_read_that_failed_at_start_is_read_again_at_a_later_check() {
         "a spawn's check after the failed startup read never read the shell again"
     );
     let cache = std::fs::read_to_string(root.join("acpmux/login-env.json")).unwrap();
-    assert!(cache.contains("ACPMUX_RETRY_PROBE"), "the second read was not cached: {cache}");
+    assert!(cache.contains("OPENAI_BASE_URL"), "the second read was not cached: {cache}");
     let _ = std::fs::remove_dir_all(&root);
 }
