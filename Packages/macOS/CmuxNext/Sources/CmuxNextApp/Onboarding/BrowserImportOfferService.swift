@@ -67,7 +67,7 @@ final class BrowserImportOfferService {
     private func pageFinished(in entry: BrowserEntry) {
         guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }  // never over a terminal or chat
         // task-owner: one bounded read of the finished page's DOM (no gesture, isolated world); then the offer or nothing
-        Task { @MainActor [weak self, weak entry] in
+        Task { [weak self, weak entry] in  // inherits this @MainActor method's isolation
             guard let entry else { return }
             let answer = try? await entry.tab.evaluate(Self.signInProbe, world: .isolated, gesture: .cmux)
             guard let self, answer == .bool(true) else { return }  // no sign-in form (or no answer): no banner
