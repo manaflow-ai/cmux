@@ -3194,11 +3194,14 @@ export class AcpmuxDirectClient {
         ];
       // Live notices can arrive while status is pending, before this first page is installed.
       // Keep their newer rows (and purges) when replacing the previous list.
-      else if (first && !linkedLater) this.sessions = this.sessionPages.settle(first.sessions);
-      else {
+      else if (first && !linkedLater) {
+        this.sessions = this.sessionPages.settle(first.sessions);
+        if (!laterPages) this.sessionPages.done(first.run);
+      } else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
         this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
+        this.sessionPages.done(first?.run);
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
@@ -4529,6 +4532,7 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
+    this.sessionPages.done(first.run);
     this.listedSessions = true;
     this.recheckSenders(this.sessions);
     this.learnChatThread();
@@ -4780,7 +4784,13 @@ export class AcpmuxDirectClient {
   /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
   /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
   private async readLaterSessions(first: SessionPage<Session>): Promise<void> {
-    await this.sessionPages.rest(first, () => this.sessions, this.addSessions).catch(() => this.rereadSessionsLater());
+    const whole = await this.sessionPages
+      .rest(first, () => this.sessions, this.addSessions)
+      .catch(() => {
+        this.rereadSessionsLater();
+        return false;
+      });
+    if (whole) this.sessionPages.done(first.run);
   }
 
   /// A list that could not be read to its end (a page and the whole-list fallback both failed)
