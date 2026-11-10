@@ -149,6 +149,21 @@ async function mount() {
       await settle();
       return down.defaultPrevented;
     },
+    /// The app attaches files (a design card's, with its group), as the media viewer or a card does.
+    async attach(name: string, group?: string) {
+      await act(async () => {
+        handle!.addFiles([new dom.window.File(["x"], name, { type: "text/plain" })], group);
+      });
+      await settle();
+    },
+    async dropGroup(group: string) {
+      await act(async () => {
+        handle!.removeGroup(group);
+      });
+      await settle();
+    },
+    focused: () => dom.window.document.activeElement,
+    focusField: () => act(async () => field().focus()),
     async quote(text: string) {
       await act(async () => {
         handle!.quote(text);
@@ -230,5 +245,35 @@ test("Chief: Edit > Undo brings a removed file back; a new edit ends the redo", 
   await composer.quote("q");
   await composer.key(true);
   expect(composer.files()).toEqual([]);
+  await composer.unmount();
+});
+
+test("Chief: a card's files the app replaced do not come back on Cmd-Z or Shift-Cmd-Z", async () => {
+  const composer = await mount();
+  await composer.attach("old.png", "card");
+  await composer.dropGroup("card");
+  await composer.attach("new.png", "card");
+  expect(composer.files()).toEqual(["new.png"]);
+  await composer.focusField();
+  await composer.key(false);
+  expect(composer.files()).toEqual([]);
+  // The old card's add is gone from the history: nothing is left to undo, nothing to redo but the new one.
+  await composer.key(false);
+  expect(composer.files()).toEqual([]);
+  await composer.key(true);
+  expect(composer.files()).toEqual(["new.png"]);
+  await composer.key(true);
+  expect(composer.files()).toEqual(["new.png"]);
+  await composer.unmount();
+});
+
+test("Chief: a file the app attaches leaves the keyboard where it is", async () => {
+  const composer = await mount();
+  const elsewhere = dom.window.document.createElement("input");
+  dom.window.document.body.append(elsewhere);
+  elsewhere.focus();
+  await composer.attach("shot.png");
+  expect(composer.focused()).toBe(elsewhere);
+  elsewhere.remove();
   await composer.unmount();
 });
