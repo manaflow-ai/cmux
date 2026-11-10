@@ -480,7 +480,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
         let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
         let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach)
-        // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
+        // The name starts where ungrouped rows start (`SidebarStyle.contentInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
         let lead = columns.lead
         name.isHidden = renaming

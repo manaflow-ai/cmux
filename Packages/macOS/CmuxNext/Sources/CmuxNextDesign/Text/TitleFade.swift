@@ -27,6 +27,8 @@ public final class TitleFade {
 
     static let keyPath = "transform.translation.x"
     static let key = "marquee"
+    /// The leading fade that follows the marquee (`MotionGate.marqueeEdgeAnimation`).
+    static let edgeKey = "marquee.edge"
 
     /// - Parameters:
     ///   - textLayer: The title's text layer.
@@ -173,6 +175,14 @@ public final class TitleFade {
         setWidth(geometry.layerWidth(marquee: true))
         textLayer.add(text, forKey: Self.key)
         mask.add(counter, forKey: Self.key)
+        // The glyphs that leave on the left fade out over a whole fade length, never cut at the text's edge.
+        let rest = geometry.maskLocations.map { NSNumber(value: Double($0)) }
+        let scrolled = geometry.scrolledMaskLocations.map { NSNumber(value: Double($0)) }
+        if scrolled != rest, let edge = gate.marqueeEdgeAnimation(
+            keyPath: "locations", rest: rest, scrolled: scrolled, travel: travel,
+            reach: max(geometry.fadeWidth, geometry.leadingPadding), now: mask.convertTime(now, from: nil), policy: policy) {
+            mask.add(edge, forKey: Self.edgeKey)
+        }
         return true
     }
 
@@ -183,8 +193,11 @@ public final class TitleFade {
         guard isMarqueeActive else { return }
         isMarqueeActive = false
         let shown = (textLayer.presentation()?.value(forKeyPath: Self.keyPath) as? CGFloat) ?? 0
+        // The leading fade as drawn now, so it eases back with the text instead of snapping to a hard edge.
+        let shownStops = mask.animation(forKey: Self.edgeKey) == nil ? nil : mask.presentation()?.locations
         textLayer.removeAnimation(forKey: Self.key)
         mask.removeAnimation(forKey: Self.key)
+        mask.removeAnimation(forKey: Self.edgeKey)
         guard animated, abs(shown) > 0.5, policy().animatesMovement else {
             textLayer.removeAnimation(forKey: Self.keyPath)
             mask.removeAnimation(forKey: Self.keyPath)
@@ -196,6 +209,9 @@ public final class TitleFade {
         CATransaction.setMainCompletion { [weak self] in self?.restoreWidth() }
         gate.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         gate.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
+        if let shownStops, let rest = mask.locations, shownStops != rest {
+            gate.set(mask, "locations", to: rest, fade: .hover, from: shownStops)
+        }
         CATransaction.commit()
     }
 

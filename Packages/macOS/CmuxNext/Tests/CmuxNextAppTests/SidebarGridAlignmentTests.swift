@@ -7,10 +7,9 @@ import Testing
 /// capture is needed: the first test pins the existing layout adapters, and the second lays out each real row view.
 /// Keep the expected numbers independent of LayoutGrid so changing a token cannot bless drift.
 ///
-/// One number differs from grid.md: compact `lead` is 12, not 16. grid.md puts the highlight 8 from the edge and
-/// lead 8 inside it; the highlight keeps base's list inset (6 compact, 8 comfortable), and an iconless title starts
-/// `horizontalInset` inside its row (SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows). Compact lead is
-/// therefore 6 + 6 = 12, the nearest grid line both allow; text stays lead + icon box + 8 (36 compact, 44 comfortable).
+/// `lead` differs from grid.md: grid.md puts the highlight 8 from the edge and lead 8 inside it; the highlight keeps
+/// base's list inset (6 compact, 8 comfortable), and an iconless title starts the row's content inset inside it, the
+/// room its text has above and below (Lawrence 2026-11-09, `SidebarStyle.contentInset`); text stays lead + icon box + 8.
 @MainActor @Suite(.serialized) struct SidebarGridAlignmentTests {
     nonisolated enum Kind: String, CaseIterable, Sendable {
         case workspace, item, app, link, sectionHeader, done, showMore, group
@@ -45,13 +44,15 @@ import Testing
     }
 
     /// grid.md `lead` from the sidebar edge, and `text` after a 16 / 20 icon box and an 8 gap.
-    nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 16 : 12 }
-    nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 44 : 36 }
+    /// Lawrence 2026-11-09 (even padding on all four sides): lead is the row's gap (6 / 8) plus its content inset, the
+    /// room its title has above its capitals (`SidebarStyle.contentInset`, from the title font), not the gap again.
+    static func lead(_ comfortable: Bool) -> CGFloat { (comfortable ? 8 : 6) + SidebarStyle.contentInset }
+    static func text(_ comfortable: Bool) -> CGFloat { lead(comfortable) + (comfortable ? 20 : 16) + 8 }
     /// Trailing column `index`'s center in a 304 pt row: half the 10 pt status glyph plus the row inset (11 compact, 13
     /// comfortable; plus 20 a column) in from the row's end (Lawrence 2026-11-05: "padding on left/right of every
     /// workspace needs to be even").
     static func column304(_ index: Int) -> CGFloat {
-        304 - (SidebarStyle.horizontalInset + 5) - CGFloat(index) * 20
+        304 - (SidebarStyle.contentInset + 5) - CGFloat(index) * 20
     }
 
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
@@ -301,7 +302,7 @@ extension SidebarGridAlignmentTests {
                 #expect(abs(frame.maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
                 #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
-                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.horizontalInset - 5)) <= 0.5)
+                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.contentInset - 5)) <= 0.5)
             }
         }
     }
