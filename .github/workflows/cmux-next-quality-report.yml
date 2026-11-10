@@ -1,0 +1,130 @@
+name: cmux-next quality report
+
+# The nightly quality report of cmux NEXT (scripts/cmux-next/quality-report.py). Leo, 2026-11-10: "the lags,
+# the crashes ... it's not acceptable". Once a UTC day, on the first push to nightly-next (the NIGHTLY train's
+# branch) after midnight, it writes:
+#   - crashes and hangs of the last 24 h by signature, new or returning, NIGHTLY or DEV: from Sentry
+#     (manaflow/cmuxterm-macos, SENTRY_AUTH_TOKEN) when its API answers, else from the hang-watch issues in
+#     cmuxterm-hq (leo-workspace tools/hang_watch.py), read with the route App's issues token;
+#   - the metrics JSON: crash-free session rate (Sentry release health), the perf cron's newest interaction
+#     p95 per row (the perf-cron-state artifact), and the god-vs-small and animation token coverage slots
+#     (filled once those checks write their JSON; the report says "no input given" until then).
+# The JSON is this run's artifact `cmux-next-quality-metrics` (kept 90 days). The full report, signature names
+# included, goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night so
+# the numbers read over time; this public repository's step summary gets the numbers only. Nothing here
+# gates a build: every source that cannot be read leaves its metric null with the reason.
+#
+# A push to nightly-next runs this from nightly-next's own copy of the file, which follows feat-cmux-next, so
+# no default-branch dispatcher is needed. The daily marker is an Actions cache key per UTC date.
+on:
+  push:
+    branches:
+      - nightly-next
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-quality-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: github.repository == 'manaflow-ai/cmux'
+    # GitHub-hosted, like nightly.yml's sentry-dsyms-nightly: the Sentry token stays off the shared minis.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Name tonight's marker
+        id: day
+        run: echo "key=cmux-next-quality-report-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Look for tonight's report
+        id: done
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/quality-report-marker
+          key: ${{ steps.day.outputs.key }}
+          lookup-only: true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.done.outputs.cache-hit != 'true'
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/quality-report.py
+            scripts/cmux-next/tests/test_quality_report.py
+            scripts/cmux-next/perf-cron.py
+            scripts/cmux-next/perf-budgets.json
+            scripts/cmux-next/perf-budgets.py
+          sparse-checkout-cone-mode: false
+
+      - name: Test the report
+        if: steps.done.outputs.cache-hit != 'true'
+        run: python3 -I scripts/cmux-next/tests/test_quality_report.py
+
+      - name: Fetch the perf cron's state
+        if: steps.done.outputs.cache-hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
+
+      # Issues read and write on cmuxterm-hq only: the hang-watch issues (the fallback crash source) and the
+      # sticky report. No App or a failed mint leaves the token empty: Sentry alone, and the summary only.
+      - name: Mint the cmuxterm-hq issues token
+        id: hq-token
+        if: steps.done.outputs.cache-hit != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
+
+      - name: Build the report
+        if: steps.done.outputs.cache-hit != 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          GH_TOKEN: ${{ steps.hq-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/quality"
+          mkdir -p "$out"
+          python3 -I scripts/cmux-next/quality-report.py report --hours 24 \
+            --perf-state "$RUNNER_TEMP/perf-state/state.json" \
+            --json "$out/quality-metrics.json" --md "$out/quality-report.md" --public-md "$out/quality-summary.md"
+          cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the metrics JSON
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-quality-metrics
+          path: ${{ runner.temp }}/quality/quality-metrics.json
+          retention-days: 90
+
+      - name: Update the sticky report in cmuxterm-hq
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-token.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-token.outputs.token }}
+        run: |
+          python3 -I scripts/cmux-next/quality-report.py sticky \
+            --report "$RUNNER_TEMP/quality/quality-metrics.json" --md "$RUNNER_TEMP/quality/quality-report.md"
+
+      - name: Mark tonight's report done
+        if: steps.done.outputs.cache-hit != 'true'
+        run: mkdir -p "$RUNNER_TEMP/quality-report-marker" && date -u > "$RUNNER_TEMP/quality-report-marker/at"
+
+      - name: Save tonight's marker
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/quality-report-marker
+          key: ${{ steps.day.outputs.key }}
