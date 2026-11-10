@@ -384,20 +384,41 @@ fn setting_target(global: &GlobalArgs) -> Result<Option<String>, Value> {
 /// it the answer is `app.setting_unanswered`, retryable.
 pub(super) fn read_setting(
     stream: &mut UnixStream,
-    _window: Duration,
-    _total: Duration,
+    window: Duration,
+    total: Duration,
 ) -> Result<Option<String>, Value> {
-    // The old read (red): one ask with a 1.5 s hard deadline; anything else is no setting.
-    let answer = super::app::exchange_within(
-        stream,
-        "settings.get",
-        json!({ "path": TARGET_SETTING }),
-        Duration::from_millis(1500),
-    );
-    Ok(match answer {
-        Ok(Ok(answer)) => answer.get("value").and_then(Value::as_str).map(str::to_owned),
-        _ => None,
-    })
+    let began = std::time::Instant::now();
+    loop {
+        let answer =
+            super::app::request(stream, "settings.get", json!({ "path": TARGET_SETTING }), window);
+        let refusal = match answer {
+            Ok(Ok(answer)) => {
+                return Ok(answer.get("value").and_then(Value::as_str).map(str::to_owned));
+            }
+            Ok(Err(refusal)) => refusal,
+            Err(_) => return Ok(None),
+        };
+        let passing = matches!(
+            refusal.get("code").and_then(Value::as_str),
+            Some("busy" | "timeout" | "unavailable")
+        );
+        if !passing {
+            return Ok(None);
+        }
+        if began.elapsed() >= total {
+            return Err(json!({
+                "code": "app.setting_unanswered",
+                "message": format!(
+                    "the cmux app is running but did not say where chats start (the chat.on \
+                     setting) in {} s, so nothing started; run it again, or pass --on",
+                    total.as_secs()
+                ),
+                "details": {"setting": TARGET_SETTING, "refusal": refusal},
+                "retryable": true,
+            }));
+        }
+        std::thread::sleep(window.min(Duration::from_millis(250)));
+    }
 }
 
 /// The app to read `chat.on` from: the one `--app-socket`, `--socket` or the environment names

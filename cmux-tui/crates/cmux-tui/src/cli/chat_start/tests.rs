@@ -532,7 +532,9 @@ fn a_chat_here_takes_a_repository() {
 /// A fake app for the `chat.on` read: every `settings.get` gets the next of `answers` after its
 /// delay, and a plain `ping` on its own connection (the liveness probe) gets `PONG` at once while
 /// the app is up. Joins to the `settings.get` requests it read.
-fn slow_app(answers: Vec<(Duration, Value)>) -> (std::path::PathBuf, App, cmux_unix_socket::TestDir) {
+fn slow_app(
+    answers: Vec<(Duration, Value)>,
+) -> (std::path::PathBuf, App, cmux_unix_socket::TestDir) {
     use std::io::{BufRead as _, BufReader, Write as _};
     use std::sync::{Arc, Mutex};
     let dir = cmux_unix_socket::short_test_dir("cmux-chat-on");
@@ -608,7 +610,8 @@ fn finish(app: App) -> Vec<Value> {
 fn a_slow_live_app_still_names_the_chat_target() {
     let value = json!({ "ok": true, "result": { "value": "vm:new" } });
     let (socket, app, _dir) = slow_app(vec![(Duration::from_millis(2_000), value)]);
-    let read = read_setting(&mut connected(&socket), Duration::from_millis(100), Duration::from_secs(30));
+    let read =
+        read_setting(&mut connected(&socket), Duration::from_millis(100), Duration::from_secs(30));
     let seen = finish(app);
     assert_eq!(read, Ok(Some("vm:new".to_owned())));
     assert_eq!(seen.len(), 1, "one ask, never resent while the app answered pings: {seen:?}");
@@ -630,7 +633,8 @@ fn an_app_that_refuses_while_busy_is_asked_again() {
         (Duration::ZERO, value),
     ];
     let (socket, app, _dir) = slow_app(answers);
-    let read = read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30));
+    let read =
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30));
     finish(app);
     assert_eq!(read, Ok(Some("cloud".to_owned())));
 }
@@ -642,7 +646,11 @@ fn an_app_that_never_answers_starts_nothing() {
     let busy = json!({ "ok": false, "error": { "code": "timeout", "message": "no reply" } });
     let answers = (0..200).map(|_| (Duration::from_millis(10), busy.clone())).collect();
     let (socket, app, _dir) = slow_app(answers);
-    let read = read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_millis(300));
+    let read = read_setting(
+        &mut connected(&socket),
+        Duration::from_millis(50),
+        Duration::from_millis(300),
+    );
     finish(app);
     let error = read.unwrap_err();
     assert_eq!(error["code"], "app.setting_unanswered", "{error}");
@@ -654,10 +662,16 @@ fn an_app_that_never_answers_starts_nothing() {
 fn a_refused_or_unset_setting_is_no_setting() {
     let unknown = json!({ "ok": false, "error": { "code": "method_not_found", "message": "no" } });
     let (socket, app, _dir) = slow_app(vec![(Duration::ZERO, unknown)]);
-    assert_eq!(read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)), Ok(None));
+    assert_eq!(
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)),
+        Ok(None)
+    );
     finish(app);
     let unset = json!({ "ok": true, "result": { "value": null } });
     let (socket, app, _dir) = slow_app(vec![(Duration::ZERO, unset)]);
-    assert_eq!(read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)), Ok(None));
+    assert_eq!(
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)),
+        Ok(None)
+    );
     finish(app);
 }
