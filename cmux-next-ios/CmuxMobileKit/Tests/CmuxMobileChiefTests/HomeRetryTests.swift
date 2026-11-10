@@ -23,6 +23,38 @@ import Testing
         #expect(reconnected.isEmpty)
     }
 
+    /// The Retry's spinner turns for as long as its action runs: the action must end
+    /// when the read has answered, not the moment it is requested (it ended at once,
+    /// so the spinner flashed for a frame and the capsule jumped on every tap).
+    @Test func homeRetryReturnsOnlyAfterTheReadAnswers() async throws {
+        let owner = FakeHomeOwner()
+        let link = PushLink { owner.respond($0) }
+        link.failNextOpen = true
+        let feed = MacHomeFeed()
+        await feed.connect(link: link, macID: "mac-home")
+        #expect(feed.problem != nil)
+
+        await HomeRetryAction(feed: feed).retry(macID: "mac-home", reconnectNeeded: false)
+
+        // No polling: the rows are already in when the retry returns.
+        #expect(feed.rows?.count == 4)
+        #expect(feed.problem == nil)
+    }
+
+    @Test func homeRetryOnALiveChannelWaitsForItsRead() async throws {
+        let owner = FakeHomeOwner()
+        let link = PushLink { owner.respond($0) }
+        let feed = MacHomeFeed()
+        await feed.connect(link: link, macID: "mac-home")
+        #expect(await MacHomeFeedTests().until { feed.rows != nil })
+        let before = owner.inboxReads
+
+        await HomeRetryAction(feed: feed).retry(macID: "mac-home", reconnectNeeded: false)
+
+        #expect(owner.inboxReads > before)
+        #expect(feed.problem == nil)
+    }
+
     @Test func offlineHomeRetryRequestsOnlyItsOwningMac() async {
         let feed = MacHomeFeed()
         var reconnected: [String] = []
