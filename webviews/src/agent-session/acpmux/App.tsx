@@ -95,7 +95,7 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
-import { configurationSessionMatches, resolveEffortOption } from "./configurationActions";
+import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -7944,33 +7944,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             await setMode(String(modeId));
           },
-          "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
-            const summary = snapshotRef.current?.summary;
-            if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
-              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
-              throw new Error("the agent chat session changed");
-            const requested = typeof value === "string" && value ? value : String(effort ?? "");
-            const resolved = resolveEffortOption(
-              summary?.configOptions,
-              typeof configId === "string" ? configId : undefined,
-            );
-            // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
-            if (!resolved || !requested) throw new Error("the session offers no effort option");
-            const current = resolved.currentValue;
-            if (
-              !harnessSwitch.pickConfig(
-                resolved.id,
-                requested,
-                summary?.sessionId
-                  ? {
-                      sessionId: summary.sessionId,
-                      current,
-                    }
-                  : undefined,
-              )
-            )
-              await client.setConfig(resolved.id, requested);
-          },
+          "chat.effort": (params) =>
+            pickEffort(params, {
+              summary: snapshotRef.current?.summary,
+              switch: harnessSwitch,
+              setConfig: (id, value) => client.setConfig(id, value),
+            }),
           // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
           // page is read now, so the switch draws it from memory (direct.ts `prefetch`).
           // `hover`: the native sidebar's pointer is on that chat's row (no sessionId: on none). The
@@ -8359,18 +8338,36 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // side chat opened (the composer keeps `/side <prompt>` and says why).
           // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
           // column's placement, AgentSidePanes).
-          "chat.side": async ({ throughSeq, live, prompt, splitRight }) => {
+          "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments, gesture }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
             const split = splitRight === true ? { split: "right" } : {};
+            // `/side`'s staged files (in-page only; the app's own calls name none): the side chat's
+            // first prompt carries them, as a send does (#40066).
+            const files = Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [];
+            // The Enter a held `/side` bound (Composer `onBindSideGesture`): its prompt spends it.
+            const held = sendGestureParam(gesture);
+            // The side chat's prompt resolves when its turn ends, so nothing waits on it here.
+            // acpmux's own refusal shows in the side chat; one the host made never reached it.
+            const sidePromptRefused = (error: unknown) => {
+              const code = (error as { code?: unknown } | null)?.code;
+              if (typeof code === "string" && code.startsWith("transport."))
+                notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
+            };
             // A chat on another machine that opens side chats there (Cloud, SSH): that machine forks,
             // tags and prompts it in one call, in the chat's folder there; the app opens it beside.
             if (snapshotRef.current?.sideChatOnMachine) {
               const text = typeof prompt === "string" ? prompt.trim() : "";
               const boundary = live === true ? "live" : Number(throughSeq);
-              const side = await client.sideChatOnMachine(boundary, text || undefined);
+              // That machine's one call takes a text prompt; one with files opens the side chat bare and
+              // the prompt then goes to it as any prompt does, files and all.
+              const side = await client.sideChatOnMachine(boundary, files.length ? undefined : text || undefined);
               if (!side || !chat) throw new Error("");
               await postNative("chat.sideChat", { sessionId: side.sessionId, ...split });
+              if (files.length) {
+                void client.promptSide(side.sessionId, text, files, held).catch(sidePromptRefused);
+                return;
+              }
               // The side chat is open; a prompt it did not take stays in the composer, which says why.
               if (side.notSent) throw new CmuxCommandRefused(translate("prompt.notSent", { reason: side.notSent }));
               return;
@@ -8386,13 +8383,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               throw error;
             }
             const text = typeof prompt === "string" ? prompt.trim() : "";
-            if (!text) return;
-            void client.promptSide(sessionId, text).catch((error: unknown) => {
-              // acpmux's own refusal shows in the side chat; one the host made never reached it.
-              const code = (error as { code?: unknown } | null)?.code;
-              if (typeof code === "string" && code.startsWith("transport."))
-                notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
-            });
+            if (!text && !files.length) return;
+            void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
           // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
@@ -8900,7 +8892,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
   /// literal harness prompt. A string is an inline refusal; Composer/NewTab keep the draft intact.
-  const handleCmuxCommand = (command: CmuxCommand, typedArgs?: string, fresh = false): CmuxCommandResult => {
+  const handleCmuxCommand = (
+    command: CmuxCommand,
+    typedArgs?: string,
+    fresh = false,
+    attachments: ComposerAttachment[] = [],
+    gesture?: SendGesture,
+  ): CmuxCommandResult => {
     const state = commandState(fresh);
     const refusal = cmuxCommandRefusal(command, typedArgs, state);
     if (refusal) return t(refusal);
@@ -9029,16 +9027,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const target = forkToTarget(snapshot);
       if (!target) return t("notice.forkNothingYet");
       const prompt = args?.trim();
-      return callNative("chat.side", { ...target, splitRight: true, ...(prompt ? { prompt } : {}) }).catch(
-        (error: unknown) => {
-          // The side chat opened but its prompt was not sent: that refusal says so itself.
-          if (error instanceof CmuxCommandRefused) throw error;
-          const reason = errorMessage(error);
-          throw new CmuxCommandRefused(
-            reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
-          );
-        },
-      );
+      // The prompt's staged files go with it, in-page (callNative's own handler), as a send's do (#40066).
+      return callNative("chat.side", {
+        ...target,
+        splitRight: true,
+        ...(prompt ? { prompt } : {}),
+        ...(attachments.length ? { attachments } : {}),
+        ...(gesture ? { gesture } : {}),
+      }).catch((error: unknown) => {
+        // The side chat opened but its prompt was not sent: that refusal says so itself.
+        if (error instanceof CmuxCommandRefused) throw error;
+        const reason = errorMessage(error);
+        throw new CmuxCommandRefused(
+          reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+        );
+      });
     }
     if (command.action === "fork") {
       ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
@@ -11164,7 +11167,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onPromptEdit={quick ? undefined : wakeOnTyping}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
-            onCmuxCommand={handleCmuxCommand}
+            onCmuxCommand={(command, args, attachments, gesture) =>
+              handleCmuxCommand(command, args, false, attachments, gesture)
+            }
+            onBindSideGesture={() => directClient.current?.bindSideGesture()}
             // Send's menu offers Send in side chat where `/side <prompt>` would fork this chat now.
             sendsToSide={SIDE_COMMAND !== undefined && !cmuxCommandRefusal(SIDE_COMMAND, "prompt", commandState(false))}
             // A send the composer holds for its files (a pasted screenshot still being read) binds
