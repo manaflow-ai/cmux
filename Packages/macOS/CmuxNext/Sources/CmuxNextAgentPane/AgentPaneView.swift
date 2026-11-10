@@ -162,6 +162,8 @@ public final class AgentPaneView: NSView {
     var holdsPageAway = false
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
+    /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
+    var chromiumMoveWait: ChromiumMoveWait?
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -446,7 +448,8 @@ public final class AgentPaneView: NSView {
     public override func layout() {
         super.layout()
         let frame = topBar.contentFrame(in: bounds)
-        let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
+        // A held page has the size its pane rests at, once: a pane on a spring gives it no size it leaves again.
+        let shown = holdsPageAway ? Self.awayFrame(of: restingFrame(of: frame)) : frame
         if let page {
             let moved = page.frame != shown
             page.frame = shown
