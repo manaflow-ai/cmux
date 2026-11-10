@@ -126,6 +126,9 @@ fn connect_from_a_terminal_then_from_the_app(own_session: bool) -> Seen {
         std::thread::sleep(Duration::from_millis(20));
     }
     let (hooks_admitted, hooks_refused) = (answered(".admitted"), answered(".refused"));
+    eprintln!(
+        "own_session={own_session}: {hooks_admitted} hook children admitted, {hooks_refused} refused"
+    );
 
     // The app: every connection stays open, as the app's do.
     let mut app = Vec::new();
@@ -139,6 +142,9 @@ fn connect_from_a_terminal_then_from_the_app(own_session: bool) -> Seen {
     }
 
     std::fs::write(results.path().join("stop"), b"").unwrap();
+    eprintln!(
+        "own_session={own_session}: the app has {app_admitted} of {APP_CONNECTIONS} connections"
+    );
     drop(app);
     let _ = mux.close_surface(terminal.id);
     mux.shutdown();
