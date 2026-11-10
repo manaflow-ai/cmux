@@ -257,21 +257,6 @@ export const PAGES = {
       },
     ],
   },
-  // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
-  "sidebar-chats": {
-    out: "webviews/src/pages/sidebar-chats/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextSidebar/Resources/Localizable.xcstrings`,
-        keys: () => [
-          "sidebar.section.pinned",
-          "sidebar.chatHistory.earlier",
-          "sidebar.chatHistory.showMore",
-          "sidebar.chatHistory.loading",
-        ],
-      },
-    ],
-  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",

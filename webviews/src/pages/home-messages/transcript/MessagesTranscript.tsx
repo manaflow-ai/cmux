@@ -24,7 +24,6 @@ import {
   type Ref,
 } from "react";
 import type { ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
-import { MOTION_MS } from "../../../motion/scale.generated";
 import { AttachmentContext } from "../../home-channels/AttachmentViews";
 import type { AttachmentService } from "../../home-channels/attachmentService";
 import { conversationName } from "../../home-channels/model";
@@ -363,8 +362,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     const sameConversation = state.conversation === conversation.id;
     if (sameConversation && state.atBottom && lastKey !== state.lastKey && delta > 0 && delta < 600 && !reducedMotion())
       stack.current?.animate?.([{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }], {
-        // A structural move: the standard step (a raw 240 ms until Leo 2026-11-10: "the slow animations").
-        duration: MOTION_MS.standard,
+        duration: 240,
         easing: "cubic-bezier(0.2, 0.9, 0.3, 1)",
       });
     state.lastKey = lastKey;

@@ -33,8 +33,6 @@
 // PROFILE=1 builds the pane unminified, takes a CPU profile of every burst and prints, per kind, the functions whose self
 // time per record grew most from the first checkpoint to the last: where the O(rows) work is.
 // --log FILE (repeatable) plays a recorded acpmux log too: JSON lines of SessionEvents or {events: [...]}, seq-keyed.
-// FIXTURE=god plays the god session (bench/godFixture.ts) in the long log's place, alone: its rows are the long log's
-// with `god` after the prefix (transcript_replay.god.long.token_ms pairs with transcript_replay.long.token_ms).
 //   bun bench/transcript-replay.bench.ts [--turns 600] [--checkpoints T,T,...] [--tokens 80] [--updates 30]
 //     [--only long,recorded,mock] [--log FILE]...
 //     [--strict]
@@ -45,8 +43,7 @@ import path from "node:path";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
-import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
-import { perfRow as printRow, TARGET_MS, type PerfRow } from "./perfRow";
+import { perfRow, TARGET_MS, type PerfRow } from "./perfRow";
 import {
   BURST_KINDS,
   type BurstKind,
@@ -78,10 +75,6 @@ const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
 const TOKENS = flag("--tokens") === undefined ? undefined : Number(flag("--tokens"));
 const UPDATES = flag("--updates") === undefined ? undefined : Number(flag("--updates"));
 const LOG_FILES = argv.flatMap((arg, index) => (argv[index - 1] === "--log" ? [arg] : []));
-const FIXTURE = benchFixture();
-const perfRow = scaledPerfRow(printRow, FIXTURE);
-/// The log whose bursts make the per-update rows: the long log, or at god scale the god session.
-const BURST_LOG = FIXTURE === "god" ? "god" : "long";
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -500,7 +493,7 @@ const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floo
 const worst = (values: number[]) => Math.max(0, ...values);
 
 /// The rows and the budget misses of a run (pure).
-export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: PerfRow[]; misses: string[] } {
+export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: string[] } {
   const rows: PerfRow[] = [];
   const misses: string[] = [];
   const row = (r: PerfRow, why: string) => {
@@ -563,7 +556,7 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
       `a streamed token or tool update took a task over 50 ms (longest ${worst(lives.map((l) => l.longestTaskMs))} ms)`,
     );
   }
-  const longLive = lives.find((l) => l.log === burstLog);
+  const longLive = lives.find((l) => l.log === "long");
   if (longLive) {
     for (const kind of BURST_KINDS) {
       const points = longLive.bursts
@@ -646,8 +639,7 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (FIXTURE === "god") logs.push(godLog("god"));
-    else if (ONLY.includes("long"))
+    if (ONLY.includes("long"))
       logs.push(
         longLog({
           turns: TURNS,
@@ -656,8 +648,8 @@ if (import.meta.main) {
           ...(UPDATES ? { outputUpdates: UPDATES } : {}),
         }),
       );
-    if (FIXTURE === "small" && ONLY.includes("recorded")) logs.push(recordedLog());
-    if (FIXTURE === "small" && ONLY.includes("mock")) logs.push(...mockLogs(now));
+    if (ONLY.includes("recorded")) logs.push(recordedLog());
+    if (ONLY.includes("mock")) logs.push(...mockLogs(now));
     for (const file of LOG_FILES) logs.push(parseLog(path.basename(file), fs.readFileSync(file, "utf8")));
     for (const log of logs) checkSeq(log);
     const daemon = Bun.serve({
@@ -719,7 +711,7 @@ if (import.meta.main) {
         const live =
           log.name.startsWith("mock:") && log.events.length < 8
             ? undefined
-            : await liveRound(ctx, log, log.name === BURST_LOG);
+            : await liveRound(ctx, log, log.name === "long");
         if (live) lives.push(live);
         console.log(
           `transcript-replay: ${log.name} (${log.events.length} records, ${rowsIn(log.events)} rows) open cls ${open.cls} ` +
@@ -727,7 +719,7 @@ if (import.meta.main) {
             (live
               ? ` | live ${live.seconds} s cls ${live.cls} long tasks ${live.longTasks} (longest ${live.longestTaskMs} ms) ` +
                 `heap +${live.heapMb} MB` +
-                (log.name === BURST_LOG ? ` idle ${live.idleMsPerS} ms/s` : "")
+                (log.name === "long" ? ` idle ${live.idleMsPerS} ms/s` : "")
               : ""),
         );
         for (const note of [
@@ -754,7 +746,7 @@ if (import.meta.main) {
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    const { rows, misses } = judge(opens, lives, BURST_LOG);
+    const { rows, misses } = judge(opens, lives);
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);
     if (!misses.length) console.log("transcript-replay: every budget held");

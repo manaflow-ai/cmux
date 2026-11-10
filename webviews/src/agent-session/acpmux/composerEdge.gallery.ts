@@ -19,7 +19,7 @@ const park =
   async (ctx) => {
     await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
     if (band !== undefined)
       ctx.document.querySelector<HTMLElement>(".acpmux-scroll")!.style.setProperty("--acpmux-fade-bottom", `${band}px`);
   };
