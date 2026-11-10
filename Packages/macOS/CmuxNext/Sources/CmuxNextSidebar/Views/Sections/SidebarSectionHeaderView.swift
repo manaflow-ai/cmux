@@ -77,7 +77,8 @@ final class SidebarSectionHeaderView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
-        let inset = SidebarStyle.horizontalInset * 2
+        // The fill's gap, then the rows' content inset: the name starts where workspace titles start.
+        let inset = SidebarStyle.horizontalInset + SidebarStyle.contentInset
         name.font = SidebarStyle.headerFont
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize

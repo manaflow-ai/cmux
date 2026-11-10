@@ -104,7 +104,7 @@ import Testing
 
     /// The row inset: where a text-only workspace row's title starts, in list points.
     static func inset(_ list: SidebarListView) throws -> CGFloat {
-        list.frame(for: try #require(list.displayed.row(for: .workspace(stripe)))).minX + SidebarStyle.horizontalInset
+        list.frame(for: try #require(list.displayed.row(for: .workspace(stripe)))).minX + SidebarStyle.contentInset
     }
 
     /// Every row's first ink starts at the row inset: Home's house, each pin, each workspace icon and the text-only

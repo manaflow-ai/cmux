@@ -42,6 +42,8 @@ import Testing
         // Scrolled, the glyphs that leave fade out over at least a fade length.
         let scroll = mask.animationKeys()?.lazy.compactMap { mask.animation(forKey: $0) as? CAKeyframeAnimation }
             .first { $0.keyPath == "locations" }
+        // Padding of a fade length or more already fades the leaving glyphs at rest: nothing to animate.
+        guard padding < Self.fadeWidth || scroll != nil else { return }
         let values = try #require(scroll?.values as? [[NSNumber]], "the marquee does not fade the leaving glyphs")
         let scrolled = values.map { Self.leadingRamp($0, width: width) }.max() ?? 0
         #expect(scrolled >= max(padding, Self.fadeWidth) - 0.5,

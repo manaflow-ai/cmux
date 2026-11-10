@@ -13,6 +13,19 @@
   default `sidebar.updateCard.automaticSize` (Regular) sets the label in `Typography.body` and the switch at
   `Metrics.smallIconSize`, and the card's height follows. Compact (before) and Large stay in Debug Settings.
   Regression: `UpdateReadyCardStyleTests.automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt`.
+- 2026-11-09: one left edge, even row padding, and a marquee that fades its left edge. Lawrence, verbatim: "left side
+  transparency is bad; home/pin icons not left aligned with 'Fix…' or traffic lights; for each workspace row, padding
+  on left/bottom/top/right should be even, on all densities". Home's house and the pins start their ink on the row
+  inset where text-only titles start (`SidebarStyle.bandGlyphX` takes the workspace rows' rule; #38061 had centered
+  them, 2-4 pt right of the titles). Rows pad their content by `SidebarStyle.contentInset`, the room a one-line row's
+  title has above its capitals and below its baseline (about 7.5 compact, 9.5 comfortable), on the left, the trailing
+  column and so top and bottom alike; the fill's gap from the sidebar edge stays `horizontalInset` (6 / 8). A text-only
+  title's hover marquee no longer slices the glyphs that leave at a hard edge: while it scrolls the mask ramps over a
+  whole fade length (`TitleFadeGeometry.scrolledMaskLocations`). Default picked: the traffic lights stay where macOS
+  draws them (about 9 pt from the edge), short of the content edge, since matching them needs fills touching the
+  sidebar edge or moving the system buttons per density. Regression: `SidebarLeadingEdgeTests`,
+  `HomePinnedRowAlignmentTests`, `SidebarIconColumnTests`, `SidebarEvenRowInsetsTests`, `TitleMarqueeLeadingFadeTests`.
+
 - 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
   command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
   it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the

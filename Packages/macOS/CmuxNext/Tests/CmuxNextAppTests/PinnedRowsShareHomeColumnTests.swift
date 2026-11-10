@@ -8,9 +8,11 @@ import Testing
 /// centered the pin under Home's house, a tagged build still showed two defects (dark, 2x, measured from the window's
 /// pixels): the pin drew in a 12 pt square, its ink 9 pt across under the house's 14.5, and a pinned workspace with its
 /// own icon or color dot ("🚀 Rocket emoji", "● Red color") drew the pin, then the icon, then its title 29.5 pt right of
-/// Home's label. The contract: every pinned row's leading glyph (the pin, or the row's own icon or dot in the pin's
-/// place) centers on Home's glyph's center line, the pin draws in Home's glyph square, and every pinned row's title
-/// starts at Home's label x, at 1x and 2x, every density, Minimal Mode and text size.
+/// Home's label. Lawrence 2026-11-09 ("home/pin icons not left aligned with 'Fix…'"; "the workspace-row icons are
+/// inconsistent") moved the shared line from the glyphs' centers to their left edge and sized each by its ink. The
+/// contract: every pinned row's leading glyph (the pin, or the row's own icon or dot in the pin's place) starts its ink
+/// on Home's glyph's left edge, the pin's ink is as large as the house's, and every pinned row's title starts at Home's
+/// label x, at 1x and 2x, every density, Minimal Mode and text size.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowsShareHomeColumnTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
@@ -98,10 +100,10 @@ import Testing
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
     }
 
-    /// Every pinned row's leading glyph centers on Home's glyph's center line (one device pixel at 1x, where each
+    /// Every pinned row's leading glyph starts its ink on Home's glyph's left edge (one device pixel at 1x, where each
     /// snaps to a whole point; half a point at 2x).
     @Test(arguments: cases)
-    func everyPinnedRowsLeadingGlyphCentersUnderHomes(_ c: Case) throws {
+    func everyPinnedRowsLeadingGlyphStartsOnHomesEdge(_ c: Case) throws {
         try Self.at(c) {
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
@@ -111,8 +113,8 @@ import Testing
             for item in Self.pins {
                 let row = try HomePinnedRowAlignmentTests.item(list, item.id)
                 let ink = list.convert(try #require(row.leadingInkFrame, "\(item.id.rawValue) draws nothing in the leading column"), from: row)
-                #expect(abs(ink.midX - homeInk.midX) <= tolerance,
-                        "\(c.testDescription): \(item.id.rawValue)'s leading glyph centers at \(ink.midX), Home's at \(homeInk.midX)")
+                #expect(abs(ink.minX - homeInk.minX) <= tolerance,
+                        "\(c.testDescription): \(item.id.rawValue)'s leading glyph starts at \(ink.minX), Home's at \(homeInk.minX)")
             }
         }
     }
@@ -189,8 +191,8 @@ import Testing
         }
     }
 
-    /// The `pinThenIcon` look (Debug `sidebar.pinnedRowLeading`) keeps the pin first on every pinned row, centered
-    /// under Home's glyph, with the row's own icon after it.
+    /// The `pinThenIcon` look (Debug `sidebar.pinnedRowLeading`) keeps the pin first on every pinned row, its ink on
+    /// Home's glyph's left edge, with the row's own icon after it.
     @Test func thePinThenIconLookKeepsThePinOnEveryRow() throws {
         try Self.at(Case(density: .compact, minimal: .off, textSize: .standard, scale: 2)) {
             let key = SidebarPinnedRowLeading.tunable.key
@@ -203,7 +205,7 @@ import Testing
             for item in Self.pins {
                 let row = try HomePinnedRowAlignmentTests.item(list, item.id)
                 let pin = list.convert(try #require(row.pinInkFrame, "\(item.id.rawValue) draws no pin"), from: row)
-                #expect(abs(pin.midX - homeInk.midX) <= 0.5, "\(item.id.rawValue)'s pin centers at \(pin.midX), Home's glyph at \(homeInk.midX)")
+                #expect(abs(pin.minX - homeInk.minX) <= 0.5, "\(item.id.rawValue)'s pin starts at \(pin.minX), Home's glyph at \(homeInk.minX)")
             }
         }
     }
