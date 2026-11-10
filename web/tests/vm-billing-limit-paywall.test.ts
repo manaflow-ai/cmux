@@ -28,34 +28,18 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("free", {})).toBe(0);
   });
 
-  test("paid plans get the advertised 5-machine allowance", () => {
-    expect(maxActiveVmsForPlan("pro", {})).toBe(5);
-    expect(maxActiveVmsForPlan("team", {})).toBe(5);
-    expect(maxActiveVmsForPlan("founders", {})).toBe(5);
-    expect(maxActiveVmsForPlan("max", {})).toBe(5);
+  test("paid plans have no machine count: machines are metered and the spending cap is the stop", () => {
+    for (const plan of ["pro", "team", "founders", "max"]) expect(maxActiveVmsForPlan(plan, {})).toBeNull();
   });
 
-  test("a Team subscription gets 5 machines per paid seat", () => {
-    expect(maxActiveVmsForPlan("team", {}, { seats: 4 })).toBe(20);
-    expect(maxActiveVmsForPlan("team", {}, { seats: 1 })).toBe(5);
-    expect(maxActiveVmsForPlan("team", {}, { seats: null })).toBe(5);
-    expect(maxActiveVmsForPlan("team", {}, { seats: 0 })).toBe(5);
-    // Seats only mean something on the Team plan.
-    expect(maxActiveVmsForPlan("pro", {}, { seats: 4 })).toBe(5);
-    expect(maxActiveVmsForPlan("free", {}, { seats: 4 })).toBe(0);
-    // Retired overrides cannot erase paid seats.
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(15);
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" }, { seats: 4 })).toBe(20);
-  });
-
-  test("retired paid overrides cannot change the product allowance", () => {
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" })).toBe(5);
+  test("retired paid overrides cannot bring a count back", () => {
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" })).toBeNull();
     expect(maxActiveVmsForPlan("pro", {
       CMUX_VM_PAID_MAX_ACTIVE_VMS: "1",
       CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25",
-    })).toBe(5);
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25" })).toBe(5);
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBe(5);
+    })).toBeNull();
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" })).toBeNull();
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBeNull();
   });
 
   test("free allowance is env-overridable only with the explicit escape hatch", () => {

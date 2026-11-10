@@ -136,14 +136,16 @@ describe("Cloud VM plan ceilings", () => {
 });
 
 describe("Cloud VM resource pool policy", () => {
-  test("each plan's pool follows the paid seat count like the machine allowance", () => {
-    for (const plan of ["pro", "founders"]) {
-      expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toEqual(PRO_POOL);
+  test("a paid plan without a count has no pool, and a counted scope's pool is flat per plan", () => {
+    // Paid plans have no machine count, so none has a pool: running compute is metered.
+    for (const plan of ["pro", "founders", "team", "max"]) {
+      expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toBeNull();
     }
-    expect(resourcePoolForPlan("team", maxActiveVmsForPlan("team", {}, { seats: 3 }))).toEqual({ vcpus: 60, memoryMb: 120 * GB });
-    expect(resourcePoolForPlan("max", maxActiveVmsForPlan("max", {}))).toEqual({ vcpus: 80, memoryMb: 160 * GB });
-    // A Max caller on a large team keeps the larger pool in each dimension.
-    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 200, memoryMb: 400 * GB });
+    // Where a count still holds a paid scope, its pool is the plan's own; seats multiply nothing.
+    for (const plan of ["pro", "founders", "team"]) expect(resourcePoolForPlan(plan, 5)).toEqual(PRO_POOL);
+    expect(resourcePoolForPlan("team", 50)).toEqual(PRO_POOL);
+    expect(resourcePoolForPlan("max", 5)).toEqual({ vcpus: 80, memoryMb: 160 * GB });
+    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 80, memoryMb: 160 * GB });
     expect(resourcePoolForPlan("go", 1)).toBeNull();
     expect(resourcePoolForPlan("free", 0)).toBeNull();
     expect(resourcePoolForPlan("pro", null)).toBeNull();
