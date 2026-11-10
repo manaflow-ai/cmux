@@ -1067,6 +1067,26 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * The guest program that prints the `"model":"..."` of every message in Claude session `id`'s transcript. It
+ * searches each Claude directory an agent can run with: CLAUDE_CONFIG_DIR as every running process has it (the
+ * launcher's effective one, e.g. ~/.config/cmux/claude-team that agent-auth.sh's team and gateway modes set on a
+ * shared machine), then this shell's CLAUDE_CONFIG_DIR, ~/.claude and ~/.config/cmux/claude-team.
+ */
+export function claudeTranscriptModelsProgram(id: string): string {
+  return (
+    `id=${shq(id)}; { for e in /proc/[0-9]*/environ; do tr '\\0' '\\n' 2>/dev/null < "$e" | sed -n 's/^CLAUDE_CONFIG_DIR=//p'; done; ` +
+    `printf '%s\\n' "\${CLAUDE_CONFIG_DIR:-}" "$HOME/.claude" "$HOME/.config/cmux/claude-team"; } 2>/dev/null | sort -u | ` +
+    `while IFS= read -r d; do [ -n "$d" ] || continue; for f in "$d"/projects/*/"$id".jsonl; do ` +
+    `[ -f "$f" ] && grep -ho '"model":"[^"]*"' "$f"; done; done | sort -u`
+  );
+}
+
+/** The models a {@link claudeTranscriptModelsProgram} printout names, `<synthetic>` (Claude Code's own notices) left out. */
+export function transcriptModels(stdout: string): string[] {
+  return [...new Set([...stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]!).filter((m) => m !== "<synthetic>"))];
+}
+
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
 export const REUSE_RESET =
   // Only the stub an earlier run recorded (its launch writes journey-model-stub.pid), and only while that pid still runs it.
@@ -2308,8 +2328,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
           const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
           if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
-          const t = await exec(`${GUEST}grep -ho '"model":"[^"]*"' "$HOME"/.claude/projects/*/${shq(`${asid}.jsonl`)} 2>/dev/null | sort -u`, 45_000);
-          const ran = [...new Set([...t.stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]).filter((m) => m !== "<synthetic>"))];
+          const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
+          const ran = transcriptModels(t.stdout);
           if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
           if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
           return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
