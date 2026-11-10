@@ -97,13 +97,16 @@ REAL = {"workspaces": 826, "panes": 858, "tabs": 1600, "terminals": 798, "agents
 # plain shells run. `real-live` is the LIVE size read on the person's Mac (2026-11-10, 22:35Z, counts only: 1598 tabs =
 # 798 terminal + 614 conversation + 186 browser; 59 terminals ran and 739 were PARKED records (the tab stays in its
 # workspace, its shell ended, `relaunch.on_show` true); 214 agents listed, 58 of them in a running terminal, 3 of
-# those working): 59 terminals run (58 agent programs + 1 plain shell) and 739 are parked records, 156 of them the
-# terminals of a listed agent that has no process.
+# those working; the other 156 = 111 records of a terminal the daemon no longer lists + 45 acp agents, in the states
+# idle 122, working 23, ended 10, blocked 1): 59 terminals run (58 agent programs + 1 plain shell), 739 are parked
+# records with no agent, and 156 agents are listed for a terminal that is CLOSED (`make_gone_agents`).
 FORMS = {
     "real": {"agents": REAL["agents"], "agents_live": None, "live_shells": 30, "restart_live_shells": False,
-             "tabs": REAL["tabs"], "browser_tabs": REAL["browser_tabs"], "agents_working": 8},
-    "real-live": {"agents": 214, "agents_live": 58, "live_shells": 1, "restart_live_shells": True,
-                  "tabs": 1598, "browser_tabs": 186, "agents_working": 3},
+             "tabs": REAL["tabs"], "browser_tabs": REAL["browser_tabs"], "agents_working": 8,
+             "agents_gone": 0, "gone_working": 0, "gone_blocked": 0},
+    "real-live": {"agents": 58, "agents_live": None, "live_shells": 1, "restart_live_shells": True,
+                  "tabs": 1598, "browser_tabs": 186, "agents_working": 3,
+                  "agents_gone": 156, "gone_working": 23, "gone_blocked": 1},
 }
 PTY_RESERVE = 64  # cmux-tui pty_reclaim.rs: the PTYs the daemon keeps free for new terminals
 NAME = re.compile(r"^real-(\d{4})$")
@@ -310,12 +313,18 @@ def live_split(args, mix):
     return agents_live, min(shells, mix.count("terminal"))
 
 
-def form_counts(mix, agents_live, live_plain):
-    """What a session of this form reads back when it is at rest."""
+def form_counts(mix, agents_live, live_plain, agents_gone=0):
+    """What a session of this form reads back when it is at rest. `agents_gone`: agents the daemon lists for a terminal
+    that is closed (they are in no terminal count)."""
     terminals = mix.count("terminal", "agent")
     return {"terminals": terminals, "terminals_running": agents_live + live_plain,
             "terminals_exited": terminals - agents_live - live_plain,
-            "agents_listed": mix.count("agent"), "agent_processes": agents_live}
+            "agents_listed": mix.count("agent") + agents_gone, "agent_processes": agents_live}
+
+
+def gone_of(args):
+    """The count of listed agents whose terminal is closed (0 for a caller that has no form)."""
+    return getattr(args, "agents_gone", None) or 0
 
 
 FORM_NAMES = {"terminals": "terminals", "terminals_running": "terminals that run", "terminals_exited": "exited terminal records",
@@ -341,6 +350,7 @@ class Conn:
             self.sock = socket.socket(socket.AF_UNIX)
             self.sock.settimeout(timeout)
             self.sock.connect(path)
+            self.path = path
             self.buf = b""
             self.next_id = 1
             try:
@@ -373,6 +383,30 @@ class Conn:
             msg = json.loads(line)
             if msg.get("id") == rid and "ok" in msg:
                 return msg
+
+    def v2(self, operation, **params):
+        """One read of the resource protocol (cmux.protocol/2, cmux-tui/spec/resource-api-v2.md) on a connection of its
+        own to the same daemon: the result, or RuntimeError with the daemon's error."""
+        rid = f"session-real-{self.next_id}"
+        self.next_id += 1
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.settimeout(self.sock.gettimeout())
+            sock.connect(self.path)
+            sock.sendall((json.dumps({"protocol": "cmux.protocol/2", "type": "request", "id": rid, "operation": operation,
+                                      "params": {"machine": "current", "session": "current", **params}}) + "\n").encode())
+            buf = b""
+            while True:
+                while b"\n" not in buf:
+                    chunk = sock.recv(1 << 20)
+                    if not chunk:
+                        raise RuntimeError(f"{operation}: the daemon closed the connection with no answer")
+                    buf += chunk
+                line, buf = buf.split(b"\n", 1)
+                msg = json.loads(line)
+                if msg.get("id") == rid and "ok" in msg:
+                    if not msg["ok"]:
+                        raise RuntimeError(f"{operation} failed: {msg.get('error')!r}")
+                    return msg.get("result")
 
     def must(self, cmd, **params):
         resp = self.call(cmd, **params)
@@ -511,6 +545,20 @@ def tab_kind(tab):
     return str(tab.get("kind"))
 
 
+def durable_agents(conn):
+    """The rows of the resource read `agent.list`: what `cmux agent list` and the app's agent list show. It has the
+    agents of terminals that run AND the records of terminals that are closed (the daemon keeps the record of a closed
+    terminal: workspace_registry `resource_agent_projections`); the raw `list-agents` has only agents of a terminal
+    with a runtime. None when the daemon does not answer the read."""
+    try:
+        rows = conn.v2("agent.list")
+    except (RuntimeError, OSError, AttributeError):  # AttributeError: a caller's connection that has no v2 read
+        return None
+    if isinstance(rows, dict):
+        rows = rows.get("agents")
+    return rows if isinstance(rows, list) else None
+
+
 def counts(conn, app_socket=None):
     """The counts read back from the daemon (and the app's own model with `app_socket`)."""
     tree = conn.must("list-workspaces")
@@ -539,6 +587,14 @@ def counts(conn, app_socket=None):
             states[state] = states.get(state, 0) + 1
         out["agents"] = sum(states.values())
         out["agent_states"] = states
+    durable = durable_agents(conn)
+    if durable is not None:
+        states = {}
+        for agent in durable:
+            state = agent.get("state") or agent.get("status") or "?"
+            states[state] = states.get(state, 0) + 1
+        out["agents_listed"] = len(durable)
+        out["agents_listed_states"] = states
     clients = conn.call("list-clients")
     if clients.get("ok"):
         listed = clients.get("data") or []
@@ -633,11 +689,52 @@ def pty_budget(mix, live_shells, agents_live=None):
 STALE = "idle stale"  # the program's arguments for a listed agent that gets no process again (session_real_agent.zsh)
 
 
-def agent_command(number, state):
+def agent_command(number, state, prefix="real"):
     """The shell line that starts the agent program in an agent terminal (a leading space keeps it out of history).
     `STALE` as the state: at rest, with a session id that the product can not resume."""
     state, _, stale = state.partition(" ")
-    return f" exec /bin/zsh -f {shell_quote(AGENT_PROGRAM)} {state} real-{number:04d}{' ' + stale if stale else ''}\n"
+    return f" exec /bin/zsh -f {shell_quote(AGENT_PROGRAM)} {state} {prefix}-{number:04d}{' ' + stale if stale else ''}\n"
+
+
+GONE_BATCH = 32  # terminals of one part of `make_gone_agents`: they run for some seconds on top of the form's live ones
+
+
+def gone_state(rank, args):
+    """The state the record of a closed terminal keeps (the last report of its program)."""
+    working, blocked = getattr(args, "gone_working", None) or 0, getattr(args, "gone_blocked", None) or 0
+    return "working" if rank < working else "blocked" if rank < working + blocked else "idle"
+
+
+def make_gone_agents(conn, args, count):
+    """Makes `count` agent records whose terminal is CLOSED, as a long session has (the person's Mac, 2026-11-10: 111 of
+    214 agents named a terminal that the daemon no longer listed). A terminal in a workspace of its own starts the
+    agent program, the program reports through the product's hook path, then `close-terminal` ends the terminal: the
+    daemon keeps the agent record with its last state (the record of a closed terminal is never removed). The
+    workspace is closed at the end, so no workspace, pane, tab or terminal count changes. (records made, parts)."""
+    workspace = conn.must("create-workspace", name="real-gone")["workspace"]
+    base = durable_agents(conn)
+    if base is None:
+        raise SystemExit("session_real: the daemon does not answer the read agent.list: the agent records of closed "
+                         "terminals (--agents-gone) can not be counted")
+    made, parts = 0, []
+    for start in range(0, count, GONE_BATCH):
+        part = range(start, min(start + GONE_BATCH, count))
+        terminals = [conn.must("create-terminal", workspace=workspace, cwd=args.cwd) for _ in part]
+        for rank, terminal in zip(part, terminals):
+            conn.must("send", surface=terminal["surface"], text=agent_command(rank + 1, gone_state(rank, args), prefix="gone"))
+        deadline = time.time() + args.settle
+        listed = len(durable_agents(conn) or [])
+        while listed < len(base) + made + len(part) and time.time() < deadline:
+            time.sleep(0.5)
+            listed = len(durable_agents(conn) or [])
+        time.sleep(LISTED_ONLY_REPORT_SECONDS)  # the last report of a program comes after the one that lists it
+        for terminal in terminals:
+            conn.must("close-terminal", terminal_id=terminal["terminal_id"])
+        parts.append({"terminals": len(part), "listed": listed - len(base) - made})
+        made = listed - len(base)
+        print(f"agent records of closed terminals: {made}/{count}, PTYs in use {ptys_in_use()}", flush=True)
+    conn.must("close-workspace", workspace=workspace, end_terminals=True)
+    return made, parts
 
 
 def shell_quote(text):
@@ -735,6 +832,7 @@ def make(args):
             if len(parked) != len(part):
                 print(f"park-tabs (listed agents): asked {len(part)}, parked {len(parked)}", flush=True)
     want_parked = mix.count("terminal") - live_plain + len(listed_only)
+    gone_made, gone_parts = make_gone_agents(conn, args, gone_of(args)) if gone_of(args) else (0, [])
     after = counts(conn, app_socket)
     # A parked tab reads as parked when its host exited (tab_park.rs): give the last batch up to 15 s before the count is judged.
     deadline = time.time() + (45 if listed_only else 15)
@@ -742,11 +840,12 @@ def make(args):
         time.sleep(0.5)
         after = counts(conn, app_socket)
     want = mix.summary()
-    want_form = form_counts(mix, agents_live, live_plain)
+    want_form = form_counts(mix, agents_live, live_plain, gone_of(args))
     result = {
         "asked": dict(want, form=getattr(args, "form", None) or "real",
                       **{key: want_form[key] for key in ("terminals_running", "terminals_exited", "agent_processes")}),
-        "agents_listed_before_park": listed_before_park, "limit": limit_line, "make_seconds": round(seconds, 2), "batch_seconds": step_times,
+        "agents_listed_before_park": listed_before_park, "agents_gone": {"asked": gone_of(args), "made": gone_made, "parts": gone_parts},
+        "limit": limit_line, "make_seconds": round(seconds, 2), "batch_seconds": step_times,
         "batch": args.batch, "agents_working": args.agents_working, "agents_blocked": args.agents_blocked,
         "before": before, "after": after, "host": host_facts(),
     }
@@ -763,6 +862,10 @@ def make(args):
     if not args.no_agents and after.get("agents", 0) - before.get("agents", 0) != want["agent_terminals"]:
         faults.append(f"agents: asked {want['agent_terminals']}, the daemon lists {after.get('agents', 0) - before.get('agents', 0)} more than before"
                       + (f" (it listed {listed_before_park} in all before the terminals of {len(listed_only)} of them were parked)" if listed_only else ""))
+    if gone_of(args) and after.get("agents_listed", 0) - before.get("agents_listed", 0) != want_form["agents_listed"]:
+        faults.append(f"agents listed (agent.list): the form has {want_form['agents_listed']} ({want['agent_terminals']} in a terminal + "
+                      f"{gone_of(args)} of a closed terminal), read back {after.get('agents_listed', 0) - before.get('agents_listed', 0)} "
+                      f"more than before; records of closed terminals made: {gone_made}")
     faults += park_faults(park_asked, park_done, want_parked, after["terminals_parked"] - before["terminals_parked"])
     if after["terminals_live"] - before["terminals_live"] != want_form["terminals_running"]:
         faults.append(f"terminals that run: the form has {want_form['terminals_running']}, read back "
@@ -1154,9 +1257,11 @@ def restart_live_shells(conn, tree, mix, live_plain):
     return {"live_plain": len(keep), "asked": len(dead), "restarted": len(dead) - len(failed), "failed": failed}
 
 
-def check_read(conn, mix):
+def check_read(conn, mix, with_gone=False):
     """(got, detail) of one read of the session for `check`: the counts of `form_counts` as the daemon and the
-    process table have them now. `agent_processes` is None when the daemon cannot name its terminals' processes."""
+    process table have them now. `agent_processes` is None when the daemon cannot name its terminals' processes.
+    `with_gone` (a form with agent records of closed terminals): the agents are counted from the read `agent.list`
+    (None when the daemon does not answer it), else from the raw `list-agents` as before."""
     tree = conn.must("list-workspaces")
     seen = counts(conn)
     states = agent_terminal_states(conn, agent_tabs(tree, mix)) if has_terminal_resources(conn.must("identify")) else None
@@ -1164,11 +1269,12 @@ def check_read(conn, mix):
     for state in (states or {}).values():
         kinds[state[0]] = kinds.get(state[0], 0) + 1
     got = {"terminals": seen["terminals"], "terminals_running": seen["terminals_live"],
-           "terminals_exited": seen["terminals"] - seen["terminals_live"], "agents_listed": seen.get("agents"),
+           "terminals_exited": seen["terminals"] - seen["terminals_live"], "agents_listed": seen.get("agents_listed") if with_gone else seen.get("agents"),
            "agent_processes": None if states is None else kinds.get("program", 0) + kinds.get("resumed", 0)}
     detail = {"exited_parked_on_show": seen["terminals_parked"], "exited_other": seen["terminals_dead_other"],
               "agent_terminal_states": kinds if states is not None else "the daemon has no terminal-resources: not counted",
-              "agent_states_listed": seen.get("agent_states")}
+              "agents_with_a_running_terminal": seen.get("agents"),
+              "agent_states_listed": seen.get("agents_listed_states", seen.get("agent_states"))}
     return got, detail
 
 
@@ -1180,10 +1286,10 @@ def check(args):
     daemon_socket, _ = sockets(args)
     conn = Conn(daemon_socket)
     agents_live, live_plain = live_split(args, mix)
-    want = form_counts(mix, agents_live, live_plain)
+    want = form_counts(mix, agents_live, live_plain, gone_of(args))
     deadline = time.time() + args.settle
     while True:
-        got, detail = check_read(conn, mix)
+        got, detail = check_read(conn, mix, bool(gone_of(args)))
         faults = form_faults(want, got)
         if not faults or time.time() >= deadline:
             break
@@ -2400,10 +2506,11 @@ def main():
         p.add_argument("--terminals", type=int, default=REAL["terminals"])
         p.add_argument("--form", choices=sorted(FORMS), default="real", help="the session form: `real` = the STRESS form (each agent terminal "
                        "runs its program, 30 plain shells run); `real-live` = the person's LIVE size (59 terminals run, 739 are parked records, "
-                       "214 agents listed of which 58 have a process, 1598 tabs of which 186 pages). It gives the counts below that the command line does not give")
-        p.add_argument("--agents", type=int, help="agent terminals = agents the daemon lists (form real: 170, real-live: 214)")
+                       "214 agents listed of which 58 have a process and 156 name a closed terminal, 1598 tabs of which 186 pages). It gives the counts below that the command line does not give")
+        p.add_argument("--agents", type=int, help="agent terminals, each an agent the daemon lists (form real: 170, real-live: 58)")
         p.add_argument("--agents-live", type=int, help="agent terminals that keep their program; the others are listed agents with an "
-                       "exited terminal (form real: all, real-live: 58)")
+                       "exited terminal (both forms: all)")
+        p.add_argument("--agents-gone", type=int, help="agents the daemon lists for a terminal that is closed (form real: 0, real-live: 156)")
         p.add_argument("--live-shells", type=int, help="plain terminals that keep a shell; the others are parked (form real: 30, real-live: 1)")
         p.add_argument("--tabs", type=int, help="all tabs (form real: 1600, real-live: 1598)")
         p.add_argument("--panes", type=int, default=REAL["panes"])
