@@ -346,7 +346,11 @@ const gatedTeamRead = (w: World) => {
   const real = w.fake.getTeam
   let enter!: () => void
   let release!: () => void
-  const entered = new Promise<void>((r) => (enter = r))
+  // A read that never comes fails in 5 s instead of hanging the suite.
+  const entered = Promise.race([
+    new Promise<void>((r) => (enter = r)),
+    new Promise<void>((_r, reject) => setTimeout(() => reject(new Error("the gated team read never started")), 5_000))
+  ])
   const released = new Promise<void>((r) => (release = r))
   w.fake.getTeam = async (team: string) => {
     w.fake.getTeam = real
