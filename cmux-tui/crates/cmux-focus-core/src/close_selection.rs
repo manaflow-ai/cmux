@@ -32,7 +32,7 @@
 //! C ABI maps them to). One `Openers` may hold the relations of many strips:
 //! each call names its strip by its items.
 
-use crate::close_focus;
+use crate::close_focus::{self, TabRelations};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -212,10 +212,8 @@ impl<T: Eq + Hash + Clone> Openers<T> {
         shown: &HashSet<T>,
         group: &HashMap<T, G>,
     ) -> Option<T> {
-        // Today's pick, before the rule: the shown tab before it, else after
-        // it (2026-11-08); the relations and the groups do not pick.
-        let _ = (self.among(old), group);
-        close_focus::tab_before(selected, old, surviving, shown)
+        let relations = TabRelations { opener: self.among(old), group: group.clone() };
+        close_focus::tab(selected, old, surviving, shown, &relations)
     }
 
     /// The workspace a window shows after `shown` left it (R0, R1). `old` is
@@ -233,10 +231,25 @@ impl<T: Eq + Hash + Clone> Openers<T> {
         orders: &[Vec<T>],
         group: &HashMap<T, G>,
     ) -> Option<T> {
-        // Today's pick, before the rule: the row below, else the row above;
-        // the relations and the sections do not pick.
-        let _ = (self.among(old), group);
-        close_focus::workspace(shown, old, surviving, orders)
+        let live: HashSet<&T> = surviving.iter().collect();
+        let Some(shown) = shown else { return surviving.first().cloned() };
+        if live.contains(shown) {
+            return Some(shown.clone());
+        }
+        let members: HashSet<&T> = old.iter().collect();
+        let relations = TabRelations { opener: self.among(old), group: group.clone() };
+        for order in orders.iter().filter(|order| order.contains(shown)) {
+            let rows: Vec<T> =
+                order.iter().filter(|id| *id == shown || members.contains(id)).cloned().collect();
+            let left: Vec<T> = rows.iter().filter(|id| live.contains(id)).cloned().collect();
+            let drawn: HashSet<T> = left.iter().cloned().collect();
+            if !left.is_empty() {
+                return close_focus::tab(Some(shown), &rows, &left, &drawn, &relations);
+            }
+        }
+        close_focus::neighbor(shown, old, true, |id| live.contains(id))
+            .or_else(|| surviving.first())
+            .cloned()
     }
 
     /// The item a background child of `opener` goes after (R5): the last of
