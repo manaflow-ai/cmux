@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42918093079",
+  "recorded_at": "2026-11-10T22:58:24Z",
+  "reason": "cmux-tui fe6209827800 changes the image's cmux-tui (pinned 81914bf14d72)",
+  "dry_run": false,
+  "cmux_tui": "fe62098278008bf4f1b3520bfd9ee70ad7d5678e",
+  "fixes": [
+    {
+      "sha": "fe62098278008bf4f1b3520bfd9ee70ad7d5678e",
+      "mergedAt": "2026-11-10T22:34:00Z",
+      "subject": "Cloud start: wait for acpmux to be ready across a restart, not a fixed per-call timeout (#40640)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T22:58:24Z",
+    "snapshot_id": "sh-55a8b4718ab54f4081682cbae770903f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42918093079): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ed8f1ec394b181c4348c18c60df4e10424a741ac",
+    "image": "cloud-native-auto-fe620982-42918093079-1",
+    "revision": "ci-42918093079-1",
+    "at": "2026-11-10T22:58:24Z"
+  },
+  "rolled_back": false
+}
