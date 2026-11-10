@@ -147,6 +147,20 @@ fn install_panic_log() {
     }
 }
 
+/// Debug builds only: `ACPMUX_TEST_PANIC=<task>` makes that task of the daemon panic
+/// (tests/panic_log.rs).
+#[cfg(debug_assertions)]
+#[allow(
+    clippy::panic,
+    reason = "debug-build test trigger for a task's panic; release builds have no seam"
+)]
+fn test_panic_in(task: &str) {
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok(task) {
+        // crash-allow: debug-only test trigger for a task's panic
+        panic!("acpmux test panic in {task}");
+    }
+}
+
 /// The debug test trigger's thread; its line carries `"test": true`.
 fn is_test_panic_thread(thread: &str) -> bool {
     #[cfg(debug_assertions)]
@@ -771,6 +785,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let hub = hub.clone();
         tokio::spawn(async move {
             hub.wait_store().await;
+            #[cfg(debug_assertions)]
+            test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.

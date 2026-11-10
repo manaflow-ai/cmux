@@ -81,8 +81,19 @@ pub struct Watches {
     wake: Notify,
     jobs: Mutex<Jobs>,
     available: Notify,
+    /// Tests: how often the loop of `start` came around, and a panic asked of its next pass.
+    #[cfg(test)]
+    passes: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    panic_next: std::sync::atomic::AtomicBool,
 }
 impl Watches {
+    #[cfg(test)]
+    fn test_pass(&self) {
+        use std::sync::atomic::Ordering;
+        self.passes.fetch_add(1, Ordering::SeqCst);
+        assert!(!self.panic_next.swap(false, Ordering::SeqCst), "watch loop test panic");
+    }
     pub(super) fn peer_settled(&self) {
         self.wake.notify_one();
     }
@@ -158,6 +169,8 @@ impl Watches {
             hub.wait_startup().await;
             let mut refresh = true;
             loop {
+                #[cfg(test)]
+                hub.watches.test_pass();
                 if refresh && let Err(e) = reconcile(&hub).await {
                     tracing::error!("watch: {e}");
                 }
@@ -418,6 +431,35 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{Duration, sleep};
+
+    /// A panic in the watch loop ended it for the daemon's whole life: no watch resolved and no
+    /// owed wake was sent again, with one line in `panics.jsonl` as the only sign. The loop
+    /// starts again (`crate::supervise`).
+    #[tokio::test]
+    async fn the_watch_loop_runs_again_after_a_panic() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let hub = Hub::new(
+            config.clone(),
+            store::open(&config.store, Path::new("/nonexistent")).unwrap(),
+        );
+        Watches::start(&hub);
+        let passes = |hub: &Hub| hub.watches.passes.load(Ordering::SeqCst);
+        let reaches = |hub: Arc<Hub>, n: usize| async move {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while passes(&hub) < n {
+                    hub.watches.wake.notify_one();
+                    sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+        };
+        reaches(hub.clone(), 1).await.expect("the loop runs");
+        hub.watches.panic_next.store(true, Ordering::SeqCst);
+        let before = passes(&hub);
+        reaches(hub.clone(), before + 3).await.expect("the loop came around again after its panic");
+        assert!(!hub.watches.panic_next.load(Ordering::SeqCst), "the loop never panicked");
+    }
 
     #[tokio::test]
     async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {
