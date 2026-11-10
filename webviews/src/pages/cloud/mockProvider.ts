@@ -3,7 +3,7 @@
 // the native confirmations. The mock answers like the server does today (`cmux.wire/1` records, the
 // same fields and error codes, the origin, key and argument guards of `ops/mod.rs`) and creates no
 // real resource.
-import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { isPageError, pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { SAMPLE_FS_MACHINES, sampleAccount, sampleMachines, sampleSnapshots } from "./mockData";
 import { joinPath } from "./files";
 import { MockEdge, MockFiles, notFound, only } from "./mockEdge";
@@ -159,7 +159,7 @@ export class MockCloudProvider implements PageClient {
   revision = 10;
   private nextId = 1;
   /** Idempotency ledger: key -> op, args and recorded result (a replay answers it and emits nothing). */
-  private readonly ledger = new Map<string, { op: string; args: string; result: unknown }>();
+  private readonly ledger = new Map<string, { op: string; args: string; result: unknown; error?: unknown }>();
   private readonly subs = new Map<
     number,
     { stream: string; listener: (data: unknown, seq: number) => void; seq: number }
@@ -431,9 +431,18 @@ export class MockCloudProvider implements PageClient {
     if (recorded) {
       if (recorded.op !== op || recorded.args !== JSON.stringify(args))
         throw pageError("cmux.cloud.idempotency_conflict", "this key was used for another request");
+      if (recorded.error) throw recorded.error;
       return recorded.result;
     }
-    const result = this.serveOp(op, args);
+    let result: unknown;
+    try {
+      result = this.serveOp(op, args);
+    } catch (error) {
+      // A definitive refusal is the key's answer too: the same key replays it (the backend's ledger).
+      if (key && isPageError(error) && error.code === CloudErrors.quotaExceeded)
+        this.ledger.set(key, { op, args: JSON.stringify(args), result: undefined, error });
+      throw error;
+    }
     if (this.goneNext === op) {
       this.goneNext = undefined;
       throw notFound("The Cloud service does not know this item.");

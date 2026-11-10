@@ -120,6 +120,11 @@ describe("Cloud cleanup: the cap offer", () => {
     for (let i = 0; i < 4; i++) await flush();
     expect(actions(p, CloudOps.machineDelete)).toHaveLength(1);
     expect(actions(p, CloudOps.machineCreate)).toHaveLength(2);
+    // The refused key replays its refusal: the create after making room sends a new one.
+    const keys = actions(p, CloudOps.machineCreate).map(
+      (call) => (call.params as { args: { idempotency_key: string } }).args.idempotency_key,
+    );
+    expect(new Set(keys).size).toBe(2);
     expect(machine(store, "vm_c3")).toBeUndefined();
     expect(store.getSnapshot().create).toBeUndefined();
     unsubscribe();

@@ -526,7 +526,15 @@ export class CloudStore {
           : { error: message(error), errorCode: codeOf(error) };
       if (this.state.create?.key === draft.key)
         this.set({
-          create: { ...draft, submitting: false, waitingFor: undefined, ...outcome, ...(offer ? { offer } : {}) },
+          // A refusal is the key's answer: the server replays it for the same key, so the create
+          // after making room needs a new one.
+          create: {
+            ...draft,
+            submitting: false,
+            waitingFor: undefined,
+            ...outcome,
+            ...(offer ? { offer, key: this.key() } : {}),
+          },
         });
       if (session === this.session && !refusal && !blocked && !offer) this.set(failure(error, false));
     }
