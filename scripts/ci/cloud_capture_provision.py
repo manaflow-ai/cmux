@@ -41,6 +41,11 @@ CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD: the hourly production Cloud ch
 key belongs to that project; each target names the one project it may touch. The run also prints the account's
 Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#7076).
 
+`--target production-team` makes a second production account (cmux-cloud-capture-prod-team@manaflow.dev) the same
+way, sealed to cmuxterm-hq's cloud-capture environment as CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL and _PASSWORD: the
+probe's shared-team row (cmuxterm-hq cloud-chat-replies-production-team), which joins a shared team through the
+platform's own invitation API with its own session. The probe account above must stay in no shared team.
+
 `--target journey-production` does the same for the production Cloud journey's own account
 (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml journey-production).
@@ -114,12 +119,20 @@ TARGETS = {
                             "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD",
                             profile_image_url="https://cmux.com/icon.png"),
     # The hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production): the shipped
-    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`. The only target in the production project.
+    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`, in its personal scope.
     "production": Target("cmux-cloud-capture-prod@manaflow.dev", "cmux cloud probe (production)",
                          "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
                          "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
                          "CLOUD_PROBE_PRODUCTION_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_STACK_PASSWORD",
                          project=PRODUCTION_PROJECT_ID),
+    # The production probe's shared-team row (cmuxterm-hq synthetic-probes.yml app-chat-production,
+    # cloud-chat-replies-production-team): a second production account that joins a shared team, since the probe
+    # account above must stay in none. Sealed beside it in cmuxterm-hq cloud-capture under its own names.
+    "production-team": Target("cmux-cloud-capture-prod-team@manaflow.dev", "cmux cloud probe (production, team)",
+                              "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
+                              "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                              "CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD",
+                              project=PRODUCTION_PROJECT_ID),
     # The production Cloud journey (cloud-journey-prod.yml hourly, backend.yml journey-production): both run in this
     # repository's cmux-next-cloud-journey environment and read the production pair as CMUX_DOGFOOD_STACK_*, which
     # shadows the repository's dev pair (production refuses that one with EMAIL_PASSWORD_MISMATCH). Its own

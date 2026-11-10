@@ -1629,8 +1629,7 @@
   border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   pointer-events: none;
 }
-/* An empty project chip ("Choose project") reads dimmed, as Codex's strip, until a project is picked. */
-.acpmux-location-button .acpmux-location-label[data-dim] { color: var(--agent-muted); }
+/* No folder is a settled choice, never dimmed (composerContextModel emptyFolderLabel, Leo 2026-11-09). */
 /* The cloud toggle (ChatGPT Work) is a round icon button. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
   width: var(--ds-control-compact);

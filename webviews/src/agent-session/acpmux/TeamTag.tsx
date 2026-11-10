@@ -27,3 +27,8 @@ export function TeamTag({ team, size = 12 }: { team: ActiveTeamTag; size?: numbe
     </span>
   );
 }
+
+/// A Cloud pick's accessible name and tooltip with the team it runs in ("Cloud · cmux"), as its face shows.
+export function withTeam(value: string, team: ActiveTeamTag | undefined): string {
+  return team ? `${value} · ${team.name}` : value;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TeamTag, activeTeamFromReply, teamIconName } from "./TeamTag";
+import { TeamTag, activeTeamFromReply, teamIconName, withTeam } from "./TeamTag";
 
 describe("TeamTag", () => {
   test("reads the app's team, and nothing that names none", () => {
@@ -22,5 +22,13 @@ describe("TeamTag", () => {
     expect(html).toContain(">cmux<");
     expect(html).not.toContain("data-personal");
     expect(renderToStaticMarkup(<TeamTag team={{ name: "Personal", personal: true }} />)).toContain("data-personal");
+  });
+});
+
+describe("a Cloud pick's accessible name", () => {
+  test("names the team in every layout's label and tooltip, and nothing without one", () => {
+    expect(withTeam("Cloud", { name: "cmux", personal: false })).toBe("Cloud · cmux");
+    expect(withTeam("Sandboxed", { name: "Personal", personal: true })).toBe("Sandboxed · Personal");
+    expect(withTeam("Cloud", undefined)).toBe("Cloud");
   });
 });
