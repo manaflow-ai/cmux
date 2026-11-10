@@ -1,14 +1,18 @@
-//! An agent report that changes no durable state writes nothing.
+//! A socket agent report that changes no durable state writes nothing.
 //!
-//! Lawrence's daemon, 2026-11-10 (826 workspaces, 170 agents): 6 % of the
-//! journal rows were `agent.report` and 6 % were the screen-detection plugin's
-//! `plugin.<producer>.agent.state.changed`, about 0.3 a second each, so about
-//! 93 of each in 5 minutes. A report that says again what the daemon already
-//! holds (the same state, source and session) moves only a time. This guard
-//! sends such reports on a real on-disk registry and counts journal rows,
-//! registry commits, WAL frame bytes and database pages; none may move. Rows
-//! and bytes are counted, not timed. The controls prove that the counters see
-//! a real change.
+//! A socket reporter (`report-agent` with source `socket`, a poller) says a
+//! terminal's state again and again. A report equal to the terminal's record
+//! (the same state and session), or one that a stronger source's record
+//! ignores, moves nothing a reader keeps. Each one was a registry commit (its
+//! mutation key). This guard sends such reports on a real on-disk registry
+//! and counts journal rows, registry commits, WAL frame bytes and database
+//! pages; none may move. Rows and bytes are counted, not timed. The control
+//! proves that the counters see a real change.
+//!
+//! A hook-source report equal to the record keeps its two rows: its roster
+//! echo moves the entry's `updated_at_ms`, which `fresh_hook`
+//! (`journal_reducers.rs`) reads to decide whether a screen observation may
+//! take the hook's row.
 
 use std::collections::BTreeMap;
 
@@ -110,16 +114,18 @@ fn report_session(index: usize) -> Option<String> {
 /// `MINUTES` of direct reports (`report-agent`, the resource `agent.report`)
 /// that say again what each terminal's record holds. Nothing durable changes,
 /// so nothing is written.
-fn equal_agent_reports_write_nothing(workspaces: usize, source: AgentSource) {
+fn equal_agent_reports_write_nothing(workspaces: usize, source: AgentSource, hook_owned: bool) {
     let root = std::env::temp_dir()
         .join(format!("cmux-reports-at-rest-{}", crate::workspace_registry::new_uuid_v4()));
     let (mux, agents) = session_with_terminals(workspaces, &root);
     for (index, agent) in agents.iter().take(REPORTERS).enumerate() {
+        let owner = if hook_owned { AgentSource::Hook } else { source };
         let record = mux
-            .report_agent(agent.surface, AgentState::Working, source, report_session(index))
+            .report_agent(agent.surface, AgentState::Working, owner, report_session(index))
             .unwrap();
         assert_eq!(record.state, AgentState::Working, "setup: the first report is the record");
     }
+    let owner = if hook_owned { AgentSource::Hook } else { source };
     let before = written(&mux);
 
     let mut reports = 0_usize;
@@ -132,7 +138,7 @@ fn equal_agent_reports_write_nothing(workspaces: usize, source: AgentSource) {
             // The caller still gets the terminal's record.
             assert_eq!(record.terminal_id, agent.terminal);
             assert_eq!(record.state, AgentState::Working);
-            assert_eq!(record.source, source);
+            assert_eq!(record.source, owner);
             reports += 1;
         }
     }
@@ -158,23 +164,24 @@ fn equal_agent_reports_write_nothing(workspaces: usize, source: AgentSource) {
 
 #[test]
 fn equal_agent_reports_write_nothing_in_a_light_session() {
-    equal_agent_reports_write_nothing(1, AgentSource::Hook);
+    equal_agent_reports_write_nothing(1, AgentSource::Socket, false);
 }
 
 #[test]
 fn equal_agent_reports_write_nothing_in_a_large_session() {
-    equal_agent_reports_write_nothing(60, AgentSource::Hook);
+    equal_agent_reports_write_nothing(60, AgentSource::Socket, false);
 }
 
 #[test]
 fn equal_agent_reports_write_nothing_in_a_real_session() {
-    equal_agent_reports_write_nothing(826, AgentSource::Hook);
+    equal_agent_reports_write_nothing(826, AgentSource::Socket, false);
 }
 
-/// A socket reporter (a poller) that says the same state again.
+/// A socket report for a terminal a hook-source record owns is ignored: the
+/// record stays, and nothing is written.
 #[test]
-fn equal_agent_reports_of_a_socket_reporter_write_nothing() {
-    equal_agent_reports_write_nothing(60, AgentSource::Socket);
+fn equal_agent_reports_ignored_by_a_hook_record_write_nothing() {
+    equal_agent_reports_write_nothing(60, AgentSource::Socket, true);
 }
 
 /// The counters see a real change: a report with another state is one
@@ -186,13 +193,13 @@ fn equal_agent_reports_control_a_new_state_appends_its_row() {
         .join(format!("cmux-reports-at-rest-control-{}", crate::workspace_registry::new_uuid_v4()));
     let (mux, agents) = session_with_terminals(1, &root);
     let agent = &agents[0];
-    mux.report_agent(agent.surface, AgentState::Working, AgentSource::Hook, report_session(0))
+    mux.report_agent(agent.surface, AgentState::Working, AgentSource::Socket, report_session(0))
         .unwrap();
     let before = written(&mux);
 
     tick();
     let record = mux
-        .report_agent(agent.surface, AgentState::Blocked, AgentSource::Hook, report_session(0))
+        .report_agent(agent.surface, AgentState::Blocked, AgentSource::Socket, report_session(0))
         .unwrap();
     assert_eq!(record.state, AgentState::Blocked);
 
