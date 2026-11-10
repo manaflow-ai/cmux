@@ -465,6 +465,49 @@
       "expect": "0.85.1"
     },
     {
+      "name": "gemini",
+      "version": "0.67.0",
+      "url": "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-0.67.0.tgz",
+      "sha256": "3f42374e88171031459ad16e5fac32b161adba330292a1822fb7aae7fb476fc2",
+      "size": 20944139,
+      "format": "npm",
+      "bin": { "gemini": "bin/gemini" },
+      "versionArgs": ["--version"],
+      "expect": "0.67.0",
+      "source": "npm @google/gemini-cli 0.67.0 (Google sign-in or a Gemini API key; acpmux runs it as `gemini --experimental-acp`)."
+    },
+    {
+      "name": "cursor-agent",
+      "version": "2026.11.05-86047df",
+      "url": "https://downloads.cursor.com/lab/2026.11.05-86047df/linux/x64/agent-cli-package.tar.gz",
+      "sha256": "170b77786cbf4c93064d64fff12b71a178b968730561c64afc2e8e752535442e",
+      "size": 176081904,
+      "format": "tar.gz",
+      "bin": { "cursor-agent": "dist-package/cursor-agent" },
+      "versionArgs": ["--version"],
+      "expect": "2026.11.05-86047df",
+      "otherArches": {
+        "aarch64": {
+          "url": "https://downloads.cursor.com/lab/2026.11.05-86047df/linux/arm64/agent-cli-package.tar.gz",
+          "sha256": "131554bfdbf683d8ebfef83a2bb46ac4e5d060f198711040b07ed063c2471871",
+          "size": 174742182
+        }
+      },
+      "source": "Cursor's own installer (https://cursor.com/install, 2026-11-10) names this package; the launcher bundles its node and resolves its folder through symlinks. acpmux runs it as `cursor-agent acp` (Cursor subscription sign-in or CURSOR_API_KEY)."
+    },
+    {
+      "name": "grok",
+      "version": "1.0.77",
+      "url": "https://registry.npmjs.org/@xai-official/grok/-/grok-1.0.77.tgz",
+      "sha256": "b88d10307b23a992bf587caec66fbdb25c4a887e3b23360676c39a778db44ed8",
+      "size": 5497,
+      "format": "npm",
+      "bin": { "grok": "bin/grok" },
+      "versionArgs": ["--version"],
+      "expect": "1.0.77",
+      "source": "npm @xai-official/grok 1.0.77 (xAI's grok CLI). Its install pulls @xai-official/grok-linux-x64 1.0.77 and its postinstall links bin/grok to the native binary, so the store entry runs read-only. acpmux runs it as `grok agent stdio`."
+    },
+    {
       "name": "workerd",
       "version": "1.20260924.1",
       "url": "https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20260924.1.tgz",
