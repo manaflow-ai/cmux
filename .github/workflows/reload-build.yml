@@ -125,7 +125,9 @@ jobs:
     # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
     # Any other label is honored.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26)) || startsWith(inputs.runner, 'depot-') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) || inputs.runner) }}
-    timeout-minutes: 60
+    # A GitHub-hosted macOS runner (macos-26: 3 cores, cold caches) builds acpmux
+    # alone in about 27 minutes and hit 60 in the app build (run 42758039962).
+    timeout-minutes: ${{ startsWith(inputs.runner, 'macos-') && 150 || 60 }}
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -210,11 +212,27 @@ jobs:
       # cmux-next's agent pane starts the in-tree acpmux daemon from the app
       # bundle. Build it on the fleet before reload.sh; local reloads use the
       # same commit-addressed cache when one has already been provisioned.
+      # Before the acpmux build: its libghostty-vt (ghostty-vt-sys) runs `zig build`
+      # in ghostty-next, and a GitHub-hosted macOS image has no Zig (run
+      # 42746367406: "failed to run `zig build` ... No such file or directory").
+      # As cloud-chat-proof.yml (#40046): the classic ghostty Zig (CMUX_ZIG, PATH)
+      # and ghostty-next's own as CMUX_VT_ZIG.
+      - name: Install Zig for the in-tree acpmux build (macOS)
+        if: ${{ inputs.platform == 'macos' && hashFiles('scripts/cmux-next/build-acpmux.sh') != '' }}
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+
       - name: Build in-tree acpmux (macOS)
         if: ${{ inputs.platform == 'macos' && hashFiles('scripts/cmux-next/build-acpmux.sh') != '' }}
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
+          # ghostty-vt-sys reads ZIG first (as refresh-build-in-tree-acpmux.sh does).
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then
+            export ZIG="$CMUX_VT_ZIG"
+          fi
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
