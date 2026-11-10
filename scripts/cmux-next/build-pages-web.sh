@@ -57,6 +57,7 @@ server-cards
 settings
 stash
 stats
+task-manager
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
@@ -67,6 +68,8 @@ PAGES="$PAGES cookie-import"
 PAGES="$PAGES bookmarks-bar"
 # The omnibar star's edit bubble (CmuxNextBookmarks BookmarkEditBubble, through BrowserChromeWebHost).
 PAGES="$PAGES bookmark-edit"
+# The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost: one page per block shown).
+PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

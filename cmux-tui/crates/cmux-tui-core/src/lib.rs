@@ -227,9 +227,9 @@ pub use workspace_registry::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
     JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
     PersistentSessionStateReset, PersistentSessionStateResetPreview,
-    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
-    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
-    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
+    PersistentSessionStateResetter, PresentationSnapshot, ProjectionCommit, RegistryCommit,
+    RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot,
+    RegistryWorkspace, SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 

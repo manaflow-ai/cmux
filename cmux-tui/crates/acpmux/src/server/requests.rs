@@ -2005,7 +2005,7 @@ async fn dispatch_request_with_identity(
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             }
-            let opts = crate::hub::PromptOptions {
+            let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
                 cloud_turn,
                 prompt_id,
@@ -2031,6 +2031,7 @@ async fn dispatch_request_with_identity(
                     && (conn.is_person()
                         || (conn.origin == super::Origin::Peer && person_admitted(conn, &params))),
                 unproven_owner,
+                coach: None,
                 agent,
                 class,
                 after_turn: None,
@@ -2089,9 +2090,10 @@ async fn dispatch_request_with_identity(
                 Some(host) => format!("{}@{host}", conn.label()),
                 None => conn.label(),
             };
-            // A correction from the person, at the app or their own terminal (`prompt_coach.rs`).
-            if !agent_message && (person_asks(conn) || owner_terminal(conn, &params)) {
-                hub.coach_prompt(&s, &sent_text);
+            // A correction from the person, proven by the connection, never by a label: a send
+            // from the owner's terminal (`owner_terminal`) proves nobody (`prompt_coach.rs`).
+            if !agent_message && person_admitted(conn, &params) {
+                opts.coach = Some(sent_text.clone());
             }
             // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
             if !agent_message && person_asks(conn) {
