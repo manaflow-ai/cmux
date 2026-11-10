@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
+import { newestPage } from "./daemonPage";
 import { benchFixture, godChat, LATEST_TEXT, scaledPerfRow } from "./godFixture";
 import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
@@ -41,6 +42,9 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isInteger(TURNS) || TURNS
 const FIXTURE = benchFixture();
 const perfRow = scaledPerfRow(printRow, FIXTURE);
 const LATENCY = Number(process.env.LATENCY ?? 0);
+// PROFILE=1 builds the pane unminified and prints a CPU profile of each arm's last switch (self and
+// inclusive time per function), from the select call to settled.
+const PROFILE = process.env.PROFILE === "1";
 const REMOTE_TAIL = process.env.REMOTE_TAIL;
 if (REMOTE_TAIL !== undefined && !["both", "present", "absent"].includes(REMOTE_TAIL))
   throw new Error("REMOTE_TAIL must be both, present, or absent");
@@ -58,7 +62,22 @@ type Chat = {
   session: Record<string, unknown>;
   events: ReturnType<typeof papercutEvents>["events"];
 };
-const first = FIXTURE === "god" ? godChat(A) : papercutEvents({ turns: TURNS, running: false });
+const whole = FIXTURE === "god" ? godChat(A) : papercutEvents({ turns: TURNS, running: false });
+// Diagnostic: TAIL_EVENTS=N keeps only the newest N records (same newest page, short history).
+const tailEvents = Number(process.env.TAIL_EVENTS ?? 0);
+const first =
+  tailEvents > 0
+    ? (() => {
+        const events = whole.events.slice(-tailEvents);
+        return {
+          events,
+          session: {
+            ...whole.session,
+            turnCount: events.filter((event) => event.kind === "user_message").length,
+          },
+        };
+      })()
+    : whole;
 const chats = new Map<string, Chat>([
   [A, { session: first.session, events: first.events.map((event) => ({ ...event, sessionId: A })) }],
   [
@@ -79,11 +98,11 @@ const chats = new Map<string, Chat>([
 
 /// Every protocol call the stand-in got, with its arrival (epoch ms) and chat.
 let calls: { method: string; at: number; sessionId: string }[] = [];
-/// The newest `limit` events of `chat` before `beforeSeq`, oldest first, and whether older ones remain.
-const newest = (chat: Chat, limit: number, beforeSeq = Infinity) => {
-  const older = chat.events.filter((event) => event.seq < beforeSeq);
-  return { page: older.slice(-limit), hasMore: older.length > limit };
-};
+/// The newest page of `chat` before `beforeSeq`, as acpmux cuts it by count and by `maxBytes` (daemonPage.ts).
+const newest = (chat: Chat, limit: number, beforeSeq = Infinity, maxBytes?: number) =>
+  newestPage(chat.events, { limit, beforeSeq, maxBytes });
+const askedBytes = (params: Record<string, unknown>) =>
+  params.maxBytes === undefined ? undefined : Number(params.maxBytes);
 const peerSnapshot = () => {
   const chat = chats.get(B)!;
   const { page, hasMore } = newest(chat, 400);
@@ -114,7 +133,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/watch":
       return { sessions: [...chats.values()].map((one) => one.session) };
     case "_acpmux/attach": {
-      const { page, hasMore } = newest(chat, Number(params.limit ?? 400));
+      const { page, hasMore } = newest(chat, Number(params.limit ?? 400), Infinity, askedBytes(params));
       return { session: chat.session, lastSeq, events: page, hasMore };
     }
     case "_acpmux/events": {
@@ -131,13 +150,71 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(chat, Number(params.limit ?? 400), Number(params.beforeSeq));
+        const { page, hasMore } = newest(
+          chat,
+          Number(params.limit ?? 400),
+          Number(params.beforeSeq),
+          askedBytes(params),
+        );
         return { events: page, hasMore, lastSeq };
       }
       return { events: [], hasMore: false, lastSeq };
     }
     default:
       return null;
+  }
+};
+
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+/// Self and inclusive (self plus callees, counted once per sample) time per function.
+const printProfile = (profile: CpuProfile) => {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const name = (id: number) => {
+    const frame = byId.get(id)!.callFrame;
+    return `${frame.functionName || "(anon)"} ${frame.url.split("/").pop() ?? ""}:${frame.lineNumber + 1}`;
+  };
+  const self = new Map<string, number>();
+  const total = new Map<string, number>();
+  let busy = 0;
+  profile.samples.forEach((id, index) => {
+    const ms = (profile.timeDeltas[index] ?? 0) / 1000;
+    if (byId.get(id)!.callFrame.functionName === "(idle)") return;
+    busy += ms;
+    self.set(name(id), (self.get(name(id)) ?? 0) + ms);
+    const seen = new Set<string>();
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) seen.add(name(at));
+    for (const key of seen) total.set(key, (total.get(key) ?? 0) + ms);
+  });
+  const top = (map: Map<string, number>, count: number) =>
+    [...map].sort((a, b) => b[1] - a[1]).slice(0, count).map(([key, ms]) => `  ${ms.toFixed(1)}\t${key}`);
+  console.log(`profile: ${busy.toFixed(0)} ms busy; self time (ms)`);
+  console.log(top(self, 40).join("\n"));
+  console.log("profile: inclusive time (ms)");
+  console.log(top(total, 70).join("\n"));
+};
+
+type TraceEvent = { name: string; ph: string; dur?: number; ts: number; tid: number; args?: any };
+let traceEvents: TraceEvent[] = [];
+/// The renderer main thread's work by event name, and its longest layouts and style recalcs.
+const printTrace = (events: TraceEvent[]) => {
+  const byName = new Map<string, number>();
+  const complete = events.filter((event) => event.ph === "X" && event.dur);
+  for (const event of complete) byName.set(event.name, (byName.get(event.name) ?? 0) + event.dur! / 1000);
+  console.log("trace: total ms by event");
+  for (const [name, ms] of [...byName].sort((a, b) => b[1] - a[1]).slice(0, 20))
+    console.log(`  ${ms.toFixed(1)}\t${name}`);
+  for (const name of ["Layout", "UpdateLayoutTree", "Paint", "RunTask", "FunctionCall"]) {
+    const top = complete.filter((event) => event.name === name).sort((a, b) => b.dur! - a.dur!).slice(0, 6);
+    for (const event of top)
+      console.log(
+        `  ${name} ${(event.dur! / 1000).toFixed(1)} ms ${JSON.stringify(event.args?.beginData ?? event.args?.data ?? event.args?.elementCount ?? {}).slice(0, 220)} ${JSON.stringify(event.args?.endData ?? "").slice(0, 120)}`,
+      );
   }
 };
 
@@ -205,9 +282,11 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
     logLevel: "error",
   });
+  if (PROFILE && process.env.FAST_CHECKS_OUT)
+    fs.cpSync(out, path.join(process.env.FAST_CHECKS_OUT, `build-${FIXTURE}`), { recursive: true });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -250,6 +329,8 @@ try {
     remoteTail = mode;
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
     await addStabilityProbe(context, { boxes: false });
+    if (process.env.SUMMARY === "hidden")
+      await context.addInitScript(() => localStorage.setItem("cmux.acpmux.summaryPanel", "hidden"));
     const page = await context.newPage();
     const cdp = await cpuSession(page, true);
     if (mode)
@@ -303,6 +384,18 @@ try {
       )
         throw new Error("remote B was read before the click; this round is not cold");
       calls = [];
+      const profiling = PROFILE && still && cdp;
+      if (profiling) {
+        await profiling.send("Profiler.enable");
+        await profiling.send("Profiler.setSamplingInterval", { interval: 100 });
+        await profiling.send("Profiler.start");
+        traceEvents = [];
+        profiling.on("Tracing.dataCollected", (data: { value: TraceEvent[] }) => traceEvents.push(...data.value));
+        await profiling.send("Tracing.start", {
+          categories: "devtools.timeline,disabled-by-default-devtools.timeline",
+          transferMode: "ReportEvents",
+        });
+      }
       const got = await page.evaluate(
         ({ id, text, mode, snapshot }) =>
           new Promise<Omit<Round, "sent">>((resolve, reject) => {
@@ -465,6 +558,37 @@ try {
           }),
         { id: B, text: SECOND_TEXT, mode, snapshot: peerSnapshot() },
       );
+      if (profiling) {
+        const done = new Promise<void>((resolve) => profiling.once("Tracing.tracingComplete", () => resolve()));
+        await profiling.send("Tracing.end");
+        await done;
+        printTrace(traceEvents);
+        printProfile((await profiling.send("Profiler.stop")).profile as CpuProfile);
+        console.log(
+          "dom:",
+          JSON.stringify(
+            await page.evaluate(() => ({
+              elements: document.querySelectorAll("*").length,
+              rows: document.querySelectorAll("[data-row-id]").length,
+              railTicks: document.querySelectorAll(".acpmux-minimap *").length,
+              summary: document.querySelectorAll(".acpmux-summary-card *").length,
+              scroller: document.querySelectorAll(".acpmux-scroll *").length,
+              summaryText: [...document.querySelectorAll(".acpmux-summary-card .acpmux-summary-text")]
+                .slice(0, 8)
+                .map((el) => el.textContent),
+              byClass: Object.entries(
+                [...document.querySelectorAll("[class]")].reduce<Record<string, number>>((acc, el) => {
+                  const key = String(el.className).split(" ")[0] ?? "";
+                  acc[key] = (acc[key] ?? 0) + 1;
+                  return acc;
+                }, {}),
+              )
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 25),
+            })),
+          ),
+        );
+      }
       const sent = calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`);
       let quiet: Idle | undefined;
       if (still) {
