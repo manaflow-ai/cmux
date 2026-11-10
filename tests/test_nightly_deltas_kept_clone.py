@@ -56,8 +56,10 @@ OLD_TREE = {
 }
 NEW_TREE = {**OLD_TREE, "scripts/sparkle_generate_deltas.sh": "#!/usr/bin/env bash\necho build 2\n",
             "scripts/ci/new-step.sh": "#!/usr/bin/env bash\n", "Sources/App.swift": "let build = 2\n"}
-# The deltas jobs read scripts/ and the root files of the build checkout. What the checkout is sparse for: the app sources and the 470 MB of media stay out of the tree.
-LEFT_OUT = ("Sources/App.swift", "cmux-next-ios/verify/evidence.txt")
+# The deltas jobs read scripts/ and the root files of the build checkout. What the checkout is sparse for:
+# the app sources and the 470 MB of media stay out of the tree. A scripts/ directory below the root is
+# not the root's scripts/ (the old form, read as the one pattern `scripts`, took each of them).
+LEFT_OUT = ("Sources/App.swift", "cmux-next-ios/verify/evidence.txt", "webviews/scripts/build.mjs")
 
 STAND_INS = {
     "sw_vers": f'echo "{MACOS}.0"',
