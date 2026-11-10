@@ -38,6 +38,8 @@ def request(url: str, *, data: bytes | None = None) -> tuple[int, bytes]:
                 raise
             if attempt == 2:
                 raise
+        # timeout-retry-ok: IndexNow takes a resubmitted URL list as the same submission, so a POST that
+        # landed before its answer timed out does no harm sent again.
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt == 2:
                 raise

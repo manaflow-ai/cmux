@@ -575,5 +575,87 @@ class LabelSyncTests(unittest.TestCase):
         self.assertTrue(RULES.existing_triage_labels([{"name": "Needs-Triage"}]))
 
 
+class SlowAnswerServer:
+    """A local stand-in for GitHub's issue comments: a POST is stored at once and answered after a pause."""
+
+    def __init__(self, pause):
+        import http.server
+        import threading
+
+        comments, posts = [], []
+        self.comments, self.posts = comments, posts
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def _answer(self, status, payload):
+                body = json.dumps(payload).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                self._answer(200, list(comments))
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                posts.append(payload)
+                comments.append({"id": len(comments) + 1, "body": payload.get("body", "")})
+                time.sleep(pause)
+                try:
+                    self._answer(201, comments[-1])
+                except OSError:
+                    pass
+
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+class TimedOutWriteTests(unittest.TestCase):
+    """A write whose answer timed out after it was sent is not posted again blind (Codex review of #40718, F1:
+    a delayed answer to the triage comment's POST made two comments)."""
+
+    def setUp(self):
+        self.server = SlowAnswerServer(pause=1.5)
+        self.addCleanup(self.server.close)
+        real = AUTO.deadline_http.request
+        # Each call's bound, 30 s in the script, is 0.5 s here; the answer comes after 1.5 s.
+        patches = [
+            mock.patch.object(AUTO.deadline_http, "request", lambda req, _seconds, **kw: real(req, 0.5, **kw)),
+            mock.patch.object(AUTO, "API", self.server.url),
+            # Its own time module, so the server's pause still sleeps.
+            mock.patch.object(AUTO, "time", mock.Mock(sleep=lambda _seconds: None, time=time.time)),
+            mock.patch.dict("os.environ", {"no_proxy": "*", "NO_PROXY": "*"}),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_a_comment_that_landed_is_not_posted_again(self):
+        found = AUTO.request("POST", f"{self.server.url}/repos/o/r/issues/1/comments", "token",
+                             {"body": AUTO.COMMENT_MARKER + " hello"},
+                             reconcile=lambda: AUTO.reconcile_comment("o/r", "token", 1))
+        self.assertEqual(len(self.server.posts), 1)
+        self.assertIn(AUTO.COMMENT_MARKER, found["body"])
+
+    def test_a_sent_write_with_no_reconcile_is_not_retried(self):
+        with self.assertRaises(SystemExit):
+            AUTO.request("POST", f"{self.server.url}/repos/o/r/issues/1/comments", "token", {"body": "x"})
+        self.assertEqual(len(self.server.posts), 1)
+
+    def test_a_comment_reconcile_finds_missing_is_posted(self):
+        self.assertIsNone(AUTO.reconcile_comment("o/r", "token", 1))
+
+
 if __name__ == "__main__":
     unittest.main()
