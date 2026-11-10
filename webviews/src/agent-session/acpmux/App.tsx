@@ -395,7 +395,11 @@ import {
   readyPromptKey,
   readyPromptMap,
   readyPromptRows,
-  withCheckpoint,
+  bindMarks,
+  chatWithCheckpoint,
+  handshakeMarks,
+  marksFor,
+  type ChatMarks,
 } from "./conversation/cloudTurnCheckpoints";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
@@ -1644,19 +1648,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
-  // Back to before this turn (TurnActions `rewind`): the prompt row ids whose turn has a whole-machine
-  // checkpoint taken before it ran, as the handshake's `cloudTurnRewind` names them. Undefined where
-  // the host serves no rewind (every host today), so no prompt draws the button.
-  const [cloudTurnRewind, setCloudTurnRewind] = useState<ReadonlySet<string>>();
+  // Back to before this turn (TurnActions `rewind`): per chat, the checkpoint marks of its turns
+  // (`user-<n>`), first as the handshake's `cloudTurnRewind` names them for its chat. Undefined where
+  // the host serves no rewind (every host today), so no prompt draws the button. Kept per chat:
+  // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
+  const [cloudTurnRewind, setCloudTurnRewind] = useState<ChatMarks>();
+  // A handshake that named no chat: its list joins the first chat a snapshot shows.
+  const cloudTurnRewindUnbound = useRef(false);
   // With `cloudTurnRewind` present, each completed turn asks the app for the checkpoint before the
   // next one (`chat.turnCheckpoint {afterSeq}`, conversation/cloudTurnCheckpoints.ts), fed by the
-  // snapshot handlers below; its answer's row joins the ready set.
+  // snapshot handlers below; its answer's row joins that chat's ready set.
   const cloudCheckpoints = useRef<CloudTurnCheckpoints | undefined>(undefined);
   cloudCheckpoints.current ??= new CloudTurnCheckpoints(
     // Straight to native, as the rewind: callNative would select a page action of the same name.
     (afterSeq) => postNative("chat.turnCheckpoint", { afterSeq }),
-    (answer) => setCloudTurnRewind((ready) => withCheckpoint(ready, answer)),
+    (answer, session) => setCloudTurnRewind((marks) => chatWithCheckpoint(marks, answer, session)),
   );
+  const observeCloudTurn = (next: AcpmuxSnapshot) => {
+    cloudCheckpoints.current?.observe(next);
+    const session = next.sessionId;
+    if (!cloudTurnRewindUnbound.current || !session) return;
+    cloudTurnRewindUnbound.current = false;
+    setCloudTurnRewind((marks) => bindMarks(marks, session));
+  };
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
   const [cloudTeamMachine, setCloudTeamMachine] = useState(false);
@@ -2040,7 +2054,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The prompts drawn with Back to before this turn, each with the checkpoint row it rewinds to
   // (cloudTurnCheckpoints.ts `readyPromptRows`): a sent prompt keeps its own row id, and the
   // checkpoint names the turn number after the one before it. Rebuilt only when they change.
-  const rewindRowsKey = readyPromptKey(readyPromptRows(snapshot.rows, cloudTurnRewind));
+  const rewindRowsKey = readyPromptKey(readyPromptRows(snapshot.rows, marksFor(cloudTurnRewind, snapshot.sessionId)));
   const rewindRows = useMemo(() => readyPromptMap(rewindRowsKey), [rewindRowsKey]);
   const rewindReady = useMemo<ReadonlySet<string>>(() => new Set(rewindRows.keys()), [rewindRows]);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
@@ -7182,7 +7196,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         rowsRef.current = next.rows;
         snapshotRef.current = next;
         trustRouteSnapshot.current = next;
-        cloudCheckpoints.current?.observe(next);
+        observeCloudTurn(next);
         const owner = directClient.current;
         trustRenderedOwner.current = {
           client: owner,
@@ -7459,7 +7473,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
             ? new Set(host.cloudTurnRewind as string[])
             : undefined;
-        setCloudTurnRewind(turnRewind);
+        const turnRewindChat =
+          (typeof host.sessionId === "string" && host.sessionId) || snapshotRef.current?.sessionId || undefined;
+        cloudTurnRewindUnbound.current = turnRewind !== undefined && !turnRewindChat;
+        setCloudTurnRewind((marks) => handshakeMarks(marks, turnRewind, turnRewindChat));
         cloudCheckpoints.current?.setOn(turnRewind !== undefined);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
@@ -7627,7 +7644,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             rowsRef.current = next.rows;
             snapshotRef.current = next;
             trustRouteSnapshot.current = next;
-            cloudCheckpoints.current?.observe(next);
+            observeCloudTurn(next);
             if (connectingClient)
               trustRenderedOwner.current = {
                 client: connectingClient,

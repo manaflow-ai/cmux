@@ -60,6 +60,64 @@ export function withCheckpoint(
   return next;
 }
 
+/// The ready marks of each chat. `chat.select` switches the shown chat with no new handshake, so a
+/// checkpoint answered for one chat never readies another's prompt of the same `user-<n>`. The
+/// handshake's list is its chat's set; a handshake that names no chat (`unbound`) is the set of the
+/// first chat the page then shows (`bindMarks`).
+export type ChatMarks = {
+  readonly bySession: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly unbound?: ReadonlySet<string>;
+};
+
+/// After a handshake: its `cloudTurnRewind` list (undefined when absent: no rewind at all) replaces
+/// `session`'s set; the other chats' sets stay.
+export function handshakeMarks(
+  marks: ChatMarks | undefined,
+  list: ReadonlySet<string> | undefined,
+  session: string | undefined,
+): ChatMarks | undefined {
+  if (!list) return undefined;
+  const bySession = new Map(marks?.bySession);
+  if (!session) return { bySession, unbound: list };
+  bySession.set(session, list);
+  return { bySession };
+}
+
+/// An unbound handshake list becomes `session`'s set (joining what that chat has already).
+export function bindMarks(marks: ChatMarks | undefined, session: string | undefined): ChatMarks | undefined {
+  if (!marks?.unbound || !session) return marks;
+  const bySession = new Map(marks.bySession);
+  bySession.set(session, new Set([...(marks.bySession.get(session) ?? []), ...marks.unbound]));
+  return { bySession };
+}
+
+/// The shown chat's ready marks: its own set, or the unbound handshake list before it is bound.
+export function marksFor(marks: ChatMarks | undefined, session: string | undefined): ReadonlySet<string> | undefined {
+  if (!marks) return undefined;
+  return (session ? marks.bySession.get(session) : undefined) ?? marks.unbound ?? EMPTY;
+}
+const EMPTY: ReadonlySet<string> = new Set();
+
+/// `withCheckpoint` for the chat the checkpoint was taken for.
+export function chatWithCheckpoint(
+  marks: ChatMarks | undefined,
+  answer: unknown,
+  session: string | undefined,
+): ChatMarks | undefined {
+  const bound = bindMarks(marks, session);
+  if (!bound) return bound;
+  if (!session) {
+    const unbound = withCheckpoint(bound.unbound ?? EMPTY, answer);
+    return unbound === (bound.unbound ?? EMPTY) ? bound : { ...bound, unbound };
+  }
+  const ready = bound.bySession.get(session) ?? EMPTY;
+  const next = withCheckpoint(ready, answer);
+  if (next === ready) return bound;
+  const bySession = new Map(bound.bySession);
+  bySession.set(session, next ?? EMPTY);
+  return { bySession };
+}
+
 /// Asks for one checkpoint after each completed turn of the shown chat, fed every snapshot from the
 /// page's snapshot handler (no timer, no effect). A turn ends as the page's other turn-end readers
 /// see it (`turnEndedBetween`); its checkpoint goes once that turn's summary is in the rows, for the

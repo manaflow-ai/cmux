@@ -4,7 +4,15 @@
 // its retention's deleted turns leave it; and the prompt rows the page draws map to those marks.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { CloudTurnCheckpoints, readyPromptRows, withCheckpoint } from "./cloudTurnCheckpoints";
+import {
+  bindMarks,
+  chatWithCheckpoint,
+  CloudTurnCheckpoints,
+  handshakeMarks,
+  marksFor,
+  readyPromptRows,
+  withCheckpoint,
+} from "./cloudTurnCheckpoints";
 
 type Pending = { afterSeq: number; resolve(answer: unknown): void; reject(error: unknown): void };
 
@@ -194,4 +202,68 @@ test("steers, failed prompts and turns paged in with no seq take no mark", () =>
     row("user-43", "user", { text: "a second prompt in the same turn" }),
   ];
   expect([...readyPromptRows(rows, new Set(["user-25", "user-41", "user-43"]))]).toEqual([["user-42", "user-41"]]);
+});
+
+test("a checkpoint answered for one chat never readies another chat's prompt after chat.select", () => {
+  const marks = chatWithCheckpoint(handshakeMarks(undefined, new Set(["user-4"]), "a"), { rowId: "user-10" }, "a");
+  expect([...(marksFor(marks, "a") ?? [])]).toEqual(["user-4", "user-10"]);
+  // chat.select to B: no new handshake, and B has no checkpoint of its own.
+  expect([...(marksFor(marks, "b") ?? [])]).toEqual([]);
+  const rowsB = [
+    row("user-1", "user", { text: "one", seq: 1 }),
+    row("summary-3", "turnSummary", { seq: 3 }),
+    row("user-10", "user", { text: "ten", seq: 10 }),
+  ];
+  expect([...readyPromptRows(rowsB, marksFor(marks, "b"))]).toEqual([]);
+  // B's own checkpoint readies only B's prompt; A keeps its own.
+  const both = chatWithCheckpoint(marks, { rowId: "user-10" }, "b");
+  expect([...readyPromptRows(rowsB, marksFor(both, "b"))]).toEqual([["user-10", "user-10"]]);
+  expect([...(marksFor(both, "a") ?? [])]).toEqual(["user-4", "user-10"]);
+  // Retention for B drops B's mark only.
+  const pruned = chatWithCheckpoint(both, { rowId: "user-12", retention: { deleted: ["auto-t10-g0"] } }, "b");
+  expect([...(marksFor(pruned, "b") ?? [])]).toEqual(["user-12"]);
+  expect([...(marksFor(pruned, "a") ?? [])]).toEqual(["user-4", "user-10"]);
+});
+
+test("a handshake's list replaces its chat's set and keeps the other chats'", () => {
+  const first = chatWithCheckpoint(handshakeMarks(undefined, new Set(["user-4"]), "a"), { rowId: "user-7" }, "b");
+  const again = handshakeMarks(first, new Set(["user-9"]), "a");
+  expect([...(marksFor(again, "a") ?? [])]).toEqual(["user-9"]);
+  expect([...(marksFor(again, "b") ?? [])]).toEqual(["user-7"]);
+  // No cloudTurnRewind in the handshake: no rewind anywhere.
+  expect(handshakeMarks(again, undefined, "a")).toBeUndefined();
+  expect(marksFor(undefined, "a")).toBeUndefined();
+});
+
+test("a handshake naming no chat binds its list to the first chat shown, not to the next one", () => {
+  const unbound = handshakeMarks(undefined, new Set(["user-4"]), undefined);
+  expect([...(marksFor(unbound, "a") ?? [])]).toEqual(["user-4"]);
+  const bound = bindMarks(unbound, "a");
+  expect([...(marksFor(bound, "a") ?? [])]).toEqual(["user-4"]);
+  expect([...(marksFor(bound, "b") ?? [])]).toEqual([]);
+  expect(bindMarks(bound, "b")).toBe(bound);
+  // An answer before the bind binds the list to the answer's chat too.
+  const answered = chatWithCheckpoint(unbound, { rowId: "user-8" }, "a");
+  expect([...(marksFor(answered, "a") ?? [])]).toEqual(["user-4", "user-8"]);
+  expect([...(marksFor(answered, "b") ?? [])]).toEqual([]);
+});
+
+test("the observer hands each answer the chat it was asked for", async () => {
+  const seen: (string | undefined)[] = [];
+  const checkpoints = new CloudTurnCheckpoints(
+    async () => ({ rowId: "user-5" }),
+    (_answer, session) => seen.push(session),
+  );
+  checkpoints.setOn(true);
+  const rows = [{ kind: "user" }, { kind: "turnSummary", seq: 2 }];
+  checkpoints.observe({ sessionId: "a", isWorking: false, rows });
+  checkpoints.observe({ sessionId: "a", isWorking: true, rows: [...rows, { kind: "user" }] });
+  checkpoints.observe({
+    sessionId: "a",
+    isWorking: false,
+    rows: [...rows, { kind: "user" }, { kind: "turnSummary", seq: 4 }],
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(seen).toEqual(["a"]);
 });
