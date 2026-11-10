@@ -545,3 +545,139 @@ fn agents_at_rest_a_report_for_a_closed_terminal_keeps_no_table_entry() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A hook row whose projection failed waits for a retry
+/// (`enqueue_agent_hook_pending`). Before reports at rest, the next hook of
+/// the terminal was a row, and its projection ran the retry first
+/// (`reconcile_preceding_agent_hooks`). A report at rest is no row, so it
+/// must run the retry itself: a failed turn start must not wait for the
+/// turn's end.
+#[test]
+fn agents_at_rest_a_report_at_rest_retries_a_pending_projection() {
+    let (mux, agent, root) = one_agent("pending");
+    let projected = |mux: &Arc<Mux>| {
+        mux.agent_records.lock().unwrap().get(&agent.terminal).map(|record| record.state)
+    };
+    let pending = |mux: &Arc<Mux>| {
+        mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len()
+    };
+    send(&mux, &agent, "Stop", json!({}));
+    assert_eq!(projected(&mux), Some(AgentState::Idle), "setup: the turn ended");
+    assert_eq!(pending(&mux), 0, "setup: no projection waits");
+
+    // The next turn's start is a journal row whose projection fails.
+    mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+    let started = send(&mux, &agent, "UserPromptSubmit", json!({ "prompt": "next" }));
+    mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+    assert!(!started.replayed, "setup: the turn's start is a row: {started:?}");
+    assert_eq!(pending(&mux), 1, "setup: the projection of the turn's start waits");
+    assert_eq!(projected(&mux), Some(AgentState::Idle), "setup: the start is not projected");
+
+    // A report that changes nothing: no row of its own, and the retry runs.
+    let head = settled(&mux).session_journal_head().unwrap();
+    let answer = send(&mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));
+    assert_eq!(
+        pending(&mux),
+        0,
+        "the report after a failed projection must run its retry (answer {answer:?})"
+    );
+    assert_eq!(
+        projected(&mux),
+        Some(AgentState::Working),
+        "the turn's start is projected with the next report, not with the turn's end"
+    );
+    // The report itself is no row: its receipt is the one of the turn's
+    // start, and the journal holds no row of the tool call.
+    assert!(answer.replayed && answer.sequence == started.sequence, "{answer:?} {started:?}");
+    let page = mux.session_journal_after(head, 500).unwrap();
+    assert!(
+        page.records.iter().all(|record| record.payload["native_event"] != "PreToolUse"),
+        "the report at rest got a journal row"
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// One lifecycle hook of `agent`, as its helper builds it.
+fn lifecycle_hook(agent: &Agent, event: &str) -> crate::JournalIngress {
+    crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        event,
+        Some(agent.terminal.as_str()),
+        json!({ "session_id": agent.session, "cwd": CWD }),
+    )
+    .unwrap()
+}
+
+/// Rows of one more equal tool call of `agent`.
+fn tool_call_rows(mux: &Arc<Mux>, agent: &Agent) -> usize {
+    let head = mux.session_journal_head().unwrap();
+    send(mux, agent, "PreToolUse", json!({ "tool_name": "Read" }));
+    kinds_after(mux, head).get("agent.state.changed").copied().unwrap_or(0)
+}
+
+/// A hook's retry that the registry answers (`replayed`) tells the table
+/// nothing: nobody noted its first result here, so the table forgets what
+/// the journal holds of the terminal and the next report is a row.
+#[test]
+fn agents_at_rest_a_report_after_a_retry_the_registry_answered_is_appended() {
+    let (mux, agent, root) = one_agent("replayed");
+    let stop = lifecycle_hook(&agent, "Stop");
+    let first = mux.append_journal_ingress(&stop, "test", "replayed-1").unwrap();
+    assert!(!first.replayed, "setup: the turn's end is a row: {first:?}");
+    assert_eq!(tool_call_rows(&mux, &agent), 0, "setup: an equal report writes nothing");
+
+    let again = mux.append_journal_ingress(&stop, "test", "replayed-1").unwrap();
+    assert!(again.replayed, "setup: the registry answers the retry: {again:?}");
+    assert_eq!(again.sequence, first.sequence);
+
+    assert_eq!(
+        tool_call_rows(&mux, &agent),
+        1,
+        "the report after a retry the registry answered must be appended"
+    );
+    assert_eq!(tool_call_rows(&mux, &agent), 0, "the equal report after it writes nothing again");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Two hooks of one terminal are on their way at once. The result of the
+/// second is not known (its producer gave up; its row can still commit), then
+/// the first, sent before it, commits. The first one's facts can be older
+/// than the unknown row's, so the table must not note them: the next report
+/// is a row. The table's own functions are driven in that order, as
+/// `append_journal_ingress` calls them; the first hook's receipt stands for
+/// its commit.
+#[test]
+fn agents_at_rest_a_hook_sent_before_an_unknown_result_does_not_note_its_facts() {
+    let (mux, agent, root) = one_agent("unknown-order");
+    assert_eq!(tool_call_rows(&mux, &agent), 0, "setup: an equal report writes nothing");
+
+    let first = lifecycle_hook(&agent, "Stop");
+    let on_its_way = mux.agent_hook_in_flight(&first);
+    assert!(on_its_way.is_some(), "setup: the terminal has a table entry");
+    let second = lifecycle_hook(&agent, "SessionEnd");
+    mux.note_agent_hook_result(&second, None, None, "test", "unknown-order-2");
+    let commit = crate::JournalAppendCommit {
+        sequence: mux.session_journal_head().unwrap() + 1,
+        event_id: "unknown-order-first".into(),
+        replayed: false,
+    };
+    mux.note_agent_hook_result(
+        &first,
+        Some(&commit),
+        on_its_way.as_ref(),
+        "test",
+        "unknown-order-1",
+    );
+    drop(on_its_way);
+
+    assert_eq!(
+        tool_call_rows(&mux, &agent),
+        1,
+        "a hook sent before a row with an unknown result must not note its facts"
+    );
+    assert_eq!(tool_call_rows(&mux, &agent), 0, "the equal report after it writes nothing again");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
