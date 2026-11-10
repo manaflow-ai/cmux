@@ -43,6 +43,9 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
+      - name: Proof directory
+        run: echo "PROOF_DIR=$RUNNER_TEMP/remote-gui-proof" >> "$GITHUB_ENV"
+
       - name: Checkout cmux
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -141,7 +144,6 @@ jobs:
             exit 1
           fi
           echo "PROOF_APP=$app" >> "$GITHUB_ENV"
-          echo "PROOF_DIR=$RUNNER_TEMP/remote-gui-proof" >> "$GITHUB_ENV"
 
       - name: SSH host on loopback (second local account, key-only sshd)
         run: scripts/cmux-next/remote-gui-proof-host.sh up "$PROOF_DIR/host"
