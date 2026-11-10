@@ -519,6 +519,24 @@ class PullRequestTiers(unittest.TestCase):
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "false", tier)
 
+    def test_a_checks_job_tooling_input_runs_no_mac_tier(self):
+        """A file the checks job's tests read and no build reads (a CI table, a lint, a git hook) is CI-only:
+        a pull request changing one runs the Linux checks, not the Mac compiles."""
+        for path in (".github/runners.json", "scripts/web-lint.sh", "scripts/install-git-hooks.sh"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                for tier in ("macos", "scheme", "native", "mac_release", "swift", "generated", "daemon", "full"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_checks_job_inputs_a_build_reads_keep_the_mac_tiers(self):
+        """Admitted for the checks job's tests too, but each can change what the app build gets: the GhosttyKit
+        download, the reload script's instance stop, the release strip and its symbol map, and the checkout's
+        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY."""
+        for path in ("scripts/download-prebuilt-ghosttykit.sh", "scripts/lib/stop-app-instances.sh",
+                     "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["native"], "true")
+
     def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
         self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
         self.assertEqual(tiers([".github/actions/setup-cmux-tui-rust/action.yml"])["swift"], "true")
