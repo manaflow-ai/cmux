@@ -1,8 +1,7 @@
 import OSLog
 
 /// A terminal shown again reports what it shows (``TerminalRevealReport``): to the log, to the delegate (the App's
-/// crash-telemetry breadcrumbs), and once more if its pane still shows nothing ``TerminalBlankWatch/limit`` later, or
-/// drew and still shows its frames at another scale than Ghostty draws at.
+/// crash-telemetry breadcrumbs), and once more if its pane still shows nothing ``TerminalBlankWatch/limit`` later.
 /// Numbers only, no terminal text. The Nov 4 blank-then-tiny pane left no trace to tell a discarded frame from a
 /// scale mismatch; these lines are that trace.
 extension TerminalSession {
@@ -29,11 +28,6 @@ extension TerminalSession {
             let message = report.message, limit = "\(TerminalBlankWatch.limit)"
             Self.revealLogger.error("blank \(limit, privacy: .public) after reveal: \(message, privacy: .public)")
             self.delegate?.terminalSession(self, blankAfterReveal: report)
-        }, onScaleMismatch: { [weak self] report in
-            guard let self else { return }
-            let message = report.message, limit = "\(TerminalBlankWatch.limit)"
-            Self.revealLogger.error("scales disagree \(limit, privacy: .public) after reveal: \(message, privacy: .public)")
-            self.delegate?.terminalSession(self, revealed: report)
         })
     }
 

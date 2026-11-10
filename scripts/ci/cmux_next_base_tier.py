@@ -73,8 +73,9 @@ TIERS = ("daemon", "scheme", "generated")
 WINDOW_S = 15 * 60
 # After a dispatch: long enough that the next kick's listing shows the new run.
 SETTLE_S = 20
-# What a dispatch needs before the job's deadline: its POST, which can wait up to the client's request
-# timeout, and then SETTLE_S (Codex review of #40520: 21 s left and a 10 s POST ended the settle 9 s late).
+# What a dispatch needs before the job's deadline: its POST, which the client ends at REQUEST_TIMEOUT_S
+# from its start (a whole-request bound, not urlopen's per-socket-wait one), and then SETTLE_S (Codex
+# review of #40520: 21 s left and a 10 s POST ended the settle 9 s late).
 DISPATCH_RESERVE_S = REQUEST_TIMEOUT_S + SETTLE_S
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
@@ -187,7 +188,7 @@ def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
     """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
     try:
         listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
-    except RuntimeError:
+    except (RuntimeError, TimeoutError):  # TimeoutError: no full answer within the client's request bound
         return True
     for job in listed.get("jobs") or []:
         if job.get("name") not in MAC_JOBS:
@@ -236,6 +237,12 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
         except QuotaExhausted as error:
             log(f"could not cancel base tier run {run_id} ({sha[:12]}): {error}")
             continue
+        except TimeoutError as error:
+            # No full answer within the client's request bound: GitHub may have taken the cancel, or not.
+            # Not counted as cancelled; the next kick reads the run again.
+            log(f"no answer to the cancel of base tier run {run_id} ({sha[:12]}); it may or may not be "
+                f"cancelled: {error}")
+            continue
         if status in (202, 204):
             cancelled.append(run_id)
             log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, no Mac job started")
@@ -250,7 +257,7 @@ def relevant(api: Api, repo: str, since: str, tip: str, patterns: list[str]) -> 
         return True, "no push paths read; running the base tier"
     try:
         compare = api.get(f"repos/{repo}/compare/{since}...{tip}")
-    except RuntimeError as error:
+    except (RuntimeError, TimeoutError) as error:
         return True, f"could not compare {since[:12]}...{tip[:12]} ({error}); running the base tier"
     files = [item.get("filename") or "" for item in compare.get("files") or []]
     if compare.get("status") == "behind":
@@ -287,6 +294,12 @@ def branch_tip(api: Api, repo: str) -> str:
 
 class PastDeadline(RuntimeError):
     """The window (or the dispatch) would end past the job's deadline; one line saying so."""
+
+
+class DispatchUnknown(RuntimeError):
+    """The dispatch POST got no full answer within the client's request bound (RequestTimeout). GitHub
+    may have taken it. The kick settled and cancelled as after a 204, then raises this one line: the
+    dispatch is not reported as made."""
 
 
 def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
@@ -390,13 +403,27 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         raise PastDeadline(f"{max(0, int(deadline.left()))} s left before this job's deadline, less than the "
                            f"{DISPATCH_RESERVE_S} s a dispatch needs (its POST, then the {SETTLE_S} s settle); "
                            f"not dispatching {tip[:12]}; the next push's kick dispatches at a tip that contains it")
-    status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
-                      {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
-    if status != 204:
-        raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
-    log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
+    unknown = None
+    try:
+        status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
+                          {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
+    except TimeoutError as error:
+        # The client bounds the whole POST (REQUEST_TIMEOUT_S, inside DISPATCH_RESERVE_S), but past the
+        # bound GitHub may still have taken it: the answer, not the request, may be what was lost. So it
+        # counts as dispatched, unknown: the settle and the cancels run as after a 204 (the cancels read
+        # only what GitHub lists, so they are right either way), it is never posted again (that could be
+        # the same Mac work twice; the next push's kick dispatches if it was lost), and the kick then
+        # fails with one line instead of reporting a dispatch.
+        unknown = (f"the base tier dispatch at {tip[:12]} got no answer ({error}); GitHub may or may not "
+                   f"have taken it; settled and cancelled as after one")
+    else:
+        if status != 204:
+            raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
+        log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
     sleep(SETTLE_S)
     cancel_superseded(api, repo, tip, log)
+    if unknown:
+        raise DispatchUnknown(unknown)
     return tip
 
 
@@ -432,6 +459,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except PastDeadline as error:
         print(f"error: the base tier kick ran out of job time: {error}", file=sys.stderr)
+        return 1
+    except DispatchUnknown as error:
+        print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
 
