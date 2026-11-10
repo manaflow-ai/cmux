@@ -229,6 +229,11 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// commit and before its journal echo.
     #[cfg(test)]
     pub(in crate::mux) report_echo_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Test seam: runs once in the owner's deferred reconcile
+    /// (`settle_report_echoes`), after it read the roster and before it takes
+    /// the hook projector's lock.
+    #[cfg(test)]
+    pub(in crate::mux) settle_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Drop for AgentRosterWorker {
@@ -468,6 +473,13 @@ mod replay_for_test {
                 .report_echo_seam
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner) = Some(seam);
+        }
+
+        /// Runs `seam` once in the owner's deferred reconcile, after it read
+        /// the roster and before it takes the hook projector's lock.
+        pub(crate) fn hold_deferred_reconcile_for_test(&self, seam: Box<dyn FnOnce() + Send>) {
+            *self.agent_roster_worker.settle_seam.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(seam);
         }
 
         /// Fails the next `echoes` journal appends of direct reports' echoes.

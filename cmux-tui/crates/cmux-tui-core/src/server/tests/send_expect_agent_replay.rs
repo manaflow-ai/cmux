@@ -338,3 +338,34 @@ fn an_echo_that_always_fails_is_given_up_and_releases_other_terminals_sends() {
     assert_eq!(row[0].state, "working", "{row:?}");
     mux.shutdown();
 }
+
+/// #39830 round 5 (every write path): a hook projects its row at ingress and the roster folds it
+/// later. In between the roster said `idle` next to the hook's session, and a send expecting that
+/// session went into the agent the hook made busy. Refused until the roster folded the hook.
+#[cfg(unix)]
+#[test]
+fn an_expect_agent_send_waits_for_the_roster_to_fold_a_projected_hook() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap().to_string();
+    hook(&mux, &terminal_id, "SessionStart");
+    assert!(mux.settle_agent_roster_for_test());
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.pause_agent_roster_fold_after_head_for_test(entered_tx, release_rx);
+    hook(&mux, &terminal_id, "UserPromptSubmit");
+    entered.recv_timeout(Duration::from_secs(30)).expect("the owner holds before the hook's fold");
+    let roster = mux.agent_roster_state_now_for_test(&terminal_id);
+    let sent = handle_command(&mux, client, reply(surface.id), &writer);
+    drop(release);
+    assert_eq!(roster.as_deref(), Some("idle"), "the hook is not folded yet");
+    assert!(sent.is_err(), "a send expecting the session went into the agent the hook made busy");
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(mux.settle_agent_roster_for_test());
+    let after = handle_command(&mux, client, reply(surface.id), &writer)
+        .expect_err("working once the hook is folded");
+    assert!(format!("{after:#}").contains("agent not waiting"), "{after:#}");
+    mux.shutdown();
+}

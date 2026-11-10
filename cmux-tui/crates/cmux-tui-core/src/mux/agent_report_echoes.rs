@@ -280,6 +280,16 @@ impl Mux {
                 .collect::<Vec<_>>();
             (host.cursor, marks, entries)
         };
+        #[cfg(test)]
+        if let Some(seam) = self
+            .agent_roster_worker
+            .settle_seam
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            seam();
+        }
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
         let settled = {
             let mut echoes = self.report_echoes();
