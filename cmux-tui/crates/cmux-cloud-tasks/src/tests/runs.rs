@@ -262,3 +262,23 @@ fn a_poll_stopped_while_its_call_was_out_leaves_the_answer_to_the_next_launch() 
     });
     assert!(!sim.state.knows("r1"));
 }
+
+/// The daemon's answer for a Run of another account of this Mac (409 `run_other_account`, a
+/// switch of team) or for an app signed out of Cloud (401) is no deletion: the follow keeps the
+/// Run and asks again, so a switch back finds it (Codex's BLOCK of #39022 at 1bf18b3d, F2).
+#[test]
+fn another_accounts_or_signed_out_refusal_keeps_the_run() {
+    let mut sim = Sim::launch(Kind::Runs, None);
+    sim.event(Event::Follow { record: run_record("r1", "u1") });
+    for status in [409, 401] {
+        sim.event(Event::Answer {
+            id: "r1".into(),
+            body: None,
+            status: Some(status),
+            failed: true,
+            cancelled: false,
+        });
+        assert!(sim.state.knows("r1"), "{status}");
+        assert!(sim.told.is_empty(), "{status}");
+    }
+}

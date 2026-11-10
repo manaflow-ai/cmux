@@ -187,6 +187,18 @@ struct CloudAPIClientRunTests {
         #expect(creates.map { ($0["args"] as? [String: Any])?["idempotencyKey"] as? String } == ["send-3", "send-3"])
     }
 
+    /// The account the person sent under goes with the create and its retry, so the daemon starts nothing
+    /// under another one (Codex's review of #39022 at 1bf18b3d, F1).
+    @Test func theCreateAndItsRetryNameTheAccountTheSendWasMadeUnder() async throws {
+        let daemon = sandbox(dropCreates: 1)
+        let account = CloudAPIClient.RunAccount(user: "u1", team: "t1")
+        _ = try await api(daemon).runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-4", expectedAccount: account)
+        let expected = daemon.args("runs.create").map { $0["expectedAccount"] as? [String: String] }
+        #expect(expected == [["user_id": "u1", "team_id": "t1"], ["user_id": "u1", "team_id": "t1"]])
+        _ = try await api(daemon).createSandboxRun(task: "hi", idempotencyKey: "send-5", expectedAccount: .init(user: "u2", team: nil))
+        #expect(daemon.args("runs.create").last?["expectedAccount"] as? [String: String] == ["user_id": "u2", "team_id": ""])
+    }
+
     @Test func aWaitAnswerThatIsNoSnapshotEndsAtOnce() async throws {
         let daemon = FakeDaemon { call, _, _ in call == "runs.create" ? Self.created : #"{"ok":true,"body":{"error":"internal"}}"# }
         await #expect(throws: CloudAPIError.timedOut("cloud.runs/run-9")) {

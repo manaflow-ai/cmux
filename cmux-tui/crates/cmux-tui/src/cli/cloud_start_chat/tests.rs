@@ -1963,10 +1963,17 @@ fn an_account_run_starts_and_sends_only_on_that_account() {
         started(),
         listed_as("u2", None, &["vm-1"]),
     ]);
+    fake.answers.push_back(ok(json!({"machine_id": "vm-1", "status": "deleting"})));
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(error["code"], "cloud.account_changed");
     assert_eq!(error["details"]["machine_id"], "vm-1");
     assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+    // The machine this run made on the wrong account is deleted here, its only owner.
+    assert_eq!(
+        fake.ran.last().unwrap(),
+        &strings(&["cloud", "kill-machine", "--target", "machine:vm-1", "--confirm", "--json"])
+    );
+    assert_eq!(error["details"]["delete_asked"], true);
 
     // The account's list shows the machine only on a later read: then the prompt goes.
     let mut fake = Fake::new(vec![
@@ -1986,6 +1993,7 @@ fn an_account_run_starts_and_sends_only_on_that_account() {
     // A list that never shows it: nothing is sent.
     let mut answers = vec![listed_as("u1", Some("t1"), &[]), started()];
     answers.extend((0..5).map(|_| listed_as("u1", Some("t1"), &["other"])));
+    answers.push(ok(json!({"machine_id": "vm-1", "status": "deleting"})));
     let mut fake = Fake::new(answers);
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(error["code"], "cloud.account_changed");

@@ -43,6 +43,8 @@ const START_MARGIN: Duration = Duration::from_secs(60);
 const STEP_BOUND: Duration = Duration::from_secs(180);
 /// How often a running child is checked for a cancel or its bound.
 const POLL: Duration = Duration::from_millis(250);
+/// Between two starts of one Run's chat while the app is still making its machine.
+const START_AGAIN_PAUSE: Duration = Duration::from_secs(5);
 /// The most of a child's output kept.
 const MAX_OUTPUT: u64 = 4 * 1024 * 1024;
 const STORE_FILE: &str = "cloud-runs.json";
@@ -255,6 +257,52 @@ fn machine_of(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Whether a `cloud start-chat` answer is a start the app has not finished with nothing sent yet
+/// (`cloud.start_pending`, not the one whose prompt may be on the machine, `sent: "unknown"`):
+/// the same start is asked again, and finds the same machine by its name.
+fn start_again(result: &Result<Value, Value>) -> bool {
+    let Err(error) = result else { return false };
+    text(error, "code") == "cloud.start_pending"
+        && error.pointer("/details/sent").and_then(Value::as_str) != Some("unknown")
+}
+
+/// The Run's task: `attempt` (one `cloud start-chat` given the time left) again while the app is
+/// still making the machine ([`start_again`]), `pause` apart, until the task's `timeout` has no
+/// room for another or a cancel; then its outcome. The app answers a start pending at the end of
+/// its own start window (190 s), well inside a Run's default 10 minutes (Codex's review of #39022
+/// at 1bf18b3d, F3): that is no timeout of the Run.
+fn start_until(
+    timeout: Duration,
+    cancel: &AtomicBool,
+    pause: Duration,
+    mut attempt: impl FnMut(Duration) -> Ran,
+) -> Outcome {
+    let began = Instant::now();
+    loop {
+        let left = timeout.saturating_sub(began.elapsed());
+        let started = Instant::now();
+        let ran = attempt(left);
+        let cancelled = cancel.load(Ordering::Acquire);
+        let out_of_time =
+            ran.code.is_none() && !cancelled && started.elapsed() >= left + START_MARGIN;
+        let result = answer(&ran);
+        if cancelled || out_of_time || !start_again(&result) || began.elapsed() + pause >= timeout {
+            return outcome(ran.code, result, cancelled, out_of_time);
+        }
+        let until = Instant::now() + pause;
+        while !cancel.load(Ordering::Acquire) {
+            let now = Instant::now();
+            if now >= until {
+                break;
+            }
+            std::thread::sleep(POLL.min(until - now));
+        }
+        if cancel.load(Ordering::Acquire) {
+            return outcome(ran.code, result, true, false);
+        }
+    }
+}
+
 /// How a `cloud start-chat --wait` child ended, as a Run's outcome.
 pub(super) fn outcome(
     code: Option<i32>,
@@ -307,28 +355,25 @@ impl Steps for AppVerbs {
     }
 
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome {
-        let seconds = task.timeout.as_secs().max(1).to_string();
-        let words = [
-            "cloud",
-            "start-chat",
-            "--name",
-            task.machine_name.as_str(),
-            "--agent",
-            task.agent.as_str(),
-            "--prompt",
-            "-",
-            "--wait",
-            "--timeout",
-            seconds.as_str(),
-            "--account",
-            task.account.as_str(),
-        ];
-        let bound = task.timeout + START_MARGIN;
-        let began = Instant::now();
-        let ran = self.cmux(&words, Some(&task.prompt), bound, Some(cancel));
-        let cancelled = cancel.load(Ordering::Acquire);
-        let out_of_time = ran.code.is_none() && !cancelled && began.elapsed() >= bound;
-        outcome(ran.code, answer(&ran), cancelled, out_of_time)
+        start_until(task.timeout, cancel, START_AGAIN_PAUSE, |left| {
+            let seconds = left.as_secs().max(1).to_string();
+            let words = [
+                "cloud",
+                "start-chat",
+                "--name",
+                task.machine_name.as_str(),
+                "--agent",
+                task.agent.as_str(),
+                "--prompt",
+                "-",
+                "--wait",
+                "--timeout",
+                seconds.as_str(),
+                "--account",
+                task.account.as_str(),
+            ];
+            self.cmux(&words, Some(&task.prompt), left + START_MARGIN, Some(cancel))
+        })
     }
 
     fn remove(&self, machine_name: &str, machine: Option<&str>, scope: Option<&str>) -> Removal {
@@ -531,6 +576,81 @@ mod tests {
             U1
         );
         assert_eq!(account_scope(&list(false, None, None, json!([]), json!([]))), None);
+    }
+
+    fn ran(code: i32, stderr: Value) -> Ran {
+        Ran { code: Some(code), stdout: String::new(), stderr: stderr.to_string() }
+    }
+
+    fn pending(sent: Option<&str>) -> Ran {
+        let details = match sent {
+            Some(sent) => json!({ "machine_id": "m-1", "sent": sent }),
+            None => json!({ "machine_name": NAME, "stage": { "status": "provisioning" } }),
+        };
+        ran(
+            75,
+            json!({ "code": "cloud.start_pending", "message": "still starting", "details": details }),
+        )
+    }
+
+    fn replied() -> Ran {
+        let stdout = json!({ "result": { "reply": "done", "machine_id": "m-1" } }).to_string();
+        Ran { code: Some(0), stdout, stderr: String::new() }
+    }
+
+    /// Runs `start_until` over `answers` in turn; answers the outcome and the time left each
+    /// attempt was given.
+    fn started(
+        timeout: Duration,
+        answers: Vec<Ran>,
+        cancel: &AtomicBool,
+    ) -> (Outcome, Vec<Duration>) {
+        let mut answers = answers.into_iter();
+        let mut given = Vec::new();
+        let outcome = start_until(timeout, cancel, Duration::from_millis(1), |left| {
+            given.push(left);
+            answers.next().expect("an answer for every attempt")
+        });
+        (outcome, given)
+    }
+
+    /// Codex's review of #39022 at 1bf18b3d (F3): a start the app answers pending (its own start
+    /// window ended) is asked again within the Run's time, never taken as the Run's timeout.
+    #[test]
+    fn a_pending_start_is_asked_again_within_the_runs_time() {
+        let cancel = AtomicBool::new(false);
+        let timeout = Duration::from_secs(600);
+        let (got, given) = started(timeout, vec![pending(None), pending(None), replied()], &cancel);
+        assert_eq!(got, Outcome::Replied { reply: "done".into(), machine: Some("m-1".into()) });
+        assert_eq!(given.len(), 3);
+        assert!(
+            given.windows(2).all(|pair| pair[1] <= pair[0]) && given[0] <= timeout,
+            "{given:?}"
+        );
+    }
+
+    #[test]
+    fn a_start_is_not_asked_again_once_the_prompt_may_be_there_or_the_time_is_gone() {
+        let cancel = AtomicBool::new(false);
+        // The prompt may have reached the machine: asking again could send it twice.
+        let (got, given) =
+            started(Duration::from_secs(600), vec![pending(Some("unknown"))], &cancel);
+        assert!(matches!(got, Outcome::TimedOut { .. }), "{got:?}");
+        assert_eq!(given.len(), 1);
+        // A turn that did not end in time is the Run's timeout.
+        let wait_timeout = ran(75, json!({ "code": "chat.wait_timeout", "message": "x" }));
+        let (got, given) = started(Duration::from_secs(600), vec![wait_timeout], &cancel);
+        assert!(matches!(got, Outcome::TimedOut { .. }), "{got:?}");
+        assert_eq!(given.len(), 1);
+        // No room left for another start.
+        let (got, given) = started(Duration::from_millis(1), vec![pending(None)], &cancel);
+        assert!(matches!(got, Outcome::TimedOut { .. }), "{got:?}");
+        assert_eq!(given.len(), 1);
+        // A cancel ends it.
+        let cancel = AtomicBool::new(true);
+        let (got, given) = started(Duration::from_secs(600), vec![pending(None)], &cancel);
+        assert!(matches!(got, Outcome::Cancelled { .. }), "{got:?}");
+        assert_eq!(given.len(), 1);
     }
 
     #[test]

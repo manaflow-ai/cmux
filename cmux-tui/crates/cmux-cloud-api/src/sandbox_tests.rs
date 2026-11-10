@@ -262,12 +262,55 @@ fn the_same_key_answers_the_same_run_and_another_body_is_a_conflict() {
         )
     );
     settled(&engine, first["id"].as_str().unwrap(), "destroyed");
-    // Another account's same key is another Run.
+    assert_eq!(fake.ran.lock().unwrap().len(), 1);
+}
+
+/// Codex's BLOCK at 1bf18b3d (F1): a create made under account A whose answer was lost, retried
+/// after the app switched to B, never becomes a second Run under B, which would send A's task to
+/// B's machine.
+#[test]
+fn a_retry_after_an_account_switch_is_refused_never_rebound() {
+    let fake = Fake::new(Some(Outcome::Replied { reply: "ok".into(), machine: None }), vec![]);
+    let engine = Engine::open(None, fake.clone(), quick());
+    let first = create(&engine, "same");
+    settled(&engine, first["id"].as_str().unwrap(), "destroyed");
     *fake.account.lock().unwrap() = Some("team:team_2".into());
-    let other = create(&engine, "same");
+    let body = json!({ "task": "say hi", "agent": "claude", "timeoutMs": 30_000, "idempotencyKey": "same" });
+    let retry = engine.perform("runs.create", &args(body)).unwrap_err();
+    assert!(
+        matches!(&retry, Failure::Http { status: 409, code: Some(code), .. } if code == "run_account_changed"),
+        "{retry:?}"
+    );
+    assert_eq!(fake.ran.lock().unwrap().len(), 1, "B's machine never got A's task");
+    // Another key under B is B's own Run.
+    let other = create(&engine, "other");
     assert_ne!(other["id"], first["id"]);
-    settled(&engine, other["id"].as_str().unwrap(), "destroyed");
-    assert_eq!(fake.ran.lock().unwrap().len(), 2);
+}
+
+/// The account the send was made under (`expectedAccount`, as the app read it at the send) must
+/// still be the app's: a send whose app switched since starts nothing, retry or not.
+#[test]
+fn a_create_for_another_account_than_the_apps_starts_nothing() {
+    let fake = Fake::new(Some(Outcome::Replied { reply: "ok".into(), machine: None }), vec![]);
+    *fake.account.lock().unwrap() = Some("user:u2|team:t1".into());
+    let engine = Engine::open(None, fake.clone(), quick());
+    let body = |user: &str, team: Value| {
+        args(json!({ "task": "say hi", "timeoutMs": 30_000, "idempotencyKey": user,
+                     "expectedAccount": { "user_id": user, "team_id": team } }))
+    };
+    for (user, team) in [("u1", json!("t1")), ("u2", json!("t2")), ("u2", Value::Null)] {
+        let refused = engine.perform("runs.create", &body(user, team.clone())).unwrap_err();
+        assert!(
+            matches!(&refused, Failure::Http { status: 409, code: Some(code), .. } if code == "run_account_changed"),
+            "{user} {team}: {refused:?}"
+        );
+    }
+    assert!(engine.perform("runs.create", &body("u2", json!("t1"))).is_ok());
+    let began = Instant::now();
+    while fake.ran.lock().unwrap().is_empty() && began.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(fake.ran.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -338,21 +381,35 @@ fn times_are_iso_8601() {
 }
 
 #[test]
-fn another_accounts_wait_or_cancel_finds_no_run() {
+fn another_accounts_wait_or_cancel_reads_nothing_and_never_says_gone() {
     let fake = Fake::new(None, vec![]);
     let engine = Engine::open(None, fake.clone(), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
-    let not_found =
-        || Failure::http(404, Some("run_not_found".into()), Some("no such Run on this Mac".into()));
-    // Signed in to another account, or signed out: the Run is not there, from the very next call
-    // (the account is read for every wait and cancel, never reused).
-    for account in [Some("team:team_2"), None] {
+    // Signed in to another account (409) or signed out (401), from the very next call (the
+    // account is read for every wait and cancel, never reused). Never 404 (Codex's BLOCK at
+    // 1bf18b3d, F2): a follower takes 403 and 404 as the Run gone and forgets it, so a switch back
+    // could never find it again.
+    for (account, status, code) in
+        [(Some("team:team_2"), 409, "run_other_account"), (None, 401, "run_not_signed_in")]
+    {
         *fake.account.lock().unwrap() = account.map(str::to_owned);
-        let wait = engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 })));
-        assert_eq!(wait.unwrap_err(), not_found(), "{account:?}");
-        let cancel = engine.perform("runs.cancel", &args(json!({ "id": id })));
-        assert_eq!(cancel.unwrap_err(), not_found(), "{account:?}");
+        for call in [
+            engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 }))),
+            engine.perform("runs.cancel", &args(json!({ "id": id }))),
+        ] {
+            let failure = call.unwrap_err();
+            assert!(
+                matches!(&failure, Failure::Http { status: s, code: Some(c), .. } if *s == status && c == code),
+                "{account:?}: {failure:?}"
+            );
+        }
     }
+    // A Run that does not exist is still 404.
+    let missing = engine.perform("runs.wait", &args(json!({ "id": "run_none", "timeoutMs": 10 })));
+    assert!(
+        matches!(&missing.unwrap_err(), Failure::Http { status: 404, .. }),
+        "no such Run is 404"
+    );
     // Back on the Run's own account: it is there, and the other account's cancel did nothing.
     *fake.account.lock().unwrap() = Some("team:team_1".into());
     let snapshot =

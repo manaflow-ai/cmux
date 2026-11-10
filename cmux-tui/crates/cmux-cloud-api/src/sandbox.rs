@@ -377,7 +377,11 @@ impl Engine {
         }
     }
 
-    /// `run_not_found` unless the Run `id` is the account the app is signed in to now.
+    /// Whether the Run `id` is the account the app is signed in to now: `run_not_found` when no
+    /// such Run exists, `run_not_signed_in` (401) when the app is signed out, and
+    /// `run_other_account` (409) when it is another account's. Neither of the last two says the
+    /// Run is gone: a follower waits them out (a switch back finds the Run again), and neither
+    /// answers anything of the Run's.
     fn owned(&self, id: &str) -> Result<(), Failure> {
         if !self.lock().runs.contains_key(id) {
             return Err(not_found());
@@ -386,10 +390,11 @@ impl Engine {
         let account = self.steps.scope();
         let state = self.lock();
         let run = state.runs.get(id).ok_or_else(not_found)?;
-        if account.is_none() || run.scope != account {
-            return Err(not_found());
+        match account {
+            None => Err(not_signed_in()),
+            Some(account) if run.scope.as_deref() != Some(account.as_str()) => Err(other_account()),
+            Some(_) => Ok(()),
         }
-        Ok(())
     }
 
     fn create(self: &Arc<Self>, args: &Map<String, Value>) -> Result<Value, Failure> {
@@ -421,17 +426,31 @@ impl Engine {
             ));
         }
         let Some(account) = self.steps.scope() else {
-            return Err(refused(
-                401,
-                "run_not_signed_in",
-                "the cmux app is not signed in to Cloud (or not running)",
-            ));
+            return Err(not_signed_in());
         };
+        // The account the send was made under, as the app read it then (`expectedAccount`:
+        // `user_id`, `team_id`): a send whose app switched since starts nothing.
+        if let Some(expected) = args.get("expectedAccount") {
+            let mut account_row = expected.clone();
+            if let Some(row) = account_row.as_object_mut() {
+                row.insert("signed_in".into(), Value::Bool(true));
+            }
+            let expected = account_scope(&json!({ "account": account_row }));
+            if expected.as_deref() != Some(account.as_str()) {
+                return Err(account_changed());
+            }
+        }
         let scoped = format!("{account}\u{0}{key}");
+        let suffix = format!("\u{0}{key}");
         let digest = hex(&Sha256::digest(
             serde_json::to_vec(&json!([task, agent, timeout_ms])).unwrap_or_default(),
         ));
         let mut state = self.lock();
+        // The key made a Run under another account (its answer lost, then a switch before the
+        // retry): never a second Run under this one, which would take the first account's task.
+        if state.runs.values().any(|run| run.key.ends_with(&suffix) && run.key != scoped) {
+            return Err(account_changed());
+        }
         if let Some(run) = state.runs.values().find(|run| run.key == scoped) {
             if run.digest != digest {
                 return Err(refused(
@@ -585,9 +604,15 @@ impl Engine {
         run.finished_ms = Some(now);
         run.updated_ms = now;
         // A start cut off before it named its machine may still be making one: a list without it is
-        // not proof until then. A named machine is deleted by its id, which is proof at once.
-        if cut && run.machine.is_none() {
-            run.settle_ms = run.created_ms + run.timeout_ms + ms(timing.start_settle);
+        // not proof until then. Any other end with no machine named: a create the app took may
+        // still be on its way into the list for a while after. A named machine is deleted by its
+        // id, which is proof at once.
+        if run.machine.is_none() {
+            run.settle_ms = if cut {
+                run.created_ms + run.timeout_ms + ms(timing.start_settle)
+            } else {
+                now + ms(timing.start_settle)
+            };
         }
         self.save(&state);
         self.changed.notify_all();
@@ -724,6 +749,26 @@ fn id_arg(args: &Map<String, Value>) -> Result<&str, Failure> {
 
 fn not_found() -> Failure {
     refused(404, "run_not_found", "no such Run on this Mac")
+}
+
+fn not_signed_in() -> Failure {
+    refused(401, "run_not_signed_in", "the cmux app is not signed in to Cloud (or not running)")
+}
+
+fn other_account() -> Failure {
+    refused(
+        409,
+        "run_other_account",
+        "this Run is another Cloud account's: switch the cmux app back to it to follow the Run",
+    )
+}
+
+fn account_changed() -> Failure {
+    refused(
+        409,
+        "run_account_changed",
+        "the cmux app's Cloud account changed since this send: no Run started under this one",
+    )
 }
 
 fn hex(bytes: &[u8]) -> String {

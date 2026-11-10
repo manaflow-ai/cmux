@@ -1090,8 +1090,26 @@ fn steps(
     });
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
-    // With `--account`: the machine is that account's before anything is sent to it.
-    if let Err(outcome) = machine_on_account(runner, request, machine_id, deadline) {
+    // With `--account`: the machine is that account's before anything is sent to it. One this run
+    // made under another account is deleted here: the caller's cleanup trusts only its own
+    // account's list, which never shows it.
+    if let Err(mut outcome) = machine_on_account(runner, request, machine_id, deadline) {
+        if progress.made.as_deref() == Some(machine_id) {
+            let target = format!("machine:{machine_id}");
+            let killed = runner.cmux(&words(&[
+                "cloud",
+                "kill-machine",
+                "--target",
+                &target,
+                "--confirm",
+                "--json",
+            ]));
+            if let Outcome::Failed { error, .. } = &mut outcome
+                && let Some(details) = error.get_mut("details").and_then(Value::as_object_mut)
+            {
+                details.insert("delete_asked".to_owned(), json!(step_result(&killed).is_ok()));
+            }
+        }
         return outcome;
     }
 
