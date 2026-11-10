@@ -45,8 +45,11 @@ export interface RowView {
   refused?: string;
 }
 
-/** A held entry: a stream event, or a Stop answer that came during a snapshot read. */
-type Held = BoardEvent | { kind: "answer"; machine: TeamMachine; stale?: boolean };
+/** A held entry: a stream event, or a Stop answer or refusal that came during a snapshot read. */
+type Held =
+  | BoardEvent
+  | { kind: "answer"; machine: TeamMachine; stale?: boolean }
+  | { kind: "refusal"; id: string; message: string };
 
 export type Schedule = (flush: () => void) => void;
 
@@ -165,6 +168,7 @@ export class BoardStore {
     this.held = null;
     for (const event of held) {
       if (event.kind === "answer") this.answer(event.machine, event.stale);
+      else if (event.kind === "refusal") this.refuse(event.id, event.message);
       else this.record(event);
     }
   }
@@ -316,8 +320,7 @@ export class BoardStore {
       if (machine?.id === id && !newer) this.answer(machine);
       else this.endStopping(id);
     } catch (error) {
-      const now = this.rows.get(id);
-      if (now) this.setRow(id, { ...now, stopping: false, refused: errorMessage(error) });
+      this.refuse(id, errorMessage(error));
     }
   }
 
@@ -327,9 +330,21 @@ export class BoardStore {
     try {
       await this.client.call(BoardOps.open, { machine: id });
     } catch (error) {
-      const now = this.rows.get(id);
-      if (now) this.setRow(id, { ...now, refused: errorMessage(error) });
+      this.refuse(id, errorMessage(error));
     }
+  }
+
+  /**
+   * Shows why the host refused Stop or Open, and ends Stopping. A snapshot read under way would rebuild the row
+   * without it, so the refusal is held and shown over the snapshot.
+   */
+  private refuse(id: string, message: string): void {
+    if (this.held) {
+      this.held.push({ kind: "refusal", id, message });
+      return;
+    }
+    const now = this.rows.get(id);
+    if (now) this.setRow(id, { ...now, stopping: false, refused: message });
   }
 
   /** Shows a Stop answer, and ends Stopping whatever it says. */

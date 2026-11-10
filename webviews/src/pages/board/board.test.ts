@@ -405,6 +405,30 @@ describe("store", () => {
     expect(store.getSnapshot().totals.running).toBe(0);
   });
 
+  test("a Stop or Open refusal that lands during a snapshot read still shows once the snapshot is in", async () => {
+    const provider = new MockBoardProvider({ snapshot: { machines: [machine("a"), machine("b")] } });
+    const { store, frame } = manualStore(provider);
+    await store.start();
+    frame();
+    const read = provider.call.bind(provider);
+    let release = () => {};
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === "cmux.board.stop" || op === "cmux.board.open") throw new Error(`refused ${op}`);
+      if (op !== "cmux.board.snapshot") return read<R>(op, params);
+      const stale = { machines: [machine("a"), machine("b")] } as R;
+      await new Promise<void>((resolve) => (release = resolve));
+      return stale;
+    };
+    const refreshing = store.refresh();
+    await store.stopMachine("a");
+    await store.openMachine("b");
+    release();
+    await refreshing;
+    frame();
+    expect(store.getRow("a")).toMatchObject({ stopping: false, refused: "refused cmux.board.stop" });
+    expect(store.getRow("b")).toMatchObject({ refused: "refused cmux.board.open" });
+  });
+
   test("with a filter on, a cost tick neither re-sorts nor refilters; a change of filter result does", async () => {
     const provider = new MockBoardProvider({
       snapshot: { machines: [machine("a", { createdAt: 2 }), machine("b", { createdAt: 1 })] },
