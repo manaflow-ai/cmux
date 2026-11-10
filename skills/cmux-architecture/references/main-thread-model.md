@@ -69,8 +69,9 @@ public static func run(executable: URL, arguments: [String], stdin: Data? = nil,
     }
 ```
 
-After (the fix PR for this hang): the function leaves the caller's actor, and the bytes go through
-`PipeFeed` (`CmuxNextCompat/Process`), which writes and closes on a serial queue of its own after launch:
+After (#39998, the fix for this hang): the function leaves the caller's actor, and the bytes go through
+`PipeFeed`, a type that PR adds to `CmuxNextCompat/Process`, which writes and closes on a serial queue of its
+own after launch:
 
 ```swift
 @concurrent public static func run(executable: URL, arguments: [String], stdin: Data? = nil, ...) async throws -> ProcessResult {
@@ -87,7 +88,7 @@ The general recipe:
 1. Find who awaits the function. If any caller is main-actor, its synchronous stretches run on main.
 2. Blocking for a moment (a launch, a short read): mark the function `@concurrent`.
 3. Blocking for an unknown time (a pipe, a socket, a wait, a disk on a network volume): put the call on a lane
-   (`work.run(_, mayBlock:)`) or a queue of its own (`PipeFeed`), and await the result.
+   (`work.run(_, mayBlock:)`) or a queue of its own (`PipeFeed` once #39998 lands), and await the result.
 4. Use the seam (`blockingWrite`, `blockingRun`, ...) rather than the raw call, so the runtime check sees it if
    it ever lands on main again.
 5. Never wait synchronously for that work from main (no semaphore, no `blockingSync`): await it.

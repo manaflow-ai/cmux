@@ -103,6 +103,24 @@ def _statement_header(masked_lines: list[str], line: int, column: int) -> str:
     return "\n".join(parts)
 
 
+def _effects_async(signature: str) -> bool:
+    """Whether the declaration SIGNATURE (from `func`/`init`/`subscript`) is async: `async` or `reasync` right
+    after its parameter list, not inside a parameter's or the result's closure type."""
+    opening = signature.find("(")
+    if opening < 0:
+        return False
+    depth = 0
+    for pos in range(opening, len(signature)):
+        depth += (signature[pos] in "([") - (signature[pos] in ")]")
+        if depth == 0:
+            return re.match(r"\s*(async|reasync)\b", signature[pos + 1:]) is not None
+    return False
+
+
+TASK_CLOSURE = re.compile(r"\bTask\s*(\(\s*(priority:[^{]*)?\))?\s*$")
+MAIN_CLOSURE = re.compile(r"\bMainActor\.run\s*(\([^{]*\))?\s*$")
+
+
 def _classify(header: str, enclosing: list[Scope], default_type: str, actors: set[str]) -> Scope:
     """The scope a `{` opens, from the statement header before it and the scopes around it."""
     text = " ".join(header.split())
@@ -113,7 +131,7 @@ def _classify(header: str, enclosing: list[Scope], default_type: str, actors: se
     type_match = TYPE_DECL.search(text)
     if decl is not None and not (type_match and type_match.start() > decl.start()):
         before, signature = text[:decl.start()], text[decl.start():]
-        if not re.search(r"\)\s*(async|reasync)\b", signature):
+        if not _effects_async(signature):
             return Scope("func", "sync")
         if "@concurrent" in before:
             return Scope("func", "off")
@@ -150,6 +168,12 @@ def _classify(header: str, enclosing: list[Scope], default_type: str, actors: se
         return Scope("block", "")
     if ACCESSOR.match(text):
         return Scope("func", "caller" if re.search(r"\basync\b", text) and owner != "actor" else "sync")
+    if MAIN_CLOSURE.search(text):
+        return Scope("func", "main")
+    if TASK_CLOSURE.search(text):
+        # `Task { }` inherits a main-actor context's isolation; from a caller-isolated one it runs on the
+        # global executor (counted as off the caller).
+        return Scope("closure", "task")
     if INLINE_CLOSURE.search(text):
         return Scope("closure", "inline")
     return Scope("closure", "off")
@@ -157,9 +181,18 @@ def _classify(header: str, enclosing: list[Scope], default_type: str, actors: se
 
 def _runs_on_caller(stack: list[Scope]) -> bool:
     """Whether code in the innermost scope of STACK runs on the caller's actor or the main actor."""
+    in_task = False
     for scope in reversed(stack):
         if scope.kind == "block" or (scope.kind == "closure" and scope.isolation == "inline"):
             continue
+        if scope.kind == "closure" and scope.isolation == "task":
+            in_task = True
+            continue
+        if scope.kind == "type":
+            # A Task at type scope (a stored property's initializer) takes the type's isolation.
+            return in_task and scope.isolation == "main"
+        if in_task:
+            return scope.kind == "func" and scope.isolation == "main"
         return scope.kind == "func" and scope.isolation in ("caller", "main")
     return False
 
