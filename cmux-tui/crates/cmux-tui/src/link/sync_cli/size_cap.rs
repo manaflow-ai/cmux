@@ -161,10 +161,25 @@ pub(crate) fn count(number: u64) -> String {
     out
 }
 
-/// `args` without `--allow-large`, and whether it was there.
-pub(crate) fn take_allow_large(args: &[String]) -> (Vec<String>, bool) {
-    let kept: Vec<String> = args.iter().filter(|arg| *arg != "--allow-large").cloned().collect();
-    let given = kept.len() != args.len();
+/// `args` without the `--allow-large` flag, and whether it was there. A word that is the value of
+/// a flag in `takes_value`, or comes after `--`, is never the flag: it stays.
+pub(crate) fn take_allow_large(args: &[String], takes_value: &[&str]) -> (Vec<String>, bool) {
+    let mut kept = Vec::with_capacity(args.len());
+    let (mut given, mut value_next, mut text) = (false, false, false);
+    for arg in args {
+        if text || value_next {
+            value_next = false;
+            kept.push(arg.clone());
+            continue;
+        }
+        if arg == "--allow-large" {
+            given = true;
+            continue;
+        }
+        text = arg == "--";
+        value_next = takes_value.contains(&arg.as_str());
+        kept.push(arg.clone());
+    }
     (kept, given)
 }
 
