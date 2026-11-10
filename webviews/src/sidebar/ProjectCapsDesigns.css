@@ -12,8 +12,8 @@
   --pcd-pad: 10px;
   --pcd-box: 16px;
   --pcd-gap: 8px;
-  /* The sidebar's glass blur; none under Reduce Transparency, where the veil alone stands. */
-  --pcd-blur: blur(12px);
+  /* The sidebar's glass: the chrome level (sidebar and sticky headers); none under Reduce Transparency, where the veil alone stands. */
+  --pcd-blur: var(--ds-glass-chrome-blur);
   --pcd-veil: color-mix(in srgb, var(--pcd-tone) 90%, transparent);
   --pcd-dot: 8px; /* SidebarStyle.unreadDotSize */
   --pcd-chip: var(--grid-icon-box, 16px);
