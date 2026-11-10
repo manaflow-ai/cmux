@@ -63,7 +63,9 @@ struct CloudBringBack {
             throw ActionFailure(message: CloudBringBackStrings.notFromMove)
         }
         // The move back committed before (this run or one before a relaunch): only open the tab.
-        if !toMachine, let back = entry.broughtBack {
+        if let back = entry.broughtBack {
+            // Brought back already: only its tab here opens, never a move on from a machine it left.
+            guard !toMachine else { throw ActionFailure(message: CloudBringBackStrings.notFromMove) }
             return perform(tab: tab, action: action) { try await reshow(entry.shown(back), tab: tab) }
         }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
@@ -175,7 +177,8 @@ struct CloudBringBack {
             guard let socket = await target.daemon.connection?.endpoint?.socketPath, let folder = CloudMoveFolder(chat: entry.localChat) else {
                 throw Failure(message: CloudMoveStrings.notConnected(target.machine.title), retry: again)
             }
-            let remote = try await CloudMove(services: services).sync(folder, to: socket, machine: target.machine.title, cli: cli, retry: again)
+            let remote = try await CloudMove(services: services).sync(folder, to: socket, machine: target.machine.title, cli: cli, retry: again,
+                                                                      distinct: entry.remoteFolder, suffix: "-" + String(target.machineID.prefix(8)))
             let vmKind = await CloudMove.ownerAnswer(target).vmKind
             onto = (socket, vmKind, remote)
         }
@@ -213,12 +216,13 @@ struct CloudBringBack {
     private func landed(on target: CloudMachineSession, _ remote: (folder: String, chat: String), session: String, entry: CloudMovedChats.Entry,
                        key: String?, tab: TabModel) async throws -> String {
         let name = target.machine.title
+        // The old entry goes only once the new one is kept: either way the chat stays one this Mac can bring back.
         if let host = AgentTabStore.registryHost(of: target.daemon) {
             var next = entry
             (next.machineID, next.host, next.session, next.remoteFolder, next.remoteChat) = (target.machineID, host, session, remote.folder, remote.chat)
             services.cloud.movedChats.record(next)
+            services.cloud.movedChats.forget(host: entry.host, session: entry.session)
         }
-        services.cloud.movedChats.forget(host: entry.host, session: entry.session)
         services.cloud.accessAsks.chatBroughtBack(machineID: entry.machineID, session: entry.session, services: services)
         services.cloud.accessAsks.start(services: services)
         do {
