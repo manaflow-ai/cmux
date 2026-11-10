@@ -1069,6 +1069,7 @@ class RouteStep(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/cmux_next_base_tier.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
+            shutil.copy(ROOT / "scripts/ci/deadline_http.py", root / "scripts/ci/")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"
