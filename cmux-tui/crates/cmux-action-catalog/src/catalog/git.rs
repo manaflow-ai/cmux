@@ -17,7 +17,7 @@ pub static ACTIONS: &[Action] = &[
         category: "tab",
         symbol: "arrow.triangle.branch",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::WORKTREE_NAME.optional(), args::WORKTREE_BASE.optional()],
+        arguments: &[args::WORKTREE_NAME.asked_in_palette(), args::WORKTREE_BASE.asked_in_palette()],
         targets: &["tab"],
         cli_name: "action git-worktree-create",
         ..Action::DEFAULT
@@ -42,7 +42,7 @@ pub static ACTIONS: &[Action] = &[
         category: "tab",
         symbol: "trash",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::WORKTREE_DISCARD.optional(), args::CONFIRM.optional()],
+        arguments: &[args::WORKTREE_DISCARD.asked_in_palette(), args::CONFIRM.optional()],
         targets: &["tab"],
         cli_name: "action git-worktree-remove",
         is_destructive: true,

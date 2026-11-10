@@ -397,6 +397,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.keep": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.list": {
       "scope": "cloud:read",
       "class": "read"
@@ -442,6 +446,10 @@
       "class": "read"
     },
     "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.retention.set": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -1092,6 +1100,10 @@
     "pane.list": {
       "scope": "workspace:read",
       "class": "read"
+    },
+    "pane.move": {
+      "scope": "workspace:write",
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "scope": "workspace:read",
@@ -2031,6 +2043,7 @@
     "cloud.environment.build",
     "cloud.environment.delete",
     "cloud.fs.remove",
+    "cloud.machine.archive_delete",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",
@@ -2045,6 +2058,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.turn_checkpoint",
+    "cloud.owner.turn_rewind",
+    "cloud.owner.turns",
     "cloud.port.close",
     "cloud.previews.create_link",
     "cloud.previews.refresh",

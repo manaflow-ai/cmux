@@ -304,12 +304,13 @@ pub struct Ack {
     pub prompt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    /// A read control's answer: JSON text, at most [`MAX_READ_RESULT_BYTES`].
+    /// A read control's answer, or one part of it: JSON text, at most [`MAX_READ_RESULT_BYTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
 }
 
-/// The largest read answer the hub keeps (its 64 KiB body bound).
+/// The largest read answer one hub message carries (its 64 KiB body bound). A larger answer
+/// goes in parts, each one message (`server/mesh_read.rs`), so no page is refused for its size.
 pub const MAX_READ_RESULT_BYTES: usize = 64 * 1024;
 
 impl Ack {

@@ -367,6 +367,8 @@ export function createAcpmuxDebug(
     },
 
     toast(text) {
+      // No text is no toast: a capture that sent none drew an empty toast and read it back as `shown`.
+      if (typeof text !== "string" || !text.trim()) return { shown: false, text: "", error: "toast needs text" };
       host.toast?.(text);
       return { shown: host.toast != null, text };
     },

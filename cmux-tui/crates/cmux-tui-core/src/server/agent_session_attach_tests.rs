@@ -170,6 +170,8 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// When set, each prompt's acceptance comes this long after the prompt (a cold chat's).
+    pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
 }
@@ -343,6 +345,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The media reader (agent_session_media_tests.rs): one video, [`FAKE_VIDEO`].
+            "_acpmux/media_open" | "_acpmux/media_range" => Some(media_reply(&frame)),
             // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
             "acp.session.fork" => Some(json!({"sessionId":
                 if params["throughSeq"] == json!(7) { "acp_untaggable" } else { "acp_side_1" }})),
@@ -358,7 +362,24 @@ fn serve(
                 "overrides": {"scope": params["scope"], "text": params["text"]},
             })),
             "session/set_model" | "session/set_mode" => Some(json!({})),
+            // A side question (`/btw`): a harness with no read-only mode is refused with its reason.
+            "_acpmux/btw" if params["question"] == json!("no read-only mode") => Some(json!({
+                FAKE_ERROR: "this agent has no read-only mode",
+                FAKE_ERROR_DATA: {"reason": "btw.no_read_only_mode"}})),
+            // The folder is not trusted yet: acpmux's trust gate refuses it.
+            "_acpmux/btw" if params["question"] == json!("untrusted folder") => Some(json!({
+                FAKE_ERROR: "trust the folder first",
+                FAKE_ERROR_DATA: {"reason": "trust.pending"}})),
+            // An acpmux from before inline answers opens a lasting side session.
+            "_acpmux/btw" if params["question"] == json!("old acpmux") => {
+                Some(json!({"sessionId": "acp_side", "model": null, "readOnly": "mode"}))
+            }
+            "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" if params["agent"] == json!("grok") => {
+                Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                    "userCode": "WDJB-MJHT", "needsCode": false}))
+            }
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
                 "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
@@ -393,6 +414,9 @@ fn serve(
             "session/prompt" => {
                 if let Some(gate) = &fixture.prompt_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                if let Some(delay) = fixture.accept_after {
+                    std::thread::sleep(delay);
                 }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
@@ -589,7 +613,12 @@ impl Client {
 
     /// The answer to request `id`.
     pub(super) fn answer(&mut self, id: u64) -> Value {
-        let deadline = Instant::now() + WAIT;
+        self.answer_within(id, WAIT)
+    }
+
+    /// The answer to request `id`, waiting at most `timeout`.
+    pub(super) fn answer_within(&mut self, id: u64, timeout: Duration) -> Value {
+        let deadline = Instant::now() + timeout;
         loop {
             let line = self.read_line(deadline).expect("no response before the deadline");
             if line.get("event").is_some() {
@@ -713,6 +742,7 @@ include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
+include!("agent_session_media_tests.rs");
 
 // MARK: Capability and trust
 
@@ -771,6 +801,7 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
         json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
                "scope":"user","text":"Read early."}),
+        json!({"id":15,"cmd":"agent-session-btw","surface":surface,"question":"why?"}),
         json!({"id":15,"cmd":"agent-session-side","surface":surface,"live":true}),
     ]
 }
@@ -1057,6 +1088,26 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
 }
 
 #[test]
+fn a_prompt_acpmux_accepts_after_a_cold_start_is_sent_not_timed_out() {
+    // HQ run 42617701877's phone-start row: the first prompt of a chat started a moment before
+    // was accepted after more than 5 s, and the phone was told `agent_session.timeout`.
+    let late = Duration::from_secs(6);
+    assert!(late < agent_session_attach::PROMPT_ACCEPT_TIMEOUT);
+    let fixture = Fixture { accept_after: Some(late), ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("prompt-late", fixture);
+    let mux = mux_with(&fake, "asa-prompt-late");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "prompt-late");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let id = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                "prompt_id":"prompt-late","text":"hello"}));
+    let reply = client.answer_within(id, late + WAIT);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["turn_id"], json!("turn_1"));
+}
+
+#[test]
 fn a_content_prompt_preserves_order_bytes_and_pasted_metadata_on_the_pinned_session() {
     let fake = FakeAcpmux::start("prompt-content");
     let mux = mux_with(&fake, "asa-prompt-content");
@@ -1192,6 +1243,21 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
             json!({"saved": true, "restarted": true}),
         ),
+        // Gemini saves a key; Grok runs its device flow (acpmux words each refusal).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "grok", "sessionId": SESSION}),
+            json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                   "userCode": "WDJB-MJHT", "needsCode": false}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1217,6 +1283,76 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
                "sessionId":"acp_other"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish","login_id":"l",
                "code":"x".repeat(5000)}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+// MARK: Side question
+
+/// The composer's `/btw <question>` on a Cloud chat (`agent-session-btw-v1`): acpmux's inline
+/// `_acpmux/btw` on the tab's own session, its `{text}` back unchanged, its refusal as an answer
+/// with only its reason. Nothing but the question passes.
+#[test]
+fn a_side_question_goes_inline_to_the_pinned_session() {
+    let fake = FakeAcpmux::start("btw");
+    let mux = mux_with(&fake, "asa-btw");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_BTW_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "btw");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-btw","surface":surface,"question":"why?"})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (question, sent, data) in [
+        (" why did it flake? ", "why did it flake?", json!({"text": "It flaked on a timeout."})),
+        (
+            "no read-only mode",
+            "no read-only mode",
+            json!({"refused": {"reason": "btw.no_read_only_mode"}}),
+        ),
+        ("untrusted folder", "untrusted folder", json!({"refused": {"reason": "trust.pending"}})),
+    ] {
+        let reply = client
+            .request(json!({"cmd":"agent-session-btw","surface":surface,"question":question}));
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let frame = fake.frame();
+        assert_eq!(frame["method"], json!("_acpmux/btw"));
+        assert_eq!(
+            frame["params"],
+            json!({"sessionId": SESSION, "question": sent, "inline": true,
+                   "_meta": {"acpmux": {"via": "app"}}}),
+            "the tab's own session, inline, held to the app's folder-trust gate; nothing else"
+        );
+    }
+    // An older acpmux opened a lasting side session instead: it is ended, and the answer says so.
+    let reply = client
+        .request(json!({"cmd":"agent-session-btw","surface":surface,"question":"old acpmux"}));
+    assert_eq!(reply["data"], json!({"refused": {"reason": "unsupported"}}), "{reply}");
+    assert_eq!(fake.frame()["method"], json!("_acpmux/btw"));
+    let kill = fake.frame();
+    assert_eq!(kill["method"], json!("_acpmux/kill"));
+    assert_eq!(kill["params"], json!({"sessionId": "acp_side", "purge": true}));
+    for bad in [
+        json!({"cmd":"agent-session-btw","surface":surface}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
+               "_meta":{"acpmux":{"via":"app"}}}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
     }
@@ -1698,10 +1834,13 @@ fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
     fake.no_frame();
 }
 
-/// A phone on the Cloud carrier keeps its asking policy in a side chat, as in the chat itself
-/// (`agent-session-prompt`): the daemon marks the side chat's first prompt `via: cloud-mobile`.
+/// A phone on the Cloud carrier never gets a side chat with a looser asking policy than its chat:
+/// its channel reaches only hostd's adapter commands (`phone_carrier.rs`, cmux-next-ios/SECURITY.md),
+/// and `agent-session-side` is not one of them (a side chat is a fork, which that channel is
+/// refused). The side chat is refused `remote_denied` and nothing reaches acpmux. Should a phone's
+/// side chat be allowed later, `submit_prompt` already marks its first prompt `via: cloud-mobile`.
 #[test]
-fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
+fn a_phones_side_chat_is_refused_on_its_carrier_channel() {
     let fake = FakeAcpmux::start("side-phone");
     let mux = mux_with(&fake, "asa-side-phone");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -1714,14 +1853,6 @@ fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
     let _ = fake.frame();
     let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
                                       "prompt":"Try it in Rust","prompt_id":"side-p2"}));
-    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
-    let _ = fake.frame();
-    let _ = fake.frame();
-    let prompt = fake.frame();
-    assert_eq!(prompt["method"], json!("session/prompt"));
-    assert_eq!(prompt["params"]["sessionId"], json!("acp_side_1"));
-    assert_eq!(
-        prompt["params"]["_meta"],
-        json!({"acpmux": {"promptId": "side-p2", "via": "cloud-mobile"}})
-    );
+    assert_code(&reply, "remote_denied");
+    fake.no_frame();
 }

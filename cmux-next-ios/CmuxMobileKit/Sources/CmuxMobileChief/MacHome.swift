@@ -5,12 +5,49 @@ import Observation
 
 /// Markdown to one plain line, as a list preview: the rows, Chief's pin
 /// bubble and its VoiceOver label (F4).
+///
+/// Runs once per row of every Home read, so a text with nothing to strip costs one pass
+/// over its bytes and no regular expression (`home_list_first_screen`,
+/// cmux-next-ios/design/instant-perf.md).
 func plainPreview(_ markdown: String) -> String {
-    markdown
-        .replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-        .replacingOccurrences(of: "[*_`#>]", with: "", options: .regularExpression)
-        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        .trimmingCharacters(in: .whitespaces)
+    var text = markdown
+    if text.utf8.contains(UInt8(ascii: "`")) {
+        text = text.replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
+    }
+    if text.utf8.contains(where: { PreviewMarkers.bytes.contains($0) }) {
+        var kept = String.UnicodeScalarView()
+        kept.append(contentsOf: text.unicodeScalars.lazy.filter { !PreviewMarkers.scalars.contains($0) })
+        text = String(kept)
+    }
+    if PreviewMarkers.needsSpaceFolding(text) {
+        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+    return text.trimmingCharacters(in: .whitespaces)
+}
+
+/// The Markdown markers a preview drops (`[*_`#>]`), and whether a text has any run of
+/// whitespace that is not already one space.
+private enum PreviewMarkers {
+    static let scalars: Set<Unicode.Scalar> = ["*", "_", "`", "#", ">"]
+    static let bytes: Set<UInt8> = Set(scalars.map { UInt8($0.value) })
+
+    /// False only for ASCII text whose whitespace is single spaces: then `\\s+` to one space
+    /// changes nothing. Any other text (a tab, a newline, two spaces, or a non-ASCII scalar,
+    /// which may be Unicode whitespace) takes the regular expression.
+    static func needsSpaceFolding(_ text: String) -> Bool {
+        var lastWasSpace = false
+        for byte in text.utf8 {
+            if byte >= 0x80 { return true }
+            if byte == 0x20 {
+                if lastWasSpace { return true }
+                lastWasSpace = true
+            } else {
+                if byte == 0x09 || byte == 0x0A || byte == 0x0B || byte == 0x0C || byte == 0x0D { return true }
+                lastWasSpace = false
+            }
+        }
+        return false
+    }
 }
 
 /// A conversation of the Mac's Home list other than the Mac Chief's: pushed
@@ -91,10 +128,20 @@ public struct MacHomeRow: Identifiable, Hashable, Sendable {
     /// RFC 3339, with or without a fraction.
     static func time(_ text: String?) -> Date? {
         guard let text else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: text) { return date }
-        return ISO8601DateFormatter().date(from: text)
+        if let date = WireTime.fractional.date(from: text) { return date }
+        return WireTime.whole.date(from: text)
+    }
+
+    /// One pair of formatters for every row. Making the pair per row was most of a Home
+    /// read: 5,000 rows took 2 s on the simulator (`home_list_first_screen`).
+    /// `ISO8601DateFormatter` is safe to use from any thread.
+    private enum WireTime {
+        nonisolated(unsafe) static let fractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        nonisolated(unsafe) static let whole = ISO8601DateFormatter()
     }
 }
 
@@ -276,6 +323,7 @@ public final class MacHomeFeed {
             await opened?.close()
             guard mine == generation else { return }
             problem = Self.reason(error)
+            readAnswered()
         }
     }
 
@@ -338,6 +386,7 @@ public final class MacHomeFeed {
         closeSessions()
         self.macID = macID
         link = nil
+        readAnswered()
         let old = detach()
         Task { await old?.close() }
     }
@@ -369,6 +418,44 @@ public final class MacHomeFeed {
 
     /// Reads the rows: one read at a time, and a request during a read runs one more after it.
     public func refresh() { refresh(relist: false) }
+
+    /// ``refresh()``, returning once the next read (or the channel open it needs)
+    /// has answered, so a Retry shows its spinner for as long as the load and no
+    /// longer. It returns at once with nothing to read from (no channel, no link),
+    /// on cancellation, and after `cap` (a channel that goes quiet without closing
+    /// never answers; Retry must come back to be tapped again).
+    public func reload(cap: Duration = .seconds(15)) async {
+        refresh(relist: false)
+        guard client != nil || opening else { return }
+        readWaiterCount += 1
+        let id = readWaiterCount
+        // task-owner: the cap of one reload; ends at the cap or with the reload's own end
+        let capTask = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: cap)
+            self?.endReadWait(id)
+        }
+        defer { capTask.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { readWaiters[id] = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.endReadWait(id) }
+        }
+    }
+
+    /// Reloads waiting for the next read's answer, by id.
+    @ObservationIgnored private var readWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored private var readWaiterCount = 0
+
+    private func endReadWait(_ id: Int) {
+        readWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    /// A read or an open answered (either way): every waiting reload returns.
+    private func readAnswered() {
+        let waiting = readWaiters
+        readWaiters = [:]
+        for waiter in waiting.values { waiter.resume() }
+    }
 
     private func refresh(relist: Bool) {
         guard let client else {
@@ -406,6 +493,7 @@ public final class MacHomeFeed {
                     guard mine == self.generation else { return }
                     self.problem = Self.reason(error)
                 }
+                self.readAnswered()
                 if !self.readAgain { break }
             }
         }

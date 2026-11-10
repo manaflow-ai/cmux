@@ -43,8 +43,8 @@ impl Hub {
         self.recap_visibility(session);
         // The git watch follows the chats clients hold (`git_watch.rs`).
         self.git_watch_wake();
-        // Its `attached` and `shown` change no event carries (`list_guard.rs`).
-        self.events.changed();
+        // Its `attached` and `shown` change no event carries (`list_guard.rs`): its row only.
+        self.events.row_changed(session);
     }
 
     /// An attached client starts or stops showing the chat.
@@ -60,7 +60,7 @@ impl Hub {
         }
         self.left_off(session, was_shown, seen);
         self.recap_visibility(session);
-        self.events.changed();
+        self.events.row_changed(session);
     }
 
     /// The last client showing the chat stopped: the person has seen it up to `seq`, read before

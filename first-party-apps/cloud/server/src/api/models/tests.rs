@@ -40,7 +40,10 @@ fn encode(machine: &Machine) -> Value {
 
 #[test]
 fn a_catalog_record_relays_every_field_as_it_came() {
-    let source = with(record("vm-1", "7"), json!({ "pause_reason": null, "desktop": true }));
+    let source = with(
+        record("vm-1", "7"),
+        json!({ "pause_reason": null, "desktop": true, "paused_hourly_rate_usd": 0.0014 }),
+    );
     let machine = decode(source.clone());
     assert_eq!(machine.record.status, CloudMachineStatus::Running);
     let encoded = encode(&machine);

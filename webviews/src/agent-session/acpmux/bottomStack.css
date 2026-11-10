@@ -238,3 +238,53 @@
 .acpmux-composer-queue > li {
   --ui-enter-distance: 0px;
 }
+/* SEND-TUCK: a prompt sent while the transcript is scrolled up arcs over the composer and tucks
+   behind it (conversation/sendTuck.ts; Leo, 2026-11-08: "it kind of, like, waterfalls over the
+   composer if you think of the composer as a bar"). Two layers over the pane, over the composer and
+   the transcript's floating controls (Jump to latest, layer-sticky), hold a copy each; the falling
+   copy's layer ends at the composer's top edge. Neither takes the pointer; the copy is a small
+   sent-prompt pill with its chips' thumbnails. */
+.acpmux-send-tuck-layer {
+  position: absolute;
+  z-index: var(--layer-sticky);
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.acpmux-send-tuck-layer[data-send-tuck-layer="over"] {
+  height: 0;
+}
+.acpmux-send-tuck {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(320px, 60%);
+  transform-origin: 50% 100%;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+.acpmux-send-tuck__pill {
+  overflow: hidden;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface, Canvas));
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-send-tuck__pill--chip {
+  flex: 0 1 auto;
+  max-width: 96px;
+}
+.acpmux-send-tuck__thumb {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+}

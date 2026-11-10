@@ -30,9 +30,29 @@ notify) is the record, and a marker whose run name already has a dispatch
 created after the marker was uploaded is not dispatched again. A ready
 state always dispatches.
 
+A failed state is first taken over (cmux_tui_tree_takeover.py): a waiting
+feat-cmux-next commit re-runs its own artifacts run, which claims, builds
+and publishes the key (never the reporting run itself); its publish
+then starts every marker's tree jobs. Only when no waiter can take it over
+are the markers reported in red. One run that died (or whose jobs GitHub
+never created) no longer turns every commit waiting on its tree red.
+
+A pull request's same-tree run has a concurrency group of its own and no
+cancel, and is_current() is read only at the dispatch, so when the head moves
+on its older same-tree runs stay in the Mac queue (2026-11-09: 14 runs waiting
+only for their scheme compile, 3 of them for one branch). After a dispatch on a
+same-repository pull request's head branch, and after a marker of that
+pull request is found superseded, cancel_superseded_same_tree() cancels that
+branch's superseded same-tree runs, but keeps the newest run, the runs of the
+pull request's head and the oldest candidate (base tier:
+cmux_next_base_tier.py). The sweep reads only what GitHub records (the
+artifact's run, pulls/<n>). A marker that a fork pull request's run uploaded
+(it runs the fork's workflow file, so it can write any marker) starts and
+cancels nothing; the fork keeps its pull_request run.
+
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
-Needs GH_TOKEN with actions: write (dispatch, delete markers), contents: read
+Needs GH_TOKEN with actions: write (dispatch, delete markers, cancel runs), contents: read
 and pull-requests: read. Exits 0 when the API fails: a notify problem must not
 turn a good publication red; it prints a ::warning:: instead.
 """
@@ -46,6 +66,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -64,6 +85,16 @@ MAX_MARKERS = 50
 # The run history read for the once-per-marker failed report: 100 runs a page.
 RUN_PAGES = 5
 WORKFLOW = "cmux-next.yml"
+# A run in one of these states has not finished.
+OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
+# The Mac jobs of a same-tree run (its tiers, TIERS). A run with one of them in progress is never cancelled.
+MAC_JOBS = ("cmux-next daemon tests", "cmux app scheme compile (Debug)")
+# Jobs whose `if` reads `inputs.same_tree_sha == ''`: a same-tree run lists both as skipped (run 42607592895),
+# a plain dispatch runs them. The REST API returns no dispatch inputs, and a plain dispatch on the branch has
+# the same `cmux-next · <sha>` name, so these are what tells a same-tree run apart.
+SAME_TREE_SKIPPED_JOBS = ("cmux-next push head preflight", "cmux-next path routing")
+# Branches never swept: cmux-next.yml's push-origin same-tree runs (base verdicts) run on them.
+NEVER_SWEPT = ("main", "feat-cmux-next")
 TREE_BASE = "https://files.cmux.com/cmux-tui/tree"
 
 
@@ -74,12 +105,61 @@ class Api(Protocol):
     def delete(self, path: str) -> int: ...
 
 
+# One call's longest wait for GitHub, from its start to the last byte of its answer. A caller that must
+# finish before a deadline budgets this much for each call it makes there, a write included.
+REQUEST_TIMEOUT_S = 30
+
+
+class RequestTimeout(TimeoutError):
+    """A call that did not finish within its whole-request bound. Its socket may still be open on the
+    abandoned worker thread, so a write (a dispatch, a cancel) may have reached GitHub, or may yet: the
+    caller treats it as unknown, never as done and never as refused."""
+
+
+def urlopen_within(request: urllib.request.Request, bound: float) -> tuple[int, bytes, dict[str, str]]:
+    """One HTTP call bounded as a whole: name lookup, connect, TLS, the status line, every header and the
+    body end within BOUND seconds on one monotonic clock, or RequestTimeout. urlopen's own timeout bounds
+    each socket wait, not the call: a server that sends a byte every few seconds holds it as long as it
+    likes (Codex review of #40530: a 204 after 0.293 s with a 0.1 s timeout). So the call runs on a
+    daemon thread joined with BOUND; its socket timeout is BOUND too, so an abandoned call ends soon after.
+    An HTTP error status is an answer, returned as (status, body, headers) like a success."""
+    outcome: list = []
+
+    def call() -> None:
+        try:
+            try:
+                # Read at call time: tests replace urllib.request.urlopen.
+                response = urllib.request.urlopen(request, timeout=bound)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                outcome.append((response.status, response.read(),
+                                {k.lower(): v for k, v in (response.headers or {}).items()}))
+        except BaseException as error:  # handed to the caller's thread
+            outcome.append(error)
+
+    started = time.monotonic()
+    worker = threading.Thread(target=call, name="github-request", daemon=True)
+    worker.start()
+    worker.join(bound)
+    if worker.is_alive() or not outcome:
+        raise RequestTimeout(f"{request.get_method()} {request.full_url}: no full answer within {bound:g} s "
+                             f"({time.monotonic() - started:.1f} s)")
+    if isinstance(outcome[0], BaseException):
+        raise outcome[0]
+    return outcome[0]
+
+
 class GitHub:
+    # Every call's whole-request bound (urlopen_within); a test sets a fraction of a second.
+    timeout: float = REQUEST_TIMEOUT_S
+
     def __init__(self, token: str, api_url: str = "https://api.github.com"):
         self.token = token
         self.api_url = api_url.rstrip("/")
 
-    def _request(self, method: str, url: str, body: dict | None = None):
+    def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
+        """One call, with its response headers. RequestTimeout past self.timeout."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(url, data=data, method=method, headers={
             "Accept": "application/vnd.github+json",
@@ -88,11 +168,11 @@ class GitHub:
         # Unredirected: an artifact download redirects to blob storage, which
         # must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, response.read()
-        except urllib.error.HTTPError as error:
-            return error.code, error.read()
+        return urlopen_within(request, self.timeout)
+
+    def _request(self, method: str, url: str, body: dict | None = None):
+        status, payload, _ = self._send(method, url, body)
+        return status, payload
 
     def get(self, path: str):
         status, payload = self._request("GET", f"{self.api_url}/{path}")
@@ -118,8 +198,8 @@ def fetch_completion(key: str) -> object | None:
     # The query string bypasses a cached 404 at the CDN edge.
     url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
-            return json.loads(response.read())
+        status, payload, _ = urlopen_within(urllib.request.Request(url), REQUEST_TIMEOUT_S)
+        return json.loads(payload) if status == 200 else None
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
 
@@ -192,7 +272,9 @@ def dispatch_refs(marker: dict, repo: str) -> list[str]:
     return refs
 
 
-def is_current(api: Api, repo: str, marker: dict) -> bool:
+def is_current(api: Api, repo: str, marker: dict, pull: dict | None = None) -> bool:
+    """Whether the marker's commit is still what its branch or pull request tests. PULL is pulls/<pr>, when
+    the caller already read it."""
     if marker["origin"] in ("push", "dispatch"):
         # A scheduled DEV build owns an immutable SHA. Its tree may finish
         # after feat-cmux-next advances, so the branch pointer is not an
@@ -210,7 +292,8 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
             return True
         head = api.get(f"repos/{repo}/git/ref/heads/{marker['branch']}")
         return head.get("object", {}).get("sha") == marker["sha"]
-    pull = api.get(f"repos/{repo}/pulls/{marker['pr']}")
+    if pull is None:
+        pull = api.get(f"repos/{repo}/pulls/{marker['pr']}")
     return pull.get("state") == "open" and pull.get("head", {}).get("sha") == marker["status_sha"]
 
 
@@ -245,9 +328,127 @@ def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
     return names
 
 
+def run_jobs(api: Api, repo: str, run_id: int) -> list[dict] | None:
+    """The jobs of a run's latest attempt, or None when they are unreadable."""
+    try:
+        listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    except (RuntimeError, OSError, ValueError):
+        return None
+    jobs = listed.get("jobs") if isinstance(listed, dict) else None
+    return [job for job in jobs if isinstance(job, dict)] if isinstance(jobs, list) else None
+
+
+def is_same_tree(jobs: list[dict]) -> bool:
+    """Whether these are a same-tree run's jobs: its routing jobs are skipped (SAME_TREE_SKIPPED_JOBS)."""
+    skipped = {job.get("name") for job in jobs if job.get("conclusion") == "skipped"}
+    return all(name in skipped for name in SAME_TREE_SKIPPED_JOBS)
+
+
+def mac_job_running(jobs: list[dict]) -> bool:
+    return any(job.get("name") in MAC_JOBS and job.get("status") == "in_progress" for job in jobs)
+
+
+def from_same_repository(artifact: dict) -> bool:
+    """Whether GitHub records the artifact's run as a same-repository run (not a fork pull request's).
+
+    A fork pull request's run executes the fork's own workflow file, so it can upload any marker.json under
+    the marker's name (review of #39634, comment 6744212258). Its marker must neither choose a dispatch ref
+    nor sweep; the fork keeps its pull_request run. A missing id counts as a fork."""
+    run = artifact.get("workflow_run")
+    if not isinstance(run, dict):
+        return False
+    repository, head_repository = run.get("repository_id"), run.get("head_repository_id")
+    return isinstance(repository, int) and repository == head_repository
+
+
+def sweep_branch(marker: dict, repo: str, artifact: dict, pull: dict | None) -> str | None:
+    """The head branch whose same-tree runs a pull request marker may sweep, or None.
+
+    Only a same-repository pull request's head branch: only that pull request's same-tree runs run there. A
+    fork's runs go to the base branch (dispatch_refs), which holds every fork pull request's same-tree runs
+    and the push verdicts. The decision reads what GitHub records, never the marker's claims: the artifact's
+    run (from_same_repository, its head_branch) and PULL, pulls/<pr>. The head branch must be the pull
+    request's, in this repository, not its base, not main or feat-cmux-next (their push-origin same-tree
+    runs are base verdicts), and the one the marker and the artifact's run name. Anything missing: None."""
+    if marker.get("origin") != "pull_request" or not from_same_repository(artifact) or not isinstance(pull, dict):
+        return None
+    head, base = pull.get("head"), pull.get("base")
+    if not isinstance(head, dict) or not isinstance(base, dict) or not isinstance(head.get("repo"), dict):
+        return None
+    head_ref, base_ref = head.get("ref"), base.get("ref")
+    if (head["repo"].get("full_name") != repo or not isinstance(head_ref, str) or not REF.match(head_ref)
+            or not isinstance(base_ref, str) or not base_ref or head_ref == base_ref
+            or head_ref in NEVER_SWEPT or head_ref != marker.get("head_ref")
+            or artifact["workflow_run"].get("head_branch") != head_ref):
+        return None
+    return head_ref
+
+
+def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
+                                log: Callable[[str], None] = print) -> list[int]:
+    """Cancel a pull request's superseded same-tree runs on its head BRANCH; returns their ids.
+
+    The runs looked at are cmux-next.yml's open first-attempt dispatch runs on BRANCH named
+    `cmux-next · <their head>` (base tier, tip suite, DEV daily and uncached runs have other names). The
+    newest of them is kept, and so is every run of HEAD, the pull request's head (two markers of one head
+    may carry other tiers). The others are superseded; of those, a run whose jobs are unreadable, that is
+    not a same-tree run (is_same_tree) or that has a Mac job in progress is kept, and the rest are the
+    candidates. The OLDEST candidate is kept
+    too: its queued Mac job is nearest a runner, so the pull request still gets verdicts when the Mac wait
+    is longer than its push interval (cancelling every older run starved the DEV publisher on 2026-10-26).
+    The other candidates are cancelled. The jobs are read just before the cancels; a Mac job that starts
+    in the instant between loses seconds of superseded work."""
+    listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}"
+                     f"&event=workflow_dispatch&per_page=100")
+    runs = []
+    for run in (listed.get("workflow_runs") or []) if isinstance(listed, dict) else []:
+        if not isinstance(run, dict):
+            continue
+        sha = str(run.get("head_sha", ""))
+        title = run.get("display_title") or run.get("name") or ""
+        if (run.get("event") != "workflow_dispatch" or run.get("head_branch") != branch or not SHA.match(sha)
+                or title != f"cmux-next · {sha}" or not isinstance(run.get("id"), int)
+                or run.get("status") not in OPEN or not ISO_TIME.match(str(run.get("created_at", "")))):
+            continue
+        runs.append(run)
+    runs.sort(key=lambda run: (run["created_at"], run["id"]))
+    if len(runs) < 2:
+        return []
+    newest = runs[-1]
+    candidates = []
+    for run in runs[:-1]:
+        if run.get("run_attempt", 1) != 1:
+            continue
+        if run["head_sha"] == head:
+            continue
+        jobs = run_jobs(api, repo, run["id"])
+        if jobs is None or not is_same_tree(jobs):
+            continue
+        if mac_job_running(jobs):
+            log(f"same-tree run {run['id']} ({run['head_sha'][:12]}) on {branch} has a Mac job running; left alone")
+            continue
+        candidates.append(run)
+    if not candidates:
+        return []
+    oldest = candidates[0]
+    log(f"same-tree run {oldest['id']} ({oldest['head_sha'][:12]}) on {branch} is the oldest superseded run "
+        f"waiting for a Mac; kept, with the newest run {newest['id']} ({newest['head_sha'][:12]})")
+    cancelled: list[int] = []
+    for run in candidates[1:]:
+        status = api.post(f"repos/{repo}/actions/runs/{run['id']}/cancel", {})
+        if status in (202, 204):
+            cancelled.append(run["id"])
+            log(f"cancelled same-tree run {run['id']} ({run['head_sha'][:12]}) on {branch}: superseded by "
+                f"{newest['id']} ({newest['head_sha'][:12]}), no Mac job running")
+        else:
+            log(f"could not cancel same-tree run {run['id']} on {branch}: HTTP {status}")
+    return cancelled
+
+
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
-           fetch_completion: Callable[[str], object | None] = fetch_completion) -> int:
+           fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
+           quota_only: Callable[[], bool] = lambda: False) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many."""
     if state == "failed" and completion_attests(fetch_completion(key), key):
         log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
@@ -255,10 +456,40 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         state = "ready"
         reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
-    artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
+    artifacts = [artifact for artifact in listing.get("artifacts", [])
+                 if isinstance(artifact, dict) and not artifact.get("expired")]
+    # A fork's marker starts and cancels nothing (from_same_repository), so it is dropped before the MAX_MARKERS
+    # cut: newer fork markers (GitHub lists the newest first) must not hide a same-repository one.
+    foreign = [artifact for artifact in artifacts if not from_same_repository(artifact)]
+    if foreign:
+        log(f"{len(foreign)} marker(s) were uploaded by a fork pull request's run or have no run "
+            f"({', '.join(str(artifact.get('id')) for artifact in foreign[:10])}"
+            f"{', ...' if len(foreign) > 10 else ''}); a fork's marker starts and cancels nothing; ignored")
+        artifacts = [artifact for artifact in artifacts if from_same_repository(artifact)]
     dispatched = 0
+    # Head branches a superseded marker already swept in this notify.
+    swept: set[str] = set()
     # The failed report goes out once per marker (module docstring): read the run history once.
     history: dict[str, list[str]] | None = None
+    # A failed state: the first waiting feat-cmux-next commit that can take the publish over does, and no
+    # marker is reported red (cmux_tui_tree_takeover.py). Each commit is tried once per notify.
+    # A fork's marker (from_same_repository) is not read: it neither starts a takeover nor a same-tree run.
+    markers = {id(artifact): read_marker(api, artifact, key) if from_same_repository(artifact) else None
+               for artifact in artifacts[:MAX_MARKERS]}
+    taken_over = False
+    if state == "failed" and quota_only():
+        # Like the hand-off (cmux_tui_tree_handoff.py): a re-run would spend the same exhausted quota.
+        log(f"tree {key}: the reporting run failed only on GitHub's rate limit or attestation; not taken over")
+    elif state == "failed":
+        # Imported here: the base-tier kick sparse-checks out this file alone for run_name and never fails a tree.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import cmux_tui_tree_takeover as takeover
+
+        taken_over = takeover.take_over_any(
+            api, repo=repo, key=key, log=log, exclude_run=exclude_run,
+            commits=[marker["sha"] for marker in markers.values()
+                     if marker is not None and marker.get("origin") in ("push", "dispatch")
+                     and marker.get("branch") == takeover.BRANCH and marker.get("ref_kind", "heads") == "heads"])
     stamps = [str(artifact.get("created_at", "")) for artifact in artifacts[:MAX_MARKERS]]
     stamps = [stamp for stamp in stamps if ISO_TIME.match(stamp)]
     if state == "failed" and stamps:
@@ -267,24 +498,53 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         except (RuntimeError, OSError, ValueError) as error:
             log(f"::warning::could not read cmux-next.yml's run history ({error}); "
                 f"failed markers are reported again")
+    # pulls/<n> read once per pull request in this notify.
+    pulls: dict[str, dict] = {}
     for artifact in artifacts[:MAX_MARKERS]:
-        run_id = artifact.get("workflow_run", {}).get("id")
-        marker = read_marker(api, artifact, key)
+        # from_same_repository (above) kept only artifacts whose workflow_run is an object.
+        run_id = artifact["workflow_run"].get("id")
+        marker = markers[id(artifact)]
         if marker is None:
             log(f"marker {artifact.get('id')} (run {run_id}) is not a valid tree marker; ignored")
             continue
+        if marker["origin"] == "pull_request" and marker.get("head_ref") != artifact["workflow_run"].get("head_branch"):
+            # dispatch_refs reads the marker's head_ref; GitHub records the run's branch. A mismatch is a marker
+            # this run did not write for its own pull request: it starts nothing.
+            log(f"marker {artifact.get('id')} (run {run_id}) names head branch {marker.get('head_ref')!r}, but its "
+                f"run is on {artifact['workflow_run'].get('head_branch')!r}; ignored")
+            continue
+        pull = None
         try:
-            current = is_current(api, repo, marker)
+            if marker["origin"] == "pull_request":
+                number = str(marker["pr"])
+                if number not in pulls:
+                    pulls[number] = api.get(f"repos/{repo}/pulls/{number}")
+                pull = pulls[number]
+            current = is_current(api, repo, marker, pull)
         except RuntimeError as error:
             log(f"::warning::run {run_id}: could not check whether it is current: {error}")
             continue
         if not current:
             log(f"run {run_id} ({marker['origin']} {marker['status_sha'][:12]}) was superseded; nothing to start")
             api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+            # Its pull request moved on: the branch's older same-tree runs are superseded too. Once per branch.
+            branch = sweep_branch(marker, repo, artifact, pull)
+            if branch is not None and branch not in swept:
+                swept.add(branch)
+                try:
+                    head = str((pull or {}).get("head", {}).get("sha", ""))
+                    if SHA.match(head):
+                        cancel_superseded_same_tree(api, repo, branch, head, log)
+                except (RuntimeError, OSError, ValueError) as error:
+                    log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {branch}: {error}")
             continue
         if marker["origin"] == "pull_request" and state == "failed":
             log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
                 f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
+            continue
+        if state == "failed" and taken_over:
+            log(f"run {run_id}: tree {key} was taken over by a waiting feat-cmux-next commit; not reported red "
+                f"(its marker stays, so the publication starts its tree jobs)")
             continue
         uploaded = str(artifact.get("created_at", ""))
         if state == "failed" and history is not None and ISO_TIME.match(uploaded) and any(
@@ -315,6 +575,12 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                     f"for {marker['sha'][:12]}, tiers {inputs['same_tree_tiers']}")
                 if state == "ready":
                     api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+                if ref == sweep_branch(marker, repo, artifact, pull):
+                    try:
+                        # is_current read the pull request's head as this marker's status_sha.
+                        cancel_superseded_same_tree(api, repo, ref, marker["status_sha"], log)
+                    except (RuntimeError, OSError, ValueError) as error:
+                        log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {ref}: {error}")
                 break
             log(f"run {run_id}: dispatch on {ref} refused (HTTP {status})")
         else:
@@ -339,7 +605,31 @@ def main(argv: list[str]) -> int:
         return 0
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
     try:
-        notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason)
+        # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
+        own_run = os.environ.get("GITHUB_RUN_ID", "")
+        run_id = int(own_run) if own_run.isdigit() else 0
+
+        def quota_only() -> bool:
+            if not run_id:
+                return False
+            import cmux_tui_tree_handoff as handoff  # same directory; needs the gh CLI the artifacts job has
+            jobs = handoff._list(f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+
+            def log_of(job: dict) -> str | None:
+                result = handoff._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
+                return result.stdout if result.returncode == 0 else None
+
+            return handoff.quota_only_failure(jobs, log_of)
+
+        def safe_quota_only() -> bool:
+            try:
+                return quota_only()
+            except Exception as error:  # an unreadable run is no evidence of a quota failure
+                print(f"::warning::could not read run {run_id}'s jobs for the quota check: {error}")
+                return False
+
+        notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
+               exclude_run=run_id, quota_only=safe_quota_only)
     except (RuntimeError, OSError, ValueError) as error:
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
     return 0

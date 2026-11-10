@@ -76,6 +76,15 @@ impl Machine {
 
     /// Starts the daemon and a chat with the stand-in agent; the `ACPMUX_BIN` its agent got.
     fn agents_bin(&self) -> String {
+        let (_, env) = self.agents_env(&["ACPMUX_BIN"]);
+        let bin = env["ACPMUX_BIN"].as_str().unwrap_or_default().to_owned();
+        assert!(!bin.is_empty(), "the agent has no ACPMUX_BIN: {env}");
+        bin
+    }
+
+    /// Starts the daemon and a chat with the stand-in agent; the chat's id and the values of
+    /// `names` in its agent's environment.
+    fn agents_env(&self, names: &[&str]) -> (String, Value) {
         let started = self.acp(&["daemon", "start"]);
         assert!(
             started.status.success(),
@@ -95,15 +104,13 @@ impl Machine {
             .as_str()
             .unwrap_or_else(|| panic!("no chat: {created}"))
             .to_owned();
-        let prompt =
-            json!({"sessionId": session, "prompt": [{"type": "text", "text": "envs: ACPMUX_BIN"}]});
+        let ask = format!("envs: {}", names.join(","));
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": ask}]});
         let (reply, text) = acp.call_text("session/prompt", prompt);
         assert!(reply.get("error").is_none(), "{reply}");
-        let env: Value =
-            serde_json::from_str(&text).unwrap_or_else(|_| panic!("no environment: {text}"));
-        let bin = env["ACPMUX_BIN"].as_str().unwrap_or_default().to_owned();
-        assert!(!bin.is_empty(), "the agent has no ACPMUX_BIN: {env}");
-        bin
+        // Never printed: it may hold the agent's caller token.
+        let env: Value = serde_json::from_str(&text).expect("the agent's environment as JSON");
+        (session, env)
     }
 
     /// Runs `"$ACPMUX_BIN" <args>` as an agent's shell does, with `ACPMUX_BIN` = `bin`.
@@ -201,4 +208,45 @@ fn w5s_acpmux_bin_runs_acpmux_in_the_apps_bin_layout() {
     let alias = machine.dir.join("app/bin/acpmux");
     let bin = Path::new(&bin);
     assert!(bin == alias || bin == machine.wrapper(), "ACPMUX_BIN={}", bin.display());
+}
+
+/// F7 of #39020: an agent's shell has only what the daemon gave its agent. With that
+/// environment alone (the test sets no `ACPMUX_HOME` or socket for the command), `"$ACPMUX_BIN"`
+/// reaches the daemon that started the agent: its `ls` names the agent's own chat.
+#[test]
+fn w5s_acpmux_bin_with_the_agents_own_env_reaches_its_daemon() {
+    let machine = Machine::new("ownenv", |_| vec![cmux_tui().to_owned(), PathBuf::from("acp")]);
+    let names = [
+        "ACPMUX_BIN",
+        "ACPMUX_ENV",
+        "ACPMUX_HOME",
+        "ACPMUX_SOCKET",
+        "ACPMUX_SESSION_ID",
+        "ACPMUX_SESSION_TOKEN",
+        "ACPMUX_SESSION_TOKEN_SOCKET",
+    ];
+    let (session, env) = machine.agents_env(&names);
+    let bin = env["ACPMUX_BIN"].as_str().unwrap_or_default().to_owned();
+    assert!(!bin.is_empty(), "the agent has no ACPMUX_BIN");
+    let mut command = Command::new(&bin);
+    command.args(["--json", "ls"]).stdin(Stdio::null());
+    daemon_env::apply(&mut command, &machine.dir, daemon_env::Agents::StandIn, &[]);
+    command.env("HOME", machine.dir.join("home"));
+    for name in ["ACPMUX_HOME", "ACPMUX_SOCKET"] {
+        command.env_remove(name);
+    }
+    for name in names {
+        if let Some(value) = env[name].as_str().filter(|v| !v.is_empty()) {
+            command.env(name, value);
+        }
+    }
+    let out = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains(&session),
+        "\"$ACPMUX_BIN\" --json ls from the agent's own environment did not list its chat \
+         {session} ({:?})\nstdout:\n{stdout}\nstderr:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

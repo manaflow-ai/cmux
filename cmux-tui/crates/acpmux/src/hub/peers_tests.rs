@@ -580,3 +580,50 @@ fn a_chat_attached_again_without_history_tells_only_its_clients_they_lagged() {
     );
     peer.stop();
 }
+
+/// A peer's reattach notice reaches only that peer's chat: no local closed row goes stale on it,
+/// so the next list rebuilds none of them (Leo 2026-11-04: "never ... acceptable ... linear time
+/// growth degradation"). Each reattach rebuilt every closed row on the next list. At 5 and 300
+/// closed rows alike.
+#[test]
+fn a_peers_reattach_leaves_every_local_closed_row_cached() {
+    for closed in [5_usize, 300] {
+        let store = Box::new(crate::store::MemoryStore::default());
+        let hub = Hub::new(crate::config::Config::default(), store);
+        for n in 0..closed {
+            let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": format!("c-{n}"),
+                "name": format!("c-{n}"), "harness": "claude", "family": "claude", "cwd": "/w",
+                "status": "closed", "createdAt": 1, "updatedAt": n + 1,
+            }))
+            .unwrap();
+            hub.insert_test_session(meta);
+        }
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
+        let rows = [json!({"sessionId": "r1", "status": "idle", "updatedAt": 1})];
+        let sessions = crate::peer::PeerNotice::Sessions(rows.into());
+        hub.apply_peer_notice("vm", peer.generation, sessions);
+        hub.visit_session_summaries(false, |_| {});
+        use std::sync::atomic::Ordering::SeqCst;
+        let invalidations = || hub.events.summary_generation.load(SeqCst);
+        let builds = || hub.closed_summary_builds.load(SeqCst);
+        let (before, built) = (invalidations(), builds());
+        for _ in 0..3 {
+            hub.apply_peer_notice(
+                "vm",
+                peer.generation,
+                crate::peer::PeerNotice::Notification {
+                    method: crate::peer::REATTACHED_NOTICE.into(),
+                    params: json!({"sessionId": "r1"}),
+                    link: 1,
+                },
+            );
+            hub.visit_session_summaries(false, |_| {});
+        }
+        assert_eq!(invalidations() - before, 0, "closed-row invalidations at {closed}");
+        assert_eq!(builds() - built, 0, "closed rows rebuilt at {closed}");
+        peer.stop();
+    }
+}

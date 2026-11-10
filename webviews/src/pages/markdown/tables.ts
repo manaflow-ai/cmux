@@ -28,7 +28,13 @@ import {
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
-import { markSidewaysEdges, SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import {
+  followShownScrollerFade,
+  markSidewaysEdges,
+  SIDEWAYS_ATTRIBUTE,
+  SIDEWAYS_INK,
+  SIDEWAYS_SCROLLER_ATTRIBUTE,
+} from "../../scrollers";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -273,11 +279,14 @@ export class ResizableTableView extends TableView {
     this.resize.observe(this.dom);
     this.resize.observe(this.table);
     this.unsubscribe = widths?.subscribe(() => this.applySaved()) ?? (() => {});
+    // Its thin thumb fades in and out under the scrollbar fade (scrollers.ts SIDEWAYS_INK).
+    this.unfade = followShownScrollerFade(this.dom, SIDEWAYS_INK);
     viewsByWrapper.set(this.dom, this);
     this.applySaved();
   }
 
   private readonly unsubscribe: () => void;
+  private readonly unfade: () => void;
 
   private readonly resize: ResizeObserver;
   /** Where the pointer last was over the table's box (client coordinates); null once it left. */
@@ -289,6 +298,9 @@ export class ResizableTableView extends TableView {
    */
   private readonly layoutChanged = (): void => {
     markSidewaysEdges(this.dom);
+    const box = this.dom;
+    const sideways = box.clientWidth < box.scrollWidth - 0.5;
+    if (box.hasAttribute(SIDEWAYS_ATTRIBUTE) !== sideways) box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways);
     if (!this.dragging) this.refresh();
   };
 
@@ -521,6 +533,7 @@ export class ResizableTableView extends TableView {
   }
 
   destroy(): void {
+    this.unfade();
     this.dom.removeEventListener("mousemove", this.hover);
     this.dom.removeEventListener("mouseleave", this.leave);
     this.dom.removeEventListener("scroll", this.layoutChanged);

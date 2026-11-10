@@ -184,7 +184,8 @@
 .acpmux-attachment-video-play svg {
   transform: translateX(1px);
 }
-.acpmux-attachment-video-length {
+.acpmux-attachment-video-length,
+.acpmux-attachment-video-unplayable {
   position: absolute;
   right: 4px;
   bottom: 4px;
@@ -197,6 +198,18 @@
   line-height: 1.4;
   pointer-events: none;
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A video nothing can play (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop
+   up anymore :("): it says so over its whole tile, in the play glyph's place, on the length's scrim. */
+.acpmux-attachment-video-unplayable {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: var(--acpmux-attach-radius);
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
 }
 /* An image the engine could not draw: the thumbnail's own size, a picture glyph over a short note,
    never an empty checker that reads like a transparent image. */
@@ -355,7 +368,7 @@
 .acpmux-attachment-progress-arc {
   stroke: var(--agent-text);
   stroke-linecap: round;
-  transition: stroke-dashoffset 120ms linear;
+  transition: stroke-dashoffset var(--agent-motion-in, 120ms) linear;
 }
 /* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
    corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
@@ -1137,7 +1150,7 @@ button.acpmux-attachment-pasted-open:hover {
   pointer-events: none;
   filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent))
     drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16));
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-source-badge > img,
 .acpmux-attachment-image .acpmux-source-badge > img {

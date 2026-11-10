@@ -37,6 +37,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         offers: false,
         subsessions: false,
         displays: None,
+        hosted: false,
     }
 }
 
@@ -255,6 +256,67 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     );
 }
 
+/// CMUX-288: the `acpmux` server's `pr_state` runs `gh` with the server's env, and a client that
+/// passes a stdio server only an allowlisted env (Codex) left out the agent's gh sign-in. The
+/// server now gets the agent's own `GH_TOKEN`, `GITHUB_TOKEN` and `GH_CONFIG_DIR` after
+/// `for_session` resets its env, folded behind `cmux` too; no other server gets them.
+#[test]
+fn the_acpmux_server_gets_the_agents_gh_sign_in() {
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([
+        ("GH_TOKEN".to_owned(), "gho_profile".to_owned()),
+        ("GH_CONFIG_DIR".to_owned(), "/home/u/.config/gh-work".to_owned()),
+    ]);
+    let folded = tools.scoped(&env).for_session("s-gh").folded();
+    let cmux = &folded.servers[0];
+    assert!(cmux.env.iter().all(|(k, _)| !super::GH_ENV.contains(&k.as_str())), "{:?}", cmux.env);
+    let upstreams = &cmux.env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    let acpmux = upstreams
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == crate::acpmux_mcp::SERVER_NAME)
+        .unwrap();
+    assert_eq!(acpmux["env"]["GH_TOKEN"], "gho_profile", "{acpmux}");
+    assert_eq!(acpmux["env"]["GH_CONFIG_DIR"], "/home/u/.config/gh-work", "{acpmux}");
+}
+
+/// Which gh values the agent has: a literal profile value first, else what every local child
+/// gets; a profile reference is left out (only the launch resolves it), and nothing else comes in.
+#[test]
+fn gh_env_is_what_the_agent_starts_with() {
+    let child = || {
+        vec![
+            ("GITHUB_TOKEN".to_owned(), "ghp_login".to_owned()),
+            ("GH_TOKEN".to_owned(), "gho_login".to_owned()),
+            ("GH_HOST".to_owned(), String::new()),
+            ("NPM_TOKEN".to_owned(), "npm".to_owned()),
+        ]
+    };
+    let profile = std::collections::BTreeMap::from([
+        ("GH_TOKEN".to_owned(), "${keychain:gh}".to_owned()),
+        ("GH_CONFIG_DIR".to_owned(), "/cfg".to_owned()),
+    ]);
+    assert_eq!(
+        super::gh_env(&profile, child),
+        vec![
+            ("GITHUB_TOKEN".to_owned(), "ghp_login".to_owned()),
+            ("GH_CONFIG_DIR".to_owned(), "/cfg".to_owned()),
+        ]
+    );
+    assert!(super::gh_env(&std::collections::BTreeMap::new(), Vec::new).is_empty());
+}
+
 /// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
 /// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
 /// Code takes as "block this call", and the plugin's command runs the call instead. A deny the
@@ -453,4 +515,47 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     let fit = super::AgentTools { plugin_dir: Some(no_chat), ..without }.fit_skills();
     let fit = fit.plugin_dir.unwrap();
     assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-cua").exists());
+}
+
+/// cmux's hosted MCP server (`hosted_mcp.rs`) reaches a session only while the daemon turns it
+/// on, as an acpmux subcommand whose env holds the `cmux` CLI's path and nothing that signs in;
+/// folded behind `cmux`, its upstream spec carries the same.
+#[test]
+fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hosted-mcp-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let inputs = |hosted: bool| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        hosted,
+        ..memory_inputs(&root, None)
+    };
+    let name = crate::hosted_mcp::SERVER_NAME;
+    let off = super::resolve(&inputs(false));
+    assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
+    let on = super::resolve(&inputs(true)).for_session("s1");
+    let server = on.servers.iter().find(|s| s.name == name).expect("the hosted server");
+    assert_eq!(server.args, ["hosted-mcp"]);
+    assert_eq!(
+        server.env,
+        [(crate::hosted_mcp::CMUX_BIN_ENV.to_owned(), cmux.to_string_lossy().into_owned())]
+    );
+    let folded = super::resolve(&inputs(true)).for_session("s1").folded();
+    let upstreams: serde_json::Value = serde_json::from_str(
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1,
+    )
+    .unwrap();
+    let spec = upstreams.as_array().unwrap().iter().find(|s| s["name"] == name).unwrap();
+    assert_eq!(spec["args"], serde_json::json!(["hosted-mcp"]));
+    assert_eq!(spec["env"], serde_json::json!({"CMUX_BIN": cmux.to_string_lossy()}));
+    // No `cmux` CLI to ask the app for a token: no server.
+    std::fs::remove_file(&cmux).unwrap();
+    assert!(super::resolve(&inputs(true)).servers.iter().all(|s| s.name != name));
+    let _ = std::fs::remove_dir_all(&root);
 }

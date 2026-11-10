@@ -161,7 +161,11 @@ jobs:
   tree-preflight:
     name: cmux-tui tree preflight
     if: ${{ !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
-    environment: ci-routing-agent
+    # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
+    # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The feat-cmux-next election fetches each active run's commit.
     timeout-minutes: 6
@@ -747,7 +751,11 @@ jobs:
     # job; every consumer reads takeover as owner-wait's or owns_key.
     if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' && needs.tree-preflight.outputs.owns_key != 'true'
     needs: tree-preflight
-    environment: ci-routing-agent
+    # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
+    # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:
@@ -1678,7 +1686,9 @@ jobs:
           echo "::notice title=publish skipped::${REF_NAME} is build-only. This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
 
   sentry-dsyms:
-    environment: sentry-dsyms
+    environment:
+      name: sentry-dsyms
+      deployment: false
     # The macOS client's debug symbols (cmux-tui, cmux-tui-host, acpmux, ...),
     # so Sentry symbolicates their crashes in the app bundle, where the
     # binaries are stripped. Never blocks a publish: a failed upload is a warning.
@@ -1717,7 +1727,11 @@ jobs:
     # The artifacts environment's deployment branch policy allows every
     # branch (pushes from any same-repo branch publish, cx-r2is); signing,
     # Sparkle, Homebrew and Apple secrets stay in the release environment.
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish to R2
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
@@ -2863,7 +2877,11 @@ jobs:
   # cmux-tui-windows/<sha>/ prefix, once build-windows is done. The prefixes the
   # first pass wrote are write-once, so this pass keeps them as published.
   publish-windows:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish the Windows daemon to R2
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
@@ -3091,7 +3109,11 @@ jobs:
           exit "$status"
 
   publish-tree:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish tree-addressed cmux-tui
     if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     # Independent of the daemon tests on every ref (chief 2026-10-13, hq-11;
@@ -3614,7 +3636,11 @@ jobs:
   # completion-windows.json; every object the first pass wrote is write-once
   # and written again with the same bytes.
   publish-tree-windows:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: add the Windows daemon to the tree
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
@@ -3642,7 +3668,11 @@ jobs:
   # Only a macOS run of those tests writes it: a pin push tests on Linux, and
   # the feat-cmux-next push of its tree then tests it on its Mac pool.
   publish-tree-tested:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: mark the published tree as daemon-tested
     needs: [tree-preflight, tree-owner-wait, publish-tree, cmux-next-daemon-tests]
     # Any OS: the Linux gate's pass marks the tree (Leo, 2026-10-26), and the
@@ -3678,7 +3708,11 @@ jobs:
   # queue, which may be an older push's. Runs that overlap are safe because the
   # write is a compare-and-swap (tests/test_cmux_tui_point_channel.py).
   point-feat-channel:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the feat-cmux-next channel at this tree
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
@@ -3718,7 +3752,11 @@ jobs:
   # published, or one another run owns); the script verifies each tree itself
   # (tree-commit-marker.sh tree-ready), so it never marks an unpublished one.
   mark-tree-commits:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: mark the commits whose tree is ready
     needs: [tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.publish-tree.result == 'success' || needs.publish-tree.result == 'skipped') }}
@@ -3770,7 +3808,11 @@ jobs:
   # upload lands first wins, the early job skips when it lost, and publish
   # adopts the served bytes, so neither ever waits for the other.
   point-machine-channel-early:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit's Linux build
     needs: [tree-preflight, tree-owner-wait, build-linux]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-linux.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
@@ -3815,7 +3857,11 @@ jobs:
   # After publish and verify-publish, as before point-machine-channel-early: it moves the channel when
   # the early job skipped or failed, and otherwise finds it current and keeps it.
   point-machine-channel:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit
     needs: [publish, verify-publish]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}

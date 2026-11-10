@@ -104,8 +104,9 @@ impl LocalStore {
     /// When the log was last written, in ms: its newest segment's modification time. A record
     /// appended, a compaction put in place and a copy an import made all set it; a status write
     /// that logs nothing does not.
+    /// None for a cold-archived chat, which is not rehydrated to answer.
     pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
-        let (_, newest) = self.segments(id).ok()?.pop()?;
+        let (_, newest) = self.segment_files(id).ok()?.pop()?;
         let at = std::fs::metadata(newest).ok()?.modified().ok()?;
         let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
         u64::try_from(ms).ok()

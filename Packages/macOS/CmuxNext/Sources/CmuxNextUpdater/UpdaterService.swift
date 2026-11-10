@@ -189,6 +189,10 @@ public final class UpdaterService {
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
+    /// ``followNetwork()`` started the monitor and its first path has not arrived: until it does the
+    /// link counts as metered, so a launch check's update does not download on Low Data Mode before
+    /// the monitor says which link this is (#39680 review F1).
+    @ObservationIgnored var networkPending = false
     /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
     /// by itself until the settings load (``configure``).
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
