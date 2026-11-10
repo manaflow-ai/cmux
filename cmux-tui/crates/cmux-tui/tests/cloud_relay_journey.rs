@@ -65,6 +65,30 @@ fn vm(root: &Path, name: &str, github: &Path) -> Machine {
     )
 }
 
+/// Every name, mode, link and byte under `folder`, `.git` included, as one number.
+fn digest(folder: &Path) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut stack = vec![folder.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let mut entries: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        entries.sort();
+        for path in entries {
+            let meta = fs::symlink_metadata(&path).unwrap();
+            path.strip_prefix(folder).unwrap().hash(&mut hasher);
+            meta.permissions().mode().hash(&mut hasher);
+            if meta.file_type().is_symlink() {
+                fs::read_link(&path).unwrap().hash(&mut hasher);
+            } else if meta.is_dir() {
+                stack.push(path);
+            } else {
+                fs::read(&path).unwrap().hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
+}
+
 fn relay(
     mac: &Machine,
     from: &Machine,
@@ -236,9 +260,10 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert_eq!(fs::read_to_string(theirs.join("keep.txt")).unwrap(), "not ours\n");
 
     // 2. The chat moves mid-turn, and what its turn wrote after the bulk goes along. VM one's
-    // folder came from this Mac's seed, so the move hops through the Mac's copy (seed_cli::hop)
-    // into a folder VM two does not have yet. Symlinks made on a machine stop a hop (Bring Back
-    // Local's rule), so VM one's go first (lib-link went above).
+    // folder came from this Mac's seed, so the move goes as git, VM one to VM two (seed_cli::hop),
+    // into a folder VM two does not have yet, and this Mac's folder is never touched. Symlinks
+    // made on a machine stop step 4's Bring Back Local (its own rule), so VM one's go first
+    // (lib-link went above).
     for link in ["outside-link", "chain-a", "chain-b", "chain-c"] {
         fs::remove_file(first.join(link)).unwrap();
     }
@@ -293,6 +318,7 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert!(!ok, "a move into VM two's own folder: {refused}");
     assert_eq!(fs::read_to_string(theirs.join("keep.txt")).unwrap(), "not ours\n");
     assert!(one_acpmux.summary(&session).is_some_and(|s| s["status"] != "closed"), "chat left");
+    let mac_before = digest(&repo);
     let (ok, moved) = move_to(&moved_to, "pump");
     assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
     assert_eq!(moved["session_id"], json!(session), "{moved}");
@@ -302,10 +328,13 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
         "the turn's last change stayed on VM one"
     );
     assert!(!moved_to.join("notes.txt").exists(), "a file the turn deleted came back on VM two");
-    assert_eq!(
-        fs::read_to_string(repo.join("src/turn.txt")).unwrap(),
-        "written by the running turn\n",
-        "the move copied machine to machine instead of hopping through this Mac's copy"
+    assert_eq!(digest(&repo), mac_before, "the move wrote into this Mac's folder");
+    // A copy machine to machine would have brought VM one's seed record along; the hop's delta
+    // seed records VM one's export.
+    assert_ne!(
+        git(&moved_to, &["rev-parse", "refs/cmux-seed/work"]),
+        git(&first, &["rev-parse", "refs/cmux-seed/work"]),
+        "the move copied machine to machine instead of sending git"
     );
 
     // 3. On VM two: the chat with its history and draft, and its queue ran there once.

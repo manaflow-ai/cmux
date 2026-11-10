@@ -1,31 +1,52 @@
-//! Move to another Cloud machine for a folder a Move to Cloud seeded from this Mac: the chat's
-//! folder hops through this Mac's own copy of it, Bring Back Local's seed pull from the first
-//! machine, then Move to Cloud's seed push to the second. Each machine clones the history from
-//! GitHub on its own network, so only the diffs cross this Mac's links. `link_relay_bench`
-//! measured 3.8 s and 6 MB on the wire this way, against 131 s and 953 MB to copy the folder
-//! machine to machine (`cmux link sync relay`) for 3,192 files and 365 MB over two 8 MB/s links.
+//! Move to another Cloud machine for a folder a Move to Cloud seeded from this Mac: the second
+//! machine gets the folder as git, VM to VM, and this Mac's working copy is never read for
+//! content nor written. `cmux link agent move --sync relay --sync-seed-local LOCAL` runs [`hop`]
+//! twice:
 //!
-//! `cmux link agent move --sync relay --sync-seed-local LOCAL` runs [`hop`] twice: the bulk before
-//! the chat freezes (a full seed of the second machine), then the frozen pass (each side's delta).
-//! This Mac keeps one seed record per folder and machine folder, and both machines may hold the
-//! folder at the same path: between the two passes the second machine's record waits under its
-//! own key ([`side_key`]), and the first machine's stays the record the next pull merges against.
-//! [`land`] makes the second machine's the record once the move commits, so Bring Back Local
-//! from there merges against it.
+//! 1. Bulk, before the chat freezes: the second machine is seeded with the seed this Mac
+//!    recorded for the first ([`super::record`], R: the HEAD, INDEX, WORK and stash commits
+//!    the first machine started from). The bundle comes from this Mac's object store alone
+//!    (`plan::plan_recorded`), so it is the seed's own small diff over GitHub; the second
+//!    machine clones the history from GitHub on its own network.
+//! 2. Frozen: the first machine exports what changed since R (`git.seed.export`, a bundle of
+//!    its commits and of an INDEX and a WORK commit of its working tree, untracked files
+//!    included), the bundle passes through a private file on this Mac with its refs renamed
+//!    from `refs/cmux-back/` to `refs/cmux-seed/` (the same length, so only the header
+//!    changes), and the second machine applies it as a delta seed since R.
+//!
+//! So only R's diff and the first machine's changes since R cross this Mac's links:
+//! `link_relay_bench` has the numbers.
+//!
+//! The conflict model: a move is not a merge. The second machine's folder must not be there
+//! (`relay.target_exists`), so nothing of its own is ever overwritten; it ends exactly as the
+//! first machine's folder was when the chat froze. This Mac's folder may have changed since R
+//! too, and it is left as it is. Bring Back Local from the second machine is then the same
+//! three-way merge it is from the first: base R, the machine's state, this Mac's folder now;
+//! a path both changed differently stops it with that path named (`sync_conflict`) and
+//! nothing written, everything else merges.
+//!
+//! The second machine's record (R, with that machine) waits under its own key ([`side_key`])
+//! until the move commits ([`land`]), since both machines may hold the folder at one path.
 
+use std::io::{Read as _, Seek as _, Write as _};
 use std::path::Path;
 
-use super::record;
-use super::sync_cli::Back;
-use super::{SeedError, bring_back, push, push_since_last};
+use super::super::seed::plan::{self, Planned, PreviousSeed, SeedParams};
+use super::record::{self, Kept, Record};
+use super::sync_cli::{self, SeedBase};
+use super::{LocalBundle, Machine, SeedError, run_seed};
 
 /// Where the second machine's record waits for the commit.
 fn side_key(to_root: &str) -> String {
     format!("hop-target:{to_root}")
 }
 
-/// One pass of the hop (module docs): the first machine's changes into `local`, then `local`
-/// onto the second machine, as a full seed the first time and a delta after.
+fn no_previous(why: &str) -> anyhow::Error {
+    SeedError::new("seed.no_previous", why).into()
+}
+
+/// One pass of the hop (module docs): the bulk the first time for `to_root`, the frozen delta
+/// once the bulk's record waits.
 pub(in crate::link) fn hop(
     from: &Path,
     from_root: &str,
@@ -34,58 +55,154 @@ pub(in crate::link) fn hop(
     local: &Path,
 ) -> anyhow::Result<()> {
     let local = std::fs::canonicalize(local)?;
-    let side = side_key(to_root);
-    let waiting = record::load(&local, &side)?;
-    // Refused before anything moves, this Mac's folder included.
-    if waiting.is_none() {
-        refuse_theirs(to, to_root)?;
+    match record::load(&local, &side_key(to_root))? {
+        None => bulk(from, from_root, to, to_root, &local),
+        Some(waiting) => frozen(from, from_root, to, to_root, &waiting),
     }
-    match bring_back(from, &local, from_root) {
-        Back::Done(_) => {}
-        Back::Conflict(conflicts, _) => {
-            return Err(SeedError::new(
-                "sync_conflict",
-                format!("{} changed both here and on the machine", conflicts.join(", ")),
-            )
-            .into());
-        }
-        Back::Failed { code, error } => return Err(SeedError::new(code, error).into()),
-    }
-    let from_record = record::load(&local, from_root)?;
-    let pushed = match &waiting {
-        // A retry to another machine than the waiting record's seeds that one whole.
-        Some(kept) => record::save(&local, to_root, kept)
-            .and_then(|()| push_since_last(to, &local, to_root).map(|_| ()))
-            .or_else(|error| match super::failure_code(&error).as_str() {
-                "seed.no_previous" => {
-                    refuse_theirs(to, to_root).and_then(|()| seed_whole(to, &local, to_root))
-                }
-                _ => Err(error),
-            }),
-        None => seed_whole(to, &local, to_root),
+}
+
+/// The seed this Mac recorded for the first machine's folder, which that machine started from.
+fn recorded(local: &Path, from_root: &str, from: &Path) -> anyhow::Result<(Record, PreviousSeed)> {
+    let Some(kept) = record::load(local, from_root)? else {
+        return Err(no_previous("this Mac never seeded the folder on the first machine"));
     };
-    // The second machine's record waits aside; the first machine's is the one a pull merges against.
-    let to_record = record::load(&local, to_root)?;
-    if let Some(kept) = &to_record
-        && pushed.is_ok()
+    if kept.mode != Kept::Seed || !kept.stash_known {
+        return Err(no_previous("the first machine's folder was copied, not seeded"));
+    }
+    if let Some(was) = &kept.machine {
+        let source = Machine::read(from)?;
+        if source.id.as_deref() != Some(was.as_str()) {
+            return Err(no_previous("this Mac's seed record is of another machine"));
+        }
+    }
+    let (Some(head), Some(index), Some(work)) =
+        (kept.head.clone(), kept.index.clone(), kept.work.clone())
+    else {
+        return Err(no_previous("the seed's record is incomplete"));
+    };
+    let previous = PreviousSeed { head, index, work, stash: kept.stash.clone() };
+    Ok((kept, previous))
+}
+
+/// The bulk (module docs, 1).
+fn bulk(
+    from: &Path,
+    from_root: &str,
+    to: &Path,
+    to_root: &str,
+    local: &Path,
+) -> anyhow::Result<()> {
+    let (kept, previous) = recorded(local, from_root, from)?;
+    refuse_theirs(to, to_root)?;
+    let machine = Machine::read(to)?;
+    if !machine.seeds {
+        return Err(Machine::outdated().into());
+    }
+    let bundle = LocalBundle::new()?;
+    let planned = plan::plan_recorded(local, &bundle.file, &previous).map_err(|fallback| {
+        SeedError::new(format!("seed.{}", fallback.code.as_str()), fallback.why)
+    })?;
+    if kept.url.as_deref().is_some_and(|url| url != planned.params.url) {
+        return Err(no_previous("the folder's GitHub remote changed since the seed"));
+    }
+    if let Err(error) = run_seed(machine.socket, to_root, &planned, &bundle, None) {
+        // The folder was not there (refuse_theirs): what the seed left is not anyone's.
+        let _ = sync_cli::delete_remote(to, to_root);
+        return Err(error.into());
+    }
+    let waiting = Record { machine: machine.id, filling: None, ..kept };
+    record::save(local, &side_key(to_root), &waiting)
+}
+
+/// The frozen pass (module docs, 2): the first machine's changes since the waiting record's
+/// seed, machine to machine as one bundle.
+fn frozen(
+    from: &Path,
+    from_root: &str,
+    to: &Path,
+    to_root: &str,
+    waiting: &Record,
+) -> anyhow::Result<()> {
+    let (Some(head), Some(index), Some(work), Some(url)) =
+        (&waiting.head, &waiting.index, &waiting.work, &waiting.url)
+    else {
+        return Err(no_previous("the waiting record is incomplete"));
+    };
+    let base = SeedBase {
+        head: head.clone(),
+        index: index.clone(),
+        work: work.clone(),
+        stash: waiting.stash.clone(),
+        stash_known: true,
+    };
+    let bundle = LocalBundle::new()?;
+    let Some(exported) = sync_cli::export_to(from, from_root, &base, &bundle.file)? else {
+        return Ok(());
+    };
+    as_seed(&bundle.file)?;
+    let planned = Planned {
+        params: SeedParams {
+            url: url.clone(),
+            repo: slug(url),
+            base: work.clone(),
+            head_ref: exported.head_ref.clone(),
+            head: exported.head.clone(),
+            index: exported.index.clone(),
+            work: exported.work.clone(),
+            stash: exported.stash.clone(),
+            sparse: None,
+            lfs: false,
+            since: Some(work.clone()),
+        },
+        skipped: Vec::new(),
+        submodules: Vec::new(),
+        bases: Vec::new(),
+        bundle_bytes: exported.bundle_bytes,
+        unchanged: false,
+    };
+    // The waiting record stays R: the base Bring Back Local from the second machine merges against.
+    run_seed(to, to_root, &planned, &bundle, None).map(|_| ()).map_err(Into::into)
+}
+
+/// `OWNER/NAME` of `https://github.com/OWNER/NAME.git`.
+fn slug(url: &str) -> String {
+    let path = url.strip_prefix("https://github.com/").unwrap_or(url);
+    path.strip_suffix(".git").unwrap_or(path).to_string()
+}
+
+/// Renames an export bundle's `refs/cmux-back/*` to the `refs/cmux-seed/*` a seed applies, in
+/// the header only (the pack after it names no refs).
+fn as_seed(bundle: &Path) -> anyhow::Result<()> {
+    const FROM: &[u8] = b" refs/cmux-back/";
+    const TO: &[u8] = b" refs/cmux-seed/";
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(bundle)?;
+    let mut head = vec![0; 64 * 1024];
+    let read = file.read(&mut head)?;
+    head.truncate(read);
+    let Some(end) = head.windows(2).position(|pair| pair == b"\n\n") else {
+        anyhow::bail!("the first machine's bundle has no header");
+    };
+    let mut header = head.get(..end).unwrap_or_default().to_vec();
+    let mut at = 0;
+    while let Some(found) =
+        header.get(at..).and_then(|rest| rest.windows(FROM.len()).position(|w| w == FROM))
     {
-        record::save(&local, &side, kept)?;
+        let start = at + found;
+        if let Some(slot) = header.get_mut(start..start + TO.len()) {
+            slot.copy_from_slice(TO);
+        }
+        at = start + TO.len();
     }
-    if let Some(kept) = &from_record {
-        record::save(&local, from_root, kept)?;
-    }
-    pushed
+    file.rewind()?;
+    file.write_all(&header)?;
+    file.sync_all()?;
+    Ok(())
 }
 
-/// A full seed of `to_root`, into a folder the second machine does not have ([`refuse_theirs`]).
-fn seed_whole(to: &Path, local: &Path, to_root: &str) -> anyhow::Result<()> {
-    push(to, local, to_root, None).map(|_| ())
-}
-
-/// A full seed into a checkout the second machine has would reset its work (a forced checkout
+/// A seed into a checkout the second machine has would reset its work (a forced checkout
 /// and a clean), so one that is there is refused as a relay refuses it (`relay.target_exists`).
 fn refuse_theirs(to: &Path, to_root: &str) -> anyhow::Result<()> {
-    if super::sync_cli::remote_kind(to, to_root)?.is_some() {
+    if sync_cli::remote_kind(to, to_root)?.is_some() {
         return Err(SeedError::new(
             "relay.target_exists",
             format!("{to_root} is already on the machine"),

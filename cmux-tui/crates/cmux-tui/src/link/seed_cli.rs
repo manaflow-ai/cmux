@@ -93,7 +93,8 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
 [--since-last | --head-first SUBPATH]
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--or-copy | --base-head SHA --base-index SHA --base-work SHA]";
+[--or-copy | --base-head SHA --base-index SHA --base-work SHA]
+       cmux link seed move --from-socket PATH --socket PATH LOCAL_FOLDER FROM_FOLDER TO_FOLDER";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -213,6 +214,28 @@ pub(super) fn run(args: &[String]) -> i32 {
         args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
     {
         return held::copy_rest(Path::new(socket), job, Path::new(local), remote);
+    }
+    // A seeded folder from one machine to another as git, this Mac's folder untouched ([`hop`]):
+    // both passes at once, as `cmux link agent move --sync relay --sync-seed-local` runs them.
+    if let ["move", "--from-socket", from, "--socket", to, local, from_root, to_root] =
+        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
+    {
+        let (from, to, local) = (Path::new(from), Path::new(to), Path::new(local));
+        let (from_root, to_root) = (from_root.trim_end_matches('/'), to_root.trim_end_matches('/'));
+        let moved = hop_reset(local, to_root)
+            .and_then(|()| hop(from, from_root, to, to_root, local))
+            .and_then(|()| hop(from, from_root, to, to_root, local))
+            .and_then(|()| land(local, to_root));
+        return match moved {
+            Ok(_) => {
+                println!("{}", json!({"ok": true, "mode": "seed"}));
+                0
+            }
+            Err(error) => {
+                println!("{}", SeedError::of(&error).line());
+                1
+            }
+        };
     }
     let Some(command) = parse(args) else {
         eprintln!("{USAGE}");

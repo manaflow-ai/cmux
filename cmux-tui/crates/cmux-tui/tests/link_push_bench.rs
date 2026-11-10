@@ -393,11 +393,36 @@ fn wire_total(wires: &[&Arc<Wire>]) -> u64 {
     wires.iter().map(|w| w.up.load(Ordering::Relaxed) + w.down.load(Ordering::Relaxed)).sum()
 }
 
-/// Move a chat's folder from one Cloud VM to another, before and after `cmux link
-/// sync relay`, through the same two links (one per machine, each `CMUX_BENCH_RATE_MBPS`
-/// each way with `CMUX_BENCH_LATENCY_MS`): before, Bring Back Local (`seed pull
-/// --or-copy` into this Mac's folder) then Move to Cloud (`seed push`, the machine cloning
-/// from the origin); after, one relay VM to VM through this Mac, nothing landing here.
+/// Every name, mode, link and byte under `folder`, `.git` included, as one number.
+fn digest(folder: &Path) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut stack = vec![folder.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let mut entries: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        entries.sort();
+        for path in entries {
+            let meta = fs::symlink_metadata(&path).unwrap();
+            path.strip_prefix(folder).unwrap().hash(&mut hasher);
+            meta.permissions().mode().hash(&mut hasher);
+            if meta.file_type().is_symlink() {
+                fs::read_link(&path).unwrap().hash(&mut hasher);
+            } else if meta.is_dir() {
+                stack.push(path);
+            } else {
+                fs::read(&path).unwrap().hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
+}
+
+/// Move a chat's folder from one Cloud VM to another through the same two links (one per
+/// machine, each `CMUX_BENCH_RATE_MBPS` each way with `CMUX_BENCH_LATENCY_MS`): before, Bring
+/// Back Local (`seed pull --or-copy` into this Mac's folder) then Move to Cloud (`seed push`,
+/// the machine cloning from the origin); after, `seed move`, git VM to VM with this Mac's
+/// folder untouched (`seed_cli::hop`); and the file-by-file relay (`sync relay`) beside them.
 /// Run with `cargo test -p cmux-tui --test link_push_bench link_relay_bench -- --ignored
 /// --nocapture`; it prints one JSON line (`{"bench":"link_relay",...}`).
 #[test]
@@ -414,6 +439,7 @@ fn link_relay_bench() {
     let one = seeding_vm(&root, "one", &github);
     let two = seeding_vm(&root, "two", &github);
     let three = seeding_vm(&root, "three", &github);
+    let four = seeding_vm(&root, "four", &github);
     let repo = fixture(&root.join("mac"), files, blob_mb);
     publish(&repo, &github);
     let (local_bytes, local_files) = tree_size(&repo);
@@ -440,6 +466,32 @@ fn link_relay_bench() {
     let edited = first.join("src/m01/f1.rs");
     let text = fs::read_to_string(&edited).unwrap() + "// edited on vm one\n";
     fs::write(&edited, text).unwrap();
+
+    // After: VM one to VM four as git (`cmux link seed move`, the hop), measured first while
+    // this Mac's record is still the seed VM one started from. This Mac's folder stays as it was.
+    let mac_before = digest(&repo);
+    let (one_hop, four_link) = (root.join("one-hop.sock"), root.join("four.sock"));
+    let wire_one_hop = proxy(&one_hop, one.socket.clone(), link);
+    let wire_four = proxy(&four_link, four.socket.clone(), link);
+    let fourth = four.home().join("work/app");
+    let (hopped, hop_wall) = timed(
+        &root,
+        &[
+            &os("seed"),
+            &os("move"),
+            &os("--from-socket"),
+            one_hop.as_os_str(),
+            &os("--socket"),
+            four_link.as_os_str(),
+            repo.as_os_str(),
+            first.as_os_str(),
+            fourth.as_os_str(),
+        ],
+    );
+    let hop_wire = wire_total(&[&wire_one_hop, &wire_four]);
+    assert_eq!(hopped["ok"], json!(true), "{hopped}");
+    let mac_untouched = digest(&repo) == mac_before;
+    assert!(mac_untouched, "the move wrote into this Mac's folder");
 
     // Before: Bring Back Local, then Move to Cloud on VM two.
     let (one_before, two_link) = (root.join("one-before.sock"), root.join("two.sock"));
@@ -471,7 +523,7 @@ fn link_relay_bench() {
     );
     let before_wire = wire_total(&[&wire_one_before, &wire_two]);
 
-    // After: one relay, VM one to VM three.
+    // Machine to machine, file by file: one relay, VM one to VM three.
     let (one_after, three_link) = (root.join("one-after.sock"), root.join("three.sock"));
     let wire_one_after = proxy(&one_after, one.socket.clone(), link);
     let wire_three = proxy(&three_link, three.socket.clone(), link);
@@ -495,6 +547,8 @@ fn link_relay_bench() {
     let status = ["status", "--porcelain=v2", "--branch"];
     assert_eq!(git(&second, &status), git(&first, &status), "VM two differs");
     assert_eq!(git(&third, &status), git(&first, &status), "VM three differs");
+    assert_eq!(git(&fourth, &status), git(&first, &status), "VM four differs");
+    assert_eq!(fs::read(fourth.join("assets/vm-output.bin")).unwrap(), written);
     assert_eq!(fs::read(third.join("assets/vm-output.bin")).unwrap(), written);
 
     let line = json!({
@@ -510,9 +564,12 @@ fn link_relay_bench() {
         "before_wire_bytes": before_wire,
         "before_pull_mode": pulled["mode"],
         "before_push_mode": pushed["mode"],
-        "after_ms": relay_wall.as_millis() as u64,
-        "after_wire_bytes": after_wire,
-        "after_written": relayed["written"],
+        "relay_ms": relay_wall.as_millis() as u64,
+        "relay_wire_bytes": after_wire,
+        "relay_written": relayed["written"],
+        "after_ms": hop_wall.as_millis() as u64,
+        "after_wire_bytes": hop_wire,
+        "mac_folder_untouched": mac_untouched,
     });
     println!("{line}");
 }
