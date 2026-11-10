@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+@testable import CmuxNextMobileHost
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -240,5 +241,34 @@ struct LargeSessionObservationTests {
         guard tab.kind == .browser, let address = tab.faviconURL,
               let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
         return OpenTabFavicons.Favicon(origin: origin, address: address)
+    }
+
+    /// O5 `IPhoneHostService.swift:374`: the folders acpmux gets for a phone's agent chats read every tab's `cwd` in one
+    /// observation, so a `cd` in any terminal read every tab again (while iPhone access is on and signed in). Each
+    /// workspace's folders are their own observation now; acpmux gets the joined list when it changed.
+    @Test(.timeLimit(.minutes(2)))
+    func o5IPhoneFoldersObserveEachWorkspacesTabsOnTheirOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let folders = MobileHostWorkspaceFolders()
+        var sent: [[String]] = []
+        folders.follow({ [store = fixture.store] in store.workspaces }, send: { sent.append($0) })
+        defer { folders.stop() }
+        await LargeSessionFixture.until { sent.last?.count == LargeSessionFixture.workspaces }
+        try #require(sent.last == (1...LargeSessionFixture.workspaces).map { "/tmp/large/\($0)" }, "fixture: \(sent.last ?? [])")
+
+        // The probe: the first terminal of each workspace changes its folder (what the follower reads of a tab).
+        let terminals = fixture.tabs().filter { $0.tab.resourceID?.rawValue.hasSuffix("_0") == true }
+        try #require(terminals.count == LargeSessionFixture.workspaces)
+        let changes = terminals.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            (item.workspace, { item.tab.cwd = "/tmp/large/\(item.workspace)/src" })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextMobileHost/", changes: changes)
+        #expect(!woken.isEmpty, "fixture: no folder observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "folder observers woken by more than one workspace: \(wide)")
+        // acpmux still follows: each workspace lists its new folder and its old one.
+        await LargeSessionFixture.until { sent.last?.contains("/tmp/large/60/src") == true }
+        #expect(sent.last?.contains("/tmp/large/7/src") == true)
+        #expect(sent.last?.count == LargeSessionFixture.workspaces * 2)
     }
 }
