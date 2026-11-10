@@ -69,6 +69,17 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(matrix.skipped("keys.rs", False, self.root, "keys.rs"), "")
         self.assertEqual(matrix.skipped("target", True, self.root, "target"), "")
 
+    def test_a_claude_start_chooses_no_login_copy(self):
+        # A headless start with no choice refuses at the one-time consent (run 42864046223).
+        self.assertEqual(self.args.login, "none")
+        self.assertEqual(matrix.start_login("claude", self.args.login), ["--login", "none"])
+        self.assertEqual(matrix.start_login("codex", self.args.login), [])
+
+    def test_a_stale_machine_list_refusal_is_asked_again(self):
+        self.assertTrue(matrix.list_unread("cloudStartSession unavailable: Couldn't read your Cloud machines, so claude "
+                                           "didn't start: a machine named x may already exist."))
+        self.assertFalse(matrix.list_unread("claude on x waits for your one-time OK to copy your Claude login"))
+
     def test_verdict_and_grid(self):
         cell = {"workspace": "secrets", "agent": "claude", "start_exit": 0, "hash_match": True,
                 "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},

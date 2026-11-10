@@ -569,9 +569,13 @@ if code != 0:
 chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
+    # `--login none` for Claude: a headless start with no login choice refuses, and a published DEV build (Release
+    # rules) waits for a one-time OK to copy the Mac's Claude login that a CI runner cannot give (cloud-chat-matrix
+    # run 42864046223). `none` copies nothing: Claude runs on the machine's team mode, the SR2/CodeRouter gateway.
     code, out, err = cmux("cloud", "start-chat", "--prompt", BROWSER_PROOF_PROMPT, "--agent", args.agent,
                           *(("--from-folder", FOLDER_PROOF_DIR) if FOLDER_PROOF_DIR else ()),
-                          "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
+                          "--name", args.tag, "--wait", "--timeout", "600", "--json",
+                          *(("--login", "none") if args.agent == "claude" else ()), timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
     # The stage it is stuck at (cloud_start_chat.rs StartStage): machine status, create in flight, or link.

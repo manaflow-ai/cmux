@@ -81,7 +81,7 @@ class CloudChatProofTests(unittest.TestCase):
                             answer = f"{reply} folder={word}"
                         rest = rest[:2] + rest[4:]
                     self.assertEqual(rest, ["--agent", "claude", "--name", "proof-test", "--wait",
-                                            "--timeout", "600", "--json"])
+                                            "--timeout", "600", "--json", "--login", "none"])
                     value = {"machine_id": "machine-proof", "session_id": "session-proof",
                              "host": "guest.example.test", "reply": answer,
                              "turn": {"toolCalls": 1}}

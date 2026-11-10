@@ -78,6 +78,9 @@ def parse_args(argv=None):
     parser.add_argument("--expected-api-origin", help="with --app")
     parser.add_argument("--credentials-file", help="with --app: a 0600 Stack credentials file the app reads")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
+    parser.add_argument("--login", choices=("none", "machine", "pass"), default="none",
+                        help="a Claude chat's `start-chat --login` (default none: the machine's own team mode, the "
+                             "SR2/CodeRouter gateway, as cloud-claude-matrix.ts's sr2 row)")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
                         help="a person's own folder as a cell, read only")
@@ -360,6 +363,21 @@ def git_state(folder: Path) -> dict | None:
             "changed": len(status.splitlines())}
 
 
+def start_login(agent: str, login: str) -> list[str]:
+    """The start-chat `--login` words for a cell. A headless start with no choice refuses (cmux-cloud-start-core
+    harness_login): a published DEV build, which counts as Release, asks for the one-time OK to copy the Mac's
+    Claude login, and a CI runner can give no OK (every cell of run 42864046223: "waits for your one-time OK").
+    `none` copies nothing, so Claude runs on the machine's own team mode, the SR2/CodeRouter gateway. Only a
+    Claude chat takes it: `none` would leave Codex signed out (its login is the Mac's broker)."""
+    return ["--login", login] if agent == "claude" else []
+
+
+def list_unread(message: str) -> bool:
+    """The app's refusal when its machine list was not fresh enough to check the name (CloudStartSessionStrings
+    listUnread); the message itself says to run the same command again."""
+    return "Couldn't read your Cloud machines" in (message or "")
+
+
 def launch_argv(app: str, socket: str, credentials_file: str | None, backend: str) -> list[str]:
     """The `open` command that starts --app on its own socket, as cloud-chat-proof.py does. The socket goes
     only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app then strips the
@@ -532,11 +550,21 @@ class Matrix:
         deadline = chat_started + self.args.timeout
         while True:
             code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", prompt,
-                                       "--agent", agent, "--name", title, "--wait", "--timeout",
-                                       str(self.args.timeout), "--json", timeout=self.args.timeout + 60)
-            if code != 75 or time.monotonic() > deadline:
+                                       "--agent", agent, *start_login(agent, self.args.login), "--name", title,
+                                       "--wait", "--timeout", str(self.args.timeout), "--json",
+                                       timeout=self.args.timeout + 60)
+            if time.monotonic() > deadline:
                 break
-            time.sleep(5)
+            if code == 75:
+                time.sleep(5)
+                continue
+            if code != 0 and list_unread(self.error(out, err).get("message") or err):
+                # The app refuses a start while its machine list is stale (CloudStartSession listFresh): two
+                # prod cells failed in 0.4 s and 2.1 s that way (run 42864046223). Read the list, then ask again.
+                self.cmux("cloud", "list-machines", "--json", timeout=60)
+                time.sleep(5)
+                continue
+            break
         cell["create_to_reply_s"] = round(time.monotonic() - chat_started, 1)
         answer = self.parsed(out) if code == 0 else {}
         failure = self.error(out, err)
