@@ -159,8 +159,8 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
     let mut quiet_shown = 0u32;
     let mut index = 0u32;
     while quiet_shown < limit && index < count {
-        if next_active < actives.len() && actives[next_active].index == index {
-            if stays(&actives[next_active]) {
+        if let Some(a) = actives.get(next_active).filter(|a| a.index == index) {
+            if stays(a) {
                 rows.push(index);
             }
             next_active += 1;
@@ -170,8 +170,8 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
         }
         index += 1;
     }
-    let work = index + actives.len() as u32;
-    rows.extend(actives[next_active..].iter().filter(|a| stays(a)).map(|a| a.index));
+    let work = index.saturating_add(u32::try_from(actives.len()).unwrap_or(u32::MAX));
+    rows.extend(actives.get(next_active..).unwrap_or_default().iter().filter(|a| stays(a)).map(|a| a.index));
 
     let hidden = quiet_total - quiet_shown;
     let tail = if hidden > 0 {
