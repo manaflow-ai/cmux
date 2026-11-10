@@ -46,7 +46,10 @@ describe("setupSteps", () => {
     expect([importing[0]?.done, importing[0]?.busy, importing[0]?.action]).toEqual([false, true, undefined]);
     expect(importing[0]?.detail).toBe("Importing your classic workspaces…");
     const failed = setupSteps({ ...state, classic: { ...state.classic!, answered: "failed" } }, strings);
-    expect([failed[0]?.done, failed[0]?.detail]).toEqual([true, "Not imported: the import stopped. Settings › Import tries again"]);
+    expect([failed[0]?.done, failed[0]?.detail]).toEqual([
+      true,
+      "Not imported: the import stopped. Settings › Import tries again",
+    ]);
   });
 
   test("a classic app still open, and an import that reconnects or resumes, say so before Import", () => {

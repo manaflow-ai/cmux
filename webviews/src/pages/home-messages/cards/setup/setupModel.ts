@@ -110,13 +110,13 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
               : answered === "declined"
                 ? t("home.setup.classic.declined")
                 : running
-              ? format("home.setup.classic.open", app, saved)
-              : format(
-                  "home.setup.classic.detail",
-                  new Intl.NumberFormat(strings.language).format(workspaces),
-                  app,
-                  saved,
-                ),
+                  ? format("home.setup.classic.open", app, saved)
+                  : format(
+                      "home.setup.classic.detail",
+                      new Intl.NumberFormat(strings.language).format(workspaces),
+                      app,
+                      saved,
+                    ),
       // Skip is a No the migration keeps (later launches don't ask; Settings › Import still brings them), so
       // the row says what Import also does before the person presses it, as the classic import dialog did.
       ...(answered === undefined && {

@@ -12,7 +12,15 @@ const strings = cardStrings();
 // A fixed save time, so the stills do not change from run to run.
 const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
 
-type Fixture = "fresh" | "classic" | "classicOpen" | "classicDeclined" | "classicImporting" | "mostlyDone" | "installing" | "unverified";
+type Fixture =
+  | "fresh"
+  | "classic"
+  | "classicOpen"
+  | "classicDeclined"
+  | "classicImporting"
+  | "mostlyDone"
+  | "installing"
+  | "unverified";
 
 const FIXTURES: Record<Fixture, SetupState> = {
   fresh: {
