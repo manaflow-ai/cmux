@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
@@ -92,6 +93,11 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
       };
     }, CHIP);
 
+  /** Waits `count` painted frames: a scroll's hover update and React's commit land by then. */
+  const frames = async (page: Page, count: number) => {
+    for (let frame = 0; frame < count; frame++) await page.evaluate(() => window.cmuxPaintFrame());
+  };
+
   /** The chip under `point`, if any. */
   const chipAt = (page: Page, point: { x: number; y: number }) =>
     page.evaluate(([x, y, chip]) => document.elementFromPoint(x, y)?.closest<HTMLAnchorElement>(chip)?.href ?? null, [
@@ -103,6 +109,7 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
   for (const [name] of engines)
     test(`${name}: a scroll puts a link card away and a chip sliding under a still pointer opens nothing`, async () => {
       const page = await browsers.get(name)!.newPage({ viewport: { width: 760, height: 720 } });
+      await installPaintedFrames(page);
       try {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
         await page.goto(base + galleryFrame(ENTRY, { variant: VARIANT, colorScheme: "dark", width: 760, height: 720 }));
@@ -124,7 +131,7 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
           if (!scroller) throw new Error("no transcript scroller");
           scroller.scrollTop = 0;
         }, CHIP);
-        await page.waitForTimeout(300);
+        await frames(page, 3);
 
         // 1. A real hover on a chip opens its card.
         const first = await middleChip(page);
@@ -136,7 +143,7 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
 
         // 2. Wheel events with no pointer move: the card goes at once.
         await page.mouse.wheel(0, 24);
-        await page.waitForTimeout(120);
+        await frames(page, 4);
         const afterFirstWheel = await openCards(page);
 
         // 3. Keep scrolling (momentum-like small steps) with the pointer still; links pass under it.
@@ -144,7 +151,7 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
         const opened = new Set<string>();
         for (let step = 0; step < 30; step++) {
           await page.mouse.wheel(0, 18);
-          await page.waitForTimeout(40);
+          await frames(page, 2);
           const under = await chipAt(page, first!);
           if (under) passed.add(under);
           for (const number of await openCards(page)) opened.add(number);
@@ -152,9 +159,10 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
         // End the scroll with a chip under the still pointer and let it rest past the card dwell.
         for (let step = 0; step < 40 && !(await chipAt(page, first!)); step++) {
           await page.mouse.wheel(0, 6);
-          await page.waitForTimeout(40);
+          await frames(page, 2);
         }
         const restingOn = await chipAt(page, first!);
+        // fixed-wait: the behavior is that no card opens past the 1 s card dwell; there is no event to wait for.
         await page.waitForTimeout(1_600);
         for (const number of await openCards(page)) opened.add(number);
 
