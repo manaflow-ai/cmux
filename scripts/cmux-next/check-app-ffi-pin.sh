@@ -45,10 +45,17 @@ manifest="$root/Packages/macOS/CmuxNext/Package.swift"
 pin_file="$root/Packages/macOS/CmuxNext/app-ffi-pin.json"
 asset="CCmuxAppFFI.xcframework.zip"
 
+# The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
+# picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
+# naming its first line that does not match.
+pin_reader="$code/scripts/ci/app_ffi_pin.py"
+workspace_manifest=cmux-tui/Cargo.toml
 # The FFI sources: cmux-app-ffi and every crate it reaches through Cargo path
 # dependencies (cmux-rd-ffi pulls cmux-remote-browser, which a hand list
-# missed on 2026-10-07), then the toolchain and the build script. Derived
-# from the Cargo.toml files at HEAD, so a new path dependency is never missed.
+# missed on 2026-10-07), a path entry of [workspace.dependencies] that a crate
+# inherits with `workspace = true` included, then the toolchain and the build
+# script. Derived from the Cargo.toml files at HEAD, so a new path dependency
+# is never missed.
 ffi_crates() {
   local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved
   while [[ -n "${queue// /}" ]]; do
@@ -56,21 +63,27 @@ ffi_crates() {
     queue=" ${queue#*" $dir "} "
     [[ "$seen" == *" $dir "* || ! -f "$root/$dir/Cargo.toml" ]] && continue
     seen+="$dir "
+    # app_ffi_pin.py workspace-paths prints absolute paths, and refuses an entry it cannot resolve.
+    inherited_paths="$(python3 -I "$pin_reader" workspace-paths "$root/$workspace_manifest" "$root/$dir/Cargo.toml")" \
+      || return 1
     while IFS= read -r dep; do
+      [[ -n "$dep" ]] || continue
+      [[ "$dep" == /* ]] || dep="$root/$dir/$dep"
       # [lib] and [[bin]] paths name files; only a directory with a Cargo.toml is a crate.
-      resolved="$(cd "$root/$dir/$dep" 2>/dev/null && pwd -P)" || continue
+      resolved="$(cd "$dep" 2>/dev/null && pwd -P)" || continue
       [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
       queue+="${resolved#"$root"/} "
-    done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/')
+    done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/'
+      printf '%s\n' "$inherited_paths")
   done
   tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
 }
+if ! crate_list="$(ffi_crates)"; then
+  echo "error: the app FFI inputs cannot be listed: the crates cmux-app-ffi reaches cannot be read (above)" >&2
+  exit 1
+fi
 crates=()
-while IFS= read -r crate; do crates+=("$crate"); done < <(ffi_crates)
-# The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
-# picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
-# naming its first line that does not match.
-pin_reader="$code/scripts/ci/app_ffi_pin.py"
+while IFS= read -r crate; do [[ -n "$crate" ]] && crates+=("$crate"); done <<<"$crate_list"
 # Of each crate, only what the FFI build reads (app_ffi_pin.py inputs: the manifest, lock file, build script, library
 # sources, headers, and the files a non-test source or build script names). A test, script or README, or a file only
 # they read, is not built into the archive: #39027 changed bindings/rust/.cmux-resource-api.json, which only a test
@@ -86,16 +99,30 @@ paths=()
 while IFS= read -r input; do [[ -n "$input" ]] && paths+=("$input"); done <<<"$listed"
 # plans/cmux-next/spec-proposals/visuals/design-tokens.json is an input (app_ffi_pin.py BUILD_READS): cmux-motion's
 # build.rs compiles its token values in, and cmux_motion_spring_base / cmux_motion_tween_base return them to the app.
-# Above the crates: the cmux-tui workspace manifest the crates inherit `workspace = true` keys from, and the cargo
-# configs and toolchain files cargo and rustup read in and above cmux-tui/crates/cmux-app-ffi, where
-# build-app-ffi.sh builds.
-paths+=(cmux-tui/Cargo.toml cmux-tui/.cargo cmux-tui/rust-toolchain cmux-tui/rust-toolchain.toml
+# Above the crates: the cargo configs and toolchain files cargo and rustup read in and above
+# cmux-tui/crates/cmux-app-ffi, where build-app-ffi.sh builds.
+paths+=(cmux-tui/.cargo cmux-tui/rust-toolchain cmux-tui/rust-toolchain.toml
   cmux-tui/crates/.cargo cmux-tui/crates/rust-toolchain cmux-tui/crates/rust-toolchain.toml
   .cargo rust-toolchain rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
-# --list-inputs prints them (tests/app-ffi-release-paths.test.sh keeps the
-# release workflow's push paths in step with this list).
+# The cmux-tui workspace manifest: while cmux-app-ffi has its own [workspace] table (cargo builds it as its own
+# workspace root, with its own [patch], [profile] and Cargo.lock), only what the crates inherit of it is an input
+# (workspace_view below; app_ffi_pin.py workspace-view). Without that table cmux-app-ffi builds in the cmux-tui
+# workspace, so the whole manifest and the cmux-tui Cargo.lock are inputs.
+if ! own_root="$(python3 -I "$pin_reader" own-root "$root/cmux-tui/crates/cmux-app-ffi/Cargo.toml")"; then
+  echo "error: the app FFI inputs cannot be listed: cmux-tui/crates/cmux-app-ffi/Cargo.toml cannot be read (above)" >&2
+  exit 1
+fi
+narrowed=0
+if [[ "$own_root" == yes ]]; then
+  narrowed=1
+else
+  paths+=("$workspace_manifest" cmux-tui/Cargo.lock)
+fi
+# --list-inputs prints them and the workspace manifest (tests/app-ffi-release-paths.test.sh keeps the release
+# workflow's push paths in step with this list: a release run on any change to the manifest is cheap and safe).
 if [[ "$list_inputs" -eq 1 ]]; then
   printf '%s\n' "${paths[@]}"
+  [[ "$narrowed" -eq 1 ]] && printf '%s\n' "$workspace_manifest"
   exit 0
 fi
 
@@ -125,6 +152,34 @@ if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
   git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" \
     || { echo "error: pinned source sha $sha is not available from $remote" >&2; exit 1; }
 fi
+# What the crates inherit of the workspace manifest at REV: the manifest and the crates' Cargo.toml files at REV (the
+# crate list of HEAD; a crate whose own Cargo.toml changed is a changed input anyway).
+workspace_view() { # workspace_view REV
+  local dir crate index=0 status=0
+  local manifests=()
+  dir="$(mktemp -d)"
+  git show "$1:$workspace_manifest" >"$dir/workspace.toml" 2>/dev/null || : >"$dir/workspace.toml"
+  for crate in "${crates[@]}"; do
+    git show "$1:$crate/Cargo.toml" >"$dir/$index.toml" 2>/dev/null || : >"$dir/$index.toml"
+    manifests+=("$dir/$index.toml")
+    index=$((index + 1))
+  done
+  python3 -I "$pin_reader" workspace-view "$dir/workspace.toml" "${manifests[@]}" || status=$?
+  rm -rf "$dir"
+  return "$status"
+}
+views_differ() { # views_differ A B: exit 0 when what the crates inherit of the workspace manifest differs
+  [[ "$narrowed" -eq 1 ]] || return 1
+  local a b
+  if ! a="$(workspace_view "$1")" || ! b="$(workspace_view "$2")"; then
+    echo "error: the app FFI inputs cannot be listed: what the FFI crates inherit of $workspace_manifest cannot be read (above)" >&2
+    exit 1
+  fi
+  [[ "$a" != "$b" ]]
+}
+inputs_differ() { # inputs_differ A B: exit 0 when an input differs between commits A and B
+  ! git diff --quiet "$1" "$2" -- "${paths[@]}" || views_differ "$1" "$2"
+}
 own_change=1
 if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
@@ -139,22 +194,32 @@ if [[ -n "$base_ref" ]]; then
       base_pin="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>/dev/null | awk '{print $1}' || true)"
     fi
     rm -rf "$base_dir"
-    if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "$sha" ]]; then
+    if ! inputs_differ "$base_commit" HEAD && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
   else
     echo "warning: --base $base_ref is not a commit here; checking against the pin only" >&2
   fi
 fi
-if ! git diff --quiet "$sha" HEAD -- "${paths[@]}" && [[ "$own_change" -eq 0 ]]; then
+drift=0
+shown=("${paths[@]}")
+git diff --quiet "$sha" HEAD -- "${paths[@]}" || drift=1
+# The report names the workspace manifest when what the crates inherit of it changed.
+if views_differ "$sha" HEAD; then
+  drift=1
+  shown+=("$workspace_manifest")
+fi
+if [[ "$drift" -eq 1 && "$own_change" -eq 0 ]]; then
   echo "note: base drift: the app FFI sources on $base_ref differ from the pinned source $sha, and this change touches neither; the base's push run reports it to the owning lane"
-  git diff --stat "$sha" HEAD -- "${paths[@]}" || true
-elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
+  git diff --stat "$sha" HEAD -- "${shown[@]}" || true
+elif [[ "$drift" -eq 1 ]]; then
   echo "error: the app FFI sources changed since the pinned source $sha:" >&2
-  git diff --stat "$sha" HEAD -- "${paths[@]}" >&2
+  git diff --stat "$sha" HEAD -- "${shown[@]}" >&2
+  [[ ${#shown[@]} -gt ${#paths[@]} ]] \
+    && echo "  ($workspace_manifest: a key, dependency entry or lint table the FFI crates inherit changed)" >&2
   # Who owns the drift: the lane of each changed crate, and the commits.
   owners=""
-  for path in $(git diff --name-only "$sha" HEAD -- "${paths[@]}"); do
+  for path in $(git diff --name-only "$sha" HEAD -- "${shown[@]}"); do
     case "$path" in
       cmux-tui/crates/cmux-rd-*) owners+=$'\n  remote desktop lane (cmux-rd-core/proto/ffi)' ;;
       cmux-tui/crates/cmux-layout-reducer*) owners+=$'\n  sidebar lane (cmux-layout-reducer, -ffi)' ;;
@@ -165,7 +230,7 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   done
   echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
   echo "Commits since the pin:" >&2
-  git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${shown[@]}" >&2 || true
   echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
   exit 1
 else

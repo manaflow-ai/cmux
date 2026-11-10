@@ -5,6 +5,9 @@
     python3 scripts/ci/app_ffi_pin.py read-pin-file app-ffi-pin.json Package.swift   # the JSON pin, same output
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [Package.swift]
     python3 scripts/ci/app_ffi_pin.py inputs ROOT CRATE_DIR...          # the files of those crates the FFI build reads
+    python3 scripts/ci/app_ffi_pin.py workspace-view WORKSPACE.toml CRATE.toml...   # what the crates inherit of it
+    python3 scripts/ci/app_ffi_pin.py workspace-paths WORKSPACE.toml CRATE.toml     # its inherited path dependencies
+    python3 scripts/ci/app_ffi_pin.py own-root CRATE.toml               # "yes" when it has its own [workspace]
 
 No Swift is parsed (2026-11-07: five lexer holes in a row, so the reader stopped lexing). The whole file is read as raw
 text, and nothing in it is skipped, comments and strings included:
@@ -418,6 +421,263 @@ def inputs(root: Path, crates: list[str]) -> list[str]:
     return sorted(path for path in found if not any(path.startswith(prefix) for prefix in prefixes))
 
 
+# What the FFI build reads of the cmux-tui workspace manifest (cmux-tui/Cargo.toml). cmux-app-ffi has its own
+# [workspace] table, so cargo builds it as its own workspace root: its own [patch], [profile] and Cargo.lock
+# (cmux-tui/crates/cmux-app-ffi/Cargo.lock, a crate input, built with --locked) apply, never those of cmux-tui. A crate
+# it reaches that has no [workspace] of its own still reads cmux-tui/Cargo.toml, the nearest workspace manifest above
+# it, for the keys it inherits: `KEY.workspace = true` under [package] takes [workspace.package] KEY, `NAME = {
+# workspace = true, ... }` in a dependency table takes [workspace.dependencies] NAME, and `[lints] workspace = true`
+# takes [workspace.lints]. The rest of that manifest (members, other crates' entries, its [patch] and [profile]) cannot
+# change the archive, and it changed 55 times on feat-cmux-next in the 14 days to 2026-11-10, so the pin check compares
+# only this view (check-app-ffi-pin.sh workspace_view). A dev-dependency is built only for tests, so its entry is not
+# in the view; its crate is still followed as an input crate (workspace_paths), as a `path` dev-dependency is.
+#
+# The manifests are read line by line (_toml_entries), the same on every Python: /usr/bin/python3 on a macOS runner is
+# 3.9, which has no tomllib, and a verdict must not depend on the runner. Where tomllib exists (3.11 and later, the
+# Linux runners) each answer is also read through it, and a disagreement refuses, so the line reader cannot be wrong
+# unnoticed. The view holds each entry's own lines (comments dropped), so a formatting change of an inherited entry
+# counts as a change.
+DEPENDENCY_TABLES = ("dependencies", "build-dependencies", "dev-dependencies")
+BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
+TRIPLE_QUOTES = ('"' * 3, "'" * 3)
+
+
+def _toml_loads():
+    try:
+        import tomllib
+    except ImportError:
+        return None
+    return tomllib.loads
+
+
+def _scan(text: str):
+    """Yield (index, char, in_string) over TEXT, TOML basic and literal strings tracked."""
+    quote, escaped = "", False
+    for index, char in enumerate(text):
+        if quote:
+            yield index, char, True
+            if escaped:
+                escaped = False
+            elif char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+            yield index, char, True
+        else:
+            yield index, char, False
+
+
+def _strip_comment(line: str) -> str:
+    """LINE without a `#` comment outside a string."""
+    for index, char, in_string in _scan(line):
+        if char == "#" and not in_string:
+            return line[:index]
+    return line
+
+
+def _depth(text: str) -> int:
+    """How many brackets and braces TEXT leaves open, strings skipped."""
+    depth = 0
+    for _, char, in_string in _scan(text):
+        if not in_string:
+            depth += (char in "[{") - (char in "]}")
+    return depth
+
+
+def _split_key(key: str) -> list[str]:
+    """A dotted TOML key (`target.'cfg(unix)'.dependencies` included) as its parts, the quotes removed."""
+    parts, rest = [], key.strip()
+    while rest:
+        if rest[0] in "\"'":
+            end = rest.find(rest[0], 1)
+            if end < 0 or "\\" in rest[1:end]:
+                raise Unresolved(f"a Cargo.toml key the line reader cannot read: {key}")
+            parts.append(rest[1:end])
+            rest = rest[end + 1:].lstrip()
+        else:
+            match = BARE_KEY.match(rest)
+            if not match:
+                raise Unresolved(f"a Cargo.toml key the line reader cannot read: {key}")
+            parts.append(match.group(0))
+            rest = rest[match.end():].lstrip()
+        if rest:
+            if rest[0] != ".":
+                raise Unresolved(f"a Cargo.toml key the line reader cannot read: {key}")
+            rest = rest[1:].lstrip()
+    return parts
+
+
+def _toml_entries(text: str) -> list[tuple[list[str], str]]:
+    """Every table header (its key, value "") and key/value (table and key as one full key, the value's text, a value
+    over several lines joined) of a Cargo.toml, in order. A multi-line string refuses: no manifest here has one."""
+    entries: list[tuple[list[str], str]] = []
+    table: list[str] = []
+    pending: list | None = None
+    for raw in text.splitlines():
+        if any(quotes in raw for quotes in TRIPLE_QUOTES):
+            raise Unresolved("a Cargo.toml with a multi-line string, which the line reader does not read")
+        line = _strip_comment(raw).strip()
+        if pending is not None:
+            pending[1] += "\n" + line
+            if _depth(pending[1]) <= 0:
+                entries.append((pending[0], pending[1]))
+                pending = None
+            continue
+        if not line:
+            continue
+        header = re.fullmatch(r"\[\[?([^\[\]]+)\]\]?", line)
+        if header:
+            table = _split_key(header.group(1))
+            entries.append((table, ""))
+            continue
+        key, equals, value = line.partition("=")
+        if not equals or not value.strip():
+            raise Unresolved(f"a Cargo.toml line the line reader cannot read: {raw}")
+        full, value = table + _split_key(key), value.strip()
+        if _depth(value) > 0:
+            pending = [full, value]
+        else:
+            entries.append((full, value))
+    if pending is not None:
+        raise Unresolved("a Cargo.toml value that does not end")
+    return entries
+
+
+def _parsed(text: str, loads) -> dict:
+    try:
+        return loads(text)
+    except ValueError as error:  # tomllib.TOMLDecodeError
+        raise Unresolved(f"a Cargo.toml that is not TOML: {error}") from error
+
+
+def _dependency(owner: list[str]) -> tuple[str, str] | None:
+    """(TABLE, NAME) when OWNER is dependency NAME of TABLE, in a target table or not."""
+    rest = owner[2:] if owner[:1] == ["target"] else owner
+    if len(rest) == 2 and rest[0] in DEPENDENCY_TABLES:
+        return rest[0], rest[1]
+    return None
+
+
+def own_root(text: str, loads=_toml_loads()) -> bool:
+    """Whether a Cargo.toml has a [workspace] table, so that cargo builds it as its own workspace root."""
+    answer = any(full[:1] == ["workspace"] for full, _ in _toml_entries(text))
+    if loads is not None and answer != ("workspace" in _parsed(text, loads)):
+        raise Unresolved("the line reader and tomllib disagree on a [workspace] table")
+    return answer
+
+
+def inherited(text: str, loads=_toml_loads()) -> tuple[set, set, bool]:
+    """What a crate's Cargo.toml inherits from its workspace: package keys, (table, name) dependencies, and lints."""
+    package: set[str] = set()
+    dependencies: set[tuple[str, str]] = set()
+    lints = False
+    for full, value in _toml_entries(text):
+        if full[-1:] == ["workspace"] and value == "true":
+            owner = full[:-1]
+        elif value.startswith("{") and re.search(r"(?:^|[{,\s])workspace\s*=\s*true\b", value):
+            owner = full
+        else:
+            continue
+        if len(owner) == 2 and owner[0] == "package":
+            package.add(owner[1])
+        elif owner == ["lints"]:
+            lints = True
+        elif _dependency(owner):
+            dependencies.add(_dependency(owner))
+    if loads is not None:
+        data = _parsed(text, loads)
+        tables = [data] + [t for t in data.get("target", {}).values() if isinstance(t, dict)]
+        expected = (
+            {key for key, v in data.get("package", {}).items() if isinstance(v, dict) and v.get("workspace") is True},
+            {(name, dep) for t in tables for name in DEPENDENCY_TABLES for dep, v in t.get(name, {}).items()
+             if isinstance(v, dict) and v.get("workspace") is True},
+            data.get("lints", {}).get("workspace") is True,
+        )
+        if (package, dependencies, lints) != expected:
+            raise Unresolved("the line reader and tomllib disagree on what a Cargo.toml inherits from its workspace")
+    return package, dependencies, lints
+
+
+def _workspace_groups(text: str, loads) -> dict[tuple[str, str], str]:
+    """The lines of each [workspace.package] key, [workspace.dependencies] entry, and the [workspace.lints] tables of a
+    workspace manifest, keyed ("package" | "dependencies" | "lints", NAME); NAME is "" for the lints."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for full, value in _toml_entries(text):
+        if full[:1] != ["workspace"] or len(full) < 3 or full[1] not in ("package", "dependencies", "lints"):
+            continue
+        name = "" if full[1] == "lints" else full[2]
+        groups.setdefault((full[1], name), []).append(".".join(full[2:]) + (" = " + value if value else ""))
+    if loads is not None:
+        table = _parsed(text, loads).get("workspace", {})
+        for section in ("package", "dependencies"):
+            if {name for kind, name in groups if kind == section} != set(table.get(section, {})):
+                raise Unresolved(f"the line reader and tomllib disagree on [workspace.{section}]")
+    return {key: "\n".join(lines) for key, lines in groups.items()}
+
+
+def workspace_view(workspace: str, crates: list[str], loads=_toml_loads()) -> str:
+    """One canonical JSON line of what CRATES (Cargo.toml texts; one with its own [workspace] is skipped) inherit for
+    their library from WORKSPACE (a workspace manifest's text): those entries' lines, None for a missing entry."""
+    groups = _workspace_groups(workspace, loads)
+    view: dict[str, dict] = {"package": {}, "dependencies": {}, "lints": {}}
+    for crate in crates:
+        if own_root(crate, loads):
+            continue
+        package, dependencies, lints = inherited(crate, loads)
+        for key in package:
+            view["package"][key] = groups.get(("package", key))
+        for table, name in dependencies:
+            if table != "dev-dependencies":
+                view["dependencies"][name] = groups.get(("dependencies", name))
+        if lints:
+            view["lints"][""] = groups.get(("lints", ""))
+    return json.dumps(view, sort_keys=True)
+
+
+def workspace_paths(workspace: str, crate: str, loads=_toml_loads()) -> list[str]:
+    """The `path` of each [workspace.dependencies] entry a crate's Cargo.toml inherits (from any dependency table, a
+    test's included, as a `path` dependency is followed), relative to the workspace manifest's directory. An inherited
+    entry that the workspace does not have refuses."""
+    if own_root(crate, loads):
+        return []
+    groups = _workspace_groups(workspace, loads)
+    table = _parsed(workspace, loads).get("workspace", {}).get("dependencies", {}) if loads is not None else None
+    paths = []
+    for _, name in sorted(inherited(crate, loads)[1]):
+        lines = groups.get(("dependencies", name))
+        if lines is None:
+            raise Unresolved(f"a crate inherits {name}, which [workspace.dependencies] does not have")
+        found = re.findall(r'(?:^|[{,\s.])path\s*=\s*"([^"\\]+)"', lines)
+        if len(found) > 1:
+            raise Unresolved(f"[workspace.dependencies] {name} names more than one path")
+        if table is not None:
+            entry = table.get(name)
+            if found != ([entry["path"]] if isinstance(entry, dict) and "path" in entry else []):
+                raise Unresolved(f"the line reader and tomllib disagree on the path of {name}")
+        paths += found
+    return sorted(set(paths))
+
+
+def _text(path: str) -> str:
+    """A file's text; a missing file reads as empty (a manifest that a revision does not have)."""
+    return Path(path).read_text(encoding="utf-8") if Path(path).is_file() else ""
+
+
+def _workspace_paths(workspace: Path, crate: Path) -> list[str]:
+    """workspace_paths of the files WORKSPACE and CRATE, as absolute paths. A crate that inherits anything must find
+    WORKSPACE as the nearest workspace manifest above it (no Cargo.toml in between), or it refuses."""
+    text = _text(str(crate))
+    if own_root(text) or inherited(text) == (set(), set(), False):
+        return []
+    folder, home = crate.resolve().parent, workspace.resolve().parent
+    between = [parent for parent in folder.parents if home in parent.parents]
+    if home not in folder.parents or any((parent / "Cargo.toml").is_file() for parent in between):
+        raise Unresolved(f"{crate} inherits from a workspace other than {workspace}")
+    return [str(home / path) for path in workspace_paths(_text(str(workspace)), text)]
+
+
 def main(argv: list[str]) -> int:
     try:
         if argv[:1] == ["read"] and len(argv) <= 2:
@@ -430,6 +690,16 @@ def main(argv: list[str]) -> int:
             sha, checksum = read_pin_file(Path(argv[1]).read_text(encoding="utf-8"))
             check_loader(Path(argv[2]).read_text(encoding="utf-8"), checksum)
             print(sha, checksum)
+            return 0
+        if argv[:1] == ["workspace-view"] and len(argv) >= 2:
+            print(workspace_view(_text(argv[1]), [_text(path) for path in argv[2:]]))
+            return 0
+        if argv[:1] == ["workspace-paths"] and len(argv) == 3:
+            for path in _workspace_paths(Path(argv[1]), Path(argv[2])):
+                print(path)
+            return 0
+        if argv[:1] == ["own-root"] and len(argv) == 2:
+            print("yes" if own_root(_text(argv[1])) else "no")
             return 0
         if argv[:1] == ["inputs"] and len(argv) >= 2:
             print("\n".join(inputs(Path(argv[1]), argv[2:])))

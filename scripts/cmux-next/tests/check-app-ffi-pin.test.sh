@@ -302,27 +302,34 @@ echo "changed again" >> "$repo/cmux-tui/Cargo.lock"
 git -C "$repo" commit -qam "cmux-tui lock, cmux-app-ffi in the cmux-tui workspace"
 stale_after "a cmux-tui Cargo.lock change when cmux-app-ffi builds in the cmux-tui workspace" cmux-tui/Cargo.lock
 git -C "$repo" reset -q --hard "$before_ws"
-# Without tomllib (Python before 3.11, /usr/bin/python3 on macOS) the view is the whole manifest, and an inherited path
-# entry is read line by line; an entry that line reading cannot find refuses.
-python3 -I - "$repo/scripts/ci" "$ws" "$core/Cargo.toml" <<'EOF' || fail "the reader without tomllib is wrong"
+# The manifests are read line by line on every Python (/usr/bin/python3 on a macOS runner is 3.9, with no tomllib), so
+# a verdict does not depend on the runner; where tomllib exists every answer is also read through it. Both readings
+# agree on these manifests, an inherited path entry resolves in every form, and what the line reader cannot read or
+# the workspace does not have refuses.
+python3 -I - "$repo/scripts/ci" "$ws" "$core/Cargo.toml" <<'EOF' || fail "the line reader of the manifests is wrong"
 import sys
 sys.path.insert(0, sys.argv[1])
 import app_ffi_pin as m
 workspace, crate = open(sys.argv[2]).read(), open(sys.argv[3]).read()
+loads = m._toml_loads()
+readers = (None,) if loads is None else (None, loads)  # a macOS runner's python3 may have no tomllib
+assert len({m.workspace_view(workspace, [crate], loads=reader) for reader in readers}) == 1
 assert m.own_root("[package]\nname = \"x\"\n\n[workspace]\n", loads=None)
 assert not m.own_root("[package]\nname = \"x\"\n# [workspace]\n", loads=None)
-assert m.workspace_view(workspace, [crate], loads=None) != m.workspace_view(
-    workspace + "\n# a comment\n", [crate], loads=None)
-inheriting = '[dependencies]\ncmux-ws-only = { workspace = true }\nserde.workspace = true\n' \
-    '[target."cfg(unix)".build-dependencies.itoa]\nworkspace = true\n'
-assert m.workspace_paths(workspace, inheriting, loads=None) == ["crates/cmux-ws-only"], \
-    m.workspace_paths(workspace, inheriting, loads=None)
-try:
-    m.workspace_paths(workspace, "[dependencies]\nnot-in-the-workspace.workspace = true\n", loads=None)
-except m.Unresolved:
-    pass
-else:
-    raise AssertionError("an inherited entry the workspace does not have was not refused")
+inheriting = ('[dependencies]\ncmux-ws-only = { workspace = true }\nserde.workspace = true\n'
+              "[target.'cfg(unix)'.build-dependencies.itoa]\nworkspace = true\n")
+for reader in readers:
+    assert m.workspace_paths(workspace, inheriting, loads=reader) == ["crates/cmux-ws-only"], reader
+    assert m.inherited(inheriting, loads=reader)[1] == {
+        ("dependencies", "cmux-ws-only"), ("dependencies", "serde"), ("build-dependencies", "itoa")}, reader
+for text, why in (("[dependencies]\nnot-in-the-workspace.workspace = true\n", "an entry the workspace does not have"),
+                  ('[package]\ndescription = """\nx\n"""\n', "a multi-line string")):
+    for reader in readers:
+        try:
+            m.workspace_paths(workspace, text, loads=reader)
+        except m.Unresolved:
+            continue
+        raise AssertionError(f"{why} was not refused")
 EOF
 
 # A name the scan cannot read refuses, never leaves the file out: a build script that reads by a computed path, an
