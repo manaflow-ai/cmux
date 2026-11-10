@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useAppPanelSections } from "./panels";
+import { useAppPanelSections, useNewTabAppWidgets } from "./panels";
 import { MockAppPanelsClient } from "./panelsMock";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -69,4 +69,32 @@ test("new inline contexts keep mounts; switching chat and closing pane release t
     container.remove();
   }
   expect(host.count("unmount")).toBe(4);
+});
+
+function NewTab({ host }: { host: Host }) {
+  const widgets = useNewTabAppWidgets(host);
+  return <span>{widgets.map((widget) => widget.title).join(", ")}</span>;
+}
+
+test("New Tab mounts only cmux.newtab.widget/1 widgets, with no session", async () => {
+  const host = new Host();
+  // A host that ignored `surface` would answer Session Info sections: the page drops them.
+  host.newTabWidgets = [...host.panels, ...host.newTabWidgets];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(<NewTab host={host} />);
+    });
+    expect(host.calls.find((call) => call.op === "cmux.apps.panels.list")?.params).toEqual({ surface: "newTab" });
+    expect(container.textContent).toBe("My pull requests");
+    const mount = host.calls.find((call) => call.op === "cmux.apps.panels.mount");
+    expect(mount?.params).toEqual({ app: "samples/my-prs", section: "cmux.newtab.widget/1", context: {} });
+    expect(host.count("mount")).toBe(1);
+    await act(async () => root.unmount());
+    expect(host.count("unmount")).toBe(1);
+  } finally {
+    container.remove();
+  }
 });

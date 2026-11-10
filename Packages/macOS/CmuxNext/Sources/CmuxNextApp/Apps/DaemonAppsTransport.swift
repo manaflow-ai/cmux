@@ -123,6 +123,8 @@ final class DaemonAppsTransport: AppsTransport {
 
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { try await AppSessionInfoPanel.list(AppJSON(send(AppsStoreRequest.panelsList))) }
 
+    func newTabWidgets() async throws(AppsTransportError) -> [AppSessionInfoPanel] { try await AppSessionInfoPanel.list(AppJSON(send(AppsStoreRequest.newTabWidgetsList))) }
+
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         let request = AppsSetRequest(idempotencyKey: idempotencyKey, app: app, origin: origin.rawValue, installed: change.installed,
                                      enabled: change.enabled, hidden: change.hidden, sandboxed: change.sandboxed,

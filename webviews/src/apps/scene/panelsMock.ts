@@ -1,6 +1,6 @@
 // l10n-allow-file: browser mock app fixtures, not shipped UI.
 import { pageError, type PageClient, type PageHandler } from "../../pages/shared/pageClient";
-import { panelId, type AppPanel, type MountContext, type SceneEvent } from "./panelsClient";
+import { NEW_TAB_WIDGET, panelId, type AppPanel, type MountContext, type SceneEvent } from "./panelsClient";
 import type { SceneOp } from "./store";
 
 export const MOCK_APP_PANELS: readonly AppPanel[] = [
@@ -8,9 +8,14 @@ export const MOCK_APP_PANELS: readonly AppPanel[] = [
   { app: "samples/session", section: "details", title: "Session notes", symbol: "doc.text" },
 ];
 
+/** New Tab widgets (`cmux.newtab.widget/1`), listed only for `surface: "newTab"`. */
+export const MOCK_NEW_TAB_WIDGETS: readonly AppPanel[] = [
+  { app: "samples/my-prs", section: NEW_TAB_WIDGET, title: "My pull requests", symbol: "arrow.triangle.pull" },
+];
+
 export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp[] {
   const rows =
-    panel.app === "samples/github-prs"
+    panel.app === "samples/github-prs" || panel.app === "samples/my-prs"
       ? [
           {
             title: "Keep chat drafts on reconnect",
@@ -48,6 +53,7 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
  * dispatch, and unmount through the production controller instead of injecting rendered rows. */
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
+  newTabWidgets: readonly AppPanel[] = MOCK_NEW_TAB_WIDGETS;
   readonly dispatches: unknown[] = [];
   private nextMount = 0;
   private seq = 0;
@@ -60,10 +66,12 @@ export class MockAppPanelsClient implements PageClient {
     let result: unknown = {};
     switch (op) {
       case "cmux.apps.panels.list":
-        result = { panels: this.panels };
+        result = { panels: params?.surface === "newTab" ? this.newTabWidgets : this.panels };
         break;
       case "cmux.apps.panels.mount": {
-        const panel = this.panels.find((entry) => entry.app === params.app && entry.section === params.section);
+        const panel = [...this.panels, ...this.newTabWidgets].find(
+          (entry) => entry.app === params.app && entry.section === params.section,
+        );
         if (!panel) throw pageError("cmux.apps.not_found", "Unknown app section");
         const mountId = `mock-panel-${++this.nextMount}`;
         this.mounts.set(mountId, { panel, context: params.context as MountContext });

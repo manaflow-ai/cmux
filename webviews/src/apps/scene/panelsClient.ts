@@ -3,6 +3,10 @@ import { SceneStore, type SceneOp } from "./store";
 
 export type AppPanel = { app: string; section: string; title: string; symbol?: string };
 export type MountContext = { session_id: string; cwd?: string; branch?: string; harness?: string };
+/** The page that draws the panels: Session Info sections, or the New Tab page's app widgets
+ * (`cmux.newtab.widget/1`), which mount with no session. */
+export type PanelSurface = "sessionInfo" | "newTab";
+export const NEW_TAB_WIDGET = "cmux.newtab.widget/1";
 export type SceneEvent = { mount_id: string; ops: SceneOp[]; reset?: boolean };
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 export type MountedPanel = {
@@ -13,7 +17,7 @@ export type MountedPanel = {
 type Entry = MountedPanel & { cancelled: boolean; failed: boolean; mountId?: string; unsubscribe?: () => void };
 const EMPTY: readonly MountedPanel[] = [];
 
-function readPanels(value: unknown): AppPanel[] {
+function readPanels(value: unknown, surface: PanelSurface): AppPanel[] {
   const panels = (value as { panels?: unknown } | null)?.panels;
   if (!Array.isArray(panels)) return [];
   const seen = new Set<string>();
@@ -26,6 +30,7 @@ function readPanels(value: unknown): AppPanel[] {
         !panel.app ||
         typeof panel.section !== "string" ||
         !panel.section ||
+        (surface === "newTab") !== (panel.section === NEW_TAB_WIDGET) ||
         typeof panel.title !== "string"
       )
         return false;
@@ -51,6 +56,7 @@ export class AppPanelsClient {
   constructor(
     private readonly client: PageClient | null,
     private readonly context: MountContext | undefined,
+    private readonly surface: PanelSurface = "sessionInfo",
   ) {}
   getSnapshot = (): readonly MountedPanel[] => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {
@@ -61,7 +67,7 @@ export class AppPanelsClient {
   };
 
   start(): void {
-    if (this.active || !this.client || !this.context?.session_id) return;
+    if (this.active || !this.client || (this.surface === "sessionInfo" && !this.context?.session_id)) return;
     this.active = true;
     const lifetime = ++this.lifetime;
     void this.client
@@ -97,7 +103,10 @@ export class AppPanelsClient {
     const listing = ++this.listing;
     let panels: AppPanel[];
     try {
-      panels = readPanels(await this.client.call("cmux.apps.panels.list", {}));
+      panels = readPanels(
+        await this.client.call("cmux.apps.panels.list", this.surface === "newTab" ? { surface: "newTab" } : {}),
+        this.surface,
+      );
     } catch {
       panels = [];
     } // An older host offers no sections and no user-facing error.
@@ -161,7 +170,7 @@ export class AppPanelsClient {
       const result = await client.call<{ mount_id?: unknown }>("cmux.apps.panels.mount", {
         app: entry.panel.app,
         section: entry.panel.section,
-        context: this.context,
+        context: this.context ?? {},
       });
       if (typeof result?.mount_id !== "string" || !result.mount_id) {
         entry.failed = true;

@@ -3,6 +3,8 @@
 //! so every page host (the React page, a browser, the CLI) gets them from
 //! the daemon (cx-hnmbt.13).
 //!
+//! - `panels.list`: the Session Info sections, or with `surface: "newTab"`
+//!   the New Tab widgets, of installed, visible apps.
 //! - `grants.get`: the app's scopes (required and optional), each with
 //!   whether it is granted, and whether the app is sandboxed.
 //! - `logs`: the last lines of the app's log ring (no stream; the page
@@ -49,7 +51,10 @@ struct AppParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EmptyParams {}
+struct PanelsListParams {
+    /// Which page asks: `sessionInfo` (the default) or `newTab`.
+    surface: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -122,11 +127,12 @@ fn image_type(path: &str) -> Option<&'static str> {
 }
 
 impl Supervisor {
-    /// The Session Info sections (`cmux.session.info.section/1`) of installed,
-    /// enabled and visible apps. A v2 app implements an interface once, so
-    /// the section id is the interface name (as the native `AppImplementation.id`).
-    pub(super) fn session_info_panels(&self) -> Value {
-        const INTERFACE: &str = "cmux.session.info.section/1";
+    /// The panels one page draws from installed, enabled and visible apps:
+    /// Session Info sections (`cmux.session.info.section/1`) or New Tab
+    /// widgets (`cmux.newtab.widget/1`). A v2 app implements an interface
+    /// once, so the section id is the interface name (as the native
+    /// `AppImplementation.id`).
+    fn panels(&self, interface: &str) -> Value {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let panels: Vec<SessionInfoPanel> = inner
             .mirror
@@ -135,10 +141,10 @@ impl Supervisor {
             .filter(|(_, record)| record.installed && record.enabled && !record.hidden)
             .filter_map(|(app, _)| {
                 let entry =
-                    inner.catalog.packages.get(app)?.manifest.get("implements")?.get(INTERFACE)?;
+                    inner.catalog.packages.get(app)?.manifest.get("implements")?.get(interface)?;
                 Some(SessionInfoPanel {
                     app: app.clone(),
-                    section: INTERFACE.to_string(),
+                    section: interface.to_string(),
                     title: entry.get("title").map_or_else(|| app.clone(), text),
                     symbol: entry.get("symbol").and_then(Value::as_str).map(str::to_string),
                     max_rows: entry.pointer("/options/maxRows").and_then(Value::as_u64),
@@ -146,6 +152,20 @@ impl Supervisor {
             })
             .collect();
         json!({ "panels": panels })
+    }
+
+    fn panels_list(&self, p: PanelsListParams) -> Result<Value, ApiError> {
+        let interface = match p.surface.as_deref() {
+            None | Some("sessionInfo") => "cmux.session.info.section/1",
+            Some("newTab") => "cmux.newtab.widget/1",
+            Some(other) => {
+                return Err(ApiError::new(
+                    "bad-request",
+                    format!("surface is sessionInfo or newTab, not {other}"),
+                ));
+            }
+        };
+        Ok(self.panels(interface))
     }
 
     /// One panel op, or `None` when `op` is not one.
@@ -157,7 +177,7 @@ impl Supervisor {
         origin: Origin,
     ) -> Option<Result<Value, ApiError>> {
         Some(match op {
-            "apps.panels.list" => params::<EmptyParams>(args).map(|_| self.session_info_panels()),
+            "apps.panels.list" => params(args).and_then(|p| self.panels_list(p)),
             "apps.grants.get" => params(args).and_then(|p| to_value(self.grants_get(p)?)),
             "apps.logs" => params(args).and_then(|p| self.logs_tail(client, p)),
             "apps.asset.get" => params(args).and_then(|p| self.asset_get(p)),

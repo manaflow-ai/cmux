@@ -107,6 +107,8 @@ import { useWidgetEditing } from "./widgetEditingModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
+import { AppWidgets } from "./AppWidgets";
+import type { PageClient } from "../../../pages/shared/pageClient";
 import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
@@ -354,6 +356,8 @@ type Props = NewTabScreenActions & {
   /// The weather widget's last reading (the handshake's `weather`, ambient.ts); drawn while the
   /// `weather` widget is on.
   weather?: NewTabWeather;
+  /// Gallery and test seam for the app widgets' page client (AppWidgets.tsx); the page host when unset.
+  appPanelsClient?: PageClient | null;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -2406,6 +2410,8 @@ export function NewTabScreen(props: Props) {
     />
   );
   const extras = <NewTabExtras widgets={widgets} now={at} />;
+  // The person's own and installed apps' widgets (`cmux.newtab.widget/1`), after cmux's own.
+  const appWidgets = <AppWidgets {...(props.appPanelsClient !== undefined && { client: props.appPanelsClient })} />;
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.
   const pickStarter = (prompt: string) => {
@@ -2536,6 +2542,7 @@ export function NewTabScreen(props: Props) {
                 ),
               )}
               {ambient}
+              {appWidgets}
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
@@ -2560,6 +2567,7 @@ export function NewTabScreen(props: Props) {
             {starters}
             {extras}
             {ambient}
+            {appWidgets}
             {props.notice}
             {environmentPanel}
             {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a

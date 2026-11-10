@@ -1350,3 +1350,31 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
     var(--acpmux-composer-shadow, var(--elevation-1));
 }
+/* App widgets (`cmux.newtab.widget/1`, AppWidgets.tsx): one quiet card per app under the composer,
+   two to a row when the pane is wide. */
+.nt-app-widgets {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-3);
+  max-width: 560px;
+  margin-inline: auto;
+}
+.nt-app-widget {
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.nt-app-widget-title {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  margin-bottom: var(--ds-space-1);
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  user-select: none;
+}

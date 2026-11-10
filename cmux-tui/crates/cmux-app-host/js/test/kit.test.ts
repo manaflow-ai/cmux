@@ -163,6 +163,24 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
     expect(host.calls.find((c) => c.name === "toast.show")?.params).toEqual({ title: "Hi from my section", tone: "success" })
   })
 
+  test("newtab-widget: the time and your open pull requests, read again on a timer, a click opens one", async () => {
+    const host = new FakeHost(load("newtab-widget"), init)
+    const items = [{ id: 1, number: 7, title: "Add widgets", html_url: "https://github.com/acme/atlas/pull/7", repository_url: "https://api.github.com/repos/acme/atlas" }]
+    host.handlers["integration.request"] = () => ({ ok: true, body: { value: { items } } })
+    host.handlers["action.run"] = ok()
+    expect(host.mount("m", "renderNewTab")).toBe("")
+    await host.settle()
+    expect(titles(host, "m", "Row")).toEqual(["Add widgets"])
+    const request = host.calls.find((c) => c.name === "integration.request")!
+    expect(request.params.provider).toBe("github")
+    expect(decodeURIComponent(request.params.path)).toContain("is:open is:pr author:@me")
+    expect([...host.timers.values()].map((t) => t.ms).sort((a, b) => a - b)).toEqual([30_000, 120_000])
+    tap(host, "m", "Row", "Add widgets", { gesture: "g3" })
+    await host.settle()
+    const open = host.calls.find((c) => c.name === "action.run")!
+    expect([open.params, open.options.gesture]).toEqual([{ id: "openBrowser", args: { url: "https://github.com/acme/atlas/pull/7" } }, "g3"])
+  })
+
   test("sidebar-section: the focused workspace's tabs, read again on a tab change, a click focuses", async () => {
     const host = new FakeHost(load("sidebar-section"), init)
     let tabs = [

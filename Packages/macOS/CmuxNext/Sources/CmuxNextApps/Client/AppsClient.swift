@@ -86,6 +86,12 @@ public final class AppsClient {
         catch { throw .refused(error) }
     }
 
+    public func newTabWidgets() async throws(AppsClientError) -> [AppSessionInfoPanel] {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.newTabWidgets() }
+        catch { throw .refused(error) }
+    }
+
     /// Adds bundled package directories (loaded once off the main actor at
     /// launch); a directory already known for an app stays.
     public func useBundledDirectories(_ directories: [String: URL]) {

@@ -248,7 +248,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.newtab.widget/1": { "export": "render", "title": "Demo widget", "symbol": "clock" }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -463,6 +463,24 @@ fn session_info_panels_lists_only_visible_installed_apps() {
         f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap()["panels"],
         json!([])
     );
+}
+
+#[test]
+fn new_tab_widgets_list_by_surface() {
+    let f = fixture();
+    f.install("cmux/demo");
+    let list =
+        |params: Value| f.supervisor.store_call(CLIENT, "apps.panels.list", params, Origin::Script);
+    assert_eq!(
+        list(json!({ "surface": "newTab" })).unwrap()["panels"],
+        json!([{ "app": "cmux/demo", "section": "cmux.newtab.widget/1", "title": "Demo widget", "symbol": "clock" }])
+    );
+    // Session Info stays the default, and its list never carries a New Tab widget.
+    assert_eq!(list(json!({ "surface": "sessionInfo" })).unwrap(), list(json!({})).unwrap());
+    assert_eq!(list(json!({ "surface": "dock" })).unwrap_err().code, "bad-request");
+
+    f.set("hide", "cmux/demo", Origin::User, |op| op.hidden = Some(true)).unwrap();
+    assert_eq!(list(json!({ "surface": "newTab" })).unwrap()["panels"], json!([]));
 }
 
 #[test]

@@ -25,6 +25,7 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `sidebar-section` | The focused workspace's name and its tabs, redrawn on every workspace or tab change; a click focuses the tab. | `workspace:write` (for the click; reading needs nothing) |
 | `command-button` | Buttons that run the person's own `cmux-next.json` actions. | `actions:run` |
 | `pane` | A checklist that opens as a tab, and a sidebar row that opens it. | `storage:local` (keep the list), `actions:run` (the row) |
+| `newtab-widget` | A New Tab widget: the time and your open pull requests, read again every two minutes; a click opens one. | `actions:run` (the click; `integration:github:read` is granted at install) |
 | `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
@@ -72,6 +73,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 |---|---|---|
 | A sidebar section | `implements["cmux.section/1"]`, region `top`, `middle` or `bottom`; `cmux apps place` | none |
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
+| A New Tab widget | `implements["cmux.newtab.widget/1"]` (`title`, `symbol`): a card under the New Tab composer, one per app, after cmux's own widgets; render gets `{}` | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |

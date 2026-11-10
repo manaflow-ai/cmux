@@ -1,0 +1,21 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "A New Tab widget: the time and your open pull requests, read again every two minutes.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab.widget/1": {
+      "export": "renderNewTab",
+      "title": "Today",
+      "symbol": "clock"
+    }
+  },
+  "scopes": {
+    "integration:github:read": "Read your open pull requests with the connected GitHub account.",
+    "actions:run": "Open a pull request when you click its row."
+  }
+}

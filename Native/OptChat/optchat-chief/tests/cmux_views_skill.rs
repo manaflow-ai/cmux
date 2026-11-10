@@ -19,6 +19,7 @@ fn the_cmux_views_skill_ships_to_every_chief() {
         "local/customize",
         "cmux.section/1",
         "cmux.session.info.section/1",
+        "cmux.newtab.widget/1",
         "__cmuxAppExports",
         "cmux apps place 'local/customize#cmux.section/1' --region bottom",
         "apps-logs",

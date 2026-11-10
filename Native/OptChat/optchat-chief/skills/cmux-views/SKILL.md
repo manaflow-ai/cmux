@@ -1,6 +1,6 @@
 ---
 name: cmux-views
-description: "Build a view the person asked for (a sidebar section or a Session Info section, such as a view of the PRs from the last 24h) as the cmux customize app, which shows up live with no restart or install."
+description: "Build a view the person asked for (a sidebar section, a Session Info section or a New Tab widget, such as a view of the PRs from the last 24h) as the cmux customize app, which shows up live with no restart or install."
 cmux-managed: true
 ---
 
@@ -23,6 +23,9 @@ Nobody restarts or clicks Install.
     under the workspace list.
   - `"cmux.session.info.section/1"`: the one Session Info section, the same
     without `defaultRegion`.
+  - `"cmux.newtab.widget/1"`: the one New Tab widget, a card under the New
+    Tab composer, `{export, title, symbol}`; its render gets `{}`. The
+    copy-paste folder is cmux's `skills/cmux-customization/templates/newtab-widget`.
   - `scopes`: `integration:github:read` (a read scope, granted at install) and
     `actions:run` to open links. `actions:run` and any `net:<host>` stay off
     until the person turns them on in Settings > Apps > My views; tell them so.

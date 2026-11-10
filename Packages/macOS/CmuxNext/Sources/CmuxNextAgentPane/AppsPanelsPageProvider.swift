@@ -3,7 +3,8 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
 
-/// The narrow page bridge for app-owned Session Info sections. It shares the
+/// The narrow page bridge for app-owned Session Info sections and New Tab
+/// widgets (`list` with `surface: "newTab"`). It shares the
 /// AppsClient's transport callback, so panel scene events cannot replace the
 /// App Store's event handling.
 @MainActor
@@ -38,7 +39,11 @@ public final class AppsPanelsPageProvider: PageProvider {
         switch op {
         case Self.namespace + "list":
             do {
-                let panels = try await client.sessionInfoPanels()
+                let panels = if params["surface"]?.stringValue == "newTab" {
+                    try await client.newTabWidgets()
+                } else {
+                    try await client.sessionInfoPanels()
+                }
                 return .object(["panels": .array(panels.map(panelJSON))])
             } catch {
                 throw PageError(code: "cmux.apps.panels.failed", message: String(describing: error), retryable: true)
@@ -82,11 +87,14 @@ public final class AppsPanelsPageProvider: PageProvider {
             throw PageError.invalidParams("app, section and object context are required")
         }
         guard let record = client.app(app), record.isVisible,
-              let implementation = record.manifest.sessionInfoSections.first(where: { $0.id == section }) else {
-            throw PageError(code: "cmux.apps.panels.not_found", message: "No visible Session Info section \(app)#\(section)")
+              let implementation = record.manifest.implementations.first(where: {
+                  $0.id == section && ($0.isSessionInfoSection || $0.isNewTabWidget)
+              }) else {
+            throw PageError(code: "cmux.apps.panels.not_found", message: "No visible Session Info section or New Tab widget \(app)#\(section)")
         }
         let context = appJSON(rawContext)
-        let mount = client.mount(app, implementation: implementation, surface: "sessionInfoSection", context: context.objectValue ?? [:])
+        let surface = implementation.isNewTabWidget ? "newTabWidget" : "sessionInfoSection"
+        let mount = client.mount(app, implementation: implementation, surface: surface, context: context.objectValue ?? [:])
         mounts[mount.id] = mount
         return .object(["mount_id": .string(mount.id)])
     }

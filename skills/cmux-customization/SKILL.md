@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar or Session Info section built as the customize app)."
+description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar section, Session Info section or New Tab widget built as the customize app)."
 ---
 
 # cmux Customization

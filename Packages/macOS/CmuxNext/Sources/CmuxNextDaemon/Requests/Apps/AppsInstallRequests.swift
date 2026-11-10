@@ -25,6 +25,8 @@ public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
 
     /// `apps.panels.list`: the Session Info sections of installed, visible apps.
     public static let panelsList = AppsStoreRequest(op: "apps.panels.list")
+    /// `apps.panels.list` with `surface: newTab`: the New Tab widgets of installed, visible apps.
+    public static let newTabWidgetsList = AppsStoreRequest(op: "apps.panels.list", args: .object(["surface": .string("newTab")]))
 
     public init(op: String, args: JSONValue = .object([:])) {
         self.op = op

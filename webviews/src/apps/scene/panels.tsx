@@ -34,6 +34,17 @@ export function useAppPanelSections(
       ),
     [client, sessionId, cwd, branch, harness],
   );
+  return useMountedPanels(owner);
+}
+
+/** The New Tab page's app widgets (`cmux.newtab.widget/1`): mounted with no session, one scene each. */
+export function useNewTabAppWidgets(injectedClient?: PageClient | null): AppPanelSection[] {
+  const client = injectedClient === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injectedClient;
+  const owner = useMemo(() => new AppPanelsClient(client, undefined, "newTab"), [client]);
+  return useMountedPanels(owner);
+}
+
+function useMountedPanels(owner: AppPanelsClient): AppPanelSection[] {
   const panels = useSyncExternalStore(owner.subscribe, owner.getSnapshot, owner.getSnapshot);
   useEffect(() => {
     owner.start();
