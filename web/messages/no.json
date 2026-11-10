@@ -3517,11 +3517,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Forhåndsversjoner av den neste cmux-appen",
-    "metaTitle": "cmux NEXT NIGHTLY — Forhåndsversjoner",
-    "metaDescription": "Last ned cmux NEXT NIGHTLY, en forhåndsvisning av den neste cmux-appen, bygget automatisk fra siste commit. Kjører ved siden av cmux med egne automatiske oppdateringer.",
+    "metaTitle": "cmux NEXT — Chief og kodeagentene dine, i én Mac-app",
+    "metaDescription": "cmux NEXT er den neste cmux for Mac. Si til Chief hva du vil ha gjort: Den starter kodeagenter i egne arbeidsområder og melder tilbake.",
     "description": "cmux NEXT NIGHTLY er en forhåndsvisning av neste versjon av cmux, bygget automatisk fra siste commit. Den installeres som cmux NIGHTLY (bundle-ID com.cmuxterm.app.nightly), så den erstatter cmux NIGHTLY og kjører ved siden av cmux. Krever en Mac med Apple silicon.",
     "download": "Last ned NEXT NIGHTLY for Mac",
-    "warning": "NEXT NIGHTLY-bygg kan inneholde feil eller uferdige funksjoner. Hvis noe slutter å virke, rapporter det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink>, og bytt tilbake til den stabile versjonen."
+    "warning": "NEXT NIGHTLY-bygg kan inneholde feil eller uferdige funksjoner. Hvis noe slutter å virke, rapporter det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink>, og bytt tilbake til den stabile versjonen.",
+    "landing": {
+      "tagline": "Si til Chief hva du vil ha gjort. Den styrer agentene.",
+      "subtitle": "cmux NEXT er den neste versjonen av cmux: en egen Mac-app bygget på Ghostty. Chief, den innebygde assistenten, starter kodeagenter i egne arbeidsområder, følger med på dem og sier fra når en trenger deg. En terminal, en ekte nettleser og diffs ligger ved siden av hver agent.",
+      "requirements": "Apple silicon · macOS 14 eller nyere · Kjører ved siden av cmux",
+      "featuresTitle": "Funksjoner",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Si hva du vil ha gjort. Den starter agenter, gir store jobber til subagenter og melder tilbake."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Én chatliste for Chief og alle agentene, med uleste prikker når en trenger deg."
+        },
+        "agents": {
+          "title": "Alle kodeagenter",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi og flere, som ekte chatter med endringer og diffs i synet."
+        },
+        "floating": {
+          "title": "Svevende Chief",
+          "body": "⌘I henter Chief inn over arbeidsområdet du er i. ⌥⇧Space henter den fram fra hvilken som helst app."
+        },
+        "search": {
+          "title": "Søk i alt",
+          "body": "⌘⇧A finner arbeidsområder, faner, agentchatter, nettleserhistorikk og tidligere kommandoer."
+        },
+        "spaces": {
+          "title": "Rom (Spaces)",
+          "body": "Adskilte sett med vinduer for adskilt arbeid. Bytt med ⌃⌥⌘← og →."
+        },
+        "browser": {
+          "title": "En ekte nettleser",
+          "body": "Chromium i en fane, med utvidelser, DevTools og profiler, ved siden av agentene dine."
+        },
+        "machines": {
+          "title": "Maskinene dine",
+          "body": "Kjør arbeidsområder over SSH, eller på cmux Cloud-maskiner som pauser når de er inaktive (cmux Pro)."
+        },
+        "history": {
+          "title": "Ta med historikken din",
+          "body": "Importer Claude Code- og Codex-historikk som søkbare chatter, og fortsett der du slapp."
+        },
+        "terminal": {
+          "title": "Ghostty-terminal",
+          "body": "GPU-rendret, og den leser Ghostty-konfigurasjonen din."
+        },
+        "sidebar": {
+          "title": "Din egen sidefelt",
+          "body": "Legg til seksjoner i sidefeltet som lister eller rutenett, bygget som små JavaScript-apper."
+        },
+        "phone": {
+          "title": "iPhone, i beta",
+          "body": "Svar på en agents tillatelsesforespørsel fra telefonen."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home med Chief til venstre og en Claude Code-agent med de endrede filene sine til høyre",
+      "demosTitle": "Se det",
+      "demos": {
+        "docked": {
+          "caption": "Chief festet ved siden av et arbeidsområde.",
+          "alt": "Chief festet til høyre for et terminalarbeidsområde"
+        },
+        "floating": {
+          "caption": "⌘I får Chief til å sveve over det du holder på med.",
+          "alt": "Chief svever over et terminalarbeidsområde"
+        },
+        "agents": {
+          "caption": "En agents chat ved siden av Chiefs.",
+          "alt": "En agentsamtale ved siden av en chat med Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P kjører en hvilken som helst handling ved navn.",
+          "alt": "Kommandopaletten åpen over en samtale"
+        },
+        "history": {
+          "caption": "Ta med Claude Code- og Codex-historikk.",
+          "alt": "Importskjermen med Claude Code, Codex og andre kilder"
+        },
+        "machines": {
+          "caption": "Velg maskinen en gruppe med arbeidsområder kjører på.",
+          "alt": "Valg av maskinen en gruppe med arbeidsområder kjører på"
+        }
+      },
+      "nightlyTitle": "Om NEXT NIGHTLY",
+      "nightlyBody": "En ny build kommer hver natt fra den siste commiten, og appen oppdaterer seg selv.",
+      "iconAlt": "cmux NEXT NIGHTLY-ikon"
+    }
   },
   "languageSwitcher": {
     "label": "Språk"
