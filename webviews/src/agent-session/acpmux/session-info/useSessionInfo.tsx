@@ -381,18 +381,29 @@ export function useSessionInfo({
   // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
-  // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
+  // stays, as a popover.
+  // A resize never opens it (Leo, 2026-11-10: "It's the resizing of the window itself, potentially...
+  // Like the size of the window itself being resized or whatever. Maybe making a new workspace."):
+  // once a narrow pane held it closed (`held`), it stays closed when the pane gets room again, and
+  // anything that put it aside for now (`suppressed`: a popover's click-away, Find's bar, a diff split)
+  // keeps it aside however wide the pane gets. Only the person brings it back (`asked`). The chat's
+  // saved open choice is kept as it was: a resize changes nothing saved.
   const narrow = useNarrowPane(shell, on, beside);
   const roomyShown = sessionInfoShown({ on, open, suppressed: suppressed || stepAside.aside, covered });
   const [narrowWas, setNarrowWas] = useState(narrow);
+  const [held, setHeld] = useState(false);
+  const [heldFor, setHeldFor] = useState(paneSession);
+  if (heldFor !== paneSession) {
+    setHeldFor(paneSession);
+    setHeld(false);
+  }
   if (narrowWas !== narrow) {
     setNarrowWas(narrow);
     // Narrowed while it showed: it stays (the first measure is a start, not a narrowing).
     if (narrow && narrowWas === false && roomyShown) setAsked(true);
-    // Room again: a popover's click-away or a cramped moment no longer holds it.
-    if (!narrow && narrowWas) setSuppressed(false);
   }
-  const shown = roomyShown && !(narrow && !asked);
+  if (narrow && !asked && !held) setHeld(true);
+  const shown = roomyShown && (asked || (!narrow && !held));
   // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
   // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
   // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).
