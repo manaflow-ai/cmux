@@ -9,7 +9,7 @@ use super::super::terminal_talk::send::Daemon;
 use super::super::wire::request_value;
 use super::launch::{self, Launch};
 use super::readiness::{self, Gate, Look, Readiness, Reads, WaitOptions};
-use super::{Clock, Command, Env, Options, ResumeTarget, parse, resume, start};
+use super::{Clock, Command, Env, Options, ResumeTarget, parse, resume, resume_launch, start};
 
 const OLD: &str = "term_0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d";
 const NEW: &str = "term_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
@@ -374,6 +374,28 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
 
 /// An agent that quit (its hooks reported the session's end) has no agent
 /// record left; resume reads the session id the daemon kept on the terminal.
+/// W3-H review (main #39226): a resume runs the recorded launcher, not the
+/// recorded extra arguments: `agent start alpha -- 'Fix the test'` must not
+/// send the first prompt again (and `codex '<prompt>' resume <id>` would not
+/// resume).
+#[test]
+fn w3h_resume_does_not_send_the_first_prompt_again() {
+    let recorded = Launch {
+        shell: "/bin/zsh".into(),
+        launcher: "codex --model o3".into(),
+        args: strings(&["Fix the failing test", "resume", "older"]),
+    };
+    let launch = resume_launch(Some(recorded), &env(), &Options::default(), "codex", SESSION)
+        .expect("resume launch");
+    assert_eq!(launch.launcher, "codex --model o3");
+    assert_eq!(launch.args, strings(&["resume", SESSION]));
+    let options = Options { args: strings(&["--yolo"]), ..Options::default() };
+    let recorded =
+        Launch { shell: "/bin/zsh".into(), launcher: "claude".into(), args: strings(&["hello"]) };
+    let launch = resume_launch(Some(recorded), &env(), &options, "claude", SESSION).unwrap();
+    assert_eq!(launch.args, strings(&["--yolo", "--resume", SESSION]));
+}
+
 #[test]
 fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended() {
     let mut snapshot = snapshot();
