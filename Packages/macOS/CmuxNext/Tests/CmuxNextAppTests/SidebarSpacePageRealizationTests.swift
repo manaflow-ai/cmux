@@ -4,10 +4,11 @@ import CmuxNextDesign
 import Testing
 
 /// "If I have a lot of workspaces open, changing spaces causes a bit of lag" (space-switch-fast):
-/// the page a space switch slides out, and the page a swipe pulls in, is a list outside a scroll
-/// view. It made a row view for every workspace of its space (its bounds were the whole document),
-/// so each switch configured, laid out and drew hundreds of rows nobody saw. A page now makes views
-/// for the rows in its frame only.
+/// the page a swipe pulls in is a list outside a scroll view. It made a row view for every workspace
+/// of its space (its bounds were the whole document), so each page configured, laid out and drew
+/// hundreds of rows nobody saw. A page now makes views for the rows in its frame only. (A switch by
+/// dot or key slid such a page out too, until 2026-11-10: it shows at rest now, with no page:
+/// `SidebarSpaceSwitchAtRestTests`.)
 @MainActor
 struct SidebarSpacePageRealizationTests {
     static let rows = 300
@@ -33,16 +34,6 @@ struct SidebarSpacePageRealizationTests {
     /// At most the rows a 600 pt page shows, with the list's overscan above and below.
     static let bound = 80
 
-    @Test func theSlidOutPageMakesViewsForItsVisibleRowsOnly() throws {
-        let (model, sidebar) = Self.sidebar()
-        #expect(sidebar.list.rowViews.count <= Self.bound, "the live list realized \(sidebar.list.rowViews.count) rows")
-        sidebar.spacePaging.prepareSlide(oldSections: model.sections)
-        sidebar.spacePaging.slide(direction: 1)
-        let page = try #require((sidebar.spacePaging.snapshotView as? SpacePageView)?.list)
-        #expect(page.displayed.rows.count >= Self.rows)
-        #expect(page.rowViews.count <= Self.bound, "the slid-out page made \(page.rowViews.count) row views for \(Self.rows) rows")
-    }
-
     @Test func aSwipesNeighborPageMakesViewsForItsVisibleRowsOnly() throws {
         let (_, sidebar) = Self.sidebar()
         sidebar.spacePaging.scroll(.began, deltaX: -20, time: 0)
@@ -52,40 +43,43 @@ struct SidebarSpacePageRealizationTests {
         sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.5)
     }
 
-    /// A page shows the rows where the list was scrolled, not the space's first rows.
-    @Test func theSlidOutPageKeepsTheListsScrollOffset() throws {
+    /// The next pull reuses the last page and its row views: a warm page makes no row view.
+    @Test func theNextSwipeReusesThePageAndItsRowViews() throws {
         let (model, sidebar) = Self.sidebar()
-        let clip = sidebar.scrollView.contentView
-        clip.scroll(to: NSPoint(x: 0, y: 2_000))
-        sidebar.scrollView.reflectScrolledClipView(clip)
-        let offset = clip.bounds.minY
-        try #require(offset > 0)
-        sidebar.spacePaging.prepareSlide(oldSections: model.sections)
-        sidebar.spacePaging.slide(direction: 1)
-        let page = try #require((sidebar.spacePaging.snapshotView as? SpacePageView)?.list)
-        let shown = page.rowViews.values.map { page.convert($0.frame, to: page.superview) }
-        let pageBounds = try #require(page.superview?.bounds)
-        #expect(shown.contains { $0.intersects(pageBounds) }, "no row view of the page is in its frame")
-        let firstShown = page.displayed.rows.first { page.rowViews[$0.key] != nil }
-        #expect((firstShown?.y ?? 0) >= offset - 400, "the page starts at row y \(firstShown?.y ?? 0), the list was at \(offset)")
-    }
-
-    /// The next switch reuses the last page and its row views: a warm page makes no row view.
-    @Test func theNextSwitchReusesThePageAndItsRowViews() throws {
-        let (model, sidebar) = Self.sidebar()
-        sidebar.spacePaging.prepareSlide(oldSections: model.sections)
-        sidebar.spacePaging.slide(direction: 1)
-        let first = try #require((sidebar.spacePaging.snapshotView as? SpacePageView)?.list)
+        sidebar.spacePaging.scroll(.began, deltaX: -20, time: 0)
+        let first = try #require(sidebar.spacePaging.neighbor?.list)
         let made = Set(first.rowViews.values.map(ObjectIdentifier.init))
         try #require(!made.isEmpty)
-        // The next switch leaves another space: other rows, the same views.
-        sidebar.spacePaging.prepareSlide(oldSections: Self.sections("b"))
-        sidebar.spacePaging.slide(direction: -1)
-        let second = try #require((sidebar.spacePaging.snapshotView as? SpacePageView)?.list)
+        // The fingers go back to where they started: the page leaves. They pull again, and the space beside lists other rows now.
+        sidebar.spacePaging.scroll(.changed, deltaX: 20, time: 0.02)
+        #expect(sidebar.spacePaging.neighbor == nil, "the page stayed with the fingers back at the start")
+        model.spaceSections = { _ in Self.sections("b") }
+        sidebar.spacePaging.scroll(.changed, deltaX: -20, time: 0.04)
+        let second = try #require(sidebar.spacePaging.neighbor?.list)
         #expect(second === first)
         let reused = second.rowViews.values.map(ObjectIdentifier.init)
         #expect(reused.allSatisfy(made.contains), "\(reused.filter { !made.contains($0) }.count) of \(reused.count) row views were new")
         #expect(second.displayed.rows.contains { $0.key == .workspace(WorkspaceID("b-0")) })
+        sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.5)
+    }
+
+    /// A swipe's settle whose sidebar goes away before it ends (a window closed mid-swipe) finishes without
+    /// touching the sidebar: its completion reads the sidebar through a weak reference.
+    @Test func aSwipeSettleOutlivingItsSidebarFinishesSafely() {
+        var paging: SidebarSpacePaging?
+        weak var gone: SidebarView?
+        autoreleasepool {
+            let (_, sidebar) = Self.sidebar()
+            gone = sidebar
+            paging = sidebar.spacePaging
+            sidebar.spacePaging.scroll(.began, deltaX: -180, time: 0)
+            sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.1)
+            sidebar.removeFromSuperview()
+        }
+        #expect(gone == nil, "the sidebar outlived the test's scope, so the settle never ran without it")
+        CATransaction.flush()
+        for _ in 0..<4 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.3)) }
+        #expect(paging != nil) // the process is still alive: the completion did not trap
     }
 
     /// An empty space's page draws nothing in its empty list, as the live list does (https://github.com/manaflow-ai/cmux/issues/32728).
@@ -100,25 +94,5 @@ struct SidebarSpacePageRealizationTests {
         let row = try #require(page.rowViews[.emptySection(empty.id)] as? EmptySectionRowView)
         #expect(row.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.isEmpty)
         sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.5)
-    }
-
-    /// A slide whose sidebar goes away before its animation ends (a window closed mid-switch)
-    /// finishes without touching the sidebar: the completion read it through an unowned
-    /// reference and crashed the process (fleet step 2f4e9864569bd12ab870b44d).
-    @Test func aSlideOutlivingItsSidebarFinishesSafely() {
-        var paging: SidebarSpacePaging?
-        weak var gone: SidebarView?
-        autoreleasepool {
-            let (model, sidebar) = Self.sidebar()
-            gone = sidebar
-            paging = sidebar.spacePaging
-            sidebar.spacePaging.prepareSlide(oldSections: model.sections)
-            sidebar.spacePaging.slide(direction: 1)
-            sidebar.removeFromSuperview()
-        }
-        #expect(gone == nil, "the sidebar outlived the test's scope, so the slide never ran without it")
-        CATransaction.flush()
-        for _ in 0..<4 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.3)) }
-        #expect(paging != nil) // the process is still alive: the completion did not trap
     }
 }

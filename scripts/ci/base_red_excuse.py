@@ -103,9 +103,25 @@ def rate_limited_classes() -> tuple:
     return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
 
 
+def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
+    """FOUND, GitHub's parsed answer to ROUTE, when it is a JSON object or list (a paginated read: each page is one);
+    NONE lets a None through (a test fake's empty answer). Anything else is Refused as unread, naming the first
+    SHAPE_CHARS characters of what came back, so no reader below calls `.get` on it. While the REST quota was spent
+    a read of a workflow's runs came back as a str, and list_base_runs' `listed.get("workflow_runs")` raised
+    AttributeError, a traceback merge_hold showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
+    for page in found if paginate and isinstance(found, list) else [found]:
+        if not (isinstance(page, (dict, list)) or (none and page is None)):
+            raise Refused(f"GitHub's answer to {route} could not be read: {str(page)[:SHAPE_CHARS]}")
+    return found
+
+
+SHAPE_CHARS = 200
+
+
 def rate_limit_aware(github):
-    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above). Reads are
-    looked up on each call, so a caller that replaces one (the tests' fakes) is still read."""
+    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above), and every `json` read that is not
+    a JSON object or list Refused as unread (json_shape). Reads are looked up on each call, so a caller that replaces
+    one (the tests' fakes) is still read, and checked."""
     class Aware:
         def __getattr__(self, name: str):
             attribute = getattr(github, name)
@@ -114,9 +130,12 @@ def rate_limit_aware(github):
 
             def read(*args, **kwargs):
                 try:
-                    return attribute(*args, **kwargs)
+                    found = attribute(*args, **kwargs)
                 except RateLimited as error:
                     raise RateLimitedRead(str(error)) from None
+                if name == "json" and args:
+                    return json_shape(str(args[0]), found, paginate=bool(kwargs.get("paginate")), none=True)
+                return found
 
             return read
 
@@ -194,11 +213,15 @@ class GitHub(_evidence.GitHub):
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
         jq = projection(route)
-        if jq is None:
-            return super().json(route, paginate=paginate, per_page=per_page)
 
         def fetch(url: str):
-            return json.loads(self.run(["api", url, "--jq", jq]))
+            # Each page is checked as it comes, so the pager never meets a str either (json_shape).
+            said = self.run(["api", url, *(("--jq", jq) if jq is not None else ())])
+            try:
+                found = json.loads(said)
+            except ValueError:
+                raise Refused(f"GitHub's answer to {url} could not be read: {said[:SHAPE_CHARS]}") from None
+            return json_shape(url, found)
         if not paginate:
             return fetch(route)
         try:
@@ -616,6 +639,19 @@ GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
     r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
 )
+# A summary gate whose dependencies judged nothing (cancelled, abandoned, skipped though required, an empty result)
+# says so in one annotation that starts "no verdict: " (scripts/ci/needs_verdict.py, NO_VERDICT_PREFIX). It ends red
+# so it never reads as a pass, but it is never the pull request's own red and never a base red: it gets re-run.
+# 2026-11-09: #39791's `rust workspaces` summary read `plan: abandoned` as a red, compared it with a green base and
+# refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
+# script, which spells the same words).
+SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
+# The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
+# shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
+# match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
+# was excused by a base failing crate-b). A summary red is refused with "compare its failed children" unless its
+# children are compared one by one, as Guard status's are (validate_guard_routes).
+SUMMARY_RED = re.compile(r"^##\[error\]\s*summary red: ")
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -904,6 +940,52 @@ def lines_of(log: str) -> list[str]:
     return found
 
 
+def _stamp_time(value) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+def failed_steps_log(job: dict, log: str) -> str:
+    """LOG without the lines of JOB's passing steps. A job runs many steps, and a passing one may print error-looking
+    stderr on purpose: test_ghostty_licenses.py's negative cases print "pinned license manifest digest changed" and
+    pass. 2026-11-10: cmux#40369's static checks failed only in "Every page's strings generate with no missing
+    translation" (feat-cmux-next runs 42820823641, 42820590433), and the excuse quoted that digest line, sending an
+    agent after the wrong cause.
+
+    A step passed when the jobs API says success and its section has no live `##[error]` line: a continue-on-error
+    step that failed also reads as a success there, but the runner still ends its section with `##[error]Process
+    completed with exit code N.`, and the job's rollup step names it. Only such passing steps' lines are dropped;
+    any line that cannot be placed in one is kept. `gh run view --log` names each line's step in a column. The job-log
+    endpoint (GitHub.log) has only timestamps: a line is a step's when its stamp is in that step's [started_at,
+    completed_at + 1s) window (the metadata rounds to seconds), and it is dropped only when every window it is in is
+    a passing step's. With a step that has no timestamps the whole log is read, as before."""
+    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    lines = log.splitlines()
+    live = [text.startswith("##[error]") for text in lines_of(log)]
+    columns = [line.split("\t", 2) for line in lines]
+    if any(len(parts) == 3 and STAMP.match(parts[2].lstrip("\ufeff")) for parts in columns):
+        owners = [{parts[1]} if len(parts) == 3 else set() for parts in columns]
+    else:
+        windows = []
+        for step in metadata:
+            start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
+            if start is None or end is None or end < start:
+                return log
+            windows.append((step.get("name"), start, end + timedelta(seconds=1)))
+        owners, at = [], None
+        for line in lines:
+            stamp = STAMP.match(line.lstrip("\ufeff"))
+            # A line with no stamp of its own continues the line before it.
+            at = _stamp_time(stamp.group()) if stamp else at
+            owners.append({name for name, start, end in windows if at is not None and start <= at < end})
+    passed = {step.get("name") for step in metadata if step.get("conclusion") == "success"}
+    passed -= {name for names, error in zip(owners, live) if error for name in names}
+    return "\n".join(line for line, names in zip(lines, owners) if not names or not names <= passed)
+
+
 def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
     runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
@@ -912,9 +994,12 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
              if step.get("conclusion") not in (None, "success", "skipped")}
     tests = test_reds.failed_names(test_reds.lines_of(log))
     errors: set[str] = set()
-    skip = test_reds.echoed(test_reds.log_lines(log))
-    for n, text in enumerate(lines_of(log)):
-        if n in skip or text.startswith(test_reds.TAP_MARKER):
+    # Error lines come from the failed steps' own sections only (failed_steps_log), on the head and the base alike, so
+    # what is quoted and what is compared is the red itself, never a passing step's expected stderr.
+    scope = failed_steps_log(job, log)
+    skip = test_reds.echoed(test_reds.log_lines(scope))
+    for n, text in enumerate(lines_of(scope)):
+        if n in skip or text.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(text):
             continue
         if ((ERROR.search(text)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(text))
@@ -932,6 +1017,16 @@ def no_verdict(log: str) -> str | None:
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
 
 
+def summary_red(log: str) -> str | None:
+    """The line where a summary gate names its failed needs (SUMMARY_RED), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_RED.match(text)), None)
+
+
+def summary_no_verdict(log: str) -> str | None:
+    """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
+
+
 def generated_no_verdict(log: str) -> str | None:
     """The shared generated-files check's fail-closed prerequisite diagnostic, if it printed one.
 
@@ -943,7 +1038,16 @@ def generated_no_verdict(log: str) -> str | None:
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
-    `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
+    `Release compile` or `Reuse that pass` step succeeded), a cmux-next/compile success, or else the fleet's compile
+    receipt for SHA reading "pass" (compile_receipt: this repository, that exact commit, recipe 2, release-onone).
+
+    The receipt is what cmux-next/compile publishes (cmux-next.yml's compile-status step maps the same fields to the
+    same verdict), and the fleet keeps one for every same-repository PR head whether or not that job runs: a PR whose
+    route skips the status job has no status, but its receipt still says whether the app compiled. The fleet compiles
+    each head as the app executable (`--app --release`, compiled and linked), resolving the binary targets the
+    head's own manifest pins (its url and checksum), so a pass compiled the app against the head's pin
+    (cmux#39251, 2026-11-10: every app compile check skipped by routing, the receipt at 3c886d8d a pass). An unread
+    receipt, or one of another commit, repository or recipe, refuses (compile_receipt)."""
     candidates = []
     # Every attempt (filter=all): one rerun into startup_failure ran no jobs and must not hide the pass before it.
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
@@ -977,6 +1081,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
             if found.get("state") == "success":
                 return f"the {COMPILE_PASS_STATUS} status"
             break
+    receipt = compile_receipt(repo, sha)
+    if receipt is not None and receipt.get("state") == "pass":
+        return (f"the fleet's app compile receipt (job {receipt.get('job_id') or 'unnamed'}, recipe "
+                f"{receipt['recipe_version']}, {receipt['configuration']})")
     return None
 
 
@@ -995,6 +1103,31 @@ COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
+# A gate that depends on one service (2026-11-10): from about 01:00Z the fleet controller was off, the receipts host
+# answered HTTP 530 for every commit, and every compile red inherited_compile_red judged was refused on the unread
+# receipt (cmux#40025, #40030, #40059 held with a SHIP at their heads). A busy or missing service makes a merge slower,
+# never impossible: when the receipts host is unreachable (a connection error, a timeout, any 5xx), the same question is
+# asked of GitHub instead (github_compile_red). GitHub's cmux-next/compile status is what compile-status posts from the
+# same receipt, so a head that reads "The app did not compile" is compared with that status at its merge-base, or, when
+# the merge-base has none completed, at the newest of the BASE_STATUS_COMMITS newest base commits that has one. Only
+# the same failure there excuses; a pass there is the head's red, and no completed status anywhere refuses, saying so.
+COMPILE_STATUS_FAIL = "The app did not compile"
+COMPILE_RECEIPT_DOWN = 500  # an HTTP answer at or above this (5xx, Cloudflare's 52x and 530) is the service down
+
+
+# The cmux-next/compile descriptions of compile-status that are no verdict (unavailable, no result in 40 minutes, a
+# result for another head); only "The app did not compile" (COMPILE_STATUS_FAIL) is a fail. With the controller off
+# every PR's status read "No compile result for this head in 40 minutes": no receipt and no base status can judge
+# that (github_compile_red refuses it), but a compile that passed at the head elsewhere can. A no-verdict status is
+# judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head (compile_pass_at, the Mac
+# Release compile first) ignores it, so a down controller makes landing slower, never impossible.
+COMPILE_STATUS_NO_VERDICT = re.compile(r"No compile result for this head|The compile check gave no verdict|"
+                                       r"The compile result does not match this head")
+
+
+class ReceiptUnreachable(Refused):
+    """The receipts host did not answer (a connection error, a timeout, a 5xx): no verdict, and no answer about the
+    receipt either, so a caller may ask GitHub instead (github_compile_red)."""
 
 
 def compile_receipt(repo: str, sha: str) -> dict | None:
@@ -1010,8 +1143,12 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
+        if error.code >= COMPILE_RECEIPT_DOWN:
+            raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
         raise Refused(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
-    except (OSError, ValueError) as error:
+    except OSError as error:  # URLError, a refused connection, a timeout: the service did not answer
+        raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
+    except ValueError as error:
         raise Refused(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
     if not isinstance(receipt, dict) or receipt.get("sha") != sha or receipt.get("repo") != repo:
         raise Refused(f"the compile receipt of {sha[:12]} names another commit")
@@ -1024,8 +1161,11 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
 
 def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> str:
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
-    "fail", else Refused."""
-    head = compile_receipt(repo, sha)
+    "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red)."""
+    try:
+        head = compile_receipt(repo, sha)
+    except ReceiptUnreachable as down:
+        return github_compile_red(repo, base, sha, name, github, down)
     if (head or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is {(head or {}).get('state') or 'missing'}, not "
                       "a fail: no verdict to compare with the base")
@@ -1033,7 +1173,10 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
-    at_base = compile_receipt(repo, merge_base)
+    try:
+        at_base = compile_receipt(repo, merge_base)
+    except ReceiptUnreachable as down:
+        return github_compile_red(repo, base, sha, name, github, down)
     if (at_base or {}).get("state") != "fail":
         raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
                       f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
@@ -1044,8 +1187,61 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
             now = f"; {base} {tip[:12]} reads {(compile_receipt(repo, tip) or {}).get('state') or 'no receipt'}"
         except Refused:
             now = ""
+    log_decider(f"'{name}' at {sha[:12]} was decided by the fleet's compile receipts")
     return (f"excused '{name}': the compile receipt of {sha[:12]} is a fail, and so is its merge-base "
             f"{merge_base[:12]}'s on {base} (an inherited base red{now}; merge the base for a new verdict)")
+
+
+def log_decider(message: str) -> None:
+    """Which path decided a compile red (the receipts or GitHub), on stderr beside the audit."""
+    print(f"base_red_excuse: {message}", file=sys.stderr)
+
+
+def compile_status_at(repo: str, sha: str, github) -> dict | None:
+    """SHA's newest cmux-next/compile commit status, or None when it has none."""
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    return next((found for found in statuses if found.get("context") == COMPILE_PASS_STATUS), None)
+
+
+def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused) -> str:
+    """inherited_compile_red's question asked of GitHub while the receipts host is unreachable (DOWN): the audit line
+    excusing NAME's compile red at SHA when GitHub's cmux-next/compile at SHA reads a real compile fail and the same
+    status at the merge-base (else the newest of the BASE_STATUS_COMMITS newest BASE commits with one completed) reads
+    the same fail, else Refused naming why. Reads: one status, one compare, at most BASE_STATUS_COMMITS + 2 more; no
+    wait and no retry, so a GitHub that cannot answer refuses too."""
+    why = f"the receipts host is unreachable ({down})"
+    log_decider(f"'{name}' at {sha[:12]}: {why}; GitHub decides")
+    head = compile_status_at(repo, sha, github) or {}
+    said = head.get("description") or ""
+    if head.get("state") not in ("failure", "error") or not said.startswith(COMPILE_STATUS_FAIL):
+        raise Refused(f"'{name}': {why}, and GitHub's {COMPILE_PASS_STATUS} at {sha[:12]} reads "
+                      f"{head.get('state') or 'no status'}: {said or 'no description'}; only a real compile fail can "
+                      "be the base's (a no-verdict compile never is), so neither path can decide")
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+    merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
+        raise Refused(f"'{name}': {why}, and GitHub names no merge-base of {sha[:12]} with {base}")
+    candidates = [merge_base] + [commit.get("sha") or "" for commit in
+                                 github.json(f"repos/{repo}/commits?sha={base}&per_page={BASE_STATUS_COMMITS}") or []
+                                 if (commit.get("sha") or "") != merge_base]
+    for commit in candidates:
+        found = compile_status_at(repo, commit, github)
+        if found is None or found.get("state") == "pending":
+            continue
+        where = "its merge-base" if commit == merge_base else f"{base}"
+        if found.get("state") == head.get("state") and (found.get("description") or "") == said:
+            log_decider(f"'{name}' at {sha[:12]} was decided by GitHub: {where} {commit[:12]} fails the same way")
+            return (f"excused '{name}': {why}; GitHub's {COMPILE_PASS_STATUS} at {sha[:12]} reads \"{said}\", and so "
+                    f"does {where} {commit[:12]} (an inherited base red, decided over GitHub; merge the base for a "
+                    "new verdict)")
+        log_decider(f"'{name}' at {sha[:12]} was decided by GitHub: {where} {commit[:12]} reads {found.get('state')}")
+        raise Refused(f"'{name}': {why}; GitHub's {COMPILE_PASS_STATUS} at {sha[:12]} reads \"{said}\", but {where} "
+                      f"{commit[:12]} reads {found.get('state')}: {found.get('description') or 'no description'}: "
+                      "the red is this head's")
+    log_decider(f"'{name}' at {sha[:12]}: neither the receipts nor GitHub can decide")
+    raise Refused(f"'{name}': {why}, and GitHub has no completed {COMPILE_PASS_STATUS} at its merge-base "
+                  f"{merge_base[:12]} or the {BASE_STATUS_COMMITS} newest {base} commits to compare with: neither path "
+                  "can decide; re-run it once the fleet answers")
 
 
 # The Rust panic ratchet (scripts/cmux-next/rust_panic_ratchet.py, run by .github/scripts/cmux-tui-clippy-changed.py).
@@ -1133,6 +1329,11 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     steps, _, errors = signature(guard, text)
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
+    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared. Its
+    # red line (SUMMARY_RED) is no error here (signature drops it): the route reports below are the evidence.
+    if (said := summary_no_verdict(text)) is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      "neither a pass nor this PR's own red; re-run it")
     if errors:
         raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
     report = test_reds.read(text)
@@ -1213,6 +1414,17 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
     if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
+        description = status.get("description") or ""
+        if COMPILE_STATUS_NO_VERDICT.match(description):
+            try:
+                proof, unread = compile_pass_at(repo, sha, github), ""
+            except Refused as why:  # the receipt is read last: nothing before it passed
+                proof, unread = None, f"; {why}"
+            if proof is None:
+                raise Refused(f"'{name}' gave no compile verdict ({description[:140]}) and nothing else compiled "
+                              f"{sha}{unread}: a no-verdict compile is never a base red; re-run it once the fleet "
+                              "answers, or once the Mac Release compile passes at this head")
+            return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github)
     url = status.get("target_url") or ""
@@ -1327,7 +1539,8 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # moves the pin, so this base classifier can judge that PR) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
-# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
+# PR's exact head (compile_pass_at: the Mac Release compile, cmux-next/compile, or the fleet's compile receipt for that
+# head, which cmux-next/compile publishes and which a PR whose route skips the status job still has). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
 # resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -1431,8 +1644,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
         return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"
     proof = compile_pass_at(repo, sha, github)
     if proof is None:
-        return None, (f"no app compile check passed at {sha} (cmux-next/compile, or the Release compile), so nothing "
-                      f"proves the app builds against {tag}")
+        return None, (f"no app compile check passed at {sha} (cmux-next/compile, the Release compile, or the fleet's "
+                      f"compile receipt), so nothing proves the app builds against {tag}")
     return (f"pins {tag}, a published release built from {pin[:12]}, which is on {base}, and {proof} compiled {sha} "
             "against that pin and passed"), ""
 
@@ -2923,8 +3136,8 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
     # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
     # pull_request_target) is never the base's.
     base_runs[workflow] = sorted(
-        (run for run in listed.get("workflow_runs") or []
-         if run.get("event") not in ("pull_request", "pull_request_target")
+        (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+         if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
          and run.get("conclusion") != "skipped"),
         key=lambda run: run.get("created_at") or "", reverse=True)
 
@@ -3361,6 +3574,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
             raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                           "re-run its prerequisite and this dependent job together")
+        if (said := summary_no_verdict(head_log)) is not None:
+            raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                          "neither a pass nor this PR's own red; re-run it")
+        if (said := summary_red(head_log)) is not None:
+            raise Refused(f"'{name}' is a summary red ({said[:300]}): its line names failed children in words every "
+                          "summary shares, never a red the base can share; compare its failed children, each as itself")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:
