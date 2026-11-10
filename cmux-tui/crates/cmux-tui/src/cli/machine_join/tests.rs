@@ -759,7 +759,7 @@ fn a_plan_refusal_keeps_its_code() {
 /// cap, a rate limit or a machine's state reaches the person by name, not as a bare status.
 #[test]
 fn every_platform_refusal_code_is_known() {
-    for row in cmux_cloud_machine::refusals::PLATFORM {
+    for row in refusals::PLATFORM {
         assert_eq!(known_code(Some(row.code)), row.code);
     }
     // A cap's refusal names its limit and what holds it.
