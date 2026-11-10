@@ -33,13 +33,15 @@ const newChat = noChat([], {
   summary: { sessionId: "new-chat", cwd: CWD, harness: "claude", turnCount: 0, host: "This Mac", hostKind: "local" },
 });
 
-/// Types `command` alone and sends it with Return, as the person does mid-turn.
-const runs = (command: string) => async (ctx: PlayContext) => {
+/// Types `command` alone and sends it with Return, as the person does mid-turn, then waits for what
+/// it shows (`shows`): the play fails when it never comes.
+const runs = (command: string, shows: string) => async (ctx: PlayContext) => {
   await ctx.click({ selector: "[role=combobox]" });
   await ctx.type(command);
   // The `/` menu is open over the typed word; Esc closes it so Return sends what is typed.
   await ctx.press("Escape");
   await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.document.querySelector(shows));
 };
 
 export default agentPaneEntry({
@@ -60,12 +62,12 @@ export default agentPaneEntry({
     "status-mid-turn": {
       note: "/status typed alone while a turn runs: the status card shows at once; nothing joins the queue.",
       snapshot: running(),
-      play: runs("/status"),
+      play: runs("/status", ".acpmux-harness-status"),
     },
     "mcp-mid-turn": {
       note: "/mcp typed alone while a turn runs: Session Info opens on Connectors at once; the queue keeps only what the person queued.",
       snapshot: running(),
-      play: runs("/mcp"),
+      play: runs("/mcp", "aside.acpmux-session-info"),
     },
     "queue-beside": {
       note: "The queue next to it: a turn running with one queued prompt, before any command. A normal prompt sent now still waits here.",
