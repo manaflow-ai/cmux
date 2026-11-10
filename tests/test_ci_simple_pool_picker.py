@@ -689,6 +689,25 @@ class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
         held = tuple(pool(label, 10, running=10, reserved=1) for label in picker.BLACKSMITH)
         self.assertIn(picker.pick(picker.State(jobs=1, blacksmith=held)).label, picker.BLACKSMITH)
 
+    def test_a_moving_held_label_wins_over_stalled_unheld_ones(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # Dropping the held label first left only the stalled ones, so the run took the dead 12 vCPU label and
+        # stayed queued there after the reservation cleared.
+        state = picker.State(jobs=1, blacksmith=(
+            dataclasses.replace(pool(large, 5, running=0, queued=1), stalled=True),
+            pool(small, 10, running=10, queued=3, reserved=1),
+            dataclasses.replace(pool(mac15, 10, running=0, queued=1), stalled=True)))
+        self.assertEqual(picker.pick(state).label, small)
+
+    def test_with_every_moving_label_held_a_run_takes_a_held_moving_label_over_a_dead_one(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # The dead label is the only unheld one. Filtering reservations first left only it, so the run went to a
+        # label that was not moving.
+        dead = dataclasses.replace(pool(large, 5, running=0, queued=4), stalled=True)
+        state = picker.State(jobs=1, blacksmith=(dead, pool(small, 10, running=10, queued=2, reserved=1),
+                                                 pool(mac15, 10, running=10, queued=5, reserved=1)))
+        self.assertEqual(picker.pick(state).label, small)
+
 
 if __name__ == "__main__":
     unittest.main()
