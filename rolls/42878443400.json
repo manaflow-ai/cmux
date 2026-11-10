@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42878443400",
+  "recorded_at": "2026-11-10T18:53:51Z",
+  "reason": "cmux-tui 0ceeadd878bf changes the image's cmux-tui (pinned e0d9836e67f3)",
+  "dry_run": false,
+  "cmux_tui": "0ceeadd878bf9f1bac9eba7b32a71fb94786f67b",
+  "fixes": [
+    {
+      "sha": "42902aeceea418dab65cafcc7580e5eb05e93dcd",
+      "mergedAt": "2026-11-10T10:21:05-08:00",
+      "subject": "Cloud start: wait for a starting acpmux's catalog instead of refusing after 5 s (#40623)"
+    },
+    {
+      "sha": "6dfd399eec3132fe34cd5bac659bd1a86c5dfa2b",
+      "mergedAt": "2026-11-10T18:00:18Z",
+      "subject": "cmux-tui: agents and project scans at rest write nothing to the registry (#40587)"
+    },
+    {
+      "sha": "0da2764755f22bba2ec6c1b8360b866f72daece0",
+      "mergedAt": "2026-11-10T17:48:21Z",
+      "subject": "cmux-tui: a bell keeps the next banner; cmux attention uses the newest notification (port of #38490 review fixes) (#40625)"
+    },
+    {
+      "sha": "8bfda8dff1efd84e6129a38a5cb39c1c2572cee6",
+      "mergedAt": "2026-11-10T17:48:05Z",
+      "subject": "cmux-tui: agent resume does not send the first prompt of the start again (port of main #39226's review fix) (#40613)"
+    },
+    {
+      "sha": "43cf07550e339ca85a2d0101baee0d50fd737228",
+      "mergedAt": "2026-11-10T17:36:51Z",
+      "subject": "fix(mcp): a refusal the app decided reaches a tool call as rejected, not not_run (#40637)"
+    },
+    {
+      "sha": "9b4ff1a3d89cfe73760f9eb044997f3194203f74",
+      "mergedAt": "2026-11-10T09:36:12-08:00",
+      "subject": "acpmux: an outbox change appends the deliveries it changed, not the whole file (2-34 GB disk-write reports) (#40378)"
+    },
+    {
+      "sha": "1d260db84307c8b69526a3035f84994486359f72",
+      "mergedAt": "2026-11-10T17:20:18Z",
+      "subject": "cmux-tui: restore a closed-tab Cloud template terminal detached after restart (port of #33195) (#40619)"
+    },
+    {
+      "sha": "1bd15914bc503e6255f0380c995abc4b7417af44",
+      "mergedAt": "2026-11-10T17:09:53Z",
+      "subject": "Revert \"Ghostty times resize frames, RENDERER_SYNCED (#40174)\" (#40615)"
+    },
+    {
+      "sha": "b2eebab8263b52978bed5e4b41425b911c864b10",
+      "mergedAt": "2026-11-10T16:57:32Z",
+      "subject": "python-sdk: stop queued stream reads cleanly after close (port of #21351) (#40626)"
+    },
+    {
+      "sha": "7d64634e87631d2f344f7e3258f449eb7cdc047c",
+      "mergedAt": "2026-11-10T16:57:23Z",
+      "subject": "chore(next): base autofix at 808984ef6bf7"
+    },
+    {
+      "sha": "808984ef6bf71fc377d2be95d05c0c3df3acddea",
+      "mergedAt": "2026-11-10T16:55:46Z",
+      "subject": "base red: New Tab app widgets stay mounted across a switch (check:switch-fetches, no listener) (#40610)"
+    },
+    {
+      "sha": "88839374519266987311e8f9b36960af93343552",
+      "mergedAt": "2026-11-10T16:53:53Z",
+      "subject": "cmux-tui: identify lists terminal-reaper-active-v1 from the attach of an owner that starts its reaper (port of main #39711) (#39720)"
+    },
+    {
+      "sha": "ce5dddedc85147c62741e6732f834c4bf96d91b7",
+      "mergedAt": "2026-11-10T08:51:33-08:00",
+      "subject": "Sidebar caps in Rust: per-project rows, Show more by 20, Needs you (decided 2026-11-10) (#40483)"
+    },
+    {
+      "sha": "714be9f6607ed0097b64c090ae02fffdada5ba85",
+      "mergedAt": "2026-11-10T16:50:06Z",
+      "subject": "fix(cli): a refusal the app decided is answered at once, not after 45 s (#40599)"
+    },
+    {
+      "sha": "1892dd2e7e90b54edfe4990bd06c873232c7e570",
+      "mergedAt": "2026-11-10T08:49:39-08:00",
+      "subject": "acpmux: a chat that moves away and comes back keeps its name (#40435)"
+    },
+    {
+      "sha": "ae4c6b893df32de127e832af9dadbad4e4c5b604",
+      "mergedAt": "2026-11-10T08:35:30-08:00",
+      "subject": "acpmux: a Grok subscription sign-in and an Antigravity sign-in count as signed in (#40343)"
+    },
+    {
+      "sha": "99bf5df04430fa3c03faa5ee18928d824c8a9612",
+      "mergedAt": "2026-11-10T16:32:11Z",
+      "subject": "chore(next): base autofix at c3ed4fd5b33f"
+    },
+    {
+      "sha": "c3ed4fd5b33fdb018ca1845589ec6dbf333f4408",
+      "mergedAt": "2026-11-10T08:28:19-08:00",
+      "subject": "acpmux: a pooled Claude Code runs the model the chat asked for (#40553)"
+    },
+    {
+      "sha": "16cbfd0b67f371180de5c834768c6c52edd37d97",
+      "mergedAt": "2026-11-10T15:30:14Z",
+      "subject": "cmux-next: cmux-motion, its C ABI and the spec hold no bounce and no screen spring (#40528)"
+    },
+    {
+      "sha": "f73ff6f3666bae82933a023ef4c6ab80f64b1634",
+      "mergedAt": "2026-11-10T07:26:32-08:00",
+      "subject": "fix(cli): cmux completion compiles on Windows again (#40536)"
+    },
+    {
+      "sha": "810549e01026b94d4cc2bd5bdf6c102556670cc8",
+      "mergedAt": "2026-11-10T06:31:44-08:00",
+      "subject": "Cloud sign-in: Gemini (API key) and Grok (device flow) on the machine (#40366)"
+    },
+    {
+      "sha": "2de590895ca04b16f26af3601ee465638bae3fab",
+      "mergedAt": "2026-11-10T14:31:38Z",
+      "subject": "chore(next): base autofix at c33502fb24a7"
+    },
+    {
+      "sha": "15abbfdc13b8dc57a26b18a6baa128a81a8f2000",
+      "mergedAt": "2026-11-10T14:29:33Z",
+      "subject": "perf(terminal): Ghostty times resize frames (RENDERER_SYNCED); delete the frame presenter and draw-ahead (ghostty-integration step 4) (#40174)"
+    },
+    {
+      "sha": "063f7f9dc3ece58e0828dacb9ba97dae7bf62fc4",
+      "mergedAt": "2026-11-10T14:28:20Z",
+      "subject": "Close selection: one Rust rule for tabs and workspaces, Chrome's opener ranks (no caller yet) (#40475)"
+    },
+    {
+      "sha": "c9dcb70662f8a24286846bf0f294c3efe3b91414",
+      "mergedAt": "2026-11-10T06:28:03-08:00",
+      "subject": "Cloud chat matrix follow-ups (#40467 review F1, F2): a Grok account switch changes the pool key; contract cells inherit no host login (#40500)"
+    },
+    {
+      "sha": "8eecc5d1ddbed2ab11bce8c92c7594c34f5a589a",
+      "mergedAt": "2026-11-10T06:22:02-08:00",
+      "subject": "carrier drill: record every event and the server's resume seq; a finished drill answers drill (#40368)"
+    },
+    {
+      "sha": "d1bf3495682ae42bc250896c86b34f94c2983745",
+      "mergedAt": "2026-11-10T06:21:11-08:00",
+      "subject": "Cloud chat: a checkpoint before each turn and \"back to before this turn\" (engine, setting off by default) (#40420)"
+    },
+    {
+      "sha": "4b5a546df9574b0e0402b7779ded6ab39c91c064",
+      "mergedAt": "2026-11-10T05:44:26-08:00",
+      "subject": "cmux-tui tests: a test directory is owner-only whatever the caller's umask (#40470)"
+    },
+    {
+      "sha": "59300619bd131f01441506a165ea55117c3e5b1e",
+      "mergedAt": "2026-11-10T05:39:26-08:00",
+      "subject": "acpmux: remote-chain sandbox resolves /proc/self/fd/<dirfd>/<name> instead of refusing it (#40419)"
+    },
+    {
+      "sha": "46050e10588b62ae4082a7f6268d62786c5a2f1a",
+      "mergedAt": "2026-11-10T13:38:39Z",
+      "subject": "chore(next): base autofix at c8a297c89687"
+    },
+    {
+      "sha": "c8a297c89687f215efd296a80a26301e668ee562",
+      "mergedAt": "2026-11-10T05:35:56-08:00",
+      "subject": "Split divider menu: Insert New at a divider, Hide/Show Divider (#37733)"
+    },
+    {
+      "sha": "6ce8918343aa73726c7f3dada777f01237f7349b",
+      "mergedAt": "2026-11-10T05:34:59-08:00",
+      "subject": "acpmux: end-to-end test of a teammate through the carrier socket (-32003 on chat B and non-teammate verbs) (#40331)"
+    },
+    {
+      "sha": "b4ca6be250472d5f21fe488934cd9b5c6205896e",
+      "mergedAt": "2026-11-10T05:34:21-08:00",
+      "subject": "Cloud chats: Gemini CLI and Grok CLI on the VM image, their logins in the pool key, and the Cloud chat matrix (#40467)"
+    },
+    {
+      "sha": "cf8c6703e78aeca056744984d5e3fe177e32ac2f",
+      "mergedAt": "2026-11-10T05:30:46-08:00",
+      "subject": "cmux NEXT Cloud handlers: the Swift asks the Rust rules (step B) (#37583)"
+    },
+    {
+      "sha": "5527c5b46a3a4b1a5e8df9f21effd9970b74c462",
+      "mergedAt": "2026-11-10T05:15:48-08:00",
+      "subject": "Add New Tab widgets from apps (#40270)"
+    },
+    {
+      "sha": "1bff74559808871d325f0f505ee048d7960ce77e",
+      "mergedAt": "2026-11-10T05:15:40-08:00",
+      "subject": "acpmux: a daemon test sets its own umask (#40386)"
+    },
+    {
+      "sha": "d3784ba0de3afd3625cefa399e1afb64f16c3e11",
+      "mergedAt": "2026-11-10T05:11:00-08:00",
+      "subject": "app health: a restore that makes progress holds replacements at once (#39247)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T18:53:51Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
