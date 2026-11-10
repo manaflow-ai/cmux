@@ -30,9 +30,9 @@ struct PasswordExportOffTests {
             return true
         }
 
-        func reveal(_ secret: CloudSecretBytes, site: String, username: String, anchor: NSView?) async {}
+        func reveal(_ secret: SecretBytes, site: String, username: String, anchor: NSView?) async {}
 
-        func copy(_ secret: CloudSecretBytes) {}
+        func copy(_ secret: SecretBytes) {}
 
         func exportDestination(profileName: String, anchor: NSView?) async -> URL? {
             asked.append("destination")
