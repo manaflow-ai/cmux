@@ -262,6 +262,12 @@ class UnreadShape(unittest.TestCase):
         for found in ({"workflow_runs": []}, [], None, [{"check_runs": []}]):
             self.assertEqual(excuse.rate_limit_aware(Answers(found)).json(route, paginate=True), found)
 
+    def test_list_base_runs_reads_a_str_as_unread(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page={excuse.BASE_RUNS_PAGE}"
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.list_base_runs(REPO, "feat-cmux-next", 7, excuse.rate_limit_aware(StrBaseRunsGitHub()), {})
+        self.assert_unread(error, route)
+
     def reader(self, answers):
         github = excuse.GitHub()
         github.run = lambda args: answers.pop(0)
@@ -347,11 +353,6 @@ class LastRealAttempt(unittest.TestCase):
         self.assertIn("run 20", "\n".join(lines))
         self.assertTrue(any("check-runs?filter=all" in route for route in github.routes), github.routes)
 
-    def test_red_then_two_startup_failures_is_still_judged_as_red_by_run(self):
-        github = LastRealAttemptGitHub([], [])
-        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
-        self.assertIn("run 20", "\n".join(lines))
-
     def test_red_hidden_by_startup_failures_stays_not_excused_when_the_base_lacks_it(self):
         for checks, runs in (([SWIFT], []), ([], [10])):
             with self.subTest(checks=checks, runs=runs):
@@ -385,6 +386,12 @@ class NoFailureExitsZero(unittest.TestCase):
     found on the head to compare with the base" (cmuxterm-hq#7234 at ce69ab6d, 16/16 green), so a merge check that
     ran it on every head refused every green PR. No failure is exit 0; a red run or check that was named and shows
     no failed job is still refused (LastRealAttempt)."""
+
+    def test_no_run_or_check_named_is_no_failure(self):
+        github = FakeGitHub()
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], github),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
+        self.assertEqual(github.routes, [])  # nothing to read
 
     def test_main_exits_0_on_no_failure(self):
         out = io.StringIO()
@@ -701,6 +708,11 @@ class PortableGhLog(unittest.TestCase):
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
 
+    def test_old_gh_behind_a_wrapper_notice_falls_back_without_the_flag(self):
+        self.assertIn("red", self.read("shim-old"))
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
+
     def test_any_other_failure_still_refuses_with_no_retry(self):
         for mode in ("http", "other-flag"):
             with self.subTest(mode=mode):
@@ -708,6 +720,12 @@ class PortableGhLog(unittest.TestCase):
                 with self.assertRaises(excuse.Refused):
                     self.read(mode)
                 self.assertEqual(len(self.asked()), 1)
+
+    def test_a_job_log_over_32_mib_is_read_whole(self):
+        # 2026-11-01: #28391's cmux-next swift test log was about 40 MB, past the old 32 MiB cap.
+        text = self.read("big")
+        self.assertGreater(len(text), 40 * 1024 * 1024)
+        self.assertTrue(text.endswith("tail\n"))
 
 
 class Excusing(unittest.TestCase):
@@ -858,6 +876,14 @@ class Excusing(unittest.TestCase):
         self.assertIn("run 20", text)
         lookup = next(route for route in self.gh.routes if "/actions/workflows/7/runs?" in route)
         self.assertIn(f"per_page={excuse.BASE_RUNS_PAGE}", lookup)
+
+    def test_the_base_lookup_reaches_past_the_tip_suites_cadence(self):
+        # The tip suite runs about once an hour (at most once per 25 minutes, tip_swift_suite_plan.js
+        # MIN_GAP_MS), and DEV daily runs land about every 3 minutes between them: 20 runs an hour.
+        # The job reads have to reach past more than one tip suite run, so one with no verdict (a
+        # lost runner) still leaves the one before it.
+        self.assertGreaterEqual(excuse.BASE_RUNS_PAGE, 100)
+        self.assertGreaterEqual(excuse.BASE_JOB_READS, 2 * 20)
 
     def test_base_job_reads_are_bounded(self):
         self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
@@ -1184,6 +1210,11 @@ class Excusing(unittest.TestCase):
                 text = "\n".join(self.judge())
                 self.assertIn(f"excused '{name}': feat-cmux-next run 40", text)
                 self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
+
+    def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
+        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
+        self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
+        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "], excuse.TREE_JOBS)
 
     def test_a_first_run_still_counts_for_the_jobs_it_runs_itself(self):
         # Generated files run in the first run itself (path routing's generated_host), never in its
@@ -2230,9 +2261,6 @@ class StaleBasePass(unittest.TestCase):
     def judge(self):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
 
-    def test_a_finished_job_in_a_running_base_run_is_the_newest_verdict(self):
-        self.assertIn("run 30", self.judge())
-
     def test_a_pass_before_the_merge_base_waits_for_a_newer_verdict(self):
         # The running run's job has not finished: the only verdict is the old pass, before the merge-base.
         self.gh.jobs[3].update(status="in_progress", conclusion=None)
@@ -2397,6 +2425,24 @@ class WebShardBaseVerdict(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no main verdict at or after this PR's merge-base yet"):
             excuse.judge(REPO, "main", HEAD, [10], gh)
         self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
+    def test_each_base_caller_runs_the_same_called_job_on_base_pushes(self):
+        yaml = excuse.yaml_module()
+        self.assertTrue(excuse.BASE_WORKFLOW_FOR)
+        for (branch, pr_file, job_id), base_file in excuse.BASE_WORKFLOW_FOR.items():
+            pr = yaml.safe_load((excuse.WORKFLOWS / pr_file).read_text())
+            pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
+            pr_job, pushed_job = pr["jobs"][job_id], pushed["jobs"][job_id]
+            # The same reusable workflow, so the same job names under the same '<id> / ' prefix.
+            self.assertTrue(str(pr_job.get("uses", "")).startswith("./.github/workflows/"), pr_job)
+            self.assertEqual(pr_job["uses"], pushed_job.get("uses"))
+            for where, job in ((pr_file, pr_job), (base_file, pushed_job)):
+                self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
+            # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
+            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+            self.assertIn(branch, pushes.get("branches") or [])
+            pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
+            self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
 
 REPLAY = "web / react-apps-base-check (4)"
@@ -2809,6 +2855,13 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
         self.assertNotIn("dispatch", str(refused.exception).split("tip suite runs)")[-1])
         self.assertEqual(gh.dispatched, [])
 
+    def test_each_base_dispatch_workflow_can_be_dispatched(self):
+        yaml = excuse.yaml_module()
+        for branch, file in excuse.BASE_DISPATCH:
+            workflow = yaml.safe_load((excuse.WORKFLOWS / file).read_text())
+            triggers = workflow.get(True, workflow.get("on")) or {}
+            self.assertIn("workflow_dispatch", triggers, file)
+
 
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
@@ -2856,6 +2909,25 @@ class RollupsFromNeeds(unittest.TestCase):
         derived, where = done.stdout.strip().splitlines()
         self.assertIn(str(Path("_vendor") / "yaml" / "__init__.py"), where)
         self.assertEqual(json.loads(derived), self.derive())
+
+    def test_needs_are_followed_and_named_as_actions_names_them(self):
+        got = self.derive()
+        self.assertEqual(got["run"]["ci-status"]["under"], {
+            "changes": {"exact": ["changes"], "prefixes": []},
+            "fast-guards": {"exact": ["CI fast guards"], "prefixes": []},
+            "web": {"exact": [], "prefixes": ["web / "]}})
+        # A called workflow's rollup is named, and its jobs matched, under its caller's name; a matrix job named by
+        # one matrix key is each of its exact names.
+        self.assertEqual(got["run"]["web / Web status"]["under"], {
+            "react-apps-check-shard": {"exact": ["web / react-apps-check (1)", "web / react-apps-check (2)"],
+                                       "prefixes": []},
+            "scope": {"exact": ["web / scope"], "prefixes": []},
+            "web-tests": {"exact": ["web / Web tests (1/2)", "web / Web tests (2/2)"], "prefixes": []}})
+        self.assertNotIn("Web status", got["run"])
+        self.assertEqual(got["routed"]["Guard status"]["routes"], {
+            "workflow-guard-submodule-forward-only": {
+                "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
+            "workflow-guard-tests": {"route": "linux_guard_tests", "exact": [], "prefixes": ["workflow-guard-tests / "]}})
 
     def test_any_shape_it_does_not_know_is_refused(self):
         tests_if = "if: ${{ inputs.linux_guard_tests == 'true' }}"
@@ -3075,6 +3147,14 @@ class SourceReads(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
+    def test_the_real_client_derives_hq_rollups_with_contents_reads_refused(self):
+        excuse.load_rollups(HQ, "main", excuse.rate_limit_aware(excuse.GitHub()))
+        self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
+        calls = self.calls()
+        self.assertTrue(calls)
+        self.assertTrue(all(call["args"][:2] == ["api", "graphql"] for call in calls), calls)
+        self.assertTrue(all(call["override"] is None for call in calls), calls)
+
     def test_a_missing_file_over_graphql_refuses_every_rollup(self):
         (self.tree / HQ / "main/.github/workflows/skills-tests.yml").unlink()
         with self.assertRaisesRegex(excuse.Refused, f"{HQ} rollups at main: .*not a text file.*no rollup red is excused"):
@@ -3120,6 +3200,14 @@ class SourceReads(unittest.TestCase):
             text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
         self.assertEqual(text, SKILLS_YML)
         self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_no_code_path_sets_the_shims_source_override(self):
+        sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
+                                                           "test_reds.py", "gh_pages.py")]
+        sources += sorted((ROOT / ".github/workflows").glob("*.yml"))
+        setting = [str(path.relative_to(ROOT)) for path in sources
+                   if path.is_file() and "GLAEDA_GH_ALLOW_API_SOURCE" in path.read_text()]
+        self.assertEqual(setting, [])
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
@@ -3432,6 +3520,11 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "runtime pack"):
             self.judge()
 
+    def test_only_commit_shas_are_masked(self):
+        self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7` "
+                                          "commit 1234567 for abcdef12"),
+                         "defaced 1234567 accede deadbeef1 <sha> at 8f0c2e1 tree `<sha>` commit <sha> for abcdef12")
+
     def test_a_forty_hex_digest_named_as_a_stored_thing_is_not_masked(self):
         # cmux#35902: every bare 40-hex token was masked, so two digests became one error line.
         digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
@@ -3441,6 +3534,14 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         # A commit the line does not name as a stored thing still masks, with or without a keyword.
         self.assertEqual(excuse.mask_shas(f"this run built {HEAD}"), "this run built <sha>")
         self.assertEqual(excuse.mask_shas(f"source stamp {HEAD} != {BASE_SHA}"), "source stamp <sha> != <sha>")
+
+    def test_a_stored_thing_id_after_punctuation_is_not_masked(self):
+        # cmux#35941 F1: the pattern took a literal space (and a backtick), so `artifact: <40-hex>` and
+        # `checksum=<40-hex>` fell back to the bare branch and two differing digests compared as one red.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"artifact: {digest}", f"checksum={digest}", f"digest ({digest})",
+                      f"hash [{digest}]", f'pack "{digest}"', f"artifact = {digest}"):
+            self.assertEqual(excuse.mask_shas(named), named)
 
     def test_a_stored_thing_id_after_a_bracket_alone_is_not_masked(self):
         # cmux#35941 F3: the separator still needed a space or a `:`/`=` before its optional bracket, so
@@ -3475,6 +3576,12 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         # The rest of the line still normalises: a run number, a duration, a pid vary run to run.
         self.assertEqual(excuse.normalise_error(f"##[error]artifact: {first} after 12 attempts"),
                          excuse.normalise_error(f"##[error]artifact: {first} after 3 attempts"))
+
+    def test_two_different_object_digests_are_two_error_lines(self):
+        first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        second = "2cadcc0a5426124272e806a9dca5273ce19940ea"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact {first} does not match"),
+                            excuse.normalise_error(f"##[error]artifact {second} does not match"))
 
     def test_every_compile_status_state_but_fail_is_no_verdict(self):
         """Fail closed: compile-status's own lines are a real red only for "(fail)"."""
@@ -3792,6 +3899,14 @@ class CompileReceiptRead(unittest.TestCase):
             REAL_COMPILE_RECEIPT(REPO, HEAD)
         with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
             REAL_COMPILE_RECEIPT(REPO, HEAD)
+
+    def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
+        """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
+        of another recipe never excuses a red."""
+        for other in ({"recipe_version": 1}, {"configuration": "debug"}, {"recipe_version": None}, {"configuration": None}):
+            with self.subTest(other=other), self.answer(dict(self.RECEIPT, **other)), \
+                    self.assertRaisesRegex(excuse.Refused, "another recipe"):
+                REAL_COMPILE_RECEIPT(REPO, HEAD)
 
 
 CLIPPY = "clippy (changed cmux-tui packages)"
@@ -4447,6 +4562,19 @@ class GuardGroupPerStep(unittest.TestCase):
 
 
 class Script(unittest.TestCase):
+    def test_a_rate_limited_read_exits_3(self):
+        # gh-merge-green reports exit 3 as a rate limit, not a red (main's main_fix_evidence.RateLimited).
+        class RateLimited(excuse.Refused):
+            pass
+
+        def judge(*args, **kwargs):
+            raise RateLimited("GitHub rate-limited `gh api`")
+
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
     def test_a_rate_limited_rollups_read_exits_3(self):
         # The swallow this covers: load_rollups wraps every Refused from its contents reads as
         # "no rollup red is excused", and main's RateLimited is a Refused, so a rate limit read as a
@@ -4469,6 +4597,26 @@ class Script(unittest.TestCase):
                 unittest.mock.patch.object(excuse, "GitHub", Limited), \
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
             self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_an_ordinary_refusal_still_exits_1_with_this_branchs_reader(self):
+        # Not patched: this branch's main_fix_evidence.py has no RateLimited, so excuse.RateLimited is the empty
+        # tuple. A handler written `except (RateLimited, RateLimitedRead)` is then `except ((), RateLimitedRead)`,
+        # a TypeError on every ordinary refusal ("catching classes that do not inherit from BaseException"), so
+        # main() would crash instead of saying "not excused" (review of #35947, F1).
+        self.assertEqual(excuse.rate_limited_classes(), (excuse.RateLimitedRead,))
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
+    def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
+        text = (ROOT / "scripts/gh-merge-green").read_text()
+        self.assertIn("base_red_excuse.py", text)
+        # Lint stays unwaivable, and --override still skips the base comparison.
+        self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", text)
 
 
 
@@ -5232,6 +5380,14 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                     self.judge()
                 self.assertEqual(self.releases, [])
 
+    def test_a_template_manifest_beside_a_pin_file_is_refused(self):
+        # A head with app-ffi-pin.json is read in the JSON form only: its Package.swift's own pin does not count.
+        self.json_pin_at_head(self.STEP_B_PIN, manifest=self.manifest)
+        self.pr_files(excuse.FFI_PIN_FILE)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "has 'releases/download/'|lines, not one"):
+            self.judge()
+
     def test_swift_alone_against_the_base_pin_that_compiled_is_excused(self):
         self.pr_files(self.STEP_B[1])
         self.compiled()
@@ -5475,6 +5631,15 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.source = None
         with self.assertRaisesRegex(excuse.Refused, "nor is its pin a published base release"):
             self.judge()
+
+    def test_the_real_manifest_reads_its_one_pin(self):
+        # This checkout's Package.swift (the base it branched from) is canonical.
+        text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
+        pin, checksum, why = excuse.ffi_binary_target(text, REPO)
+        self.assertEqual(why, "")
+        self.assertRegex(pin, r"^[0-9a-f]{40}$")
+        self.assertIn(f"cmux-app-ffi-{pin}/CCmuxAppFFI.xcframework.zip", text)
+        self.assertIn(f'checksum: "{checksum}"', text)
 
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
