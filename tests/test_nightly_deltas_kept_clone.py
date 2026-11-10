@@ -180,7 +180,8 @@ class DeltasCheckoutTest(unittest.TestCase):
                "GITHUB_ENV": str(self.temp / "github-env"), "GITHUB_REPOSITORY_OWNER": "manaflow-ai", "RUNNER_NAME": "test"}
         return subprocess.run(["bash", "-e", str(script)], cwd=self.ws, env=env, capture_output=True, text=True)
 
-    def assert_the_job_can_run(self, state: str, job: str = "generate-nightly-deltas", build: str = "new") -> None:
+    def assert_the_job_can_run(self, state: str, job: str = "generate-nightly-deltas", build: str = "new",
+                               left_out: tuple[str, ...] = LEFT_OUT) -> None:
         sha, want = (self.new, NEW_TREE) if build == "new" else (self.old, OLD_TREE)
         self.actions_checkout(step(job, CHECKOUT)["with"], sha)
         self.assertEqual(self.git(self.ws, "rev-parse", "HEAD"), sha)
@@ -193,7 +194,7 @@ class DeltasCheckoutTest(unittest.TestCase):
         read = [name for name in want if "/" not in name or name.startswith("scripts/")]
         self.assertEqual({name: tree.get(name) for name in read}, {name: want[name] for name in read},
                          f"{state}: scripts/ and the root files are not those of the build commit")
-        for name in LEFT_OUT:
+        for name in left_out:
             self.assertFalse(name in tree, f"{state}: the checkout of {job} wrote {name}, which the job never reads")
 
     # -- the states the kept clone can have before a deltas job ----------------------------------
@@ -243,7 +244,11 @@ class DeltasCheckoutTest(unittest.TestCase):
         self.signer(self.old)
         self.actions_checkout(FAILED_RUN_FORM, self.old)
         self.assertFalse((self.ws / ".xcode-version").exists(), "the state of the failed runs: no root files")
-        self.assert_the_job_can_run("after a deltas job of the old form")
+        # The old form's one pattern `scripts` stays in the pattern file (actions/checkout adds to the file), and
+        # git takes the nearest directory a pattern names, so the scripts/ directories below the root stay in the
+        # tree until the warm build removes the file. More files than the job reads, none missing.
+        self.assert_the_job_can_run("after a deltas job of the old form", left_out=LEFT_OUT[:2])
+        self.assertIn("webviews/scripts/build.mjs", self.tracked())
 
     def test_after_a_cone_mode_job(self) -> None:
         # The old form in a clone with no sparse setting is cone mode, kept in config.worktree.

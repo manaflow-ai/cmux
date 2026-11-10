@@ -44,6 +44,9 @@ JOBS = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 WARM_STEP = "Checkout build ref (warm nightly-next builder)"
 LEAN_PATTERNS = json.loads((ROOT / ".github/checkout-lean.json").read_text())["sparse_checkout"]
 KEPT_TARGET = "cmux-tui/target/release/kept.o"
+# The deltas checkout of run 42833135477, as its log prints it. A sign run of an older workflow commit
+# still uses it; the workflow's own deltas checkout now keeps the root files in every state.
+FAILED_RUN_DELTAS = {"filter": "blob:none", "sparse-checkout": "scripts\n"}
 
 OLD_TREE = {
     ".xcode-version": "26.6\n",
@@ -133,6 +136,9 @@ class WarmCheckoutTest(unittest.TestCase):
         self.actions_checkout(options, self.old)
 
     def after_the_deltas_job(self) -> None:
+        self.actions_checkout(FAILED_RUN_DELTAS, self.old)
+
+    def after_the_deltas_job_of_this_workflow(self) -> None:
         self.actions_checkout(step("republish-nightly-deltas", "Checkout build ref")["with"], self.old)
 
     def missing(self, tree: dict[str, str]) -> list[str]:
@@ -215,6 +221,15 @@ class WarmCheckoutTest(unittest.TestCase):
         self.assertTrue((self.ws / ".xcode-version").exists(), "cone mode keeps the root files")
         self.assertFalse((self.ws / "Sources/App.swift").exists())
         self.assert_whole_tree("after a cone-mode sparse checkout")
+
+    def test_after_the_deltas_job_of_this_workflow(self) -> None:
+        # Signer, then the deltas checkout as nightly.yml has it now: the root files and scripts/ only.
+        self.kept_workspace()
+        self.after_the_signer()
+        self.after_the_deltas_job_of_this_workflow()
+        self.assertTrue((self.ws / ".xcode-version").exists(), "the deltas checkout keeps the root files")
+        self.assertFalse((self.ws / "Sources/App.swift").exists())
+        self.assert_whole_tree("after the deltas job of this workflow")
 
     def test_after_the_setting_was_removed_but_the_index_still_hides_files(self) -> None:
         self.kept_workspace()

@@ -6567,8 +6567,14 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
-      # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
-      # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
+      # Only scripts/ and the root .xcode-version are read from it, so it is sparse: a full clone took 96 s
+      # of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z). The patterns are the three that cone
+      # mode writes for `scripts` (the root files and scripts/), given as patterns: in a kept clone where
+      # the signer left core.sparseCheckout=true, git reads a cone `scripts` as one pattern and checks out
+      # no root file (runs 42819750253, 42829570644: Select Xcode, ".xcode-version is missing", no delta).
+      # They go after an earlier job's patterns and the last match wins, so the root files and scripts/
+      # are in the tree in each state of the clone (the manual test test_nightly_deltas_kept_clone runs
+      # the checkout in each state).
       - &legacy-route-shared-3
         name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6577,7 +6583,10 @@ jobs:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
           filter: blob:none
           sparse-checkout: |
-            scripts
+            /*
+            !/*/
+            /scripts/
+          sparse-checkout-cone-mode: false
 
       # The wrapper comes from the workflow commit: the build checkout may predate it.
       # The publication-tooling shape test_nightly_cmux_tui_resolve.py exempts: scripts only.
