@@ -13,7 +13,7 @@ extension TabStripView: TabStripCorner {
     /// selected tab is the first. A layout pass: a selection alone calls ``reportCornerLead()``.
     func updateCornerFlush(tabY: CGFloat, tabHeight: CGFloat) {
         // Bottom tabs have no card under them (`CornerFlushChrome.apply`): the selected tab stays a pill.
-        let runsDown = CornerFlush.current.isOn && DesignSettings.shared.tabBarPosition != .bottom
+        let runsDown = isPaneTabRow && CornerFlush.current.isOn && DesignSettings.shared.tabBarPosition != .bottom
         let foot = runsDown ? max(0, bounds.height - (tabY + tabHeight)) : 0
         for cell in cells.values { cell.cornerFoot = foot }
         reportCornerLead()
@@ -23,6 +23,7 @@ extension TabStripView: TabStripCorner {
     /// so the card's corner under it squares or rounds in the same pass as the tab's fill. O(1): only
     /// the selected tab is read, so a selection change costs the same at any tab count.
     func reportCornerLead() {
+        guard isPaneTabRow else { return }
         let on = CornerFlush.current.isOn
         var leads = false
         if on, tabsClip.frame.minX <= 0.5, let id = model.selectedID, let cell = cells[id], let place = placed[id] {
