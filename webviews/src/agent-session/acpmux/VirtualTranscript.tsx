@@ -8,6 +8,7 @@ import React, {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -45,6 +46,7 @@ import {
   opensBackgroundTurn,
   restRoom,
   rowFrameKey,
+  SINCE_DIVIDER,
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -52,6 +54,7 @@ import { animateScroll, MOTION_SCROLL_EVENT, stopScroll } from "./threadMinimap/
 import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
+import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
@@ -99,6 +102,7 @@ import {
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import { FoldRide } from "./conversation/foldRide";
+import { deliberateClick } from "./conversation/useAnchoredCollapse";
 import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
   ANCHORED_COLLAPSE_EVENT,
@@ -160,7 +164,20 @@ import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
-import { SinceJump } from "./conversation/SinceDivider";
+import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
+import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import {
+  jumpUpShown,
+  jumpUpTarget,
+  lastOwnPrompt,
+  placeOffScreen,
+  pressJumpUp,
+  type JumpBack,
+  type ManualMark,
+  type PromptScan,
+} from "./jumpUp";
+import { topZoneOffset } from "./overlayLayout";
+import "./jumpPair.css";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
@@ -947,6 +964,54 @@ export function JumpToLatest({
   );
 }
 
+/// Jump up (jumpUp.ts): Jump to latest's companion, stacked on it in the bottom-center zone
+/// (overlayLayout.ts, jumpPair.css): the same glass disc, size and fade, its arrow up. It goes to
+/// where the reader left off (the unread "New" line, else their last prompt or where they last
+/// stopped scrolling) while that place is off screen; pressed, it points down and a second press or
+/// Esc goes back to where the view was.
+export function JumpUp({
+  shown,
+  back,
+  onJump,
+  lift,
+}: {
+  shown: boolean;
+  back: boolean;
+  onJump: () => void;
+  lift: number;
+}) {
+  const t = useT();
+  const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
+  return (
+    <button
+      type="button"
+      className="ui-glass acpmux-jump-latest acpmux-jump-up"
+      data-shown={shown ? "" : undefined}
+      data-back={back ? "" : undefined}
+      data-focus-ring="none"
+      style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
+      aria-label={label}
+      title={label}
+      inert={!shown}
+      onClick={onJump}
+    >
+      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
+        <ArrowDown size={14} />
+      </span>
+    </button>
+  );
+}
+
+/// The index of row `id` in `rows`, starting from where it was last found (`hint`): the transcript
+/// mostly appends, so the hint holds and the lookup is O(1); a miss scans once.
+function indexOfRow(rows: readonly AcpmuxRow[], id: string | undefined, hint: { current: number }): number {
+  if (id === undefined) return -1;
+  if (rows[hint.current]?.id === id) return hint.current;
+  const at = rows.findIndex((row) => row.id === id);
+  hint.current = at;
+  return at;
+}
+
 /// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
 function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
   return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
@@ -1120,9 +1185,11 @@ function TranscriptView({
   loading = false,
   afterLatest,
   sinceKey,
+  promptAuthor,
   onJumpToSince,
   showMinimap = true,
-  endReserve = 0,
+  endReserve: cardReserve = 0,
+  minimapBeside = false,
   topInset = 0,
 }: {
   rows: readonly AcpmuxRow[];
@@ -1222,6 +1289,9 @@ function TranscriptView({
   /// The key of "New since you looked" in these rows, if any: Jump to new shows over the top while
   /// it is out of view (conversation/SinceDivider.tsx), and `onJumpToSince` brings it in.
   sinceKey?: string;
+  /// The author id this pane sends as (multiplayer/presenceClient.ts `selfId`): Jump up's "sent"
+  /// mark is this author's newest prompt, never another person's in a shared chat (jumpUp.ts).
+  promptAuthor?: string;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -1232,6 +1302,9 @@ function TranscriptView({
   /// Room the column keeps at its right for the computer use live preview (`--cv-inset-end`,
   /// computerUse/computerUsePreview.ts): rows are laid out that much narrower.
   endReserve?: number;
+  /// The VS Code Minimap is on beside this transcript (App.tsx data-vscode-minimap): the column's end
+  /// also keeps its room, in a chat wide enough (chatMinimap/paint.ts minimapReserve).
+  minimapBeside?: boolean;
   /// CSS pixels of the scroller's top that the pane's tab row floats over (a one-tab pane, header/tabRow.ts
   /// `soloTab`): the scroller runs up under the row, and the rows draw this much lower and the content is
   /// this much taller, so the first row rests where it did below the row and the latest one where it did
@@ -1313,6 +1386,16 @@ function TranscriptView({
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message.
   const jumpShown = useRef(false);
+  /// Jump up (jumpUp.ts): where the reader last stopped scrolling by hand, the way back a press
+  /// holds (a second press or Esc returns there), and the row lookups' hints.
+  const stoppedMark = useRef<ManualMark | undefined>(undefined);
+  const jumpBack = useRef<JumpBack | undefined>(undefined);
+  const [jumpBackHeld, setJumpBackHeld] = useState(false);
+  const promptScan = useRef<PromptScan>({ length: 0 });
+  const jumpUpHint = useRef(-1);
+  /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
+  const placedTop = useRef<number | undefined>(undefined);
+  const sinceHint = useRef(-1);
   // Without the folder's GitHub remote, a bare `#N` in a row means the repository the transcript
   // mentioned last (conversation/transcriptRepositories.ts); each row's text is read once per change.
   const repositoryCache = useRef<RepositoryCache>(new Map());
@@ -1353,9 +1436,22 @@ function TranscriptView({
   /// movement, so the anchor pass keeps it. Once the event is processed, a later live change is
   /// layout work (#26718) and the stored offset is the base again.
   const [followResume, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
+  /// "New since you looked" in these rows: reaching the latest message ends its banner (`reachedLatest`).
+  const sinceMark = useRef(sinceKey);
+  sinceMark.current = sinceKey;
+  /// The view follows the latest row again by the reader's move (a scroll, End, Jump to latest, a
+  /// send): the unread banner has nothing left to offer, wherever its line's observer last saw the
+  /// line, and a line the reader saw on the way is read (conversation/unreadState.ts `sinceDone`,
+  /// as #40072 has it for #40065). A chat that opens follows from the start, so its banner still
+  /// shows there.
+  const reachedLatest = () => {
+    if (sinceMark.current !== undefined) sinceDone(sinceMark.current, true);
+  };
   /// `path` names what turned following on, for the trace (followTrace.ts `arms`).
   const follow = (next: boolean, path = "other") => {
     if (next && !followingRef.current) followTrace.armed(path);
+    // A switch to another chat opens it at its latest message: that is not the reader going there.
+    if (next && !followingRef.current && path !== "session") reachedLatest();
     // Followed again: a chase the reader's input held goes on home, whether or not a layout pass
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
@@ -1410,6 +1506,7 @@ function TranscriptView({
   ) => {
     if (atLatest && !followingRef.current) followTrace.armed(path, input, top);
     if (atLatest && !followingRef.current) resumeFollowMotion();
+    if (atLatest && !followingRef.current) reachedLatest();
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
@@ -1816,6 +1913,7 @@ function TranscriptView({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
+  const endReserve = Math.max(cardReserve, minimapBeside ? minimapReserve(width) : 0);
   const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
@@ -2371,6 +2469,31 @@ function TranscriptView({
     const top = scroller.offsetTop + pad;
     setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
   }, [pinned, height]);
+  // What floats over the transcript's top (Jump to new, the pinned pill) starts at its clear line:
+  // the lower of where the transcript shows (the scroller's top in the stage, plus the part a one-tab
+  // pane's row floats over) and the header's bottom. The stage also holds the header (the pane's tab
+  // row) above the scroller, so the stage's own top is the tab strip, and nothing placed from the
+  // clear line can reach it, at any width or with any line under the header
+  // (https://github.com/manaflow-ai/cmux/issues/40021). Observed: a header that resizes, or a
+  // scroller that resizes (a line under the header pushes it down and shortens it, in a stage of
+  // fixed height), moves the line before the frame paints.
+  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  const [clearTop, setClearTop] = useState(topInset);
+  useLayoutEffect(() => {
+    const scroller = ref.current;
+    if (!overTop || !scroller) return;
+    const header = scroller.parentElement?.querySelector<HTMLElement>(":scope > .acpmux-header") ?? null;
+    const measure = () => {
+      const below = header ? header.offsetTop + header.offsetHeight : 0;
+      const line = Math.max(scroller.offsetTop + topInset, below);
+      setClearTop((now) => (now === line ? now : line));
+    };
+    const observer = new ResizeObserver(() => flushSync(measure));
+    observer.observe(scroller);
+    if (header) observer.observe(header);
+    measure();
+    return () => observer.disconnect();
+  }, [overTop, topInset]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -4319,6 +4442,19 @@ function TranscriptView({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
+    // The reader's own scroll: where it rests is where they left off (Jump up, jumpUp.ts), and a way
+    // back Jump up held is theirs no longer.
+    // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
+    // reader's: the offset it set is not a stop, and it keeps the way back it holds.
+    const placed = placedTop.current;
+    placedTop.current = undefined;
+    if (!programmatic && (placed === undefined || Math.abs(next - placed) > 1)) {
+      if (seenAnchor.current) stoppedMark.current = { place: seenAnchor.current, at: Date.now(), why: "stopped" };
+      if (jumpBack.current) {
+        jumpBack.current = undefined;
+        setJumpBackHeld(false);
+      }
+    }
     queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -4364,6 +4500,58 @@ function TranscriptView({
     rideToLatest(node, target, reduce, true);
   };
   jumpToLatestRef.current = jumpToLatest;
+  /// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
+  /// (or Esc), back there. An instant move, as a Find reveal's: the reader asked for this place, so
+  /// the view stops following the reply.
+  const placeView = (top: number) => {
+    const node = ref.current;
+    if (!node) return;
+    revealing.current = undefined;
+    revealWindow.current = 0;
+    stopJump();
+    unlift();
+    node.scrollTop = physicalScrollTop(node, Math.max(0, top));
+    placedTop.current = node.scrollTop;
+    scrolledTo.current = { top: node.scrollTop, atLatest: false };
+    follow(false);
+  };
+  const pressUp = () => {
+    const node = ref.current;
+    if (!node) return;
+    const press = pressJumpUp(jumpBack.current, { top: layoutScrollTop(node), atLatest: followingRef.current });
+    if (press.kind === "back") {
+      jumpBack.current = undefined;
+      setJumpBackHeld(false);
+      if (press.back.atLatest) jumpToLatest(false, "jump-back");
+      else placeView(press.back.top);
+      return;
+    }
+    const top = upTopRef.current;
+    if (top === undefined) return;
+    jumpBack.current = press.back;
+    setJumpBackHeld(true);
+    placeView(top - node.clientHeight / 3);
+  };
+  const pressUpRef = useRef(pressUp);
+  pressUpRef.current = pressUp;
+  // Esc goes back while Jump up holds a way back, unless something before it took the key (the
+  // composer's Esc that arms Stop, a menu, a picker): those call preventDefault.
+  useEffect(() => {
+    if (!jumpBackHeld) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      pressUpRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [jumpBackHeld]);
+  // Another chat: its own places, nothing held from this one.
+  useLayoutEffect(() => {
+    stoppedMark.current = undefined;
+    jumpBack.current = undefined;
+    setJumpBackHeld(false);
+  }, [sessionId]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -4510,11 +4698,18 @@ function TranscriptView({
     // clicked line, so the hold keeps it on the pixel it was clicked at. So does another line's close
     // that pinned the bottom part way (`startBottomStack` from the placement pass): its thread slide
     // lands with the rows it moves with, never cut short while they land.
+    // The follow motion in flight (the chase drawing the thread back while the reply streams, the
+    // rows under an arrival gliding home) lands with it the same way: the reader's toggle is one
+    // motion owned by the fold from the pixel they clicked, never the fold's hold and the chase both
+    // moving the line on alternate frames, nor the chase snapping home under the hold later (Leo,
+    // 2026-11-06: "things clash with other things with animations going haywire").
     const settleFold = (line: HTMLElement) => {
       const playing = bottomStackFold.current;
       const stack = playing?.animation && playing.toggle !== line ? playing : undefined;
-      if (!turnFold.current && !stack) return;
+      const chasing = Math.abs(followChase.current?.outstanding() ?? 0) >= 0.5 || tailGlide.current?.moving() === true;
+      if (!turnFold.current && !stack && !chasing) return;
       const before = line.getBoundingClientRect().top;
+      if (chasing) stopFollowMotion();
       if (turnFold.current) settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = undefined;
       if (stack) {
@@ -4538,16 +4733,17 @@ function TranscriptView({
     // (holdAsked): a long prompt's Show more asks to hold its bubble, which has no open state of its
     // own, so whether the click opens is the Show more's.
     let clicked: HTMLElement | undefined;
-    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+    /// Whether the view was at its very end when `clicked` was clicked, before `settleFold` took the
+    /// follow motion into the offset (which moves it up by what the chase still drew back).
+    let clickedAtEnd = false;
+    const atEnd = () => atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX);
+    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement, wasAtEnd = atEnd()): boolean => {
       // At the very bottom a close pins the bottom and pulls the text above it down, so no blank room
       // is left under the rows (Leo, 2026-11-03: "it's weird to collapse and get all that empty space
       // at the bottom"). An open never pins it, as Codex opens a call at the end of a chat (Lucas,
       // 2026-11-06: Codex parity): the line and the rows over it stay where the reader clicked, what
       // opens grows down under the composer, and the view stops following, so Jump to latest shows.
-      if (
-        opensBody(toggle) ||
-        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
-      ) {
+      if (opensBody(toggle) || !wasAtEnd) {
         stopBottomStackFold();
         return false;
       }
@@ -4558,13 +4754,23 @@ function TranscriptView({
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
+      // A drag or a selection that ended on the line opens nothing (useAnchoredCollapse
+      // `deliberateClick`): nothing to hold.
+      const at = pressedAt;
+      pressedAt = undefined;
+      if (!deliberateClick(event, toggle, at)) {
+        pressed = undefined;
+        return;
+      }
       const line = foldHoldTarget(toggle, node ?? undefined);
+      const wasAtEnd = atEnd();
       settleFold(line);
       clicked = toggle;
+      clickedAtEnd = wasAtEnd;
       setTimeout(() => {
         if (clicked === toggle) clicked = undefined;
       });
-      const bottom = beginBottomStackFold(toggle, line);
+      const bottom = beginBottomStackFold(toggle, line, wasAtEnd);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
       holdTop.current = node?.scrollTop;
@@ -4575,8 +4781,10 @@ function TranscriptView({
     // hold puts it back where the reader pressed it. It holds nothing itself, so the press never moves
     // or redraws the toggle under the pointer (a click needs its press and release on one node).
     let pressed: FoldAnchor | undefined;
+    let pressedAt: { x: number; y: number } | undefined;
     const notePressed = (event: PointerEvent) => {
       const toggle = event.button === 0 && node ? foldToggleAt(event.target, node) : undefined;
+      pressedAt = toggle ? { x: event.clientX, y: event.clientY } : undefined;
       pressed = toggle ? holdFold(foldHoldTarget(toggle, node ?? undefined)) : undefined;
     };
     const dropPressed = () => {
@@ -4599,9 +4807,11 @@ function TranscriptView({
         holdTop.current = node.scrollTop;
         return;
       }
+      const sameClick = Boolean(clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row"));
+      const wasAtEnd = sameClick ? clickedAtEnd : atEnd();
       settleFold(header);
-      const toggle = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
-      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header);
+      const toggle = sameClick ? clicked! : header;
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(toggle, header, wasAtEnd);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
       holdTop.current = node.scrollTop;
@@ -4789,6 +4999,25 @@ function TranscriptView({
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
+  // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line
+  // first while it is unread, else the newer of their last prompt and where they last stopped.
+  const unreadView = useSyncExternalStore(subscribeUnread, readUnread, readUnread);
+  const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
+  const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
+  const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
+  const upTarget = jumpButton
+    ? jumpUpTarget(
+        sinceRow && unreadPending(sinceKey, unreadView) ? SINCE_DIVIDER : undefined,
+        ownPrompt && { place: { rowId: ownPrompt.id, offset: 0 }, at: ownPrompt.at, why: "sent" },
+        stoppedMark.current,
+      )
+    : undefined;
+  const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
+  const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
+  const upOff = placeOffScreen(upTop, renderScroll.top - origin, height, topInset);
+  const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
+  const upTopRef = useRef(upTop);
+  upTopRef.current = upTop;
   // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
   const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
@@ -4909,6 +5138,7 @@ function TranscriptView({
             viewportHeight={height - room}
             foot={height - dockSpace}
             width={width}
+            endReserve={endReserve}
             scrolls={layout.totalHeight - height > 0.5}
             change={rowsChange.current}
           />
@@ -5026,14 +5256,29 @@ function TranscriptView({
             <SubagentOfRow row={pinnedPill} />
           </div>
         )}
-        {sinceKey !== undefined && onJumpToSince && (
+        {sinceKey !== undefined && onJumpToSince && sinceRow?.since && (
+          // The top-start zone (overlayLayout.ts): what is new arrives where the eye settles, under
+          // the clear line and under a pinned "Subagent of" pill.
           <div
             className="acpmux-over-top"
-            style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : 0) }}
+            data-zone="top-start"
+            style={{
+              top: topZoneOffset({
+                clearTop,
+                pinnedBottom: pinnedPill ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT : undefined,
+              }),
+            }}
           >
-            <SinceJump mark={sinceKey} onJump={onJumpToSince} />
+            <UnreadBanner
+              mark={sinceKey}
+              turns={sinceRow.since.turns}
+              // A row's `at` is ms since 1970; a fixture's small `at` is no time to show.
+              firstNewAt={(rows[sinceIndex + 1]?.at ?? 0) > 1e12 ? rows[sinceIndex + 1]!.at : undefined}
+              onJump={onJumpToSince}
+            />
           </div>
         )}
+        {jumpButton && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
         {jumpButton && (
           <JumpToLatest
             // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.

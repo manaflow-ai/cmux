@@ -96,9 +96,9 @@ async function mount(cwd: string, startCwd?: string, startPending = false) {
 
 // Dogfood nxdog92/93 (cx-7fje0, a regression of cx-nn3e): Cmd-N's New Tab composer named its
 // project ~, the home folder the tab inherited, while a prompt starts in the host's start folder
-// (screenActions onAsk). The chip names that folder, or asks for a project; never the home ~.
+// (screenActions onAsk). The chip names that folder, or No folder; never the home ~.
 test("a Cmd-N New Tab's project chip names the folder its chat starts in, not ~", async () => {
-  expect(await mount("/Users/you")).toBe("Choose folder");
+  expect(await mount("/Users/you")).toBe("No folder");
 });
 
 test("a Cmd-N New Tab whose host names a start folder shows that folder", async () => {
@@ -110,9 +110,9 @@ test("a New Tab that inherited a project folder names the folder its host starts
 });
 
 // With no start folder from the host yet, a prompt starts in the private agent-home folder (App's
-// chat.new fills none): the chip asks for a project rather than name the inherited folder.
-test("before the host names a start folder, the chip asks for a project", async () => {
-  expect(await mount("/Users/you/src/app")).toBe("Choose folder");
+// chat.new fills none): the chip reads No folder rather than name the inherited folder.
+test("before the host names a start folder, the chip reads No folder", async () => {
+  expect(await mount("/Users/you/src/app")).toBe("No folder");
 });
 
 // Leo 2026-10-19: the first frame showed "Choose folder", then the project the tab inherited once
@@ -122,5 +122,5 @@ test("before the handshake answers, an inherited project shows at once; the home
   expect(await mount("/Users/you/src/app", undefined, true)).toBe("app");
   act(() => root?.unmount());
   root = undefined;
-  expect(await mount("/Users/you", undefined, true)).toBe("Choose folder");
+  expect(await mount("/Users/you", undefined, true)).toBe("No folder");
 });

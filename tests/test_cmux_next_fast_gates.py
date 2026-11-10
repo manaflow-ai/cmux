@@ -164,7 +164,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
         self.assertIn('--head "$HEAD_SHA" --base "$BASE"', prepare["run"])
 
-    def resolve_dispatch(self, *, fields=None, error=None, failures=0, graphql_fields=None):
+    def resolve_dispatch(self, *, fields=None, error=None, failures=0, graphql_fields=None, event=None):
         """Execute the real resolver with bounded API and sleep stubs."""
         body = step_named(job(workflow(), "resolve")["steps"], "Resolve")["run"]
         with tempfile.TemporaryDirectory(prefix="fast-gates-resolve-") as tmp:
@@ -201,11 +201,28 @@ class WorkflowShape(unittest.TestCase):
                 "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40)
                 .replace("|", "\t"),
                 "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
+                **(event or {}),
             }
             result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
             return (result, calls.read_text().splitlines(),
                     waits.read_text().splitlines() if waits.exists() else [],
                     output.read_text() if output.exists() else "")
+
+    def test_dispatch_on_the_branch_takes_its_own_sha_as_the_base(self):
+        """A dispatch on feat-cmux-next carries the tip the merger dispatched against (github.sha); the
+        resolver reads the pull request only, not the branch again over the shared REST quota."""
+        result, calls, _, output = self.resolve_dispatch(
+            event={"DISPATCH_REF": "refs/heads/feat-cmux-next", "DISPATCH_SHA": "e" * 40})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("/pulls/28116", json.loads(calls[0])[1])
+        self.assertIn("base=" + "e" * 40, output)
+        # Another ref's sha is not the branch tip: it is read.
+        result, calls, _, output = self.resolve_dispatch(
+            event={"DISPATCH_REF": "refs/heads/main", "DISPATCH_SHA": "e" * 40})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("base=" + "b" * 40, output)
 
     def test_dispatch_api_failure_surfaces_the_github_error(self):
         result, calls, waits, output = self.resolve_dispatch(
@@ -347,7 +364,14 @@ class WorkflowShape(unittest.TestCase):
         for gates, ratchet, state in (("success", "skipped", "success"), ("success", "success", "success"),
                                       ("success", "failure", "failure"), ("success", "cancelled", "pending"),
                                       ("failure", "skipped", "failure"), ("cancelled", "skipped", "pending"),
-                                      ("failure", "cancelled", "failure")):
+                                      ("failure", "cancelled", "failure"),
+                                      # Every other way a job can end judged nothing either (cmux#39743: abandoned
+                                      # gates, whose placed runner never reported, posted failure).
+                                      ("abandoned", "skipped", "pending"), ("skipped", "skipped", "pending"),
+                                      ("", "", "pending"), ("timed_out", "skipped", "pending"),
+                                      ("success", "abandoned", "pending"), ("success", "", "pending"),
+                                      ("failure", "abandoned", "failure"), ("failure", "", "failure"),
+                                      ("abandoned", "success", "pending"), ("cancelled", "failure", "pending")):
             with self.subTest(gates=gates, ratchet=ratchet):
                 self.assertEqual(self.posted_state(body, gates, ratchet), state)
                 described = self.posted_description

@@ -257,8 +257,8 @@ fn staged_bytes_over(staging: &Connection, limit: u64) -> anyhow::Result<Option<
 /// (index ranges on either side of the output and session put kinds) stops
 /// one past [`MAX_KEPT_RECORDS`], so it reads at most that many index
 /// entries; the total is the sequence range (two index seeks). Session puts
-/// count with `puts`: the ones its read kept, and every live put after its
-/// bound. Without it (before the read) no put counts.
+/// count with `puts`: the ones its read kept that are still live, and every
+/// live put after its bound. Without it (before the read) no put counts.
 fn live_records(
     source: &Connection,
     puts: Option<&session_puts::SessionPuts>,
@@ -293,7 +293,9 @@ fn live_records(
         kept = kept.saturating_add(u64::try_from(rows)?);
     }
     if let Some(puts) = puts {
-        kept = kept.saturating_add(puts.live_kept());
+        // Only the read puts still live: the ones sealed since are counted
+        // with their segments.
+        kept = kept.saturating_add(puts.live_kept_after(source, u64::try_from(archive_end)?)?);
     }
     Ok((kept, u64::try_from((head - archive_end).max(0))?))
 }

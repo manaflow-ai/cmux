@@ -8,7 +8,7 @@
 // `part` (menuParts.ts), even outside a prompt or reply (a tool row); with a selection, only a link.
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
@@ -145,15 +145,19 @@ export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): 
 
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
 /// `:fold`), or undefined for a row that is not a prompt or a reply. `sideChat`: the chat opens a
-/// side chat (the chat menu shows New side chat), so a turn that forks opens one too.
+/// side chat (the chat menu shows New side chat), so a turn that forks opens one too. `shown`: the
+/// rows of the subagent view the pane shows instead of the chat (App.tsx `childRows`), where its
+/// footer's More finds the subagent's reply; a subagent's message offers no Fork and no rail mark.
 export function messageMenuTarget(
   snapshot: AcpmuxSnapshot,
   rowId: string,
   sideChat = false,
+  shown?: readonly AcpmuxRow[],
 ): MessageMenuTarget | undefined {
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
-  const row = snapshot.rows.find((candidate) => candidate.id === id);
+  const row = (shown ?? snapshot.rows).find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
+  if (shown) return childMenuTarget(snapshot, row);
   // Pinning remains valid for an older completed turn while a later one works. Fork eligibility
   // is a separate concern: a working chat cannot offer Fork from here, but its completed summary
   // still owns the rail chapter marker shown by PinButton.
@@ -184,6 +188,24 @@ export function messageMenuTarget(
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
   if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
+  if (links.length > 0) target.links = links;
+  return target;
+}
+
+/// A message of a subagent's view: its text to copy, read aloud or reply to, and its links.
+function childMenuTarget(snapshot: AcpmuxSnapshot, row: AcpmuxRow): MessageMenuTarget {
+  const sessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const text = row.text ?? "";
+  const target: MessageMenuTarget = {
+    ...(sessionId ? { sessionId } : {}),
+    // A prompt copies and resends as written; a reply copies as plain text, its Markdown beside it.
+    text: row.kind === "user" ? text : plainText(text),
+    ...(row.kind === "assistant" && {
+      markdown: text,
+      replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
+    }),
+  };
+  const links = webLinks(text);
   if (links.length > 0) target.links = links;
   return target;
 }

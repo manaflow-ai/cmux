@@ -166,10 +166,99 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   (≤ 2 min) for the 1-minute load to fall under 4; `caffeinate -dimsu` holds the
   display awake. The step runs `--class exclusive`, alone on its worker.
 
+## Chrome parity (`suite=parity`)
+
+The CHROME PARITY BENCH (m91): one table of cmux NEXT against the host's own Google Chrome stable for every
+interaction a person feels, each light and under load, at 120 Hz. It is a bench, never a CI gate or perf-gate row.
+
+```
+cmux-ci run --class exclusive --display --measurement --target-worker cmux22 \
+  --script scripts/measure/perf-bench.sh --ref SHA --arg=suite=parity \
+  --artifact artifacts/perf-bench/parity.json [--arg=vdisplay=120x1] [--arg=parity_rows=key-field,scroll-page]
+```
+
+`python3 scripts/perf-bench/chrome_parity.py rows` lists the rows and the surface each app uses.
+
+- **Input**: real HID events from `scripts/journeys/hid_inject.swift` (keys, clicks, drags, pointer moves and wheel
+  bursts, posted at the HID tap at mach deadlines and stamped on CLOCK_UPTIME_RAW). The same tool drives both apps.
+- **Frames**: `framewatch.swift` streams the measured rectangle with ScreenCaptureKit (up to 240 frames/s, cursor
+  hidden). Each frame gives its displayTime on the same clock and the box of the pixels that changed. The capture
+  costs the same in both arms. There is no DevTools tracing and no app socket call in a timed span.
+- **Set-up only**: cmux through its control socket, Chrome through the DevTools HTTP endpoints (`/json/new`).
+  12 x 12 marker squares (#ff00ff top-left, #00ffff top-right) on the bench pages and in the terminal give the
+  rectangles. Positions without a marker (tab strip, sidebar rows) are constants in `GEOMETRY`; override them with
+  `--geometry FILE.json`. A hover probe that hits nothing is "not run", never a pass.
+- **Display**: the main display must run at 120 Hz (`vdisplay120.m check`, interval within 0.35 ms).
+  `vdisplay=120x1` makes the lease's own virtual display first. Else every row is "not run".
+- **Load**: cmux = 5 terminals that print a line every 20 ms in another workspace (the agents) + the CPU page
+  (2 busy web workers) in a background tab of the measured pane. Chrome = the same CPU page + 5 background tabs
+  that stream a line every 20 ms. Light = the measured surface only.
+- **Interleave**: per row and load, round 1 runs cmux then Chrome, round 2 Chrome then cmux. Before each arm the
+  1-minute load must fall under 2.
+- **Latency rows** (keys, Cmd-T, tab switch, hover, launch): input stamp to the displayTime of the first frame that
+  shows the response before the next input. Late refreshes per input = max(0, ceil(latency / 8.33 ms) - 2). An input
+  with no response frame is lost and counts 10.
+- **Pacing rows** (scroll, resize, drag): the intervals between changed frames in each input span; an interval over
+  1.5 refreshes misses round(interval / refresh) - 1 refreshes.
+- **Verdict** per row: PASS when cmux p95 <= Chrome p95 AND cmux missed <= Chrome missed. Each arm's per-round p95
+  range is in `parity.json` (its own spread).
+
+Mappings and known asymmetries:
+
+| Row | cmux | Chrome |
+|---|---|---|
+| key, text field | a cmux Chromium tab, `<input>` on the bench page | the same page |
+| key, native field | command palette field (Cmd-Shift-P) | omnibox (Cmd-L) |
+| key, terminal | Ghostty terminal at the shell prompt (PTY echo) | xterm.js 6 page from `cmux-tui/frontends/web`, local echo, **no PTY** |
+| scroll | the long page; a terminal with 50k lines of scrollback | the long page; xterm.js with 50k lines |
+| Cmd-T | new browser tab: first frame, then 3 keys in a row that show | New Tab page, the same |
+| tab switch | Ctrl-Tab in one pane | Ctrl-Tab |
+| split resize | divider between a page pane and its split | DevTools dock divider (DevTools docked right) |
+| sidebar / tab strip | sidebar workspace rows; pane tab bar | the tab strip for both |
+| launch | `open` to first frame and to interactive, restored session | the same with `--restore-last-session` |
+
+The Chrome terminal arm has no PTY round trip, so it is a lower bound for a web terminal. Launch types keys from the
+first moment; before the app's window is up they go to the app in front (Finder on a bench host).
+
+### Where the bench process has no privacy right: the app-clock method
+
+`chrome_parity.py` sends real HID events and reads a ScreenCaptureKit stream of the display, so the process that
+starts it needs PostEvent and Screen Recording. Where it has neither (an ssh session on a mini: the responsible
+process is `tailscaled`), `parity_appclock.py` measures 7 rows with no right:
+
+```
+python3 scripts/perf-bench/parity_appclock.py selfcheck --cmux APP --out DIR     # first: must print PASS
+python3 scripts/perf-bench/parity_appclock.py run --cmux APP --out DIR --loads light,load --rounds 2
+python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
+```
+
+- cmux arm: input through the debug socket (`debug.key`, `debug.mouse`, `debug.window_frame`); frames from the
+  app's own recorder (`debug.motion record_*`). Chrome arm: `parity_chrome_cdp.py` (DevTools input, Chrome's trace).
+- Each sample is the bench's send stamp to the frame's time. The hop from the keyboard through WindowServer to the
+  app is in no number, and the two frame clocks are not the same clock: a difference under one refresh is inside the
+  method's error. A before/after pair by this method is A/B evidence; it is not a parity proof by the HID method.
+- Tab switch: the cmux pane holds the workspace's terminal tab (and the CPU page under load) before the 2 colour
+  pages, so the row sends Ctrl-Shift-Tab and Ctrl-Tab in turn: each of the 20 switches is page to page between the 2
+  colour pages, as `Target.activateTarget` in the Chrome arm. Ctrl-Tab alone went round 3 or 4 tabs and mixed 3 switch
+  classes in one row (page to page, page to terminal, terminal to page).
+- Key, text field: the cmux arm first calls CuaDriver `bring_to_front` for the bench app one time. A bench app started
+  from ssh gives no key to a Chromium page with no such call (0 of 40 keys typed; 40 of 40 after it). The call runs
+  with the account's home, not the bench's. A host with no CuaDriver, or a call that fails, gives `not run` for this
+  row. The run's `front_step` field says that the step ran. The bench shell gets no right of its own.
+- The report labels each run: method, display (id, size, rate), the refresh interval measured in that run, screen
+  locked or not, load. A run on a locked screen, on a sleeping display or with a measured refresh that is not the
+  `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
+- Not possible by this method (9 rows stay "not run", each with its reason): native field key, Cmd-T to
+  interactive, split resize, the 2 hover rows, the 2 drag rows, the 2 launch rows. They need the HID method.
+- `chrome_parity.py selfcheck` proves the judge on made-up frames (a frozen arm is FAIL, an input that was not
+  delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`.
+
 ## Files
 
 - `xbench.py`: run, report (BENCH.md + results.json), gate.
 - `budget.py`, `budgets.json`: the resource budget session and its limits.
 - `pages.py`, `procs.py`, `benchhelper.swift`, `fetch_browsers.py`.
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
+- `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
+- `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
 - `../measure/perf-bench.sh`: the fleet entry.

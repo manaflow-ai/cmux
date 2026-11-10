@@ -107,6 +107,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
+    /// The page menu's rows, built when the menu opens (CMUX-15). Built in `body`, every
+    /// change the rows read (an agent chat's turns as it streams, its running state, the
+    /// layout) re-ran this whole view and rebuilt the hidden menu, so the page stuttered
+    /// and the menu opened late while an agent worked. A menu shows what was true when
+    /// it opened, as UIKit's do.
+    @State private var menuGroups: [[TabsKitMenuItem]] = []
     @Environment(\.tabsKitTheme) private var theme
 
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
@@ -204,8 +210,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
-            if !overviewVisible, let tab = activeTab {
-                PageMenu(groups: source.pageMenu(for: tab),
+            if !overviewVisible, activeTab != nil {
+                PageMenu(groups: menuGroups,
                          origin: CGRect(x: layout.capsule.minX, y: layout.capsule.minY, width: theme.metrics.control, height: theme.metrics.control),
                          capsule: layout.capsule, topLimit: safeTop + 8, expanded: menuExpanded, contentVisible: menuContent,
                          onDismiss: closeMenu, onSelect: { item in
@@ -562,6 +568,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page menu
 
     private func openMenu() {
+        menuGroups = activeTab.map { source.pageMenu(for: $0) } ?? []
         chrome.menuOpen = true
         menuExpanded = false
         menuContent = false

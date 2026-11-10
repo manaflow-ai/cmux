@@ -1361,7 +1361,12 @@ impl Hub {
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
         }
+        // `resent`: a resend of one it holds or a notice carries, not a message kept now
+        // (`sender_harness::on_kept` writes no claim for it).
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread});
+        if !fresh {
+            accepted.set("resent", json!(true));
+        }
         if held {
             accepted.set(crate::cli::output::HELD_IN_INBOX, json!(true));
         }

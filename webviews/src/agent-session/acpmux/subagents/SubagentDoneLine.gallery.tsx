@@ -9,8 +9,9 @@
 //
 // A finished sub-session whose record names nothing reads its chat's title, never the bare
 // "Subagent" (Leo, 2026-11-03, on a capture where a finished subagent row read "Subagent"). The
-// chat's reply to a subagent's end sits under its line on the stack's grid, and the next row keeps
-// the one row pitch: four looks of that reply are compared, "grid" the pick.
+// chat's reply to a subagent's end is never drawn under its line (Leo, 2026-11-09: "your response
+// was weirdly folded into the rende?"): the line keeps only its new dot, and the reply is the chat's
+// own message (conversation/NotificationReply.gallery.ts). "reply-before" draws the base's look.
 //
 // A finished line with a report (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
 // richer"): the report variants compare how the line offers it (doneReport.experiment.ts), the
@@ -24,12 +25,10 @@ import type { Subagent } from "./subagentFold";
 import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
 
 type Look = "fill" | "cap60" | "before";
-/// How the chat's reply sits under the line: on the grid (the pick), as a folded note with the run
-/// gap around it, set off by a rule, or the base's 4px and 6px margins.
-type ReplyLook = "grid" | "note" | "quote" | "before";
 /** `pane`: the column's width in CSS px, for the narrow pane. `subsession`: the line is a
- * sub-session's with no task, whose chat is titled. `reply`: the chat's reply to its end, and a
- * following line under it. `report`: the first line's final report. `arm`: the report look a
+ * sub-session's with no task, whose chat is titled. `reply`: the chat's reply to its end, which the
+ * line marks new; drawn under it only by `replyBefore`, the base's look (the shipped pane draws it as
+ * the chat's own message). `report`: the first line's final report. `arm`: the report look a
  * variant pins; unset, the experiment's arm (the compare view). */
 type Props = {
   names: string[];
@@ -38,7 +37,7 @@ type Props = {
   failed?: boolean;
   subsession?: boolean;
   reply?: string;
-  replyLook?: ReplyLook;
+  replyBefore?: boolean;
   report?: string;
   arm?: DoneReportLook;
   /** `capped`: the report reaches the line only as acpmux's 240-character `lastMessage`; `whole`
@@ -100,7 +99,7 @@ const done = (
     parent: null,
     name: subsession ? `${CHILD_ID}/start-${index}` : name,
     ...(subsession ? { child: CHILD_ID } : { task: name }),
-    ...(reply && { reaction: { turn: `turn-${index}`, weight: "result" as const, text: reply } }),
+    ...(reply && { reaction: { turn: `turn-${index}`, weight: "result" as const, fresh: true as const } }),
     ...(!subsession && { kind: "general-purpose", prompt: name }),
     state: failed ? "failed" : "completed",
     ...(failed && { error: ERROR }),
@@ -127,7 +126,7 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-subagent-done-gallery]" }],
   covers: [
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx#SubagentDoneLine",
-    "agent-session/acpmux/conversation/ReactionMark.tsx#ReactionReply",
+    "agent-session/acpmux/conversation/ReactionMark.tsx#ReactionMark",
     "agent-session/acpmux/subagents/doneReport.experiment.ts",
     "agent-session/acpmux/subagents/WholeReportBody.tsx#WholeReportBody",
   ],
@@ -171,7 +170,7 @@ export default componentEntry<Props>({
       failed,
       subsession,
       reply,
-      replyLook,
+      replyBefore,
       report,
       arm,
       capped,
@@ -191,7 +190,6 @@ export default componentEntry<Props>({
                     className="acpmux-shell subagent-done-gallery"
                     data-subagent-done-gallery
                     data-look={look}
-                    data-reply-look={replyLook}
                     style={{
                       padding: "16px",
                       flexDirection: "column",
@@ -212,6 +210,10 @@ export default componentEntry<Props>({
                             capped !== undefined,
                           )}
                         />
+                        {/* The base's look only: the chat's reply drawn muted under the line. */}
+                        {replyBefore && index === 0 && reply && (
+                          <p className="subagent-done-gallery__before-reply">{reply}</p>
+                        )}
                       </section>
                     ))}
                   </main>
@@ -259,21 +261,13 @@ export default componentEntry<Props>({
       note: 'A finished sub-session whose record names nothing: the line reads its chat\'s title, never the bare "Subagent".',
       props: { names: ["", ""], subsession: true },
     },
-    "reply-grid": {
-      note: "The pick: the chat's reply to the end on the stack's grid, 20px lines at the text column with no margin of its own; the next line keeps the row pitch.",
-      props: { names: [SHORT, "Push relay"], reply: REPLY, replyLook: "grid" },
-    },
-    "reply-note": {
-      note: "Version B: the reply as a folded note, the run gap above and below it.",
-      props: { names: [SHORT, "Push relay"], reply: REPLY, replyLook: "note" },
-    },
-    "reply-quote": {
-      note: "Version C: the reply set off by a 2px rule at the text column.",
-      props: { names: [SHORT, "Push relay"], reply: REPLY, replyLook: "quote" },
+    reply: {
+      note: "Shipped: the chat replied to the end; the line keeps only its new dot and its time, and the reply is the chat's own message after it (agent-pane.notification-reply).",
+      props: { names: [SHORT, "Push relay"], reply: REPLY },
     },
     "reply-before": {
-      note: "Before (cmux#33283): 4px over and 6px under the reply, which the row's estimate never counted.",
-      props: { names: [SHORT, "Push relay"], reply: REPLY, replyLook: "before" },
+      note: 'Before (Leo, 2026-11-09: "your response was weirdly folded into the rende?"): the chat\'s reply drawn muted under the line, as if the subagent said it.',
+      props: { names: [SHORT, "Push relay"], reply: REPLY, replyBefore: true },
     },
     "report-collapsed": {
       note: "A finished agent with a multi-paragraph report, collapsed: the chevron right after the words opens it; the line opens the agent's view.",

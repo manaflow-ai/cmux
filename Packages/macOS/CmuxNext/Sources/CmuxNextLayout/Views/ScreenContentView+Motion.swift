@@ -90,7 +90,7 @@ extension ScreenContentView {
             let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let change = CGSize(width: then.width - now.width, height: then.height - now.height)
-            if change != .zero { host.drawAhead(sizeChange: change, keyPress: true) }
+            if change != .zero { host.drawAhead(sizeChange: change) }
         }
     }
 
@@ -211,12 +211,10 @@ extension ScreenContentView {
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
-        // A snap held for its terminals' frames shows at the next tick (`ScreenContentView+SnapFrame`).
-        if context.holdsPresentations || frameInput.snapWaitsForContent {
+        if context.holdsPresentations {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
-        releaseSnapDeparted()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
@@ -255,10 +253,12 @@ extension ScreenContentView {
             if host.restSize != rest.size { host.restSize = rest.size }
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
-            // A key press's rest size reaches the content before its host moves (S1B: the press's first tick, where the key's
-            // turn used to do it): the content takes its final size once, at the edge that stays, never the frame's first.
-            let announcesFirst = restChanged && springing && holdsContentForKeyResize
-            if announcesFirst { host.announceRest() }
+            // A spring that starts or retargets (a split, a close, a zoom, a key press, a press during the motion) to a new
+            // size: the content hears the size it will rest at now, once, before its host takes this frame's size (S1B for
+            // key presses; #37755 for every spring). It decides how it rides the motion before the frame lays it out: a
+            // terminal sends its final grid at the start, a Chromium page that holds the keys lays out at its rest and keeps
+            // its window, and none of them is laid out first at the frame's size, which it leaves in the next frame.
+            if restChanged, springing { host.announceRest() }
             if host.restOffset != restOffset { host.restOffset = restOffset }
             if host.frame.size != placed.size {
                 host.frame = placed
@@ -276,9 +276,6 @@ extension ScreenContentView {
                 host.frame = placed
                 changed = true
             }
-            // A spring that starts or retargets (a press during the motion) to a new size: the content
-            // hears the size it will rest at now, once (a terminal sends its final grid at the start).
-            if restChanged, springing, !announcesFirst { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true

@@ -32,22 +32,24 @@
 // followed again, `resume` plays it on. Reduce Motion, motion off or
 // no Web Animations: the rows move at once, as before. O(mounted rows) per followed pass, the view's
 // window (never the whole chat): one offsetTop each, after the pass's own layout.
+import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import { LIVE_THINKING } from "./turns";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
 /// the same step. `quick`: on the entry step (120 ms, ease-out), the follow chase on its spring.
-/// `glide`: on the house settle (265 ms), the chase on its spring. `jump`: at once.
+/// `glide`: on the house settle (180 ms), the chase on its spring. `jump`: at once.
 export type TailGlideLook = "arrive" | "glide" | "quick" | "jump";
 export const TAIL_GLIDE_LOOKS: readonly TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TAIL_GLIDE_LOOK_ATTR = "data-tail-glide";
 
-/// The house settle and the entry step when the page has no token (a test DOM).
-const SETTLE_FALLBACK_MS = 265; // motion-allow: the house settle's own length (schemas/motion-scale `settle`)
-const SETTLE_FALLBACK_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
-const QUICK_FALLBACK_MS = 180; // motion-allow: the entry step's own length (schemas/motion-scale `in`)
+/// The house settle and the entry step when the page has no token (a test DOM): the scale's own
+/// values, so a test DOM moves as the app does (these were 265 and 180 ms after the scale moved on).
+const SETTLE_FALLBACK_MS = MOTION_SETTLE_MS;
+const SETTLE_FALLBACK_EASE = MOTION_SETTLE;
+const QUICK_FALLBACK_MS = MOTION_MS.micro;
 const QUICK_FALLBACK_EASE = "ease-out";
 /// A move under this is a re-rounding, not a move.
 const MIN_MOVE_PX = 0.5;
@@ -59,7 +61,7 @@ export function tailGlideLook(node: Element): TailGlideLook {
 }
 
 /// The arrival step when the page has no token (a test DOM): the motion scale's quick step.
-const ARRIVE_FALLBACK_MS = 80; // motion-allow: the quick step's own length (schemas/motion-scale `quick`)
+const ARRIVE_FALLBACK_MS = MOTION_MS.quick;
 
 function timing(thread: HTMLElement, look: TailGlideLook, moved: number): { ms: number; easing: string } {
   const style = thread.ownerDocument.defaultView?.getComputedStyle(thread);
@@ -108,6 +110,8 @@ export type TailGlide = {
   hold(): void;
   /// Followed again: what the reader's input held plays on.
   resume(): void;
+  /// Whether a row is drawn away from its place now (a glide playing or held).
+  moving(): boolean;
 };
 
 export function createTailGlide(): TailGlide {
@@ -120,6 +124,8 @@ export function createTailGlide(): TailGlide {
   };
   return {
     stop,
+    moving: () =>
+      [...playing].some((animation) => animation.playState !== "finished" && animation.playState !== "idle"),
     hold() {
       for (const animation of playing) animation.pause();
     },

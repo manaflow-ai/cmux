@@ -141,6 +141,9 @@ jobs:
           PR: ${{ inputs.pr }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          # A dispatch on the branch carries its tip at dispatch time: the base, with no REST read.
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
           BRANCH: feat-cmux-next
         run: |
           set -euo pipefail
@@ -205,6 +208,10 @@ jobs:
             if [[ "$base_ref" != "$BRANCH" || "$state" != open ]]; then
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
+            fi
+            if [[ -z "$base" && "${DISPATCH_REF:-}" == "refs/heads/$BRANCH" && "${DISPATCH_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              # The tip the merger dispatched against; reading the branch again spent the shared REST quota.
+              base=$DISPATCH_SHA
             fi
             if [[ -z "$base" ]]; then
               base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
@@ -412,13 +419,22 @@ jobs:
           state=failure
           if [[ "$GATES" == success && ( "$RATCHET" == success || "$RATCHET" == skipped ) ]]; then state=success; fi
           description="base $BASE"
-          # A gates or ratchet job that timed out or was cancelled judged nothing. It posts pending with
-          # "stopped", never failure: on 2026-11-09 two of cmux#38640's dispatches timed out, posted failure
-          # at a fresh base, and every merger read that as the pull request's own red. A merger sees no
-          # verdict and dispatches again. A gates failure stays a failure whatever the ratchet did.
-          if [[ "$GATES" == cancelled || ( "$GATES" == success && "$RATCHET" == cancelled ) ]]; then
+          # Only success and failure are verdicts. A gates job that ended any other way (cancelled or timed
+          # out, skipped, abandoned because its placed runner never reported, empty, or a result this step
+          # does not know) judged nothing, and so did a ratchet that ended any way but success, skipped
+          # (nothing to rejudge) or failure. That posts pending with "stopped", never failure: on 2026-11-09
+          # two of cmux#38640's dispatches timed out and posted failure at a fresh base, and cmux#39743's
+          # abandoned gates posted failure, and every merger read each as the pull request's own red. A
+          # merger sees no verdict and dispatches again. A gates failure stays a failure whatever the
+          # ratchet did.
+          stopped=false
+          [[ "$GATES" == success || "$GATES" == failure ]] || stopped=true
+          if [[ "$GATES" == success && "$RATCHET" != success && "$RATCHET" != skipped && "$RATCHET" != failure ]]; then
+            stopped=true
+          fi
+          if [[ "$stopped" == true ]]; then
             state=pending
-            description="base $BASE; stopped (gates $GATES, ratchet $RATCHET), no verdict"
+            description="base $BASE; stopped (gates ${GATES:-none}, ratchet ${RATCHET:-none}), no verdict"
           fi
           # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
           # run green with a named warning; a missing status is never treated as a pass by the

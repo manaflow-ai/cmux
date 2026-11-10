@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -243,6 +244,8 @@ pub(super) fn advertised_capabilities(
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
+        split_kind::SPLIT_AROUND_CAPABILITY,
+        crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
         split_kind::SPLIT_BEFORE_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
@@ -355,6 +358,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
+        crate::feed_client::FEED_CLIENT_CAPABILITY,
         icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
@@ -440,6 +444,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
+        crate::history_ops::CLEAR_UNTIL_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::COMMIT_CAPABILITY,
@@ -473,6 +478,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::shell_runs::CAPABILITY);
     capabilities
 }
 

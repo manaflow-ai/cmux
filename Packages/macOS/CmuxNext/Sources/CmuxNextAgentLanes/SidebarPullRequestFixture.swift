@@ -24,7 +24,7 @@ public struct SidebarPullRequestFixture {
     ]
 
     /// Each workspace's sample badge; a name always gets the same pull requests, so a capture's rows do too.
-    static func badges(_ workspaces: [WorkspaceModel]) -> [SidebarWorkspaceID: SidebarPullRequestBadge] {
+    static func badges(_ workspaces: [(id: SidebarWorkspaceID, name: String)]) -> [SidebarWorkspaceID: SidebarPullRequestBadge] {
         var badges: [SidebarWorkspaceID: SidebarPullRequestBadge] = [:]
         for workspace in workspaces {
             let pick = picks[workspace.name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF } % picks.count]
@@ -34,7 +34,7 @@ public struct SidebarPullRequestFixture {
                                        additions: 12 * (index + 1), deletions: 3 * (index + 1))
             }
             if let badge = SidebarPullRequestBadge.combining(items: items) {
-                badges[SidebarWorkspaceID(workspace.id)] = badge
+                badges[workspace.id] = badge
             }
         }
         return badges
