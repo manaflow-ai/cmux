@@ -62,6 +62,7 @@ PATH_OWNERS = {
     ".github/runners.json": frozenset(("ci",)),
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "cmux-next-ios/scripts/asc_ensure_signing.py": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
     # test_runner_routing_table.py imports the routing check and reads every
     # workflow's runs-on against .github/runners.json.
