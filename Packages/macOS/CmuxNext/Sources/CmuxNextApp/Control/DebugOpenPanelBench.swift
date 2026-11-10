@@ -10,9 +10,7 @@ import CmuxNextControl
 /// Params: `mode` — `made` (default: the app's path, ``MadeAheadOpenPanel``: its warm-up first, then a new panel
 /// for the open, as Home's "+" takes it), `fresh` (a bare `NSOpenPanel()` per open, with no warm-up before it) or
 /// `window` (`begin(completionHandler:)`, a separate panel window instead of a sheet); `window` (default: the
-/// first window).
-///
-/// Reports `made_ahead_before` (whether the process's first panel was paid before this open),
+/// first window). Reports `made_ahead_before` (the process's first panel was paid before this open),
 /// `live_panels_before` (the app's panels alive before it: 0 at rest), `directory` (the folder the panel shows)
 /// and, in ms from the click: `init_ms` (getting the panel: `NSOpenPanel()`),
 /// `begin_ms` (the `beginSheetModal` / `begin` call), `sync_ms` (both: the click's main-thread time),
@@ -35,8 +33,7 @@ enum DebugOpenPanelBench {
             _ = await frames.settled(until: { shared.isWarm || !shared.isWarming }, start: .now, window: 0, deadline: 8_000)
             _ = frames.stop()
         }
-        let madeBefore = shared.isWarm
-        let liveBefore = shared.livePanels
+        let (madeBefore, liveBefore) = (shared.isWarm, shared.livePanels)
         // Quiet frames first, so the click starts from an idle main thread, and the display link keeps ticking into
         // the click: a stall of the click's own main-thread work then shows as one long frame interval (frames.max_ms),
         // while a nested run loop (a sheet animating inside the call) keeps the frames coming.
@@ -68,10 +65,8 @@ enum DebugOpenPanelBench {
         _ = frames.stop()
         return .object([
             "mode": .string(mode),
-            "made_ahead_before": .bool(madeBefore),
-            "live_panels_before": .number(Double(liveBefore)),
-            "directory": .string(panel.directoryURL?.path ?? ""),
-            "prompt_nil": .bool(panel.prompt == nil),
+            "made_ahead_before": .bool(madeBefore), "live_panels_before": .number(Double(liveBefore)),
+            "prompt_nil": .bool(panel.prompt == nil), "directory": .string(panel.directoryURL?.path ?? ""),
             "init_ms": .number(BenchSpans.ms(made - start)),
             "begin_ms": .number(BenchSpans.ms(begun - made)),
             "sync_ms": .number(BenchSpans.ms(begun - start)),
