@@ -82,7 +82,8 @@ final class SidebarFooterBand {
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
     /// band's items in its first row, or in the footer when the band is empty.
     ///
-    /// `modelChanged`: the spaces, the current space or the sidebar's metrics changed since the last layout, so the
+    /// `modelChanged`: `render` marked the bands since the last layout (the spaces, the current space, the sidebar's
+    /// metrics, the switcher's own tokens or the app sections changed), so the
     /// bar shows them (`ProfileBarView.refresh`). A layout for a new size only (a step of a window resize) passes
     /// false: the bar moves, and it draws and builds its tooltips and accessibility elements again only when its
     /// own size or insets change (its setters do that).

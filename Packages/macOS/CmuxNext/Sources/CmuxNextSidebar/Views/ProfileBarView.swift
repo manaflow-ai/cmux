@@ -138,7 +138,8 @@ final class ProfileBarView: NSView {
         super.layout()
         marks.frame = bounds
         placeIndicator(animated: false)
-        // A metric that moves the slots (a Debug Settings tunable lays every view out) moves the regions too.
+        // Slots that moved with no setter call and no new size move the regions too (the sidebar's `render` asks for
+        // this layout when a token of the switcher changes).
         if slotRects() != regionSlots { relayout() }
     }
 

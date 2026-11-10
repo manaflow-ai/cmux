@@ -453,8 +453,9 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
-        // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space
-        // and the metrics): a layout for a new size only does not make the switcher again (a window resize step).
+        // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space,
+        // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
+        // make the switcher again (a window resize step).
         let spacesChanged = bandsDirty
         if bandsDirty || bandsSize != b.size {
             (bandsDirty, bandsSize) = (false, b.size)
