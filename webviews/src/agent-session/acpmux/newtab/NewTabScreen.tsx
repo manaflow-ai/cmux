@@ -424,7 +424,7 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
-  // Installed apps' widgets in the widget row: mounted only while this page shows and placed.
+  // Installed apps' widgets in the widget row: mounted only when placed, and kept through a switch.
   const appWidgets = useNewTabExtensionWidgets(props.widgetClient);
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
