@@ -1402,6 +1402,11 @@ selection, a git branch a refresh reads) and never repeats across daemon
 runs; terminal output and scrolling leave it alone. A request without `known`
 (or with `known: null`) gets the result above, unchanged.
 
+A remote device's connection (`set-client-info {remote: true}`) never sees an
+incognito workspace (#31210): once a workspace of the daemon was incognito,
+its `tree_revision` is a digest of the rows it is answered, so a change to an
+incognito workspace never moves it.
+
 Params:
 
 | Name | Type | Required | Notes |
