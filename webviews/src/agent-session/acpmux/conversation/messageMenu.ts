@@ -198,7 +198,8 @@ function childMenuTarget(snapshot: AcpmuxSnapshot, row: AcpmuxRow): MessageMenuT
   const text = row.text ?? "";
   const target: MessageMenuTarget = {
     ...(sessionId ? { sessionId } : {}),
-    text: plainText(text),
+    // A prompt copies and resends as written; a reply copies as plain text, its Markdown beside it.
+    text: row.kind === "user" ? text : plainText(text),
     ...(row.kind === "assistant" && {
       markdown: text,
       replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),

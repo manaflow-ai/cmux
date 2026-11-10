@@ -177,6 +177,7 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
+import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -699,7 +700,8 @@ function ComposerFrame({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
+    useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2335,6 +2337,11 @@ function ComposerFrame({
       separatorBefore: true,
       onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
     },
+    // Where every attachment shows, one place for every kind (`agentPane.attachmentView`, also in
+    // Settings): in the text where it was added, the default, or in one row at the top as common
+    // chat apps do (Leo, 2026-11-09: "In the right-click menu for the composer ... all attachments
+    // in line, or all attachments at the top like normal"). Only the look: the draft is the same.
+    ...attachmentViewMenu(attachmentView, t),
   ];
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
@@ -2380,6 +2387,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
       {...(runMode ? { runMode } : {})}

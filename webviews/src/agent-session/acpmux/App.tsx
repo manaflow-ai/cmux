@@ -503,7 +503,6 @@ import {
   cloudStartFolder,
   cloudStartSaid,
   makeCloudSignInRetry,
-  resumeSignedIn,
   grantedCloudStart,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
@@ -521,6 +520,7 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
+import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -739,6 +739,7 @@ import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
+import { dismissFocusRing } from "../../ui/focusModality";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 
@@ -4483,12 +4484,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
-  /// A `cloud.signIn` waits on the browser: leaving Cloud (another mode, chat or tab) withdraws its send.
-  const cloudSignInPending = useRef(false);
+  /// The sign-in a start waits on (cloudSignIn.ts): leaving Cloud (another mode, chat or tab) withdraws it.
+  const cloudSignInWait = useRef<CloudSignInWait | undefined>(undefined);
   const cancelCloudSignIn = () => {
-    if (!cloudSignInPending.current) return;
-    cloudSignInPending.current = false;
-    void callNative("cloud.signInCancel").catch(() => undefined);
+    const wait = cloudSignInWait.current;
+    cloudSignInWait.current = undefined;
+    wait?.withdraw();
   };
   /// The last accepted first send, retained so choosing This Mac after a refusal can
   /// explicitly finish its Cloud key just as the native cap-card answer does.
@@ -4558,18 +4559,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
-    const sent = startCloud(request, key, signingIn);
-    // Another Return while a start waits starts nothing, and the card keeps that start.
-    if (!sent) return undefined;
     // Signed in: the start goes again, on the click the host kept, only if this page still waits for it.
     const again = () => {
       // The browser is done: the card leaves its waiting for sign-in state for the normal start.
       setCloudStart((current) => cloudStartSignedIn(current, key));
       return startCloud({ ...request, signedIn: true }, key);
     };
-    const started = signingIn
-      ? sent.then((answer) => resumeSignedIn(answer, () => cloudSignInPending.current, again))
-      : sent;
+    let signIn: CloudSignInWait | undefined;
+    if (signingIn) {
+      // One sign-in at a time: a newer one ends the wait on an older one.
+      cancelCloudSignIn();
+      signIn = waitForCloudSignIn(callNative, key);
+      cloudSignInWait.current = signIn;
+    }
+    const wait = signIn;
+    const started = wait
+      ? startAfterSignIn(wait, () => cloudSignInWait.current === wait, again)
+      : startCloud(request, key);
+    // Another Return while a start waits starts nothing, and the card keeps that start.
+    if (!started) return undefined;
     // What the chat composer holds for this start: the page's draft once it is put back there.
     let expectedDraft = preservedDraft;
     cloudSignInSend.current = () => {
@@ -4596,7 +4604,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     lastCloudAttempt.current = { key, request };
     cloudStartPending.current = true;
-    if (signingIn) cloudSignInPending.current = true;
     if (fromPage) {
       newTabCloudSent.current = true;
       // The prompt as sent, for a page that leaves no draft of its own (a prefilled location it
@@ -4618,7 +4625,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
       cloudStartPending.current = false;
-      if (signingIn) cloudSignInPending.current = false;
+      if (wait && cloudSignInWait.current === wait) cloudSignInWait.current = undefined;
       setCloudStartsEnded((count) => count + 1);
       // A page's draft goes back to the chat composer unless the chat opened on its machine.
       const pageDraft = cloudPageDraft.current;
@@ -5803,6 +5810,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
   const heldQuotes = useRef<string[] | undefined>(undefined);
+  // The subagent pane's composer (SubagentComposer.tsx) while it shows: Quote in Reply goes there,
+  // never held for the chat's composer, which a subagent pane does not mount.
+  const subagentQuote = useRef<{ quoteReply(markdown: string): void } | null>(null);
+  const quoteReply = useCallback((markdown: string) => {
+    if (subagentQuote.current) subagentQuote.current.quoteReply(markdown);
+    else quoteIntoComposer(composerHandle, heldQuotes, markdown);
+  }, []);
   /// Prompts sent while a new chat starts, shown as queued rows until acpmux takes each, in order
   /// (startingSends.ts). One refused comes back to the composer with those behind it.
   const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
@@ -6115,7 +6129,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The selection's Reply chip and a row's Reply quote through the same Quote in Reply as the
   // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
-  useEffect(() => setQuoteReplySink((markdown) => quoteIntoComposer(composerHandle, heldQuotes, markdown)), []);
+  useEffect(() => setQuoteReplySink(quoteReply), [quoteReply]);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -6846,6 +6860,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       },
       command(name, sessionId) {
+        // FOCUS-RING: the app's key router took this command's key, which the pane never saw; any
+        // focus it moves is code focus and earns no ring, even right after a Tab.
+        dismissFocusRing();
         if (name === "toggleSessionInfo") {
           toggleSessionInfo.current?.();
           return;
@@ -8206,7 +8223,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // draft, which stays as typed, and the caret waits in an empty paragraph below it. With no
           // composer mounted (a Sandboxed receipt shows), it waits for the composer to come back.
           "chat.quoteReply": async ({ markdown }) => {
-            quoteIntoComposer(composerHandle, heldQuotes, String(markdown ?? ""));
+            quoteReply(String(markdown ?? ""));
           },
           // Selected transcript text can be attached as a context chip without changing the
           // draft text. The rail/menu owns only the gesture; the composer owns chip rendering.
@@ -8852,6 +8869,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox,
     cloudTypingPrewarm,
     notices,
+    quoteReply,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -10886,6 +10904,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       chat={chatName}
       draftKey={subagentDraftKey}
       onSend={sendToSubagent}
+      quoteRef={subagentQuote}
     />
   ) : (
     !reviewing && (
