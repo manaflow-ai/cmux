@@ -61,6 +61,7 @@ dependencies = [
  "notify",
  "plist",
  "png",
+ "proptest",
  "pulldown-cmark",
  "ratatui",
  "rcgen",

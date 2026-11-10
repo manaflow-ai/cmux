@@ -11,17 +11,21 @@ import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { memoryTipHost, type TipHost } from "../../ui/featureTips/store";
 import { CloudChatHint } from "./CloudChatHint";
+import { installPageKey, pageIsKey, watchPageKey } from "./pageKey";
 import {
   CLOUD_CHAT_HINT_ID,
   cloudChatHintDue,
   cloudChatHintRecord,
+  cloudChatHintAfterRead,
   cloudChatHintShown,
   useCloudChatHint,
+  useCloudChatHintClaim,
   type CloudChatHintState,
 } from "./cloudChatHintModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
+let pageCleanup: (() => void) | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
@@ -44,6 +48,8 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  pageCleanup?.();
+  pageCleanup = undefined;
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -158,6 +164,151 @@ test("within 14 days of another tip the app refuses it, and this page shows none
   await act(async () => undefined);
   expect(hint.current().record).toBe("done");
   expect(host.records[CLOUD_CHAT_HINT_ID]).toBeUndefined();
+});
+
+// CMD-T BUDGET 3 (2026-11-10): a New Tab page changes hands. It loads as a spare nobody sees, Cmd-T
+// gives it to a tab, Cmd-W gives it back to the pool for the next Cmd-T. Each spare asked for the
+// hint by itself while nobody saw it; the app counted the ask as a touch and the pool refused every
+// closed page of a default profile ("touched by featureTips", 5 of 5 Cmd-W).
+async function mountPage(host: TipHost, parked: boolean) {
+  const container = installDom();
+  const doc = dom!.window.document;
+  const view = dom!.window;
+  // The page's own key state (pageKey.ts), as the app installs it. A parked spare has no keyboard.
+  const uninstall = installPageKey(doc);
+  pageCleanup = uninstall;
+  view.dispatchEvent(new view.Event(parked ? "blur" : "focus"));
+  const pageKey = { key: () => pageIsKey(doc), watch: (run: () => void) => watchPageKey(run, doc) };
+  /// Each render of the page, `<adoptions>:<record>`.
+  const renders: string[] = [];
+  function Page({ adoptions }: { adoptions: number }) {
+    const state = useCloudChatHint(host, adoptions);
+    useCloudChatHintClaim(state.record === "open", state.claim, pageKey);
+    renders.push(`${adoptions}:${state.record}`);
+    return null;
+  }
+  root = createRoot(container);
+  const adopt = async (adoptions: number) => {
+    await act(async () => root!.render(<Page adoptions={adoptions} />));
+    await act(async () => undefined);
+  };
+  await adopt(0);
+  return {
+    renders,
+    record: () => renders.at(-1)!.split(":")[1],
+    /// The page changes hands: the pool or a tab gives it a context (an adopt event).
+    adopt,
+    /// The page's web view takes or loses the keyboard.
+    setKey: async (key: boolean) => {
+      await act(async () => {
+        view.dispatchEvent(new view.Event(key ? "focus" : "blur"));
+      });
+      await act(async () => undefined);
+    },
+  };
+}
+
+function countingHost() {
+  const host = memoryTipHost();
+  const calls = { read: 0, claim: 0, write: 0 };
+  const counted: TipHost = {
+    read: () => (calls.read++, host.read()),
+    claim: (id, feature) => (calls.claim++, host.claim(id, feature)),
+    write: (id, record) => (calls.write++, host.write(id, record)),
+  };
+  return { host, counted, calls };
+}
+
+test("a spare page nobody sees asks for nothing; the tab that takes it asks once it has the keyboard", async () => {
+  const { host, counted, calls } = countingHost();
+  const page = await mountPage(counted, true);
+  // Parked in the pool: the hint is due, and the page sends no claim.
+  expect(page.record()).toBe("open");
+  expect(calls.claim).toBe(0);
+  // The pool prepares it and Cmd-T adopts it (two adoptions), still before the page has the keyboard.
+  await page.adopt(1);
+  await page.adopt(2);
+  expect(calls.claim).toBe(0);
+  expect(host.records[CLOUD_CHAT_HINT_ID]).toBeUndefined();
+  // The person is at it: one claim, and the hint shows.
+  await page.setKey(true);
+  expect(calls.claim).toBe(1);
+  expect(page.record()).toBe("shown");
+  expect(host.records[CLOUD_CHAT_HINT_ID]).toBe("shown");
+  // A switch away and back asks nothing more.
+  await page.setKey(false);
+  await page.setKey(true);
+  expect(calls.claim).toBe(1);
+  expect(calls.read).toBe(3);
+});
+
+for (const pairs of [1, 3, 12]) {
+  test(`a page that goes back to the pool shows its hint to no later tab and asks for none (${pairs} Cmd-W + Cmd-T pairs)`, async () => {
+    const { host, counted, calls } = countingHost();
+    const page = await mountPage(counted, false);
+    expect(page.record()).toBe("shown");
+    // Cmd-W: the pool gives the page the spare context (an adoption). Cmd-T: the next tab's context.
+    for (let adoption = 1; adoption <= pairs * 2; adoption += 1) await page.adopt(adoption);
+    const shownAgain = page.renders.filter((render) => !render.startsWith("0:") && render.endsWith(":shown"));
+    expect(shownAgain).toEqual([]);
+    expect(page.record()).toBe("done");
+    expect(calls.claim).toBe(1);
+    expect(calls.write).toBe(0);
+    // One read at load, one at the first adoption after the hint showed; the record is done then: no more.
+    expect(calls.read).toBe(2);
+    expect(host.records[CLOUD_CHAT_HINT_ID]).toBe("shown");
+  });
+}
+
+test("the next tab's first render has no hint of the tab before it, before the app answers", async () => {
+  const host = memoryTipHost();
+  // The app answers the first read; each later read waits until the test lets it go.
+  const waiting: (() => void)[] = [];
+  let reads = 0;
+  const slow: TipHost = {
+    ...host,
+    read: () =>
+      reads++ === 0 ? host.read() : new Promise((resolve) => waiting.push(() => void host.read().then(resolve))),
+  };
+  const page = await mountPage(slow, false);
+  expect(page.record()).toBe("shown");
+  await page.adopt(1);
+  expect(waiting.length).toBe(1);
+  expect(page.renders.filter((render) => render.startsWith("1:"))).toEqual(["1:done"]);
+  await act(async () => waiting.forEach((answer) => answer()));
+  await act(async () => undefined);
+  expect(page.record()).toBe("done");
+  expect(page.renders).not.toContain("1:shown");
+});
+
+test("a yes that comes after the tab's adoption is that tab's hint; after the page went back, no tab's", async () => {
+  const host = memoryTipHost();
+  // The app's answer to the claim waits until the test lets it go.
+  let answer: (() => void) | undefined;
+  const slow: TipHost = {
+    ...host,
+    claim: (id, feature) => new Promise((resolve) => (answer = () => void host.claim(id, feature).then(resolve))),
+  };
+  // The page takes the keyboard and asks while Cmd-T's adoption is still on its way.
+  const page = await mountPage(slow, false);
+  expect(page.record()).toBe("open");
+  await page.adopt(1);
+  await act(async () => answer!());
+  await act(async () => undefined);
+  expect(page.record()).toBe("shown");
+  // Cmd-W gives the page back to the pool, then Cmd-T: the next tab has no hint.
+  await page.adopt(2);
+  await page.adopt(3);
+  expect(page.renders.filter((render) => /^[23]:shown$/.test(render))).toEqual([]);
+  expect(page.record()).toBe("done");
+});
+
+test("a read that answers after the claim does not take the granted hint away", () => {
+  expect(cloudChatHintAfterRead("shown", "open")).toBe("shown");
+  expect(cloudChatHintAfterRead("shown", "done")).toBe("done");
+  expect(cloudChatHintAfterRead("unknown", "open")).toBe("open");
+  expect(cloudChatHintAfterRead("open", "done")).toBe("done");
+  expect(cloudChatHintAfterRead("done", "open")).toBe("done");
 });
 
 test("an older app that refuses `tips.state` shows no hint", async () => {

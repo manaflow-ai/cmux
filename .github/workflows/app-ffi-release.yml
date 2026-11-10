@@ -96,7 +96,10 @@ jobs:
     # first, Blacksmith as overflow. On Blacksmith alone the build sat queued on
     # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
     # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
-    # variable takes the Blacksmith label as before.
+    # variable takes the Blacksmith label as before. Queued there, the build holds
+    # that label against pull request placements as a nightly job does (the queue
+    # janitor's reserved_queued, queue_janitor.RESERVED_POOL_WORKFLOW): run
+    # 42833220418 waited 66 minutes behind pull request jobs on 2026-11-10.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never

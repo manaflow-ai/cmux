@@ -304,6 +304,16 @@ CI_ONLY = (
     # and waited on the fleet Release compile).
     "scripts/cmux-next/objc-selector-table.json", "scripts/cmux-next/check-objc-selectors.py",
     "scripts/cmux-next/check-objc-selectors.sh",
+    # Inputs of the checks job's own tests that no build reads (cmux-next.yml admits them on pull requests for
+    # those tests: tests/test_ci_workflow_paths_cover_inputs.py). CI tables outside .github/workflows, and the
+    # developer and test tooling scripts/ci/product_input_identity.py also counts as non-product: git hooks and
+    # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
+    # that runs after upload. A Mac tier that reads one still runs (consumed()).
+    ".github/github-token-budget.json", ".github/runners.json",
+    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
+    "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
+    "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
