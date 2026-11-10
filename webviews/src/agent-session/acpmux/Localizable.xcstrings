@@ -251335,6 +251335,33 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入 Codex" } }
       }
     },
+    "turn.signIn.grok": {
+      "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that runs the Grok CLI's own login (a page and a device code) on the user's Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in to Grok" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تسجيل الدخول إلى Grok" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prijavi se na Grok" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Log ind på Grok" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Bei Grok anmelden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Iniciar sesión en Grok" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Se connecter à Grok" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Accedi a Grok" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Grok にサインイン" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចូលទៅ Grok" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Grok에 로그인" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Logg på Grok" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zaloguj się do Grok" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Entrar no Grok" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Войти в Grok" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ลงชื่อเข้าใช้ Grok" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Grok'ta oturum aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увійти в Grok" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Đăng nhập Grok" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录 Grok" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入 Grok" } }
+      }
+    },
     "turn.signIn.cursor": {
       "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that runs Cursor's own login on the user's Cloud machine.",
       "extractionState": "manual",
