@@ -311,10 +311,20 @@ pub(super) fn is_not_found(error: &Value) -> bool {
     error_code(error).ends_with("not_found")
 }
 
+/// The app's answer when a person clicks Don't Allow: its action fails with `declined`
+/// (`CloudMachineCreateFlow.Failure.declined`), which `CloudHandlers.runTracked` reports as a
+/// `daemon_error`, not `approval.denied`.
+fn is_declined(error: &Value) -> bool {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or_default().trim();
+    error_code(error) == "daemon_error"
+        && (message == "declined" || message.ends_with(": declined"))
+}
+
 /// Refusals another try does not change: a person said no, or the caller may not.
 pub(super) fn is_final(error: &Value) -> bool {
     let code = error_code(error);
-    code.starts_with("auth.")
+    is_declined(error)
+        || code.starts_with("auth.")
         || matches!(
             code.as_str(),
             "approval.denied"
@@ -403,9 +413,10 @@ fn needs_machine(id: &str) -> Value {
 
 /// Deletes each snapshot of `ids` (with the VM its delete goes through), then reads the list until
 /// they are gone: at most [`DELETE_TRIES`] rounds, each confirmed within [`CONFIRM_WAIT`] and never
-/// past `deadline`. One that is no longer listed counts as deleted, however it went (already gone
-/// included); one still listed after the last round, or refused for good, is in `failed` with its
-/// last error.
+/// past `deadline`, which is checked before each delete too. On the app's route only the list
+/// says one is deleted (its `not_found` may mean the VM it went through is gone): one no longer
+/// listed counts as deleted, however it went; one still listed after the last round, not sent
+/// before the deadline, or refused for good, is in `failed` with its last error.
 pub(super) fn delete_snapshots(
     b: &mut dyn Backend,
     ids: &[(String, Option<String>)],
@@ -424,15 +435,36 @@ pub(super) fn delete_snapshots(
     let mut tries = 0;
     while !pending.is_empty() && tries < DELETE_TRIES {
         tries += 1;
+        if tries > 1 && b.needs_via() {
+            // The VM a delete went through may be gone since: route the next try through a live one.
+            if let Ok(listed) = machines(b) {
+                for (_, via) in &mut pending {
+                    *via = via_machine(&listed, via.as_deref());
+                }
+            }
+        }
         let mut sent = Vec::new();
+        let mut unsent = Vec::new();
         let mut accepted = HashSet::new();
         for (id, via) in pending.drain(..) {
+            if b.now() >= deadline {
+                last.entry(id.clone()).or_insert_with(|| {
+                    refusal(
+                        "vm.wait_timeout",
+                        format!("snapshot {id} was not deleted before the timeout"),
+                        json!({"snapshot": id}),
+                    )
+                });
+                unsent.push((id, via));
+                continue;
+            }
             match b.delete_snapshot(&id, via.as_deref()) {
                 Ok(()) => {
                     accepted.insert(id.clone());
                     sent.push((id, via));
                 }
-                Err(error) if is_not_found(&error) => out.deleted.push(id),
+                // The VM API's 404 is the snapshot's own; the app's may be its route's.
+                Err(error) if is_not_found(&error) && !b.needs_via() => out.deleted.push(id),
                 Err(error) if is_final(&error) => out.failed.push(failure(&id, &error, tries)),
                 Err(error) => {
                     last.insert(id.clone(), error);
@@ -441,6 +473,7 @@ pub(super) fn delete_snapshots(
             }
         }
         if sent.is_empty() {
+            pending = unsent;
             break;
         }
         // The list says whether each went: the app's delete answers before it is done, so an
@@ -471,6 +504,7 @@ pub(super) fn delete_snapshots(
             }
         }
         pending = still;
+        pending.append(&mut unsent);
         if pending.is_empty() || b.now() >= deadline {
             break;
         }
@@ -730,20 +764,83 @@ pub(super) fn snapshot_rm(
     } else {
         batch = ids.iter().map(|id| (id.clone(), None)).collect();
     }
+    // The ones no list of the app shows: gone, or a VM API snapshot ([`with_vm_api`]).
+    let not_listed = gone.clone();
     let mut deleted = delete_snapshots(b, &batch, deadline);
     gone.append(&mut deleted.deleted);
     let elapsed = elapsed_ms(b, started);
-    let answer = json!({"route": b.route(), "deleted": gone, "failed": deleted.failed,
-                        "elapsed_ms": elapsed});
-    if deleted.failed.is_empty() {
+    let mut answer = json!({"route": b.route(), "deleted": gone, "failed": deleted.failed,
+                            "elapsed_ms": elapsed});
+    if b.needs_via() {
+        answer["not_listed"] = json!(not_listed);
+    }
+    snapshot_rm_answer(answer, ids.len())
+}
+
+fn snapshot_rm_answer(answer: Value, asked: usize) -> Result<Value, Value> {
+    let failed = answer.get("failed").and_then(Value::as_array).map_or(0, Vec::len);
+    if failed == 0 {
         Ok(answer)
     } else {
         Err(refusal(
             "vm.snapshot_delete_failed",
-            format!("{} of {} snapshots could not be deleted", deleted.failed.len(), ids.len()),
+            format!("{failed} of {asked} snapshots could not be deleted"),
             answer,
         ))
     }
+}
+
+/// The answer object of a `snapshot_rm` result, either way it went.
+fn snapshot_rm_body(result: &Result<Value, Value>) -> Option<&Value> {
+    match result {
+        Ok(answer) => Some(answer),
+        Err(error) => error.get("details").filter(|details| details.get("deleted").is_some()),
+    }
+}
+
+/// The ids the app's `snapshot rm` counted gone only because its list did not show them.
+pub(super) fn not_listed(result: &Result<Value, Value>) -> Vec<String> {
+    snapshot_rm_body(result)
+        .and_then(|answer| answer.get("not_listed"))
+        .and_then(Value::as_array)
+        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// The app's `snapshot rm` answer with the VM API's for the ids the app did not list (`unlisted`):
+/// those count as the VM API says, so a VM API snapshot is deleted there, not called gone.
+pub(super) fn with_vm_api(
+    app: Result<Value, Value>,
+    unlisted: &[String],
+    api: Result<Value, Value>,
+) -> Result<Value, Value> {
+    let Some(mut answer) = snapshot_rm_body(&app).cloned() else { return app };
+    let ids = |body: Option<&Value>, key: &str| -> Vec<Value> {
+        body.and_then(|body| body.get(key)).and_then(Value::as_array).cloned().unwrap_or_default()
+    };
+    let api_body = snapshot_rm_body(&api);
+    let mut deleted: Vec<Value> = ids(Some(&answer), "deleted")
+        .into_iter()
+        .filter(|id| !id.as_str().is_some_and(|id| unlisted.iter().any(|u| u == id)))
+        .collect();
+    let mut failed = ids(Some(&answer), "failed");
+    match (&api, api_body) {
+        (_, Some(body)) => {
+            deleted.extend(ids(Some(body), "deleted"));
+            failed.extend(ids(Some(body), "failed"));
+        }
+        // The VM API answered nothing per snapshot (no client, a refused key): each failed with it.
+        (Err(error), None) => failed.extend(unlisted.iter().map(|id| failure(id, error, 0))),
+        (Ok(_), None) => {}
+    }
+    let asked = deleted.len() + failed.len();
+    answer["deleted"] = json!(deleted);
+    answer["failed"] = json!(failed);
+    answer["route"] = json!("app+vm_api");
+    if let Some(map) = answer.as_object_mut() {
+        map.remove("not_listed");
+    }
+    snapshot_rm_answer(answer, asked)
 }
 
 fn text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -982,13 +1079,14 @@ pub(super) fn execute(b: &mut dyn Backend, command: &Command) -> Result<Value, V
     }
 }
 
-/// What a person reads for a success.
+/// What a person reads for a success. Every string in it but the usage is a server's or the
+/// command line's: each is printed inert ([`clean`]), its controls never reach the terminal.
 pub(super) fn human(command: &Command, value: &Value) -> String {
     let list = |key: &str| -> Vec<String> {
         value
             .get(key)
             .and_then(Value::as_array)
-            .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|ids| ids.iter().filter_map(Value::as_str).map(clean).collect())
             .unwrap_or_default()
     };
     match command {
@@ -1002,12 +1100,13 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
             }
             let mut out = format!("{:<34} {:<34} {:<9} NAME\n", "ID", "FROM VM", "STATUS");
             for row in rows {
-                let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or("-");
-                let mut from = field("machine_id").to_owned();
+                let field =
+                    |key: &str| row.get(key).and_then(Value::as_str).map_or("-".into(), clean);
+                let mut from = field("machine_id");
                 if row.get("orphaned") == Some(&Value::Bool(true)) {
                     from.push_str(" (gone)");
                 }
-                let mut name = field("name").to_owned();
+                let mut name = field("name");
                 if row.get("archive") == Some(&Value::Bool(true)) {
                     name.push_str(" [archive]");
                 }
@@ -1018,7 +1117,7 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
                 ));
             }
             if let Some(next) = value.get("next").and_then(Value::as_str) {
-                out.push_str(&format!("\nremove them: {next}\n"));
+                out.push_str(&format!("\nremove them: {}\n", clean(next)));
             }
             out
         }
@@ -1027,16 +1126,14 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
             format!("deleted {} snapshot(s): {}\n", deleted.len(), deleted.join(" "))
         }
         Command::Rm(request) => {
-            let id = value.get("machine_id").and_then(Value::as_str).unwrap_or_default();
+            let id = clean(value.get("machine_id").and_then(Value::as_str).unwrap_or_default());
+            let named = clean(&request.named);
             let mut out = if value.get("already_gone") == Some(&Value::Bool(true)) {
-                format!("VM {} (vm:{id}) was already gone", request.named)
+                format!("VM {named} (vm:{id}) was already gone")
             } else if request.wait {
-                format!("VM {} (vm:{id}) is deleted", request.named)
+                format!("VM {named} (vm:{id}) is deleted")
             } else {
-                format!(
-                    "VM {} (vm:{id}) is being deleted; `cmux vm ls` shows when it is gone",
-                    request.named
-                )
+                format!("VM {named} (vm:{id}) is being deleted; `cmux vm ls` shows when it is gone")
             };
             if request.with_snapshots {
                 let deleted = value
@@ -1052,6 +1149,11 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
             out
         }
     }
+}
+
+/// A string for human output with its terminal controls made inert (wire.rs).
+fn clean(text: &str) -> String {
+    super::wire::sanitize_remote_cell(text)
 }
 
 /// Prints the answer: `--json` the object, else [`human`]; an error as the app's verbs print one.
@@ -1140,9 +1242,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         let result = execute(&mut AppApi { runner: &mut runner }, &command);
         // A `vm_…` id the app does not list may be a VM API VM (as vm_short.rs sends it there).
         let env = |name: &str| std::env::var(name).ok();
-        let not_listed =
+        let gone =
             matches!(&result, Ok(value) if value.get("already_gone") == Some(&Value::Bool(true)));
-        if not_listed && super::vm::has_own_credential(&env) {
+        let unlisted = not_listed(&result);
+        if !super::vm::has_own_credential(&env) {
+            result
+        } else if let (Command::SnapshotRm { timeout, .. }, false) = (&command, unlisted.is_empty())
+        {
+            // So do snapshot ids the app does not list.
+            let rest = Command::SnapshotRm { ids: unlisted.clone(), timeout: *timeout };
+            with_vm_api(result, &unlisted, run_vm_api(&mut runner, &rest))
+        } else if gone {
             run_vm_api(&mut runner, &command)
         } else {
             result

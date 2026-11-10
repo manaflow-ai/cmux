@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use super::super::cloud_start_chat::{Ran, Runner};
 use super::{
     AppApi, Backend, CONFIRM_WAIT, Command, DEFAULT_TIMEOUT, DELETE_TRIES, MachineRow, Rm,
-    SnapshotRow, VmApi, all_pages, error_code, execute, parse, rm, snapshot_rm, snapshots,
+    SnapshotRow, VmApi, all_pages, error_code, execute, human, not_listed, parse, rm, snapshot_rm,
+    snapshots, with_vm_api,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -65,6 +66,10 @@ struct Fake {
     log: Vec<String>,
     start: Instant,
     waited: Duration,
+    /// How long each snapshot delete takes (an Allow prompt, a slow request).
+    delete_takes: Duration,
+    /// A snapshot delete routed through this VM makes it vanish (deleted elsewhere meanwhile).
+    vanishes: Option<String>,
 }
 
 impl Fake {
@@ -82,6 +87,8 @@ impl Fake {
             log: Vec::new(),
             start: Instant::now(),
             waited: Duration::ZERO,
+            delete_takes: Duration::ZERO,
+            vanishes: None,
         }
     }
 
@@ -147,6 +154,10 @@ impl Backend for Fake {
 
     fn delete_snapshot(&mut self, id: &str, via: Option<&str>) -> Result<(), Value> {
         self.log.push(format!("delete snapshot {id} via {}", via.unwrap_or("-")));
+        self.waited += self.delete_takes;
+        if via.is_some() && via == self.vanishes.as_deref() {
+            self.machines.retain(|row| Some(row.id.as_str()) != via);
+        }
         if !self.snapshots.iter().any(|row| row.id == id) {
             return Err(json!({"code": "cloud.snapshot.not_found", "message": "gone"}));
         }
@@ -412,6 +423,129 @@ fn a_person_saying_no_is_not_retried() {
     let error = snapshot_rm(&mut fake, &[snap(1)], DEFAULT_TIMEOUT).expect_err("denied");
     assert_eq!(error["details"]["failed"][0]["tries"], json!(1));
     assert_eq!(fake.deletes("delete snapshot").len(), 1);
+}
+
+#[test]
+fn the_apps_dont_allow_is_not_retried() {
+    // Don't Allow fails the app's action with `declined`, which it reports as a `daemon_error`.
+    for denied in [
+        json!({"code": "daemon_error", "message": "declined"}),
+        json!({"code": "step.failed", "message": "cmux: daemon_error: declined"}),
+    ] {
+        let mut fake = Fake::new("app");
+        fake.machines = vec![machine(&vm(1), "dev", "running")];
+        fake.snapshots = vec![snapshot(&snap(1), &vm(1))];
+        fake.on_delete.insert(snap(1), OnDelete::Fails(denied.clone()));
+        let error = snapshot_rm(&mut fake, &[snap(1)], DEFAULT_TIMEOUT).expect_err("denied");
+        assert_eq!(error["details"]["failed"][0]["tries"], json!(1), "{denied}");
+        assert_eq!(fake.deletes("delete snapshot").len(), 1, "{denied}");
+    }
+    // Another daemon_error is tried again.
+    let mut fake = Fake::new("app");
+    fake.machines = vec![machine(&vm(1), "dev", "running")];
+    fake.snapshots = vec![snapshot(&snap(1), &vm(1))];
+    let flaky = json!({"code": "daemon_error", "message": "Couldn't reach cmux Cloud"});
+    fake.on_delete.insert(snap(1), OnDelete::Fails(flaky));
+    snapshot_rm(&mut fake, &[snap(1)], DEFAULT_TIMEOUT).expect_err("still there");
+    assert_eq!(fake.deletes("delete snapshot").len(), DELETE_TRIES as usize);
+}
+
+#[test]
+fn slow_deletes_stop_at_the_deadline() {
+    let mut fake = Fake::new("app");
+    fake.machines = vec![machine(&vm(1), "dev", "running")];
+    fake.snapshots = (0..10).map(|n| snapshot(&snap(n), &vm(1))).collect();
+    fake.delete_takes = Duration::from_secs(60);
+    let ids: Vec<String> = (0..10).map(snap).collect();
+    let error = snapshot_rm(&mut fake, &ids, Duration::from_secs(120)).expect_err("timeout");
+    assert_eq!(fake.deletes("delete snapshot").len(), 2);
+    assert!(fake.waited <= Duration::from_secs(120 + 60), "waited {:?}", fake.waited);
+    assert_eq!(error["details"]["deleted"].as_array().map(Vec::len), Some(2));
+    assert_eq!(error["details"]["failed"].as_array().map(Vec::len), Some(8));
+    assert_eq!(error["details"]["failed"][0]["error"]["code"], json!("vm.wait_timeout"));
+}
+
+#[test]
+fn an_apps_not_found_for_a_listed_snapshot_is_not_deleted() {
+    // The VM the delete went through is gone: the app answers not found, the snapshot stays.
+    let mut fake = Fake::new("app");
+    fake.machines = vec![machine(&vm(1), "dev", "running"), machine(&vm(2), "spare", "running")];
+    fake.snapshots = vec![snapshot(&snap(1), &vm(1))];
+    let missing = json!({"code": "step.failed", "message": "cmux: cloud.machine.not_found: gone"});
+    fake.on_delete.insert(snap(1), OnDelete::Fails(missing));
+    let error = snapshot_rm(&mut fake, &[snap(1)], DEFAULT_TIMEOUT).expect_err("still listed");
+    assert_eq!(error["details"]["deleted"], json!([]));
+    assert_eq!(error["details"]["failed"][0]["id"], json!(snap(1)));
+    assert_eq!(fake.deletes("delete snapshot").len(), DELETE_TRIES as usize);
+    // The routing VM goes during the first try: the next try routes through a VM still there.
+    let mut fake = Fake::new("app");
+    fake.machines = vec![machine(&vm(1), "dev", "running"), machine(&vm(2), "spare", "running")];
+    fake.snapshots = vec![snapshot(&snap(1), &vm(1))];
+    fake.vanishes = Some(vm(1));
+    let missing = json!({"code": "step.failed", "message": "cmux: cloud.machine.not_found: gone"});
+    fake.on_delete.insert(snap(1), OnDelete::Fails(missing));
+    snapshot_rm(&mut fake, &[snap(1)], DEFAULT_TIMEOUT).expect_err("still listed");
+    let routes = fake.deletes("delete snapshot");
+    assert_eq!(
+        routes.first().map(|line| line.as_str()),
+        Some(&*format!("delete snapshot {} via {}", snap(1), vm(1)))
+    );
+    assert_eq!(
+        routes.get(1).map(|line| line.as_str()),
+        Some(&*format!("delete snapshot {} via {}", snap(1), vm(2)))
+    );
+}
+
+#[test]
+fn snapshots_the_app_does_not_list_go_to_the_vm_api() {
+    let mut fake = Fake::new("app");
+    fake.machines = vec![machine(&vm(1), "dev", "running")];
+    fake.snapshots = vec![snapshot(&snap(1), &vm(1))];
+    let app = snapshot_rm(&mut fake, &[snap(1), snap(2)], DEFAULT_TIMEOUT);
+    assert_eq!(not_listed(&app), vec![snap(2)]);
+    // The VM API deletes it: counted once, as the VM API says.
+    let api = Ok(json!({"route": "vm_api", "deleted": [snap(2)], "failed": []}));
+    let merged = with_vm_api(app.clone(), &[snap(2)], api).expect("both deleted");
+    assert_eq!(merged["deleted"], json!([snap(1), snap(2)]));
+    assert_eq!(merged["route"], json!("app+vm_api"));
+    assert!(merged.get("not_listed").is_none());
+    // The VM API cannot delete it: reported, never called deleted.
+    let refused = json!({"code": "vm_api.exit_11", "message": "no"});
+    let api = Err(json!({"code": "vm.snapshot_delete_failed", "message": "1 of 1",
+        "details": {"route": "vm_api", "deleted": [], "failed": [{"id": snap(2), "tries": 1,
+        "error": refused}]}}));
+    let error = with_vm_api(app.clone(), &[snap(2)], api).expect_err("one failed");
+    assert_eq!(error["details"]["deleted"], json!([snap(1)]));
+    assert_eq!(error["details"]["failed"][0]["id"], json!(snap(2)));
+    // No VM API at all: failed with its error.
+    let api = Err(json!({"code": "vm.client", "message": "cannot start"}));
+    let error = with_vm_api(app, &[snap(2)], api).expect_err("no client");
+    assert_eq!(error["details"]["failed"][0]["error"]["code"], json!("vm.client"));
+}
+
+#[test]
+fn human_output_prints_server_text_inert() {
+    let planted = "\u{1b}]52;c;aGVsbG8=\u{7}evil\u{1b}[2J\u{9b}31m\r\nnext";
+    let snapshots = json!({"snapshots": [{"id": planted, "machine_id": planted, "name": planted,
+        "status": planted, "orphaned": true, "archive": false}],
+        "next": format!("cmux vm snapshot rm {planted} --confirm")});
+    let removed = json!({"deleted": [planted]});
+    let gone = json!({"machine_id": planted, "already_gone": true});
+    let printed = [
+        human(&Command::Snapshots { orphaned: true }, &snapshots),
+        human(&Command::SnapshotRm { ids: Vec::new(), timeout: DEFAULT_TIMEOUT }, &removed),
+        human(&Command::Rm(rm_request(planted)), &gone),
+    ];
+    for text in printed {
+        assert!(text.contains("evil"), "{text:?}");
+        let controls: Vec<char> = text
+            .chars()
+            .filter(|ch| *ch != '\n' && (ch.is_control() || ('\u{80}'..='\u{9f}').contains(ch)))
+            .collect();
+        assert!(controls.is_empty(), "{controls:?} in {text:?}");
+        // Each value stays on its own line: the planted CR LF prints as a visible `\n`.
+        assert!(!text.contains("\nnext"), "{text:?}");
+    }
 }
 
 #[test]
