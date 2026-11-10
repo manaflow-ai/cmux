@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42900145763",
+  "recorded_at": "2026-11-10T21:15:34Z",
+  "reason": "cmux-tui 19189603b2f3 changes the image's cmux-tui (pinned 1bf420804085)",
+  "dry_run": false,
+  "cmux_tui": "19189603b2f346c0e005b8b8453426a23b6aa5e1",
+  "fixes": [
+    {
+      "sha": "19189603b2f346c0e005b8b8453426a23b6aa5e1",
+      "mergedAt": "2026-11-10T20:41:07Z",
+      "subject": "docs(cmux-tui): a fix names its port to the other branch, or says why there is none (#40773)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T21:15:34Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
