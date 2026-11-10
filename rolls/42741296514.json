@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42741296514",
+  "recorded_at": "2026-11-10T02:22:38Z",
+  "reason": "cmux-tui ead197d51e23 changes the image's cmux-tui (pinned 36251d3bd196)",
+  "dry_run": false,
+  "cmux_tui": "ead197d51e23aff719a9b584f7f68d2f51bca412",
+  "fixes": [
+    {
+      "sha": "ead197d51e23aff719a9b584f7f68d2f51bca412",
+      "mergedAt": "2026-11-10T01:48:48Z",
+      "subject": "chore(next): base autofix at b4d1596c28c8"
+    },
+    {
+      "sha": "b4d1596c28c85b930d4ae8f34291db2c661cd309",
+      "mergedAt": "2026-11-09T17:46:26-08:00",
+      "subject": "cmux-tui-core: one session id per machine, and copied homes mint their own ids (#39290)"
+    },
+    {
+      "sha": "4d8584beeaa2f9cc97a032e81a5bbe5cf8282875",
+      "mergedAt": "2026-11-10T01:42:47Z",
+      "subject": "chore(next): base autofix at b2fb62c7adf1"
+    },
+    {
+      "sha": "b2fb62c7adf19d761ebd0635b808b8030233aca5",
+      "mergedAt": "2026-11-09T17:41:10-08:00",
+      "subject": "cmux-cloud-config: personal team id and team header, one rule for every team id (#39950) (#39974)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T02:22:38Z",
+    "snapshot_id": "sh-464873af4ece4743a378341b4165725b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42741296514): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3027c499a915ce55d53410b912024ffee15a572a",
+    "image": "cloud-native-auto-ead197d5-42741296514-1",
+    "revision": "ci-42741296514-1",
+    "at": "2026-11-10T02:22:38Z"
+  },
+  "rolled_back": false
+}
