@@ -37,7 +37,8 @@ public final class SidebarChatHistoryFeed {
     private var observed: ObservedItems<TabModel, LiveChat>?
     /// The live tabs listed now.
     private var listed: [TabModel] = []
-    /// By chat: how many live tabs show it.
+    /// By chat: how many live tabs show it. Right while each tab is listed once (the store's are): a tab listed two
+    /// times has one observation and two counts until the next change of the list.
     private var holders: [String: Int] = [:]
     /// The chats the live tabs show, joined: what the history reads.
     private let joined = JoinedLiveChats()

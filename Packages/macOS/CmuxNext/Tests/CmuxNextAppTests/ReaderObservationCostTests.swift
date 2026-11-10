@@ -97,7 +97,9 @@ struct ReaderObservationCostTests {
 
 /// The chat history's case is a case of ``LargeSessionObservationTests``: it turns the session tree on in
 /// `DesignSettings.shared` (one value for the process), as that suite's O2, O6 and O7 cases do, and that suite is
-/// serialized. A case in a suite of its own would run beside them and turn the setting off under them.
+/// serialized. A case in a suite of its own would run beside them and turn the setting off under them. The count
+/// holds in a serial run only (`--no-parallel`, as CI and the focused command run): a write of that setting by a
+/// suite that runs beside this one wakes the list and adds a pass over every live tab to the count.
 extension LargeSessionObservationTests {
     /// `SidebarChatHistoryFeed` (the session tree's Earlier list leaves out the chats open tabs show): a chat tab that
     /// moves to another session, or a session whose chat binding comes or goes, visits that one tab and the chats that

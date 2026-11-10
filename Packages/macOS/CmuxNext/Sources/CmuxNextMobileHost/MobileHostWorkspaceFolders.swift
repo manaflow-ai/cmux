@@ -25,7 +25,8 @@ import CmuxNextDaemon
     private var hasSent = false
     /// By folder: its place in ``roots``.
     private var places: [String: Int] = [:]
-    /// By folder: how many listed workspaces list it.
+    /// By folder: how many listed workspaces list it. Right while each workspace is listed once (the store's are):
+    /// a workspace listed two times has one observation and two counts until the next change of the list.
     private var holders: [String: Int] = [:]
 
     init() {}
@@ -67,6 +68,7 @@ import CmuxNextDaemon
         guard let observed, let send else { return }
         let items = observed.items(for: listed, id: { "\(ObjectIdentifier($0))" })
         holders = [:]
+        // A workspace's folders are each once (``folders(of:)``), so this counts workspaces, as ``itemChanged`` does.
         for folder in items.joined() { holders[folder, default: 0] += 1 }
         guard !hasSent || holders.count != places.count || holders.keys.contains(where: { places[$0] == nil }) else { return }
         roots = Self.joined(items)
