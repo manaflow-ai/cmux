@@ -320,7 +320,10 @@ impl Hub {
             };
             let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
             let root = self.vm_marker_root();
+            #[cfg(unix)]
             let broker = matches!(crate::codex_auth_file::read(), Ok(Some(_)));
+            #[cfg(not(unix))]
+            let broker = false;
             let inputs =
                 crate::codex_cloud_auth::Inputs { root: &root, home: &home, var: &var, broker };
             if let Some(reason) =
