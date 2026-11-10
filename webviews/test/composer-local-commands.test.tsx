@@ -261,7 +261,7 @@ test("Cmd-Return on /mcp mid-turn runs it at once too: nothing queues", async ()
   expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["mcp"] });
 });
 
-test("where the chat cannot show it, a local command keeps the normal send: it steers an agent that steers", async () => {
+test("with nowhere to show it, a local command keeps the normal send: it steers if the agent steers", async () => {
   const run = await composer(working("codex", true), "/mcp", false);
   await enter(run.field);
   expect(run.sent).toEqual([{ text: "/mcp", steer: true }]);
