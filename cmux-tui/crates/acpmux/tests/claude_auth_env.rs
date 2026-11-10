@@ -1175,3 +1175,64 @@ async fn session_info_names_host_sign_in_route_settings_and_limits() {
     assert!(info["usageLimits"]["windows"].as_array().is_some_and(|w| !w.is_empty()), "{info}");
     assert!(!info.to_string().contains("status-secret-token"), "{info}");
 }
+
+/// Bench round 5 (row 10, W6-H item 3): after `daemon restart` an adopted Claude chat's session
+/// info had no `authSource`: the sign-in facts lived only in the daemon that spawned its agent.
+/// They are kept with the chat, so the next daemon, which adopts the agent and spawns none,
+/// names the same sign-in and route, and still never the credential's value.
+#[tokio::test]
+async fn w5s_an_adopted_claude_chat_keeps_its_auth_source() {
+    let dir = scratch("adopt", "export EDITOR=vi\n");
+    let home = dir.join("home/.claude");
+    let env = json!({
+        "CLAUDE_CONFIG_DIR": home,
+        "ANTHROPIC_AUTH_TOKEN": "adopt-secret-token",
+        "ANTHROPIC_BASE_URL": "http://sr2-gateway.example:4016",
+    });
+    let profile = json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": env});
+    let config = json!({"harnesses": {"claude": profile}, "defaultHarness": "claude",
+                        "permissionPolicy": "approve-all"});
+    let first = start_with(&dir, config.clone(), &[], true).await;
+    let mut rpc = Rpc::connect(&first.socket).await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": first.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": "claude"}}}),
+        )
+        .await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    rpc.call("session/prompt", prompt("hello")).await;
+    let before = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    let auth = "Auth token (ANTHROPIC_AUTH_TOKEN, from its profile)";
+    assert_eq!(before["authSource"], auth, "{before}");
+    drop(rpc);
+
+    // As `daemon restart`: SIGTERM keeps the agent hosts for the next daemon to adopt.
+    let mut first = first;
+    // SAFETY: this test's own daemon process.
+    unsafe { libc::kill(first.child.id() as i32, libc::SIGTERM) };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while first.child.try_wait().ok().flatten().is_none() {
+        assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Its hosts stay for the next daemon, whose drop ends them.
+    std::mem::forget(first);
+
+    let second = start_with(&dir, config, &[], true).await;
+    let mut rpc = Rpc::connect(&second.socket).await;
+    let after = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(after["authSource"], auth, "after the restart: {after}");
+    assert_eq!(after["route"], before["route"], "{after}");
+    rpc.call("session/prompt", prompt("after the restart")).await;
+    let adopted = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(adopted["authSource"], auth, "after adoption: {adopted}");
+    assert!(!adopted.to_string().contains("adopt-secret-token"), "{adopted}");
+    let kept = std::fs::read_dir(dir.join("run/claude-spawn"))
+        .map(|d| d.filter_map(Result::ok).map(|e| std::fs::read(e.path()).unwrap_or_default()))
+        .into_iter()
+        .flatten()
+        .any(|bytes| String::from_utf8_lossy(&bytes).contains("adopt-secret-token"));
+    assert!(!kept, "the kept sign-in facts hold the token's value");
+}
