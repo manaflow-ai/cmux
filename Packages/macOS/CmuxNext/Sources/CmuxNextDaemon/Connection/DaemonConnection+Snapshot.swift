@@ -6,6 +6,7 @@ extension DaemonConnection {
     /// once the main thread is free. Events stay buffered meanwhile, and
     /// those past its barrier still apply, so it is as current as a later one.
     public func prefetchSnapshot() {
+        DaemonLaunchTimings.shared.mark("daemon.prefetch_enter")
         guard prefetchedSnapshot == nil, let serial = ready?.serial else { return }
         // task-owner: one read per connection, taken (or dropped) by the first snapshot()
         prefetchedSnapshot = (serial, Task { try await self.fetchSnapshot() })
@@ -37,8 +38,10 @@ extension DaemonConnection {
         if savedGroups { lines.append(PipelinedLine(ListSavedTabGroupsRequest())) }
         if personal { lines.append(PipelinedLine(ListPersonalRequest())) }
         var replies = await ready.transport.pipeline(lines, timeout: configuration.snapshotTimeout)[...]
+        DaemonLaunchTimings.shared.mark("daemon.snapshot_reply")
         let response = try replies.removeFirst().get()
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
+        DaemonLaunchTimings.shared.mark("daemon.snapshot_decoded")
         if savedGroups {
             let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: replies.removeFirst().get().line)
             if tree.savedTabGroups.isEmpty {

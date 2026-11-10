@@ -325,9 +325,14 @@ public actor DaemonConnection {
             let raw = configuration.role == .pageRelay
             transport.start(
                 onEvent: { [weak self] name, line, index in
+                    // The launch time-line shows when the one reader thread decodes a large
+                    // `session.events` item (its snapshot): no reply is read in that time.
+                    let largeStreamItem = name == LineTransport.streamEvent && line.count >= 65_536
+                    if largeStreamItem { DaemonLaunchTimings.shared.mark("daemon.session_snapshot_decode_start") }
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
                         event: raw ? DaemonEvent.raw(name: name, line: line) : DaemonEvent.decode(name: name, line: line), sourceID: eventSourceID)
+                    if largeStreamItem { DaemonLaunchTimings.shared.mark("daemon.session_snapshot_decode_end") }
                     if case .sessionState(let item) = envelope.event, item.endsStream {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }
