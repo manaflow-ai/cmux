@@ -3721,6 +3721,21 @@ function TranscriptView({
     }
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
+    (globalThis as any).__ttjTrace?.push({
+      at: performance.now(),
+      kind: "pass",
+      tailGlides,
+      tailAnchor,
+      chasing,
+      following: followingRef.current,
+      folding: Boolean(thread.current?.hasAttribute(TURN_END_ATTR)),
+      draining: performance.now() < chaseDrainUntil.current,
+      reply: drainReply.current?.height,
+      first: range.first,
+      last: range.last,
+      st: ref.current?.scrollTop,
+      endTop: (thread.current?.querySelector('[data-row-id="live-end"]') as HTMLElement | null)?.offsetTop,
+    });
     tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor, chasing && followingRef.current);
     previousLayout.current = layout;
     previousRows.current = rows;

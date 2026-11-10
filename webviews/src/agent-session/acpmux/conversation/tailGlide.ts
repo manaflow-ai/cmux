@@ -146,12 +146,14 @@ export function createTailGlide(): TailGlide {
     },
     place(thread, glide, anchor, track = true) {
       if (!thread || !track || foldMs(thread) <= 0) {
+        (globalThis as any).__ttjTrace?.push({ kind: "place-reset", thread: Boolean(thread), track });
         last = undefined;
         return;
       }
       const before = last;
       const now = tops(thread);
       last = now;
+      (globalThis as any).__ttjTrace?.push({ kind: "place", hadBefore: Boolean(before), glide, anchor, inBefore: anchor ? before?.has(anchor) : undefined, inNow: anchor ? now.has(anchor) : undefined, end: now.get("live-end")?.top, endWas: before?.get("live-end")?.top, anchorTop: anchor ? now.get(anchor)?.top : undefined, anchorWas: anchor ? before?.get(anchor)?.top : undefined });
       if (!before || !glide || anchor === undefined) return;
       const from = before.get(anchor);
       const to = now.get(anchor);
