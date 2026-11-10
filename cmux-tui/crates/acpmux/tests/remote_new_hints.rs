@@ -196,20 +196,11 @@ async fn the_owners_daemon_starts_a_chat_in_a_checkout_outside_the_roots_and_no_
     std::fs::create_dir_all(repo.join("lib")).unwrap();
     std::fs::create_dir_all(elsewhere.join("plain")).unwrap();
 
+    // Every refusal first: a running chat's folder becomes a root for every caller.
     let mut peer = C::open(&hub, Origin::Peer);
-    // A missing folder in a checkout is not made (only one inside a root is; a running
-    // chat's folder becomes one, so this goes first).
+    // A missing folder in a checkout is not made (only one inside a root is).
     let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&repo.join("new")))).await;
     assert!(r["error"].is_object() && !repo.join("new").exists(), "{r}");
-    for want in [repo.clone(), repo.join("lib")] {
-        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&want))).await;
-        assert_eq!(cwd_of(&hub, &r), want, "{r}");
-    }
-    // A folder that is no checkout stays outside, and the refusal says a checkout works.
-    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&elsewhere.join("plain")))).await;
-    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
-    assert!(r["error"]["message"].as_str().unwrap().contains("a git checkout"), "{r}");
-
     // A Web client, and a peer forwarding for one or for a paired device, are held to the roots.
     let mut web = C::open(&hub, Origin::Web);
     let r = web.call(method::SESSION_NEW, new(json!({}), Some(&repo))).await;
@@ -218,6 +209,16 @@ async fn the_owners_daemon_starts_a_chat_in_a_checkout_outside_the_roots_and_no_
         let r = peer.call(method::SESSION_NEW, new(json!({"via": via}), Some(&repo))).await;
         assert!(r["error"].is_object(), "via {via}: {r}");
     }
+
+    // The owner's own daemon starts in the checkout and in a folder inside it.
+    for want in [repo.clone(), repo.join("lib")] {
+        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&want))).await;
+        assert_eq!(cwd_of(&hub, &r), want, "{r}");
+    }
+    // A folder that is no checkout stays outside, and the refusal says a checkout works.
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&elsewhere.join("plain")))).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    assert!(r["error"]["message"].as_str().unwrap().contains("a git checkout"), "{r}");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&elsewhere);
 }
