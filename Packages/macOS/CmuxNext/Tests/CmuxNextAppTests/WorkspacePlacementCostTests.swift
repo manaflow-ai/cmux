@@ -37,7 +37,9 @@ import Testing
     static let newKey = "placement-cost-new"
     /// The most rows one placement may map or copy, at any session size (the `large` session has 60).
     static let rowBound = 128
-    static let printed = ["rows_made", "slot_rows", "doc_reshows", "row_maps", "rebuilds", "section_sets", "ffi_calls"]
+    /// The most rows one placement may map from their stores: measured 1 (its own row); `resync()` mapped rows + 1.
+    static let madeBound = 2
+    static let printed = ["rows_made", "slot_rows", "doc_reshows", "row_maps", "rebuilds", "section_sets", "ffi_calls", "list_reloads", "layout_rows"]
 
     /// What one `applyPendingPlacements` call did.
     struct Counts: Sendable {
@@ -173,15 +175,17 @@ import Testing
         let small = try await Self.counts(.large)
         for size in Self.sizes {
             let counts = try await Self.counts(size)
-            #expect(counts["rows_made"] <= Self.rowBound,
-                    "one placed workspace in a session of \(size.workspaces) mapped \(counts["rows_made"]) rows from their stores (rows_made, bound \(Self.rowBound))")
+            #expect(counts["rows_made"] <= Self.madeBound,
+                    "one placed workspace in a session of \(size.workspaces) mapped \(counts["rows_made"]) rows from their stores (rows_made, bound \(Self.madeBound))")
+            #expect(counts["doc_reshows"] == 1, "one placed workspace in a session of \(size.workspaces) showed the document \(counts["doc_reshows"]) times")
             #expect(counts["rows_made"] <= small["rows_made"],
                     "rows_made grows with the session: \(small["rows_made"]) at large, \(counts["rows_made"]) at \(size.rawValue)")
         }
     }
 
-    /// One placement asks the Rust mirror for at most two whole-document projections, at any size. (Each one still
-    /// costs more in a larger session: not changed here.)
+    /// A RECORD, NOT A GUARD of the placement fix: it passes with and without it (1 projection each). One placement
+    /// asks the Rust mirror for at most two whole-document projections, at any size. (Each one still costs more in a
+    /// larger session: not changed here.)
     @Test(.timeLimit(.minutes(10)))
     func onePlacementProjectsTheDocumentAsOftenInALargerSession() async throws {
         let small = try await Self.counts(.large)
