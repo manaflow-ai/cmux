@@ -52,6 +52,12 @@ struct AgentPaneActAsMePillBuildTests {
         let builtWhileOff = pages.map { Self.pills(in: $0).count }.reduce(0, +)
         #expect(builtWhileOff == 0, "\(builtWhileOff) of \(count) pages built the pill while the grant was off")
 
+        // Each page's follower starts and waits on a grant that is off: still no pill. The turn-on below then
+        // wakes a follower that waits, which is the path of a person's click.
+        try await Task.sleep(for: .milliseconds(50))
+        let builtWhileWaiting = pages.map { Self.pills(in: $0).count }.reduce(0, +)
+        #expect(builtWhileWaiting == 0, "\(builtWhileWaiting) of \(count) pages built the pill later, while the grant was still off")
+
         // The grant turns on (an administrator's profile): each page shows one pill.
         grant.setManaged(true)
         try await Self.until { pages.allSatisfy { Self.pills(in: $0).first?.isHidden == false } }
