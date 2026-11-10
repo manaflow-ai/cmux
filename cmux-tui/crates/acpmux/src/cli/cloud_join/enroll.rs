@@ -1963,7 +1963,8 @@ mod tests {
         let port = FakeHub::at(home.path());
         *port.own_answer.lock().unwrap() = Some(leave::HubAnswer::Unavailable("down".into()));
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
-        assert_eq!(*port.own_revokes.lock().unwrap(), vec!["cmm_old".to_owned()]);
+        // A's leave asked once, then its queued revoke once more before B's enroll.
+        assert_eq!(*port.own_revokes.lock().unwrap(), vec!["cmm_old".to_owned(); 2]);
         assert_eq!(load_at(home.path()).unwrap().unwrap().user_id.as_deref(), Some("user_me"));
         // A's hub did not answer: A's credential stays queued, revoked at the next start; B's
         // join is untouched.
@@ -1972,7 +1973,7 @@ mod tests {
         let at_start =
             leave_marked(home.path(), Some("box-a"), true, |record| port.revoke_own(record)).await;
         assert!(relay_may_start(&at_start));
-        assert_eq!(*port.own_revokes.lock().unwrap(), vec!["cmm_old".to_owned(); 2]);
+        assert_eq!(*port.own_revokes.lock().unwrap(), vec!["cmm_old".to_owned(); 3]);
         assert_eq!(load_at(home.path()).unwrap().unwrap().credential, "cmm_new");
         assert!(!to_revoke::any_queued(home.path()));
         assert!(!home.path().join(LEAVE_FILE).exists());
