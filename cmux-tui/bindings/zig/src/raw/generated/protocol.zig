@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0";
+pub const ir_sha256 = "fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5125,6 +5125,7 @@ pub fn cloudSpareWarm(client: anytype, request: CloudSpareWarmRequest) !wire.Dec
 
 pub const CloudSpareWarmConsentRequest = struct {
     consent: wire.Field(bool) = .absent,
+    generation: u64,
 };
 
 pub const CloudSpareWarmConsentResult = JsonValue;

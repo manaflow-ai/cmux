@@ -46,11 +46,11 @@ fn a_consent_change_ends_the_copies_begun_before_it_and_is_read_at_the_write() {
     assert!(guard.still("user_a"));
     assert!(!guard.still("user_b"), "another account's copy");
     assert_eq!(guard.consent(), Some(true), "no push yet: the warm's own consent");
-    control.set_consent(Some(true));
+    assert!(control.set_consent(1, 1, Some(true)));
     assert!(guard.still("user_a"), "the first push is no change");
-    control.set_consent(Some(true));
+    assert!(control.set_consent(1, 2, Some(true)));
     assert!(guard.still("user_a"), "the same value again is no change");
-    control.set_consent(None);
+    assert!(control.set_consent(1, 3, None));
     assert_eq!(guard.consent(), None, "the write reads the latest consent");
     assert!(!guard.still("user_a"), "a changed consent ends the copy");
     let later = LiveGuard::new(Some(service), control, &params_for("user_a", Some(true)));
@@ -101,4 +101,27 @@ fn a_sign_out_ends_the_copy_and_no_lease_fails_closed() {
     let switched = LiveGuard::new(Some(service.clone()), control, &params_for("user_a", None));
     lease(&service, "user_b");
     assert!(!switched.still("user_a"), "another account's lease");
+}
+
+#[test]
+fn a_stale_consent_read_never_overwrites_a_later_one() {
+    let control = Arc::new(SpareWarmControl::default());
+    let guard = LiveGuard::new(Some(leased("user_a")), control.clone(), &params_for("user_a", Some(true)));
+    // A warm read yes (generation 4), then awaited its tokens; meanwhile the person turned copying
+    // off and the follower sent that read (generation 5) first.
+    assert!(control.set_consent(7, 5, Some(false)));
+    assert!(!control.set_consent(7, 4, Some(true)), "the warm's older read is dropped");
+    assert_eq!(guard.consent(), Some(false));
+    assert!(!control.set_consent(7, 5, Some(true)), "the same generation again is no newer");
+    // A new connection (the app restarted or reconnected) numbers its reads from scratch.
+    assert!(control.set_consent(8, 1, Some(true)));
+    assert_eq!(guard.consent(), Some(true));
+}
+
+#[test]
+fn a_consent_send_carries_its_generation() {
+    let parsed: ConsentParams =
+        serde_json::from_value(serde_json::json!({"consent": false, "generation": 3})).unwrap();
+    assert_eq!((parsed.consent, parsed.generation), (Some(false), 3));
+    assert!(serde_json::from_value::<ConsentParams>(serde_json::json!({"consent": true})).is_err());
 }

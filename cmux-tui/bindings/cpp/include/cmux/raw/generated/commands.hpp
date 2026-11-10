@@ -107,7 +107,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_spare_warm(const CloudSpareWarmRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<JsonValue> cloud_spare_warm_consent(const CloudSpareWarmConsentRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_spare_warm_consent(const CloudSpareWarmConsentRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_start_chat_reservation(const CloudStartChatReservationRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAgentTokenResult> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAttachmentLinkResult> conversation_attachment_link(const ConversationAttachmentLinkRequest& request, RequestOptions options = {});

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0. */
+/* cmux-tui mux protocol 12, IR fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0" as const;
+export const SDK_IR_SHA256 = "fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -855,7 +855,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The verified native app only. The person's one-time Release consent, sent once and on every change; every cloud-spare-warm login copy in flight reads it right before its write, and a change ends the copies begun before it. Answers {ok: true}. See spec/commands.md."
+      "The verified native app only. The person's one-time Release consent, sent once, on every change and on every reconnect; every cloud-spare-warm login copy in flight reads it right before its write, and a change ends the copies begun before it. generation numbers the app's read of it; a send whose generation is not newer than the last one kept from the same connection is dropped (kept: false). Answers {ok: true, kept}. See spec/commands.md."
     ]
   },
   "cloud-start-chat-reservation": {
@@ -18435,6 +18435,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "boolean"
+          }
+        },
+        "generation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         }
       },

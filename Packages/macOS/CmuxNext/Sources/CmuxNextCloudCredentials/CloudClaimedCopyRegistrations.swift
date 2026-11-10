@@ -11,6 +11,8 @@ public import Foundation
     private var pending: [String: [UUID: Task<Void, Never>]] = [:]
     /// The consent's follower (``followConsent(on:_:)``) and the daemon connection it sends on.
     private var consentFollower: (connection: DaemonConnection, task: Task<Void, Never>)?
+    /// The number of the last consent read (``consentGeneration()``).
+    private var consentReads: UInt64 = 0
 
     public init() {}
 
@@ -35,13 +37,24 @@ public import Foundation
         guard consentFollower?.connection !== connection else { return }
         consentFollower?.task.cancel()
         // task-owner: `consentFollower`, cancelled when a warm comes on another connection; each send is bounded by its timeout.
-        consentFollower = (connection, Task { @MainActor in
+        consentFollower = (connection, Task { @MainActor [weak self] in
             var push = CloudLoginCopyConsentPush()
-            for await now in ObservationStream(consent) {
-                guard let value = push.next(now) else { continue }
-                if (try? await connection.request(CloudSpareWarmConsentRequest(consent: value), timeout: .seconds(5))) == nil { push.failed() }
+            for await _ in ObservationStream(consent) {
+                // Read again and numbered in one main-actor step: a warm can read in between the stream's value and here,
+                // and its read must not outnumber a newer one.
+                guard let value = push.next(consent()), let generation = self?.consentGeneration() else { continue }
+                let request = CloudSpareWarmConsentRequest(consent: value, generation: generation)
+                if (try? await connection.request(request, timeout: .seconds(5))) == nil { push.failed() }
             }
         })
+    }
+
+    /// The next number for a consent read, taken on the main actor when the consent is read: every send carries one, and
+    /// the daemon drops a send whose read is older than one it already took (a warm that read yes, then awaited its
+    /// tokens while the person turned copying off and the follower sent no).
+    func consentGeneration() -> UInt64 {
+        consentReads += 1
+        return consentReads
     }
 
     /// Returns once every registration of `machine` pending now has answered; at once when there is none.

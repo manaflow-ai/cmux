@@ -210,8 +210,8 @@ class GeneratedClientMixin:
     def cloud_spare_warm(self, access_token: str, account: str, api: str, install_token: str, platform: str, *, claimed: Union[str, None, MissingType] = MISSING, consent: Union[bool, None, MissingType] = MISSING, dogfood: Union[bool, MissingType] = MISSING, login_teams: Union[List[str], MissingType] = MISSING, setting: Union[bool, None, MissingType] = MISSING, stored_choice: Union[str, None, MissingType] = MISSING, team: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-spare-warm', CloudSpareWarmRequest(access_token=access_token, account=account, api=api, install_token=install_token, platform=platform, claimed=claimed, consent=consent, dogfood=dogfood, login_teams=login_teams, setting=setting, stored_choice=stored_choice, team=team))
 
-    def cloud_spare_warm_consent(self, *, consent: Union[bool, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('cloud-spare-warm-consent', CloudSpareWarmConsentRequest(consent=consent))
+    def cloud_spare_warm_consent(self, generation: int, *, consent: Union[bool, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-spare-warm-consent', CloudSpareWarmConsentRequest(generation=generation, consent=consent))
 
     def cloud_start_chat_reservation(self, request: Union[JsonValue, None], access_token: str, install_token: str, release: bool) -> JsonValue:
         return self._invoke_command('cloud-start-chat-reservation', CloudStartChatReservationRequest(request=request, access_token=access_token, install_token=install_token, release=release))

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0.
+// cmux-tui mux protocol 12, IR fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -961,10 +961,11 @@ pub struct CloudSpareWarmRequest {
 pub type CloudSpareWarmResult = T::JsonValue;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSpareWarmConsentRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub consent: Optional<bool>,
+    pub generation: u64,
 }
 
 #[rustfmt::skip]

@@ -45,6 +45,9 @@ public struct CloudSpareWarmConsentRequest: DaemonRequest {
     public static let requiredCapability: String? = DaemonCapability.cloudSpareWarm.rawValue
 
     public let consent: Bool?
+    /// This read's number, taken when the consent was read (a later read has a larger one): the daemon keeps only a read
+    /// newer than the last it took on this connection, so a stale send that arrives late never overwrites a newer one.
+    public let generation: UInt64
 
-    public init(consent: Bool?) { self.consent = consent }
+    public init(consent: Bool?, generation: UInt64) { (self.consent, self.generation) = (consent, generation) }
 }

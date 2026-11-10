@@ -22,4 +22,13 @@ import Testing
         push.failed()
         #expect(push.next(.init(live: true, consent: true)) == .some(true))
     }
+
+    @MainActor @Test func everyConsentReadIsNumberedAfterTheLastOne() {
+        // A warm numbers its read before it awaits its tokens; the follower's later read gets a larger number, so the
+        // daemon (`set_consent`) drops the warm's stale send if it arrives last.
+        let claims = CloudClaimedCopyRegistrations()
+        let warm = claims.consentGeneration(), follower = claims.consentGeneration()
+        #expect(follower > warm)
+        #expect(claims.consentGeneration() > follower)
+    }
 }

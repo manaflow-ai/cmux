@@ -123,6 +123,10 @@ pub struct ConsentParams {
     /// The consent in the person's cmux-next.json (null: never asked, or managed).
     #[serde(default)]
     pub consent: Option<bool>,
+    /// The app's number for this read of the consent, taken when it read it: a later read has a
+    /// larger one. Sends can arrive out of order (a warm reads it, then awaits its tokens), so the
+    /// daemon keeps only a read newer than the last it took from the same connection.
+    pub generation: u64,
 }
 
 /// What every copy in flight reads again: the app's latest consent, and an epoch a change of it moves.
@@ -136,6 +140,8 @@ struct ControlState {
     epoch: u64,
     /// None until the app first sent it (a daemon that just started).
     consent: Option<Option<bool>>,
+    /// The connection and generation of the consent kept: an older read from it is dropped.
+    from: Option<(u64, u64)>,
 }
 
 impl SpareWarmControl {
@@ -143,13 +149,21 @@ impl SpareWarmControl {
         *self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The app's consent now; a changed one ends every copy begun before it.
-    pub(crate) fn set_consent(&self, consent: Option<bool>) {
+    /// The app's consent as read under `generation` on connection `client`; a changed one ends every
+    /// copy begun before it. A read no newer than the last one kept from that connection is dropped
+    /// (false): a stale yes never overwrites a later no. A new connection (the app restarted or
+    /// reconnected) starts its own numbering.
+    pub(crate) fn set_consent(&self, client: u64, generation: u64, consent: Option<bool>) -> bool {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.from.is_some_and(|(from, kept)| from == client && generation <= kept) {
+            return false;
+        }
+        state.from = Some((client, generation));
         if state.consent.is_some_and(|old| old != consent) {
             state.epoch += 1;
         }
         state.consent = Some(consent);
+        true
     }
 }
 
@@ -235,8 +249,8 @@ pub(super) fn consent(mux: &Mux, client: u64, params: ConsentParams) -> anyhow::
     if !is_app_client(mux, client) {
         return Err(forbidden().into());
     }
-    mux.spare_warm_control().set_consent(params.consent);
-    Ok(serde_json::json!({"ok": true}))
+    let kept = mux.spare_warm_control().set_consent(client, params.generation, params.consent);
+    Ok(serde_json::json!({"ok": true, "kept": kept}))
 }
 
 /// `cloud-start-chat-reservation`, on a cloud request worker thread.

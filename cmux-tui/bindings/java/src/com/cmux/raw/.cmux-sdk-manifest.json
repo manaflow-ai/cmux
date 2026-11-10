@@ -732,8 +732,8 @@
     },
     {
       "path": "CloudSpareWarmConsentRequest.java",
-      "sha256": "f3e97ce3d8629f8580d4e243acb4dc5a50556695014b2e978cd989fff3623038",
-      "size": 2098
+      "sha256": "ee7da0ff9c7e48a63e0d440aad41cb879dced3afbc26124f04e1958b5b699f1c",
+      "size": 2874
     },
     {
       "path": "CloudSpareWarmRequest.java",
@@ -2207,7 +2207,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "88f2f7ef06b08421500ee0771ec3899bc227d2d4bd615304a55b7cf7ef27d4ba",
+      "sha256": "92fd5143479350fe8af6b895c9f95cdf8d37463562d682c136135753f9e4e99b",
       "size": 8000
     },
     {
@@ -3672,7 +3672,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0",
+  "ir_sha256": "fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

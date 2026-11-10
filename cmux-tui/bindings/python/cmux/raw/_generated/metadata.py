@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0'
+IR_SHA256 = 'fb6ce993b628bcd840529474268e1eed60f7cb198f132fff151d3b5aa8b32999'
 
 
 @dataclass(frozen=True)
@@ -913,6 +913,7 @@ COMMANDS = {
         None,
         {
             'consent': CommandFieldMetadata(None, None),
+            'generation': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-start-chat-reservation': CommandMetadata(

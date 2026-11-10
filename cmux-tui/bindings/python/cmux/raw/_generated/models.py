@@ -3057,6 +3057,7 @@ class CloudSpareWarmRequest:
 @dataclass(frozen=True)
 class CloudSpareWarmConsentRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-spare-warm-consent/request'
+    generation: int
     consent: Union[bool, None, MissingType] = field(default=MISSING)
 
 

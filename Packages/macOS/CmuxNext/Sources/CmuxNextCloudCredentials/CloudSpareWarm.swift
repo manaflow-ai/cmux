@@ -38,11 +38,12 @@ public import Foundation
         let stored = CloudHarnessLoginChoices().load(userID: userID)?.rawValue
         claims.followConsent(on: connection, consent)
         let (auth, installIdentity, connection, platform, api, dogfood, consent) = (auth, installIdentity, connection, platform, api, dogfood, consent().consent)
+        let generation = claims.consentGeneration() // numbered now, as it is read, before any await
         let send: @MainActor @Sendable () async -> Void = {
             guard let access = try? await auth.tokens().access, let install = try? await installIdentity.installToken() else { return }
             // The consent first, on this link, so the daemon holds the latest one before it starts any copy (a reconnect
             // the follower missed included).
-            _ = try? await connection.request(CloudSpareWarmConsentRequest(consent: consent), timeout: .seconds(5))
+            _ = try? await connection.request(CloudSpareWarmConsentRequest(consent: consent, generation: generation), timeout: .seconds(5))
             let request = CloudSpareWarmRequest(platform: platform.absoluteString, api: api.absoluteString, accessToken: access,
                                                 installToken: install, account: userID, claimed: claimed, team: team, loginTeams: teams,
                                                 dogfood: dogfood, setting: setting, storedChoice: stored, consent: consent)

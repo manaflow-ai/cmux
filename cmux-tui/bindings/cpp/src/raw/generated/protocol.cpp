@@ -20370,6 +20370,9 @@ Result<Json> Codec<CloudSpareWarmConsentRequest>::encode(const CloudSpareWarmCon
         if (!encoded) return std::move(encoded).error();
         object.emplace("consent", std::move(encoded).value());
     }
+    auto encoded_generation = encode_value(value.generation);
+    if (!encoded_generation) return std::move(encoded_generation).error();
+    object.emplace("generation", std::move(encoded_generation).value());
     return Json(std::move(object));
 }
 
@@ -20386,6 +20389,15 @@ Result<CloudSpareWarmConsentRequest> Codec<CloudSpareWarmConsentRequest>::decode
             if (!decoded) return std::move(decoded).error();
             result.consent = Field<bool>(std::move(decoded).value());
         }
+    }
+    const Json* field_generation = value.find("generation");
+    if (!field_generation) {
+        return make_error(ErrorCode::decode, "missing required field 'generation'");
+    }
+    if (field_generation) {
+        auto decoded = decode_value<std::uint64_t>(*field_generation);
+        if (!decoded) return std::move(decoded).error();
+        result.generation = std::move(decoded).value();
     }
     return result;
 }

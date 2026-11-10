@@ -8241,10 +8241,14 @@ kept, logged or put in a URL.
 | since | protocol 12 additive extension; capability `cloud-spare-warm-v1` |
 
 The person's one-time Release consent (`consent`: true, false, or null for
-never asked or managed), which the verified native app sends once and again on
-every change. Every `cloud-spare-warm` login copy in flight reads it right
-before its write; a change ends the copies begun before it (abandoned, so the
-next warm answers them again). Answers `{ok: true}` on the request loop.
+never asked or managed), which the verified native app sends once, on every
+change and on every reconnect. Every `cloud-spare-warm` login copy in flight
+reads it right before its write; a change ends the copies begun before it
+(abandoned, so the next warm answers them again). `generation` (required)
+numbers the app's read of the consent, taken when it read it: a send whose
+generation is no newer than the last one kept from the same connection is
+dropped, so a stale read that arrives late never overwrites a newer one.
+Answers `{ok: true, kept}` on the request loop.
 
 
 ### cloud-start-chat-reservation
