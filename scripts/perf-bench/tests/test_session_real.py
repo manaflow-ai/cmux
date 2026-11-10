@@ -809,7 +809,7 @@ class LiveForm(unittest.TestCase):
         self.assertIn('[[ ${3:-} == stale ]] && session="session-real+stale+$name"', program)
 
     def test_agent_records_of_closed_terminals_report_first_and_then_their_terminal_is_closed(self):
-        calls, world = [], {"terminals": 0, "workspaces": 0, "rows": 5, "lost": 0, "refuse": False}
+        calls, world = [], {"terminals": 0, "workspaces": 0, "rows": 5, "lost": 0, "refuse": False, "gone_already": False}
 
         class Daemon:
             def must(self, cmd, **params):
@@ -829,6 +829,8 @@ class LiveForm(unittest.TestCase):
                 assert cmd in ("close-terminal", "close-workspace"), cmd
                 if world["refuse"] and cmd == "close-terminal":
                     return {"ok": False, "error": "no", "error_code": "x"}
+                if world["gone_already"] and cmd == "close-workspace":
+                    return {"ok": False, "error": f"unknown workspace {params['workspace']}", "error_code": None}
                 return {"ok": True}
 
             def v2(self, operation, **params):
@@ -857,6 +859,8 @@ class LiveForm(unittest.TestCase):
             self.assertEqual(m.make_gone_agents(Daemon(), args, 7)[0], 6)                      # a program that did not report is not a record
             world.update(terminals=0, workspaces=0, rows=5, lost=0, refuse=True)
             self.assertEqual(len(m.make_gone_agents(Daemon(), args, 7)[2]), 7)                 # a close the daemon refused is told, not raised
+            world.update(terminals=0, workspaces=0, rows=5, refuse=False, gone_already=True)
+            self.assertEqual(m.make_gone_agents(Daemon(), args, 7)[2], [])                     # the workspace went with its last terminal: no fault
         finally:
             m.GONE_BATCH, m.LISTED_ONLY_REPORT_SECONDS, m.ptys_in_use = saved
 
