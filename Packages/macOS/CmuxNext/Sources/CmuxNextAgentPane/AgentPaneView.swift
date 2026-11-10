@@ -155,6 +155,8 @@ public final class AgentPaneView: NSView {
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The chat's own ground under its page, from the turn the pane is made (``AgentPaneGround``).
+    let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
     var holdsPageAway = false
@@ -347,6 +349,7 @@ public final class AgentPaneView: NSView {
         }
         installTransport()
         installContextMenu()
+        ground.install(in: self)
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
@@ -355,7 +358,7 @@ public final class AgentPaneView: NSView {
             source.load(into: webView)
         }
         beginLoadingState()
-        Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
+        Self.logger.info("agent pane webview loading source=\(source.logDescription, privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
         observeIconFamily()
@@ -363,13 +366,6 @@ public final class AgentPaneView: NSView {
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
         installHostGlass()
-    }
-
-    private static func sourceDescription(_ source: AgentPaneSource) -> String {
-        switch source {
-        case .bundled(let url): return "bundled:\(url.path)"
-        case .devServer(let url): return "dev:\(url.absoluteString)"
-        }
     }
 
     private func applyIconFamily() {
@@ -457,6 +453,7 @@ public final class AgentPaneView: NSView {
             if moved { applyNativeRects() }
         } else { webView.frame = shown }
         placeChromiumMove(at: frame)
+        ground.place(in: frame, of: self)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
         layoutHostGlass()
@@ -685,6 +682,7 @@ public final class AgentPaneView: NSView {
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
+        ground.paint(AgentPaneTheme.pageBackground(tokens, surface: surface, backgrounds: themeScope.surfaceBackgrounds))
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
         themeHostGlass()
