@@ -26,6 +26,19 @@ struct TerminalRevealReportTests {
         #expect(report.fields["content_scale"] == "1.00" && report.fields["scales_agree"] == "false")
     }
 
+    /// A terminal shown again on a display of another scale keeps its frame at the layer's old scale until Ghostty's
+    /// first frame at the new scale: the layer's scale is Ghostty's and lands with that frame (ghostty-integration
+    /// P12, fork 0efdef967). The kept frame shows at the scale it was drawn at, so the reveal is no scale mismatch
+    /// (it was reported as one, at error level, on each such reveal). A layer still at another scale after a frame
+    /// showed since the reveal is one.
+    @Test func aLayerScaleThatWaitsForItsFirstFrameIsNoMismatchAtTheReveal() {
+        var report = Self.report(content: 2, layer: 1, window: 2)
+        #expect(report.scalesAgree, "\(report.message)")
+        #expect(!report.isSuspect, "\(report.message)")
+        report.framesSinceReveal = 1
+        #expect(!report.scalesAgree, "\(report.message)")
+    }
+
     /// Blank means nothing on the layer and nothing held over it; a held frame is not blank.
     @Test func blankIsNoFrameAndNoHeldFrame() {
         var report = Self.report(content: 2, layer: 2, window: 2, hasFrame: false)
