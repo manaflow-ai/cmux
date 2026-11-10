@@ -2,8 +2,9 @@
 // A Cloud start refused because the team picked in the team menu has no Cloud plan: the card names that
 // team and offers the person's own (cloudPlanTeams.ts), from the host's `details` (CloudAuth `planRefusalTeams`).
 import { expect, test } from "bun:test";
+import planTeamGallery from "./CloudPlanTeam.gallery";
 import { cloudPlanTeamRefusal, isPersonalTeamId } from "./cloudPlanTeams";
-import { startCloudChat, cloudStartKeys, type CloudStart } from "./cloudRun";
+import { startCloudChat, cloudStartKeys, cloudStartTeam, type CloudStart } from "./cloudRun";
 import { cloudStartEnded, type CloudStartProgress } from "./cloudStartProgress";
 
 const PERSONAL = "team_0123456789abcdef0123";
@@ -88,4 +89,48 @@ test("Switch to <team> sends the team with the start, under a new key", async ()
   keys.ended(start, { ok: false, code: "cloud_plan_required" });
   expect(keys.keyFor(start)).toBe(first);
   expect(keys.keyFor({ ...start, team: PERSONAL })).not.toBe(first);
+});
+
+test("Retry after a switched send keeps its team, so it reaches that send's machine (cmux#39928 F2)", () => {
+  const team = cloudStartTeam();
+  team.pick(PERSONAL);
+  let next = 0;
+  const keys = cloudStartKeys(
+    undefined,
+    () => 1,
+    () => `key-${++next}`,
+  );
+  const start: CloudStart = { task: "fix it", cwd: "/w/paint" };
+  const switched = keys.keyFor({ ...start, ...(team.forSend() ? { team: team.forSend() } : {}) });
+  // The switched send failed after making its machine: the card's Retry sends again with the same team.
+  team.ended({ ok: false, code: "cloud_start_failed", retryable: true });
+  expect(team.forSend()).toBe(PERSONAL);
+  expect(keys.keyFor({ ...start, ...(team.forSend() ? { team: team.forSend() } : {}) })).toBe(switched);
+  // The chat opened (or went to this Mac), or the person left Cloud or the chat: no team for a later send.
+  team.ended({ ok: true });
+  expect(team.forSend()).toBeUndefined();
+  team.pick(PERSONAL);
+  team.ended({ ok: false, code: "run_on_this_mac" });
+  expect(team.forSend()).toBeUndefined();
+  team.pick(PERSONAL);
+  team.reset();
+  expect(team.forSend()).toBeUndefined();
+});
+
+test("a start the host refused while the team was still switching says so, with Retry (cmux#39928 F3)", () => {
+  const starting: CloudStartProgress = { key: "k", task: "fix it", state: "starting" };
+  const ended = cloudStartEnded(starting, "k", {
+    ok: false,
+    code: "cloud_team_switching",
+    message: "cloud_team_switching",
+    retryable: true,
+  });
+  expect(ended?.retryable).toBe(true);
+  expect(ended?.message).toBe("Your team is still switching. Send again in a moment.");
+});
+
+test("the gallery's card look has room for its open checklist and the buttons under it (cmux#39928 F1)", () => {
+  // The failed checklist opens on its own (CloudStartView): at the entry's 260 px it hid the team line and buttons.
+  const variants = planTeamGallery.variants as Record<string, { height?: number }>;
+  expect(variants.card?.height ?? planTeamGallery.height ?? 0).toBeGreaterThanOrEqual(520);
 });
