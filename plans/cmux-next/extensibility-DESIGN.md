@@ -412,7 +412,7 @@ in another form), **rejected**.
 | 12 | **No install-time code**, no dependency resolution on the user's machine, no extension packs; reject invisible and bidi Unicode. | exists, plus a check | Install never checks out or runs anything (T9, T18), and a module is one digested tree with no dependency field. New: step 11 refuses bidi controls and invisible characters in an app's JS and manifest strings (T13 covers file names only). |
 | 13 | **Permission re-consent** on an update that widens scopes; publishers use 2FA and trusted publishing. | exists, plus registry | Updates never apply silently and list added scopes and origins (T22, T23). Publisher 2FA and publishing from CI with provenance are registry rules, step 14. |
 | 14 | **Automatic snapshot before each install or update**, one-click undo. | take | Falls out of step 9: every install, update or removal is its own generation, labelled "Before installing X". |
-| 15 | **One theme schema**, base16 import and export, and a lint against raw colors in app UI. | changed | `ThemeTokens.derive` is the one token model, and theme files carry it (cmux#40235). Take the base16 import and export (step 13). The raw-color check is a warning in `cmux ext dev`, not a CI lint. |
+| 15 | **One theme schema**, import and export of the common 16-color scheme format, and a lint against raw colors in app UI. | changed | `ThemeTokens.derive` is the one token model, and theme files carry it (cmux#40235). Take the 16-color scheme import and export (step 13). The raw-color check is a warning in `cmux ext dev`, not a CI lint. |
 | 16 | **Palette from the wallpaper**, held to the contrast floors. | take | Step 13: accent, glass tint and terminal ANSI from the background image, through `ThemeTokens.derive`'s contrast floors. |
 | 17 | **Motion tokens**: every animation reads a named curve and duration from the theme; apps declare motion and never drive frames. | exists | Every animation goes through a motion gate (`motion-DESIGN.md`), tokens live in `motion.md`, and apps can't set frame-level animations (decision 3.4). What a theme file can't set yet is tracked in cmuxterm-hq#8758. |
 | 18 | **Performance budgets per app**, shown, with lazy activation and throttling past budget. | exists, plus display | Budgets and the Slowed and Paused ladder are sections 3 and 6; R1 means an unused place costs nothing. New: the App Store's Installed list shows each app's start time, memory and updates per minute (step 10), so the slow one is found without bisecting. |
@@ -449,7 +449,7 @@ Each Linux desktop program is its own project, so they pay costs cmux doesn't ha
 | Malware shipped through an unreviewed package repository (July 2025) | Listed tier built and checked by the registry; sideloads marked (item 11) |
 | Worms spread through package install scripts and stolen publish tokens (2025) | No install-time code, publishing from CI with 2FA (items 12, 13) |
 | A trusted editor extension pushed a malicious update hidden in invisible Unicode, spread through extension packs | Updates need approval and list new reach; invisible and bidi characters refused; no packs (items 12, 13) |
-| A long-trusted maintainer hid a backdoor in release tarballs that weren't in git (xz, 2024) | The registry builds from the tagged commit itself; git installs read the tree, never an upload (items 11, 12) |
+| A long-trusted maintainer hid a backdoor in release tarballs that weren't in git (2024) | The registry builds from the tagged commit itself; git installs read the tree, never an upload (items 11, 12) |
 | Dotfile repos leak API keys | Export refuses secrets and absolute paths (item 5) |
 | Users can't find which of their extensions is slow | Per-app cost in the Installed list, bisect in safe mode (items 2, 18) |
 | A config error crashes the session at login | Generations, safe mode, validate before apply (items 1 to 3) |
@@ -464,7 +464,7 @@ These continue section 9's table.
 | 10 | Safe mode at launch (Option held, or two crashes in 10 minutes), bisect over installed apps, per-app cost in the Installed list | app platform | after 9 |
 | 11 | One validate-before-apply rule for `cmux.json`, theme files and customize manifests, naming file and line; refuse bidi and invisible characters in app code and manifests | settings lead, app platform | next |
 | 12 | Profiles: export a generation as data, portable (no absolute paths or secrets, per-machine layer), share as a link that previews before applying | app platform | after 9 |
-| 13 | base16 import and export; palette from the background image through `ThemeTokens.derive` | theme owner | can start now |
+| 13 | Import and export of the common 16-color scheme format; palette from the background image through `ThemeTokens.derive` | theme owner | can start now |
 | 14 | Registry listed tier: build from the tagged commit, publish from CI with 2FA, check listed apps against each nightly | registry owner | after the store trim (step 7) |
 
 Generations, safe mode and profiles each need an iPhone row in `cmux-next-ios/verify/parity-mac.md`
