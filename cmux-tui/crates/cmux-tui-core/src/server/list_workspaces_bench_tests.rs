@@ -1,6 +1,7 @@
 //! Bench (off unless CMUX_LIST_WORKSPACES_BENCH=<lists per case>): the real
 //! daemon's `list-workspaces` with 1, 100, 1,000 and 5,000 workspaces
-//! (hq#8813), each workspace holding one chat tab, on a persistent registry.
+//! (hq#8813), each workspace holding one terminal tab (no process), on a persistent
+//! registry.
 //! Per size: the whole reply (what every phone list costs today) and the
 //! `known` reply of a client whose tree is current, from the command to the
 //! serialized line, p50 and p95, with the line's bytes; then the first whole
@@ -46,8 +47,19 @@ fn known_of(line: &str) -> Value {
     })
 }
 
+/// The owner on `root`'s registry, with the test surface runtime: each tab is a terminal tab
+/// with no process behind it, so 5,000 of them cost no PTYs.
 fn open(root: &Path) -> Arc<Mux> {
-    Mux::open_persistent("list-workspaces-bench", SurfaceOptions::default(), root).unwrap()
+    let registry =
+        crate::workspace_registry::WorkspaceRegistry::open(root, "list-workspaces-bench").unwrap();
+    Mux::from_workspace_registry(
+        "list-workspaces-bench".to_string(),
+        SurfaceOptions::default(),
+        registry,
+        crate::mux::ProviderWorkspaceState::default(),
+        true,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -76,23 +88,14 @@ fn list_workspaces_bench() {
         let mux = open(&root);
         let seeded = Instant::now();
         for index in 0..count {
-            let workspace = mux
-                .create_empty_workspace(Some(format!("Workspace {index}")), None, None)
-                .unwrap_or_else(|error| panic!("workspace {index} of {count}: {error:#}"))
-                .workspace;
+            mux.new_workspace(Some(format!("Workspace {index}")), Some((80, 24)))
+                .unwrap_or_else(|error| panic!("workspace {index} of {count}: {error:#}"));
             if index > 0 && index % 1_000 == 0 {
                 eprintln!(
                     "LIST-WORKSPACES-BENCH seeding {index} of {count}: {} ms",
                     seeded.elapsed().as_millis()
                 );
             }
-            run(
-                &mux,
-                &json!({"cmd": "new-conversation-tab", "workspace": workspace,
-                        "conversation": format!("conv_bench_{index:06}"), "owner": "local",
-                        "origin": "list-workspaces-bench",
-                        "mutation_id": format!("bench-{index}")}),
-            );
         }
         let seed_ms = seeded.elapsed().as_millis();
         let (mut whole_times, mut known_times) = (Vec::new(), Vec::new());
