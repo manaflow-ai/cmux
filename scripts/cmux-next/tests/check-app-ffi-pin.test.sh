@@ -46,6 +46,12 @@ crate cmux-rd-core
 crate cmux-layout-reducer-ffi
 crate cmux-remote-browser
 crate cmux-unrelated
+# Reached only through a [workspace.dependencies] path entry, once a crate inherits it (below).
+crate cmux-ws-only
+# cmux-app-ffi is its own workspace root, as in the repository, so cargo builds it with its own [patch], [profile] and
+# Cargo.lock; the cmux-tui workspace's apply only when it is not (the guard test below).
+printf '\n[workspace]\n' >> "$repo/cmux-tui/crates/cmux-app-ffi/Cargo.toml"
+echo "lock" > "$repo/cmux-tui/Cargo.lock"
 # cmux-rd-core's files beside src/: what a library source, build script or Cargo.toml names is an input; the rest is not.
 core="$repo/cmux-tui/crates/cmux-rd-core"
 mkdir -p "$core/tests/vectors" "$core/scripts" "$core/benches" "$core/examples"
@@ -71,6 +77,7 @@ members = ["crates/cmux-unrelated"]
 edition = "2021"
 license = "MIT"
 rust-version = "1.80"
+homepage = "https://a.example"
 
 [workspace.lints.rust]
 unsafe_code = "warn"
@@ -80,6 +87,9 @@ serde = { version = "1", features = ["derive"] }
 libc = "0.2"
 criterion = "0.5"
 tokio = "1"
+rusqlite = { version = "0.32", default-features = false }
+itoa = "1"
+cmux-ws-only = { path = "crates/cmux-ws-only" }
 
 [patch.crates-io]
 tokio = { path = "vendor/tokio" }
@@ -98,6 +108,7 @@ path = "src/lib.rs"
 
 [dependencies]
 serde = { workspace = true, features = ["std"] }
+rusqlite.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -183,6 +194,11 @@ edit_ws 'tokio = "1"' 'tokio = "1.40"' "ws dependency no FFI crate inherits"
 edit_ws 'path = "vendor/tokio"' 'path = "vendor/tokio2"' "ws patch"
 edit_ws 'opt-level = 3' 'opt-level = 2' "ws profile"
 edit_ws 'rust-version = "1.80"' 'rust-version = "1.81"' "ws package key no FFI crate inherits"
+edit_ws 'homepage = "https://a.example"' 'homepage = "https://b.example"' "ws package key no FFI crate inherits yet"
+edit_ws 'itoa = "1"' 'itoa = "1.0.15"' "ws dependency no FFI crate inherits yet"
+echo "changed" >> "$repo/cmux-tui/crates/cmux-ws-only/src/lib.rs"
+echo "changed" >> "$repo/cmux-tui/Cargo.lock"
+git -C "$repo" commit -qam "a crate no FFI crate reaches yet, and the cmux-tui lock file"
 printf '\n[workspace.metadata.x]\ny = 1\n' >> "$ws"
 git -C "$repo" commit -qam "ws metadata"
 out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \
@@ -191,7 +207,8 @@ out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \
 # What an FFI crate inherits for its library is an input: a [workspace.package] key in either form, and a
 # [workspace.dependencies] entry from [dependencies] or a target table.
 for change in 'edition = "2021"|edition = "2024"' 'license = "MIT"|license = "MIT OR Apache-2.0"' \
-  'features = ["derive"]|features = ["derive", "rc"]' 'libc = "0.2"|libc = "0.2.170"'; do
+  'features = ["derive"]|features = ["derive", "rc"]' 'features = ["derive"]|features = ["derive"], optional = true' \
+  'default-features = false|default-features = true' 'libc = "0.2"|libc = "0.2.170"'; do
   edit_ws "${change%%|*}" "${change#*|}" "inherited ${change%%|*}"
   if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
     fail "a change to the inherited ${change%%|*} kept the pin current: $out"
@@ -206,6 +223,107 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
   fail "a crate that starts to inherit an entry kept the pin current: $out"
 fi
 git -C "$repo" reset -q --hard HEAD~1
+before_ws="$(git -C "$repo" rev-parse HEAD)"
+repin() { # repin MESSAGE: pin the current HEAD (the tests below start from a pin of what they set up)
+  local head
+  head="$(git -C "$repo" rev-parse HEAD)"
+  perl -pi -e "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$head/" "$repo/Packages/macOS/CmuxNext/Package.swift"
+  git -C "$repo" commit -qam "$1"
+  out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "$1: a current pin failed: $out"
+  [[ "$out" == *"sources match $head"* ]] || fail "$1: no match line: $out"
+}
+stale_after() { # stale_after WHY NAMED: the check fails, naming NAMED; then drop the last commit
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "$1 kept the pin current: $out"
+  fi
+  [[ "$out" == *"$2"* ]] || fail "the stale report for $1 does not name $2: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+}
+# What is inherited is read from the FFI crates' manifests on every run, never from a fixed list: once cmux-rd-core
+# inherits a package key, a library, build and dev dependency and the lints that no crate inherited before, each is
+# an input, and a crate reached only through an inherited [workspace.dependencies] path entry is an input crate.
+cat > "$core/Cargo.toml" <<'EOF'
+[package]
+name = "x"
+edition.workspace = true
+license = { workspace = true }
+homepage.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["std"] }
+rusqlite.workspace = true
+cmux-ws-only = { workspace = true }
+
+[build-dependencies]
+itoa = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[lints]
+workspace = true
+EOF
+git -C "$repo" commit -qam "cmux-rd-core inherits more"
+repin "pin the new inheritance"
+edit_ws 'homepage = "https://b.example"' 'homepage = "https://c.example"' "newly inherited package key"
+stale_after "a change to a newly inherited package key" cmux-tui/Cargo.toml
+edit_ws 'itoa = "1.0.15"' 'itoa = "1.0.16"' "newly inherited build dependency"
+stale_after "a change to a newly inherited build dependency" cmux-tui/Cargo.toml
+edit_ws 'unsafe_code = "deny"' 'unsafe_code = "forbid"' "newly inherited lints"
+stale_after "a change to newly inherited lints" cmux-tui/Cargo.toml
+echo "changed again" >> "$repo/cmux-tui/crates/cmux-ws-only/src/lib.rs"
+git -C "$repo" commit -qam "a crate reached through an inherited path entry"
+stale_after "a change to a crate reached through an inherited path entry" cmux-tui/crates/cmux-ws-only/src/lib.rs
+# Still not an input: a dev-dependency entry (only tests build it).
+edit_ws 'criterion = "0.6"' 'criterion = "0.7"' "inherited dev-dependency"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \
+  || fail "a change to an entry inherited only as a dev-dependency made the pin stale: $out"
+git -C "$repo" reset -q --hard "$before_ws"
+# The narrowing holds only because cmux-app-ffi is its own workspace root (its [workspace] table; cargo then reads its
+# [patch], [profile] and Cargo.lock, never those of cmux-tui). Without that table it would build in the cmux-tui
+# workspace, so the whole cmux-tui manifest and the cmux-tui Cargo.lock are inputs again.
+python3 - "$repo/cmux-tui/crates/cmux-app-ffi/Cargo.toml" <<'EOF'
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("\n[workspace]\n", "\n"))
+EOF
+git -C "$repo" commit -qam "cmux-app-ffi in the cmux-tui workspace"
+repin "pin cmux-app-ffi in the cmux-tui workspace"
+edit_ws 'opt-level = 2' 'opt-level = 1' "ws profile, cmux-app-ffi in the cmux-tui workspace"
+stale_after "a cmux-tui profile change when cmux-app-ffi builds in the cmux-tui workspace" cmux-tui/Cargo.toml
+echo "changed again" >> "$repo/cmux-tui/Cargo.lock"
+git -C "$repo" commit -qam "cmux-tui lock, cmux-app-ffi in the cmux-tui workspace"
+stale_after "a cmux-tui Cargo.lock change when cmux-app-ffi builds in the cmux-tui workspace" cmux-tui/Cargo.lock
+git -C "$repo" reset -q --hard "$before_ws"
+# Without tomllib (Python before 3.11, /usr/bin/python3 on macOS) the view is the whole manifest, and an inherited path
+# entry is read line by line; an entry that line reading cannot find refuses.
+python3 -I - "$repo/scripts/ci" "$ws" "$core/Cargo.toml" <<'EOF' || fail "the reader without tomllib is wrong"
+import sys
+sys.path.insert(0, sys.argv[1])
+import app_ffi_pin as m
+workspace, crate = open(sys.argv[2]).read(), open(sys.argv[3]).read()
+assert m.own_root("[package]\nname = \"x\"\n\n[workspace]\n", loads=None)
+assert not m.own_root("[package]\nname = \"x\"\n# [workspace]\n", loads=None)
+assert m.workspace_view(workspace, [crate], loads=None) != m.workspace_view(
+    workspace + "\n# a comment\n", [crate], loads=None)
+inheriting = '[dependencies]\ncmux-ws-only = { workspace = true }\nserde.workspace = true\n' \
+    '[target."cfg(unix)".build-dependencies.itoa]\nworkspace = true\n'
+assert m.workspace_paths(workspace, inheriting, loads=None) == ["crates/cmux-ws-only"], \
+    m.workspace_paths(workspace, inheriting, loads=None)
+try:
+    m.workspace_paths(workspace, "[dependencies]\nnot-in-the-workspace.workspace = true\n", loads=None)
+except m.Unresolved:
+    pass
+else:
+    raise AssertionError("an inherited entry the workspace does not have was not refused")
+EOF
 
 # A name the scan cannot read refuses, never leaves the file out: a build script that reads by a computed path, an
 # include whose argument is not one string literal, and a #[path] module outside src/ (its own modules would go
