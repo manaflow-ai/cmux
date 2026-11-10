@@ -90,8 +90,9 @@ struct EmptySpaceSwitchKeepsRoomTests {
         }
         controller.showWorkspace(requested: state.workspaceID)
         var turns = 0
+        let pump = { for _ in 0..<4 { RunLoop.main.run(mode: .default, before: Date()) } } // a sync context: the main run loop's turns
         while !(sidebar.model.activeProfileID?.rawValue == full.rawValue && listsFull()), turns < 2000 {
-            for _ in 0..<4 { RunLoop.main.run(mode: .default, before: Date()) }
+            pump()
             try await Task.sleep(for: .milliseconds(1))
             turns += 1
         }
