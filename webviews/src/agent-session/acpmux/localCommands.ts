@@ -21,7 +21,9 @@ export type LocalCommandAction =
   /// Opens Session Info on this section.
   | { kind: "section"; section: SessionInfoSectionId }
   /// Opens the `/` menu, every command and skill with its description: the GUI's help.
-  | { kind: "commands" };
+  | { kind: "commands" }
+  /// Opens the chat's working-tree changes beside it (the Changes tab), as `/diff` shows them.
+  | { kind: "changes" };
 
 /// Session Info's sections a command opens, by harness (agentKey). Semantics are each harness's own:
 /// Claude Code (`claude` 2.1, its built-in commands of type `local` / `local-jsx`):
@@ -29,8 +31,8 @@ export type LocalCommandAction =
 ///   /help the commands. /status, /context and /model are cmux's own already.
 /// Codex (codex-rs tui `SlashCommand`, those `available_during_task` that never submit a turn):
 ///   /mcp lists the configured MCP tools; /diff shows the git diff (untracked files too); /usage the
-///   account's limits; /ps the background terminals; /skills the skills. /status is cmux's own
-///   already. /init, /compact, /review and /plan submit to the model and are not available during a
+///   account's limits; /skills the skills. /status is cmux's own already. /ps (background terminals)
+///   is left to Codex: Session Info draws no Background tasks section while nothing runs. /init, /compact, /review and /plan submit to the model and are not available during a
 ///   task, so they stay out.
 const LOCAL: Readonly<Record<string, Readonly<Record<string, LocalCommandAction>>>> = {
   claude: {
@@ -41,9 +43,8 @@ const LOCAL: Readonly<Record<string, Readonly<Record<string, LocalCommandAction>
   },
   codex: {
     mcp: { kind: "section", section: "connectors" },
-    diff: { kind: "section", section: "changes" },
+    diff: { kind: "changes" },
     usage: { kind: "section", section: "usage" },
-    ps: { kind: "section", section: "tasks" },
     skills: { kind: "commands" },
   },
 };

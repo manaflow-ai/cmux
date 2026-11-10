@@ -103,10 +103,6 @@ function Chips() {
   return null;
 }
 
-function Chips() {
-  return null;
-}
-
 type Run = {
   sent: { text: string; steer?: boolean }[];
   owned: string[];
@@ -235,7 +231,7 @@ test("with nothing to show it in, a local command goes to the harness as typed",
 test("the set is per harness, and never holds a command that sends to the model", () => {
   expect(localCommand("/mcp", "claude")?.action).toEqual({ kind: "section", section: "connectors" });
   expect(localCommand("/mcp", "claude-sr")?.name).toBe("mcp");
-  expect(localCommand("/diff", "codex")?.action).toEqual({ kind: "section", section: "changes" });
+  expect(localCommand("/diff", "codex")?.action).toEqual({ kind: "changes" });
   // Claude Code has no /diff of its own; an unknown harness has no local commands.
   expect(localCommand("/diff", "claude")).toBeUndefined();
   expect(localCommand("/mcp", "other-agent")).toBeUndefined();
@@ -250,4 +246,11 @@ test("/help mid-turn opens the / menu at once: nothing is sent", async () => {
   await enter(run.field);
   expect(run.sent).toEqual([]);
   expect(run.field.textContent).toBe("/");
+});
+
+
+test("Codex's /diff mid-turn runs at once: the chat's changes open, nothing is sent", async () => {
+  const run = await composer(working("codex", false), "/diff");
+  await enter(run.field);
+  expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["diff"] });
 });

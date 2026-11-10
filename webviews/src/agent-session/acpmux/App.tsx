@@ -8895,6 +8895,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// False where this chat has nothing to show it in (Session Info off): it goes to the harness.
   const handleLocalCommand = (command: LocalCommand): boolean => {
     const { action } = command;
+    if (action.kind === "changes") {
+      if (quick) return false;
+      openChangesTab.current();
+      return true;
+    }
     if (action.kind !== "section" || !sessionInfo.reveal) return false;
     sessionInfo.reveal(action.section);
     return true;

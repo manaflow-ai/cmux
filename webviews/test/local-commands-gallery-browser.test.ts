@@ -55,7 +55,7 @@ await requireBrowserLane("local-commands-gallery-browser.test.ts", async () => {
       failures = playFailures(report);
     } else {
       await page.waitForSelector("[role=combobox]", { timeout: 90_000 });
-      await page.waitForTimeout(500);
+      await page.waitForSelector(".acpmux-session-info-toggle", { timeout: 30_000 });
     }
     if (shots) {
       fs.mkdirSync(shots, { recursive: true });

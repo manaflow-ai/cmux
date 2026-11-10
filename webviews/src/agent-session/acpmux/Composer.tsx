@@ -2147,7 +2147,10 @@ function ComposerFrame({
     onStop: stopTurn,
   });
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
-  const queues = !shell && snapshot.isWorking && remote.canSend && !blockSend && !blocked?.reason;
+  // A local command typed alone (localCommands.ts) runs at once: it never reads as queued or steered.
+  const runsNow =
+    !!onLocalCommand && attachments.length === 0 && !!localCommand(text, snapshot.summary?.harness);
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blockSend && !blocked?.reason && !runsNow;
   // An agent that steers takes Return into the running turn: it reads the prompt when its current
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
   // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
