@@ -33,6 +33,7 @@ extension MainThreadWatchdog {
         else { return }
         let sentAt = uptime()
         let cpuAt = busy.mainThreadCPUNanos()
+        // main-async-allow: the probe measures the main dispatch queue's own answer delay, so it must be a raw GCD hop (no scheduler between).
         DispatchQueue.main.async { [self] in
             let answeredAt = uptime()
             let cpuNow = busy.mainThreadCPUNanos()
