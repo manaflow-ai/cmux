@@ -145,3 +145,76 @@ describe("only a Cloud answer waits, and only for its own delivery", { timeout: 
     expect(returned - started).toBeLessThan(1_500)
   })
 })
+
+/**
+ * Review F1 [P1] on #40370: the commit-time send and the alarm both sent the same answer. CloudDO (cmux-platform
+ * approvals takeAnswer) acknowledged the alarm's duplicate while the first send's approved run was in flight ("request
+ * is running"), the alarm deleted the row, and when that run then failed retryably (back to pending, throw) nothing was
+ * left to redeliver: the create stayed pending forever. Sends of one channel are now serialized across both paths.
+ */
+describe("an overlapping alarm never drops an answer whose run then fails retryably", { timeout: 60_000 }, () => {
+  it("redelivers the answer after the retryable failure and the create completes", async () => {
+    const u = user("cloudoverlap1")
+    const team = "team_cloudoverlap1"
+    // The platform's request row and its run, as takeAnswer and execute treat them.
+    const req = { state: "pending" as "pending" | "running" | "done", inFlight: 0, runs: 0 }
+    let release!: () => void
+    const firstRun = new Promise<void>((r) => (release = r))
+    const cloud = {
+      systemDeliver: async (_entity: string, _source: string, items: ReadonlyArray<{ id: number; op: string }>) => {
+        const done: number[] = []
+        for (const item of items) {
+          if (req.state === "running" && req.inFlight === 0) req.state = "pending"
+          if (req.state !== "pending") {
+            done.push(item.id) // "request is running" or ended: acknowledged
+            continue
+          }
+          req.state = "running"
+          req.inFlight++
+          const run = ++req.runs
+          try {
+            if (run === 1) {
+              await firstRun
+              req.state = "pending" // backToPending
+              throw Object.assign(new Error("approved cloud.machine.create failed retryably"), { retryable: true })
+            }
+            req.state = "done"
+          } finally {
+            req.inFlight--
+          }
+          done.push(item.id)
+        }
+        return { done }
+      },
+    }
+    await inDO(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u)), async (instance, state) => {
+      instance.targetNamespace = (cls: string) => (cls === "CloudDO" ? { idFromName: (n: string) => n, get: () => cloud } : fakeTargets([])(cls))
+      const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+      const prompt = { action: { type: "tool", tool: "cloud.machine.create", summary: "s", risk: "money", input: { approval: { team, request, digest: "sha256:abc" } } }, scopes: ["once"] }
+      const posted = await instance.integrationApproval(u, team, prompt, 3_600_000, `approval:${request}`, "cloud")
+      expect(posted.ok, JSON.stringify(posted)).toBe(true)
+      const queued = () => (instance.boundEngine.outboxPending(1_000) as Array<{ entity: string }>).some((r) => r.entity === `approval:${request}`)
+      // The answer's commit-time send starts its run and holds it (feed.answer returns at its 2 s bound).
+      await instance.submit(u, session(u), { t: "op", op: "feed.answer", params: { item: posted.item, answer: { decision: "allow", scope: "once" } }, idempotency_key: `approve:${request}`, origin: "user" })
+      expect(req).toMatchObject({ state: "running", runs: 1 })
+      // The alarm afterCommit set fires while the run is in flight (the test fires it; the runtime's is cleared).
+      await state.storage.deleteAlarm()
+      const alarm = instance.alarm()
+      await new Promise((r) => setTimeout(r, 200))
+      // The run fails retryably: the answer must still be queued for redelivery.
+      release()
+      await alarm
+      for (let i = 0; i < 50 && req.inFlight > 0; i++) await new Promise((r) => setTimeout(r, 20))
+      expect(req.state).toBe("pending")
+      expect(queued(), "the answer left the queue on the duplicate's 'already running' ack").toBe(true)
+      // After the channel's backoff the alarm redelivers it and the create completes.
+      for (let i = 0; i < 40 && req.state !== "done"; i++) {
+        await new Promise((r) => setTimeout(r, 200))
+        await state.storage.deleteAlarm()
+        await instance.alarm()
+      }
+      expect(req).toMatchObject({ state: "done", runs: 2 })
+      expect(queued()).toBe(false)
+    })
+  })
+})
