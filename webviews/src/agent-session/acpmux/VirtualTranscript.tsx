@@ -1121,6 +1121,7 @@ function TranscriptView({
   loading = false,
   afterLatest,
   sinceKey,
+  sinceTurns,
   onJumpToSince,
   showMinimap = true,
   endReserve: cardReserve = 0,
@@ -1224,6 +1225,7 @@ function TranscriptView({
   /// The key of "New since you looked" in these rows, if any: Jump to new shows over the top while
   /// it is out of view (conversation/SinceDivider.tsx), and `onJumpToSince` brings it in.
   sinceKey?: string;
+  sinceTurns?: number;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -5059,7 +5061,7 @@ function TranscriptView({
             className="acpmux-over-top"
             style={{ top: pinnedPill ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT : clearTop }}
           >
-            <SinceJump mark={sinceKey} onJump={onJumpToSince} />
+            <SinceJump mark={sinceKey} turns={sinceTurns} onJump={onJumpToSince} />
           </div>
         )}
         {jumpButton && (

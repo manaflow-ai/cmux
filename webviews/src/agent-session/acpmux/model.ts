@@ -3,6 +3,7 @@ import { permissionCardHeight } from "./permissions/cardHeight";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
 import { BUBBLE } from "./transcriptSpacing";
+import { sinceView } from "./conversation/sinceView";
 import {
   footerAfter,
   gridLength,
@@ -1383,6 +1384,8 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// That mark's turn count, which Jump to new shows when expanded.
+  sinceTurns?: number;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -2339,17 +2342,20 @@ function fallbackRowHeight(
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
     );
-  // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it the recap's
-  // card as a recap row is estimated.
-  if (row.kind === SINCE_DIVIDER)
+  // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it, expanded,
+  // the recap's card as a recap row is estimated; hidden, nothing (conversation/sinceView.ts).
+  if (row.kind === SINCE_DIVIDER) {
+    const view = sinceView();
+    if (view === "hidden") return finish(0);
     return finish(
       28 +
-        (row.since?.recap
+        (view === "expanded" && row.since?.recap
           ? 24 +
             Math.max(1, Math.ceil(row.since.recap.text.length / Math.max(24, Math.floor(width / 8) - 6))) *
               metrics().lineHeight
           : 0),
     );
+  }
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
   // and the heading's, Accept all under two or more, in its 1px edges and 8px of row margins; settled,
   // its one 24px note.

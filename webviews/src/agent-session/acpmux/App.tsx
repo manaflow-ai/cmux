@@ -550,6 +550,7 @@ import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { setSinceView, useSinceView } from "./conversation/sinceView";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { DeleteChatDialog } from "./header/DeleteChatDialog";
@@ -2674,6 +2675,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
     ),
   );
+  // "New since you looked" hidden from its right-click (conversation/sinceView.ts) is no row at all,
+  // so it leaves no gap where it was; the chat menu's Show New Since You Looked brings it back.
+  const sinceRowHidden = useSinceView() === "hidden";
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
@@ -2690,8 +2694,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
     // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts).
-    return withoutQuietThoughts(rows, snapshot.isWorking);
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
+    return withoutQuietThoughts(
+      sinceRowHidden ? rows.filter((row) => row.kind !== SINCE_DIVIDER) : rows,
+      snapshot.isWorking,
+    );
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking, sinceRowHidden]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
@@ -9402,6 +9409,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
+  // "New since you looked" hidden from its right-click (conversation/sinceView.ts) comes back here,
+  // in every chat, as the composer's hidden controls come back from its button row.
+  const showSince: Exclude<ChatMenuItem, "separator">[] = sinceRowHidden
+    ? [{ key: "showSince", label: t("chatMenu.showSince"), icon: "unread.dot", onSelect: () => setSinceView("expanded") }]
+    : [];
   // The session's own avatar (its cards and sender chip draw it): Set Chat Avatar… draws it, and the
   // menu offers Remove Chat Avatar with one.
   const avatarSrc = useAgentAvatar(snapshot.sessionId);
@@ -9947,6 +9959,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ? []
           : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
         ...(markUnread ? [markUnread] : []),
+        ...showSince,
         ...(archive ? [archive] : []),
         ...remove,
         {
@@ -10703,6 +10716,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       : undefined
                                                                   }
                                                                   sinceKey={childRows ? undefined : sinceKey}
+                                                                  sinceTurns={childRows ? undefined : snapshot.sinceTurns}
                                                                   onJumpToSince={jumpToSince}
                                                                   coldOpen={
                                                                     !childRows && opened.cold ? opened.open : undefined

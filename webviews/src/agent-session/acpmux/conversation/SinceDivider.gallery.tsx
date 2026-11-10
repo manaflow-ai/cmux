@@ -1,11 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample recaps and replies), not shipped UI.
-// "New since you looked" (SinceDivider.tsx) in three looks, each between the reply the person had
-// seen and the turns that ended while they were away, with the recap made for that return on it, and
-// Jump to new over the top. References: the unread blue of the sidebar's status dots
-// (cmux-design-references cmux/live/sidebar-status-dot-colors) and the glass of Jump to latest
-// (cmux-next/live/transcript-jump-to-latest-glass-too-transparent).
+// "New since you looked" (SinceDivider.tsx) in each view the viewer can pick (sinceView.ts), between
+// the reply the person had seen and the turns that ended while they were away, with the recap made
+// for that return on it, and Jump to new over the top. References: team chat apps' unread
+// line (a hairline that ends in a filled New tag), the pane's accent for every color, and the
+// glass of Jump to latest (cmux-next/live/transcript-jump-to-latest-glass-too-transparent).
 import { componentEntry } from "../../../gallery/format";
-import { SinceDivider, SinceJump, type SinceLook } from "./SinceDivider";
+import { SinceDivider, SinceJump } from "./SinceDivider";
+import type { SinceViewPick } from "./sinceView";
 
 const RECAP =
   "The parser in foo.rs now tolerates missing fields and its tests pass. Next: run the fuzz corpus and open the PR.";
@@ -14,24 +15,32 @@ function Reply({ text }: { text: string }) {
   return <p style={{ margin: 0, color: "var(--agent-text)", lineHeight: "20px" }}>{text}</p>;
 }
 
-function SinceLooks({ look, recap = true, jump = false }: { look: SinceLook; recap?: boolean; jump?: boolean }) {
+function SinceViews({
+  view,
+  recap = true,
+  jump = false,
+}: {
+  view: SinceViewPick;
+  recap?: boolean;
+  jump?: boolean;
+}) {
   return (
     <div className="acpmux-shell" style={{ position: "relative", padding: 16, display: "grid", gap: 16 }}>
       {jump && (
         <div className="acpmux-over-top" style={{ top: 0 }}>
-          <SinceJump mark="gallery" onJump={() => {}} />
+          <SinceJump mark="gallery" turns={3} view={view} onJump={() => {}} />
         </div>
       )}
       <Reply text="I'll start by reading foo.rs to see how absent fields fail." />
       <SinceDivider
         since={{
-          key: `gallery-${look}:41`,
+          key: `gallery-${view}:41`,
           seq: 41,
           turns: 3,
-          ...(recap && { recap: { key: `gallery-${look}`, text: RECAP, awayMs: 38 * 60_000 } }),
+          ...(recap && { recap: { key: `gallery-${view}`, text: RECAP, awayMs: 38 * 60_000 } }),
         }}
         onDismissRecap={() => {}}
-        look={look}
+        view={view}
       />
       <Reply text="Missing fields now default instead of failing; I added a test for each one." />
       <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
@@ -39,7 +48,7 @@ function SinceLooks({ look, recap = true, jump = false }: { look: SinceLook; rec
   );
 }
 
-export default componentEntry<{ look: SinceLook; recap?: boolean; jump?: boolean }>({
+export default componentEntry<{ view: SinceViewPick; recap?: boolean; jump?: boolean }>({
   id: "agent-pane.since-divider",
   title: "New since you looked",
   area: "Agent pane",
@@ -48,27 +57,31 @@ export default componentEntry<{ look: SinceLook; recap?: boolean; jump?: boolean
   widths: { narrow: 420, normal: 640, wide: 820 },
   covers: ["agent-session/acpmux/conversation/SinceDivider.tsx"],
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
-  load: async () => SinceLooks,
+  load: async () => SinceViews,
   variants: {
-    lead: {
-      note: "Chosen: the words start on the text column and an unread-blue hairline runs on; reads first, like a heading, and the recap card sits under it.",
-      props: { look: "lead" },
+    expanded: {
+      note: "Ships (the default): an accent hairline across the text column ending in a filled New tag, the turn count muted before it, the recap card under it. A click collapses it.",
+      props: { view: "expanded" },
     },
-    center: {
-      note: "The words centered on the hairline; symmetric but floats off the text column the rows read from.",
-      props: { look: "center" },
-    },
-    end: {
-      note: "The hairline first and the words at its end; the quietest, but the eye meets the line before the words.",
-      props: { look: "end" },
+    collapsed: {
+      note: "Collapsed (a click on the line, or its right-click): the hairline and its New tag alone; the recap folds away.",
+      props: { view: "collapsed" },
     },
     "no-recap": {
-      note: "A chat with no recap (not Claude, or the recap is off): the line alone.",
-      props: { look: "lead", recap: false },
+      note: "A chat with no recap (not Claude, or the recap is off): the line alone, expanded.",
+      props: { view: "expanded", recap: false },
     },
     "jump-to-new": {
-      note: "Jump to new over the transcript's top while the line is out of view.",
-      props: { look: "lead", jump: true },
+      note: "Jump to new, expanded: a glass bar on the text column with the line's words, its count and ×, which puts it away for this return.",
+      props: { view: "expanded", jump: true },
+    },
+    "jump-to-new-collapsed": {
+      note: "Jump to new, collapsed: a small glass tab holding the New tag.",
+      props: { view: "collapsed", jump: true },
+    },
+    hidden: {
+      note: "Hidden (its right-click's Hide): neither draws; the chat menu's Show New Since You Looked brings both back.",
+      props: { view: "hidden", jump: true },
     },
   },
 });

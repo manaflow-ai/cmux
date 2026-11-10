@@ -7483,53 +7483,74 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: nowrap;
 }
 
-/* "New since you looked" (SinceDivider.tsx): an accent hairline with its label and turn count, the
-   unread blue every status dot uses. 28px tall (model.ts), its recap's card under it. Placed when the
-   chat opens and kept until another one is, so nothing animates in or out. */
+/* "New since you looked" (SinceDivider.tsx), drawn as team chat apps draw their unread line: a
+   hairline across the text column in the pane's accent that ends in a small filled New tag, the
+   turn count muted before it, and the recap's card under it. Every color is a theme role
+   (--agent-accent, --agent-on-accent), so it follows the chat's theme. 28px tall (model.ts) in
+   both views; hidden draws nothing. Placed when the chat opens and kept until another one is, so
+   nothing animates in or out. */
 .cv-since {
   display: grid;
   gap: var(--ds-space-2);
-  --cv-since-tint: var(--cmux-status-unread, #3982f5);
+  --cv-since-tint: var(--agent-accent);
+}
+.cv-since__menu {
+  display: block;
 }
 .cv-since__line {
   display: flex;
+  width: 100%;
+  height: 28px;
   margin: 0;
+  padding: 0;
   align-items: center;
   gap: var(--ds-space-2);
-  height: 28px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
+  cursor: default;
 }
-.cv-since__line::before,
-.cv-since__line::after {
-  content: "";
+.cv-since__rule {
   flex: 1;
-  border-top: 1px solid color-mix(in srgb, var(--cv-since-tint) 55%, transparent);
-}
-.cv-since__label {
-  color: var(--cv-since-tint);
-  font-weight: var(--weight-emphasis);
+  height: 0;
+  border-top: 1px solid color-mix(in srgb, var(--cv-since-tint) 60%, transparent);
 }
 .cv-since__count {
   color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
 }
-.cv-since__count::before {
-  content: "· ";
+/* The tag, as chat apps mark unread: filled, on the line's end, the line running into it. */
+.cv-since__tag {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  background: var(--cv-since-tint);
+  color: var(--agent-on-accent, var(--acpmux-base));
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
 }
-/* Lead (shipped): the words start where the transcript's text does, the hairline runs on. */
-.cv-since[data-look="lead"] .cv-since__line::before {
-  display: none;
+.cv-since__line:hover .cv-since__rule {
+  border-top-color: var(--cv-since-tint);
 }
-/* Center: the words sit on the middle of the hairline. */
-/* End: the hairline runs from the text column and the words close it. */
-.cv-since[data-look="end"] .cv-since__line::after {
-  display: none;
+.cv-since__line:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+  border-radius: var(--ds-radius-control);
 }
 
-/* Jump to new (SinceDivider.tsx SinceJump): a small glass button centered over the transcript's top,
-   the same glass and fade as Jump to latest. Mounted with the mark and only faded, so it never pops
-   in; Reduce Motion shows and hides it at once. Its arrow points to where the line is. */
+/* Jump to new (SinceDivider.tsx SinceJump): expanded, a glass bar as wide as the text column over
+   the transcript's top, the line's words in its accent and its count muted, × at its end; collapsed,
+   a small glass tab holding the New tag. The same glass and fade as Jump to latest. Mounted with the
+   mark and only faded, so it never pops in; Reduce Motion shows and hides it at once. Its arrow
+   points to where the line is. */
 .acpmux-over-top {
   position: absolute;
   left: 0;
@@ -7540,24 +7561,26 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   padding-top: 8px;
   pointer-events: none;
 }
+.acpmux-since-jump-host {
+  display: contents;
+}
 .acpmux-since-jump {
   display: inline-flex;
   align-items: center;
-  gap: var(--ds-space-1);
   height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-3);
   border: 0;
   /* A small-radius rect, as every agent pane control (test/agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
   --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
   --glass-elevation: var(--elevation-2);
-  color: var(--cmux-status-unread, #3982f5);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-  font-weight: var(--weight-emphasis);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
+}
+.acpmux-since-jump[data-view="expanded"] {
+  width: min(calc(100% - 2 * var(--cv-edge, 16px)), var(--cv-column, 720px));
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
   --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
@@ -7566,11 +7589,57 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   opacity: 1;
   pointer-events: auto;
 }
-.acpmux-since-jump:hover {
+.acpmux-since-jump__go,
+.acpmux-since-jump__dismiss {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.acpmux-since-jump__go {
+  flex: 1;
+  min-width: 0;
+  gap: var(--ds-space-2);
+  padding: 0 var(--ds-space-3);
+  color: var(--agent-accent);
+}
+.acpmux-since-jump[data-view="collapsed"] .acpmux-since-jump__go {
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+}
+.acpmux-since-jump__text {
+  display: inline-flex;
+  min-width: 0;
+  gap: var(--ds-space-2);
+  overflow: hidden;
+}
+.acpmux-since-jump__label {
+  font-weight: var(--weight-emphasis);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-since-jump__count {
+  color: var(--cv-text-dim, var(--agent-muted));
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-since-jump__dismiss {
+  justify-content: center;
+  width: var(--ds-control-compact);
+  color: var(--agent-muted);
+}
+.acpmux-since-jump__go:hover,
+.acpmux-since-jump__dismiss:hover {
   background-image: linear-gradient(
     color-mix(in srgb, var(--agent-text) 6%, transparent),
     color-mix(in srgb, var(--agent-text) 6%, transparent)
   );
+}
+.acpmux-since-jump__dismiss:hover {
+  color: var(--agent-text);
 }
 .acpmux-since-jump__arrow {
   display: inline-grid;
