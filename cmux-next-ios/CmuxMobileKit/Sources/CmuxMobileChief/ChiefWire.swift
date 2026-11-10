@@ -106,18 +106,24 @@ struct ChiefWire {
         let linked: (text: String, links: [ConversationTextLink], mentions: [ConversationMention]) = mine
             ? (shown, [], shownMentions)
             : ConversationMarkdownLinks.extract(shown, mentions: shownMentions)
+        // Their Markdown tables (Chief's subagent and status tables) show as
+        // columns, or as one record per row when too wide for the bubble.
+        // My own text stays as typed here too.
+        let tabled = mine ? nil : ConversationMarkdownTables.extract(linked.text, links: linked.links, mentions: linked.mentions)
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
-            text: linked.text,
+            text: tabled?.text ?? linked.text,
             replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
-            mentions: linked.mentions,
-            links: linked.links
+            mentions: tabled?.mentions ?? linked.mentions,
+            textRuns: tabled?.runs ?? [],
+            links: tabled?.links ?? linked.links,
+            tables: tabled?.tables ?? []
         )
     }
 
