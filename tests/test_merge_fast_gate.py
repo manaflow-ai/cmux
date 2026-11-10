@@ -41,12 +41,13 @@ class Reader:
 
 class Clock:
     def __init__(self):
-        self.now = 0.0
+        self.now, self.slept = 0.0, []
 
     def __call__(self):
         return self.now
 
     def sleep(self, seconds):
+        self.slept.append(seconds)
         self.now += seconds
 
 
@@ -446,18 +447,15 @@ class FastGate(unittest.TestCase):
 
     def test_reads_that_time_out_until_the_budget_ends_raise_the_budget_error_with_backoff(self):
         calls = self.gh_reads(self.SLOW)
-        clock, slept = Clock(), []
-
-        def sleep(seconds):
-            slept.append(seconds)
-            clock.sleep(seconds)
+        clock = Clock()
         with self.assertRaises(gate.WaitRanOut) as caught:
-            gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=sleep, base="feat-cmux-next")
+            gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep,
+                     base="feat-cmux-next")
         message = str(caught.exception)
         self.assertIn("--wait budget of 600s ran out", message)
         self.assertIn("reads timed out or failed", message)
         self.assertIn("took over 60s", message)
-        self.assertEqual(slept, [30, 60, 120, 240, 150])
+        self.assertEqual(clock.slept, [30, 60, 120, 240, 150])
         self.assertEqual(len(calls), 6)
         self.assertGreaterEqual(caught.exception.waited, 600)
 
