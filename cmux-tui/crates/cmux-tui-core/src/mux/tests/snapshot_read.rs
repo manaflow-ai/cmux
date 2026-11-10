@@ -623,7 +623,7 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
     let root = temp_root("window");
     let mux = session_at_rest("snapshot-window", &root);
     let workspace_key = mux.create_empty_workspace(Some("window".into()), None, None).unwrap().key;
-    let host = crate::terminal_host_runtime::TerminalHostIdentity {
+    let host = TerminalHostIdentity {
         terminal_id: format!("00000000000040008000{:012x}", 7),
         incarnation: format!("10000000000040008000{:012x}", 7),
     };

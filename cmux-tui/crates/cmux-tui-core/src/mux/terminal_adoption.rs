@@ -780,7 +780,7 @@ impl Mux {
             }
         }
         #[cfg(test)]
-        super::test_hooks::run_committed_before_route_publish_hook();
+        test_hooks::run_committed_before_route_publish_hook();
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);

@@ -177,8 +177,8 @@ fn build(
     };
     let mut decorated = json!({"workspaces": workspaces, "screens": screens, "tabs": tabs});
     crate::state::values::decorate_snapshot(connection, &mut decorated)?;
-    let mut take = |key: &str| match decorated[key].take() {
-        Value::Array(values) => values,
+    let mut take = |key: &str| match decorated.get_mut(key).map(Value::take) {
+        Some(Value::Array(values)) => values,
         _ => Vec::new(),
     };
     let (workspaces, screens, tabs) = (take("workspaces"), take("screens"), take("tabs"));
