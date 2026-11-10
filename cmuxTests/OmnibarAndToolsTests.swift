@@ -813,6 +813,57 @@ final class OmnibarStateMachineTests: XCTestCase {
     }
 
     @MainActor
+    func testModifiedTabAndRightArrowKeepTheirMeaning() throws {
+        let keys: [(name: String, keyCode: UInt16, characters: String, modifiers: NSEvent.ModifierFlags, command: Selector)] = [
+            ("shift+tab", 48, "\u{19}", [.shift], #selector(NSResponder.insertBacktab(_:))),
+            ("shift+right", 124, "\u{F703}", [.shift, .function, .numericPad], #selector(NSResponder.moveRightAndModifySelection(_:))),
+            ("option+right", 124, "\u{F703}", [.option, .function, .numericPad], #selector(NSResponder.moveWordRight(_:))),
+        ]
+        for key in keys {
+            let harness = OmnibarSelectedSuggestionFillHarness(pickRowWithArrowKeys: true)
+
+            XCTAssertFalse(
+                try harness.dispatch(
+                    keyCode: key.keyCode,
+                    characters: key.characters,
+                    modifiers: key.modifiers,
+                    command: key.command
+                ),
+                key.name
+            )
+
+            XCTAssertEqual(harness.editor.string, OmnibarSelectedSuggestionFillHarness.typedText, key.name)
+            XCTAssertEqual(harness.state.buffer, OmnibarSelectedSuggestionFillHarness.typedText, key.name)
+        }
+    }
+
+    @MainActor
+    func testUndoAfterFillRestoresTypedText() throws {
+        _ = NSApplication.shared
+        let harness = OmnibarSelectedSuggestionFillHarness(pickRowWithArrowKeys: true)
+        // Like the omnibar's field editor: undo allowed, undo manager from the window.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 40),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.contentView?.addSubview(harness.editor)
+        harness.editor.allowsUndo = true
+        let undoManager = try XCTUnwrap(harness.editor.undoManager)
+        // No event loop runs here, so the key press gets its undo group by hand.
+        undoManager.groupsByEvent = false
+        undoManager.beginUndoGrouping()
+        XCTAssertTrue(try harness.dispatchTab())
+        undoManager.endUndoGrouping()
+        XCTAssertEqual(harness.editor.string, OmnibarSelectedSuggestionFillHarness.pickedURL)
+
+        undoManager.undo()
+
+        XCTAssertEqual(harness.editor.string, OmnibarSelectedSuggestionFillHarness.typedText)
+    }
+
+    @MainActor
     func testArrowPickedRowWinsOverInlineCompletionForAnotherRow() throws {
         for key in ["tab", "right"] {
             // Up from the auto-picked Gmail row lands on Google, which Return would open.
@@ -1270,7 +1321,7 @@ private final class OmnibarSelectedSuggestionFillHarness {
 
     /// The key-down hook first, then the field editor's command if the hook
     /// passed on it, the order AppKit uses.
-    private func dispatch(
+    func dispatch(
         keyCode: UInt16,
         characters: String,
         modifiers: NSEvent.ModifierFlags,
