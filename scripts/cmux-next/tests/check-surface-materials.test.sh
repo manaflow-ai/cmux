@@ -107,4 +107,16 @@ reset; manifest '' ''
 printf 'const popupClassName = "ui-popup ui-glass";\nreturn <div className={cx({ active: isActive }, popupClassName)} />;\n' > "$web/ObjectArg.tsx"
 expect_fail const-after-an-object-argument web-floating
 
+reset; manifest '' ''
+printf '<div className={cx(/* } */ "ui-popup ui-glass")} />\n' > "$web/Comment.tsx"
+expect_fail brace-in-a-comment web-floating
+
+reset; manifest '' ''
+printf '<div className = "ui-popup ui-glass" />\n' > "$web/Spaced.tsx"
+expect_fail spaces-around-the-equals web-floating
+
+reset; manifest '' ''
+printf 'const popup = "ui-popup ui-glass";\nreturn <div className="popup" />;\n' > "$web/Literal.tsx"
+expect_pass a-const-name-in-a-string-is-not-a-reference
+
 echo "check-surface-materials.test: ok"
