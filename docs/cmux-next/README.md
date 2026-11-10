@@ -112,5 +112,4 @@ web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubles
 
 cmux NEXT borrows Chrome's threading model: the main thread handles input and paints, and disk,
 network, processes and long work run on named lanes that reply back to it. Debug and Nightly builds
-record any blocking call that slips onto the main thread, and the hang watcher names that call in its
-hang file. The rule and its enforcement are in [main-thread.md](main-thread.md).
+record any blocking call that slips onto the main thread. Why and how: [main-thread.md](main-thread.md).
