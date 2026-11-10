@@ -501,7 +501,7 @@ fn agents_at_rest_a_report_after_a_row_with_an_unknown_result_is_appended() {
     let error = producer.join().unwrap().expect_err("the producer gives up on a held commit");
     release.send(()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while kinds_after(&mux, before_end).get("agent.session.ended").is_none() {
+    while !kinds_after(&mux, before_end).contains_key("agent.session.ended") {
         assert!(Instant::now() < deadline, "the held row did not commit after {error:#}");
         std::thread::sleep(Duration::from_millis(10));
     }

@@ -266,11 +266,16 @@ impl AgentHooksAtRest {
         self.activity().stamps.remove(terminal);
     }
 
-    /// Notes a report answered at rest: O(1), memory only.
-    fn note_activity(&self, facts: &HookFacts<'_>, observed_at_ms: u64, now_ms: u64) {
-        let (Some(provider), Some(session)) = (facts.provider, facts.session) else {
-            return;
-        };
+    /// Notes that the agent session `provider`/`session` of `terminal` was
+    /// at work at `observed_at_ms`: O(1), memory only.
+    fn note_activity(
+        &self,
+        terminal: &TerminalPublicId,
+        provider: &str,
+        session: &str,
+        observed_at_ms: u64,
+        now_ms: u64,
+    ) {
         let mut guard = self.activity();
         let activity = &mut *guard;
         if activity.last_row_ms.is_none() {
@@ -278,7 +283,7 @@ impl AgentHooksAtRest {
         }
         let same = activity
             .stamps
-            .get_mut(&facts.terminal)
+            .get_mut(terminal)
             .filter(|stamp| stamp.provider == provider && stamp.session == session);
         if let Some(stamp) = same {
             if observed_at_ms > stamp.observed_at_ms {
@@ -293,7 +298,7 @@ impl AgentHooksAtRest {
             observed_at_ms,
             unsaved: true,
         };
-        activity.stamps.insert(facts.terminal.clone(), stamp);
+        activity.stamps.insert(terminal.clone(), stamp);
     }
 
     /// The stamps the next activity row carries: none before the interval
@@ -424,6 +429,28 @@ impl Mux {
         crate::workspace_registry::unix_epoch_ms().unwrap_or(0)
     }
 
+    /// Notes in memory that the agent session `provider`/`session` of
+    /// `terminal` was at work at `observed_at_ms` (the daemon's clock when
+    /// `None`). The one way into the live activity table: no journal row, no
+    /// registry lock. History reads it at once; the journal gets it with the
+    /// next coalesced row (`save_agent_activity`).
+    pub(crate) fn note_agent_activity(
+        &self,
+        terminal: &TerminalPublicId,
+        provider: &str,
+        session: &str,
+        observed_at_ms: Option<u64>,
+    ) {
+        let now_ms = self.agent_activity_now_ms();
+        self.agent_hooks_at_rest.note_activity(
+            terminal,
+            provider,
+            session,
+            observed_at_ms.unwrap_or(now_ms),
+            now_ms,
+        );
+    }
+
     /// The newest report time of each agent session that reports at rest,
     /// keyed `<provider>/<session id>`: what a reader of History in this
     /// daemon gets on top of the journal's fold.
@@ -537,10 +564,10 @@ impl Mux {
             replayed: true,
         };
         slot.remember(key, Some(commit.clone()));
-        let now_ms = self.agent_activity_now_ms();
-        let observed_at_ms =
-            crate::journal_reducers::hook_observed_at_ms(&ingress.payload).unwrap_or(now_ms);
-        self.agent_hooks_at_rest.note_activity(&facts, observed_at_ms, now_ms);
+        if let (Some(provider), Some(session)) = (facts.provider, facts.session) {
+            let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
+            self.note_agent_activity(&facts.terminal, provider, session, observed_at_ms);
+        }
         self.activity.note_agent_action();
         self.apply_live_agent_presence(ingress);
         Some(commit)
