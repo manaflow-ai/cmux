@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42895546195",
+  "recorded_at": "2026-11-10T20:40:39Z",
+  "reason": "cmux-tui 1ae781e81e9d changes the image's cmux-tui (pinned 1cef6e2a2a56)",
+  "dry_run": false,
+  "cmux_tui": "1ae781e81e9d909bd8d02bfe5fc6ab06e4f81f28",
+  "fixes": [
+    {
+      "sha": "1ae781e81e9d909bd8d02bfe5fc6ab06e4f81f28",
+      "mergedAt": "2026-11-10T20:06:30Z",
+      "subject": "cmux-tui-core: apps-provider-changed is decided for the owner link (base red since 307a6b626217) (#40736)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T20:40:39Z",
+    "snapshot_id": "sh-bb44e88ff5444d13b3b0e1ddd5554d2e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42895546195): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7e2e98a82677c8d8583161f058d0e6f88db0fcb9",
+    "image": "cloud-native-auto-1ae781e8-42895546195-1",
+    "revision": "ci-42895546195-1",
+    "at": "2026-11-10T20:40:39Z"
+  },
+  "rolled_back": false
+}
