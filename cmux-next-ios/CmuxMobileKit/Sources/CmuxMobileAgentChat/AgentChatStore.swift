@@ -1232,6 +1232,9 @@ public final class AgentChatStore {
     @ObservationIgnored private var gapFiller: AgentChatStore?
     /// How many of the filler's turns are shown now, just before `gapBeforeTurnID`.
     @ObservationIgnored private var gapShown = 0
+    /// Each subagent as the gap last wrote it into ``subagents``: a newer record (the newest
+    /// page, a live one) that changed it since wins over the gap's older state.
+    @ObservationIgnored private var gapWrittenAgents: [String: AgentSubagent] = [:]
 
     private func openGap(before turnID: String) {
         if gapFiller != nil { closeGap() }
@@ -1242,7 +1245,10 @@ public final class AgentChatStore {
             filler.turns = [last]
             filler.subagents = subagents.filter { $0.turnID == last.id }
             filler.currentMessageID = currentMessageID
+            gapWrittenAgents = Dictionary(filler.subagents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         }
+        // What this phone sent with a prompt that ran in the gap.
+        filler.sentAttachments = sentAttachments
         gapFiller = filler
         gapShown = filler.turns.count
         gapBeforeTurnID = turnID
@@ -1258,7 +1264,10 @@ public final class AgentChatStore {
                 // have said it again: a prompt this phone sent ran (or waited), one shown waiting
                 // left the queue, a sudo card shown was answered.
                 switch event {
-                case .userMessage(_, let promptId, _, _, _), .queued(_, let promptId, _):
+                case .userMessage(_, let promptId, _, _, _):
+                    reached(promptId)
+                    sentAttachments[promptId] = nil
+                case .queued(_, let promptId, _):
                     reached(promptId)
                 case .dequeued(let promptId):
                     queue.removeAll { $0.id == promptId }
@@ -1295,10 +1304,12 @@ public final class AgentChatStore {
                 var added: [AgentSubagent] = []
                 for agent in filler.subagents {
                     if let index = subagents.firstIndex(where: { $0.id == agent.id }) {
+                        guard gapWrittenAgents[agent.id] == subagents[index] else { continue }
                         subagents[index] = agent
                     } else {
                         added.append(agent)
                     }
+                    gapWrittenAgents[agent.id] = agent
                 }
                 subagents.insert(contentsOf: added, at: firstNewer)
                 // Drawn in place, as history: the turn continued and the new ones.
@@ -1315,6 +1326,7 @@ public final class AgentChatStore {
     private func closeGap() {
         gapFiller = nil
         gapShown = 0
+        gapWrittenAgents = [:]
         gapBeforeTurnID = nil
         isFillingGap = false
     }
