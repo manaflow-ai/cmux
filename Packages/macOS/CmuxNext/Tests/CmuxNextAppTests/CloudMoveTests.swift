@@ -156,8 +156,9 @@ struct CloudMoveTests {
         let (chat, pane) = try #require(services.locateTab(tabID, onMachine: daemon.machineID))
         let workspace = try #require(daemon.store.workspace(containing: pane.handle))
         _ = services.windows.reveal(workspaceID: workspace.id)
-        controller.state.selection.select(chat.id, in: pane.id)
+        // The person's pick of the tab in its strip (a remembered selection alone leaves the strip on the tab it shows).
         try await waitUntil {
+            if let strip = services.paneController(for: pane), strip.stripModel.selectedID?.rawValue != chat.id { strip.select(StripTabID(chat.id)) }
             controller.content?.contentView.layoutSubtreeIfNeeded()
             return controller.showsOnScreen(chat.id, in: pane)
         }
