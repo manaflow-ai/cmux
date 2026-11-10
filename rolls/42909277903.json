@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42909277903",
+  "recorded_at": "2026-11-10T22:01:26Z",
+  "reason": "cmux-tui d9ee7a4b120d changes the image's cmux-tui (pinned 63e7e43d615d)",
+  "dry_run": false,
+  "cmux_tui": "d9ee7a4b120df26ff7fcdd9dd59a16521840fda9",
+  "fixes": [
+    {
+      "sha": "d9ee7a4b120df26ff7fcdd9dd59a16521840fda9",
+      "mergedAt": "2026-11-10T21:31:31Z",
+      "subject": "Cloud chats take --model: cmux chat, cloud start-chat, cloud start-session (#40562)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T22:01:26Z",
+    "snapshot_id": "sh-e413b7ce6bb34053926d936635740be8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42909277903): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "611460b858cfca1dbcf3717d9201e57366e7aa0d",
+    "image": "cloud-native-auto-d9ee7a4b-42909277903-1",
+    "revision": "ci-42909277903-1",
+    "at": "2026-11-10T22:01:26Z"
+  },
+  "rolled_back": false
+}
