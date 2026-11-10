@@ -11,6 +11,12 @@
 #    working directory is on its import path. base_red_excuse.py trusts the
 #    verdict of a PR that leaves the check's files alone, and a new file is not
 #    one of them.
+#  - a file in an input crate that no library source, build script or
+#    Cargo.toml names (a test, a script, the README, a descriptor only the
+#    tests read) is not an input: on 2026-11-09 #39027 changed
+#    cmux-tui/bindings/rust/.cmux-resource-api.json, which only
+#    tests/catalog_manifest.rs reads, and staled the pin. A file such a source
+#    names (include_str!, a build script's read) still is.
 set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
@@ -40,6 +46,17 @@ crate cmux-rd-core
 crate cmux-layout-reducer-ffi
 crate cmux-remote-browser
 crate cmux-unrelated
+# cmux-rd-core's files beside src/: what a library source, build script or Cargo.toml names is an input; the rest is not.
+core="$repo/cmux-tui/crates/cmux-rd-core"
+mkdir -p "$core/tests/vectors" "$core/scripts" "$core/benches" "$core/examples"
+printf 'pub const DATA: &str = include_str!("../data.json");\n' >> "$core/src/lib.rs"
+printf 'fn main() { println!("cargo:rerun-if-changed=build-data.txt"); std::fs::read_to_string("build-data.txt").unwrap(); }\n' > "$core/build.rs"
+printf 'const V: &str = include_str!("../../cmux-rd-core/tests/vectors/lines.json");\n' > "$repo/cmux-tui/crates/cmux-rd-ffi/src/vectors.rs"
+printf 'const D: &str = include_str!("../.descriptor.json");\n' > "$core/tests/api.rs"
+for f in data.json build-data.txt .descriptor.json README.md LICENSE tests/vectors/lines.json scripts/sync.py \
+  benches/b.rs examples/e.rs; do
+  echo "$f" > "$core/$f"
+done
 git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" commit -qm sources
@@ -61,6 +78,26 @@ out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail 
 echo "// changed" >> "$repo/cmux-tui/crates/cmux-unrelated/src/lib.rs"
 git -C "$repo" commit -qam unrelated
 out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "an unrelated crate made the pin stale: $out"
+
+# A file in an input crate that nothing the library build reads names is not an input: a test, a script, a bench, an
+# example, the README, the LICENSE, and a descriptor only a test reads (.cmux-resource-api.json, #39027).
+for f in tests/api.rs scripts/sync.py benches/b.rs examples/e.rs README.md LICENSE .descriptor.json; do
+  echo "changed" >> "$core/$f"
+done
+git -C "$repo" commit -qam "test-only files"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "a test-only file made the pin stale: $out"
+[[ "$out" == *"sources match $pinned"* ]] || fail "no match line after a test-only change: $out"
+# What the library build reads stays an input: a file a library source includes (include_str!), one its build script
+# reads, and a tests/ file that a library source of another input crate includes.
+for f in data.json build-data.txt tests/vectors/lines.json; do
+  echo "changed" >> "$core/$f"
+  git -C "$repo" commit -qam "input $f"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "a change to $f, which the library build reads, kept the pin current: $out"
+  fi
+  [[ "$out" == *"cmux-tui/crates/cmux-rd-core/$f"* ]] || fail "the stale report does not name $f: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+done
 
 # --verify-release reads the release-assets API's answer with python3 -c from
 # the repository root. A json.py there does not change that verdict. curl is a
