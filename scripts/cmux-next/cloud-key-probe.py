@@ -9,6 +9,11 @@ variable's name or the key's kind ("an Anthropic OAuth token"), never any of its
 prints (a path, a process name) has its key-shaped parts replaced by their kind first, since a file or process
 can be named with a key.
 
+Matches inside installed software (`shipped`) are listed apart from `findings`: /opt, which the image build
+writes and every fresh machine shares, and the harnesses' plugin caches. There a key shape is public text: an
+SDK's documented example, a scanner's list of known public keys, a harness's own redaction pattern. A clean
+check counts `findings` only; a key in a home, a workspace (its node_modules too) or a temp folder is a finding.
+
 `complete` says whether "no finding" means "no key": it is true only when the probe ran as root, read
 every live process's environment and command line, read every file and directory, and finished the walk
 inside its budget. Anything less is listed (`gaps`), and a clean check must treat it as unknown.
@@ -76,6 +81,11 @@ LOGIN_FILES = {
     ".config/gcloud/application_default_credentials.json": "a Google Cloud login file",
 }
 
+# Installed software, by place: what the image build put in /opt, and the harnesses' plugin caches.
+SHIPPED = re.compile(r"^/opt/|/\.codex/\.tmp/plugins/|/\.claude/plugins/")
+# The stand-in AWS documents its examples with (AKIAIOSFODNN7EXAMPLE); a real id is random and never spells it.
+PUBLIC_VALUE = re.compile(r"EXAMPLE")
+
 FILE_ROOTS = ["home", "root", "etc", "opt", "srv", "tmp", "var/tmp", "run/user", "workspace"]
 # Pseudo file systems only: a key in node_modules or a repository is still a key on the machine.
 SKIP_DIRS = {"proc", "sys", "dev"}
@@ -112,12 +122,15 @@ def redacted(value):
     return value
 
 
+def shape_kinds(text):
+    """The kinds of key `text` holds by shape, skipping public stand-ins. Never the values."""
+    return {kind for kind, pattern in SHAPES if any(not PUBLIC_VALUE.search(m.group(0)) for m in pattern.finditer(text))}
+
+
 def value_finding(value):
     """The kind of key `value` holds, or None. Never the value."""
-    for kind, pattern in SHAPES:
-        if pattern.search(value):
-            return kind
-    return None
+    kinds = shape_kinds(value)
+    return next((kind for kind, _ in SHAPES if kind in kinds), None)
 
 
 def scan_env(entries):
@@ -177,10 +190,7 @@ def scan_text(text):
     """Findings in a file's text: (line number, what) pairs."""
     out = []
     for n, line in enumerate(text.splitlines(), 1):
-        seen = set()
-        for kind, pattern in SHAPES:
-            if pattern.search(line):
-                seen.add(kind)
+        seen = shape_kinds(line)
         for m in ASSIGN.finditer(line):
             if m.group(1) in KEY_NAMES and literal_secret(m.group(2)):
                 seen.add(m.group(1))
@@ -210,7 +220,7 @@ def scan_file(path):
                 window = tail + chunk
                 if PREFILTER.search(window):
                     text = window.decode("latin-1")
-                    seen.update(kind for kind, pattern in SHAPES if pattern.search(text))
+                    seen.update(shape_kinds(text))
                 tail = window[-OVERLAP:]
             return [(None, what) for what in sorted(seen)]
         for n, raw in enumerate(f, 1):
@@ -279,8 +289,9 @@ def scan_files(root, deadline, report):
                 for suffix, what in LOGIN_FILES.items():
                     if where.endswith("/" + suffix) and size > 0:
                         report["findings"].append({"place": "file", "where": where, "what": what})
+                listed = report["shipped"] if SHIPPED.search(where) else report["findings"]
                 for line, what in found:
-                    report["findings"].append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})
+                    listed.append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})
 
 
 def own_chain():
@@ -326,6 +337,7 @@ def main(argv):
     report = {
         "as_root": as_root,
         "findings": [],
+        "shipped": [],
         "scanned": {"processes": 0, "procs_unreadable": 0, "files": 0, "files_unreadable": 0},
         "unreadable": [],
         "truncated": False,

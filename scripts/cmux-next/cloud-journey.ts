@@ -879,7 +879,7 @@ export function swiftRawString(source: string, name: string): string {
 export const KEY_PROBE_PY = fileURLToPath(new URL("./cloud-key-probe.py", import.meta.url));
 export const KEY_PROBE_STEP = "clean room: no provider key on the machine";
 export type KeyFinding = { place: "env" | "cmdline" | "file"; where: string; what: string };
-export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
+export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; shipped?: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
 
 /** The probe sent as one exec: as root when sudo asks no password, so it reads every process and home. */
 export function keyProbeCommand(source: string, args: string[] = []): string {
@@ -911,7 +911,8 @@ export function keyProbeDetail(p: KeyProbe): string {
   const s = p.scanned ?? {};
   const cover =
     `${p.as_root ? "as root" : "not as root"}, ${s.processes ?? 0} processes, ${s.files ?? 0} files in ${p.ms} ms; ` +
-    (p.complete ? "everything read" : `incomplete: ${p.gaps.join(", ")}`);
+    (p.complete ? "everything read" : `incomplete: ${p.gaps.join(", ")}`) +
+    (p.shipped?.length ? `; ${p.shipped.length} key shape${p.shipped.length > 1 ? "s" : ""} in installed software, not counted` : "");
   if (!p.findings.length) return p.complete ? `no provider key (${cover})` : `no finding, but not everything was read, so unknown (${cover})`;
   const list = p.findings.map((f) => `${f.place} ${f.where}: ${f.what}`);
   return `${p.findings.length} finding${p.findings.length > 1 ? "s" : ""}: ${list.join("; ")} (${cover})`;

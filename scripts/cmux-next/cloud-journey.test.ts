@@ -957,7 +957,12 @@ describe("clean-room provider key probe", () => {
       "proc/106/cmdline": "x\0",
       // A key inside node_modules and inside a binary file still counts.
       "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
+      "home/cmux/bin/blob": `\0\0ELF${PROJ}\0\0`,
+      // Installed software (what the image put in /opt, a harness's plugin cache) is listed apart, not counted.
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
+      "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `{"refresh_token": "${REFRESH}"}\n`,
+      // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
+      "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
       "home/cmux/.codex/auth.json": JSON.stringify({ tokens: { refresh_token: REFRESH } }),
       "home/cmux/.bashrc": `export PATH=$HOME/bin:$PATH\nexport GEMINI_API_KEY=${GEMINI}\n`,
@@ -984,10 +989,16 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
         "file /home/cmux/app/node_modules/x/.env:1: ANTHROPIC_API_KEY",
         "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
+        "file /home/cmux/aws.txt:2: an AWS access key id",
+        "file /home/cmux/bin/blob: an OpenAI project key",
         "file /home/cmux/cache/[an OpenAI project key]:1: an OpenAI project key",
+      ]);
+      expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/.codex/.tmp/plugins/p/skills/api.md:1: an OAuth refresh token",
         "file /opt/tool/bin/blob: an OpenAI project key",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("16 findings: ");
+      expect(keyProbeDetail(probe)).toStartWith("17 findings: ");
+      expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
