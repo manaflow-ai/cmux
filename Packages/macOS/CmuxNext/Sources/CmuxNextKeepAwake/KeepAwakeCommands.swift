@@ -31,11 +31,11 @@ nonisolated struct KeepAwakeCommands: Equatable, Sendable {
 
     var commands: [Command] = []
 
-    /// The running commands of the store's terminal tabs. Reads only the command and output
-    /// facts of a tab whose shell runs one, so an observer wakes for those alone.
-    @MainActor static func of(_ store: DaemonStore) -> Self {
+    /// The running commands of `tabs` (one workspace's: ``KeepAwakeService`` observes each workspace on its own).
+    /// Reads only the command and output facts of a tab whose shell runs one, so an observer wakes for those alone.
+    @MainActor static func of(_ tabs: [TabModel]) -> Self {
         var out = Self()
-        for tab in store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+        for tab in tabs {
             guard var since = tab.commandSinceMs else { continue }
             if let seen = tab.commandSeenAt { since = min(since, Self.ms(seen)) }
             var output = tab.lastOutputMs
