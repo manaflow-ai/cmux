@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -96,6 +97,33 @@ struct SpaceSwitchCostTests {
             #expect(count("row_maps") <= count("row_frames") + 8,
                     "switch \(round): built \(count("row_maps")) rows of a space shown before; the list draws \(count("row_frames"))")
         }
+    }
+
+    /// The window opened at launch adopts a saved window's id (`WindowState.adopt`) and keeps its sidebar: what the
+    /// rows feed keeps follows the id the window has now. With the id read once at the start, the person's main
+    /// window kept no row after a relaunch and every switch mapped every row of the space again.
+    @Test func theRowsFeedKeepsTheWorkspacesOfTheIdTheLaunchWindowAdopted() async throws {
+        let bench = try await SpaceSwitchBench(total: 4, registered: true)
+        defer { bench.close() }
+        let record = { (id: String) in try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"\#(id)","workspace_key":"k0"}"#.utf8)) }
+        let launch = try WindowState(record: record("launch"))
+        let feed = SidebarBridge(services: bench.services, state: launch).rowFeed
+        try launch.adopt(record("space-bench"))
+        // Three passes of the sidebar's feed: the space of workspace k0 shows, another space shows, k0's shows again.
+        let workspace = CmuxNextSidebar.WorkspaceID("k0")
+        final class Count { var maps = 0 }
+        let count = Count()
+        for named in [true, false, true] {
+            feed.beginPass(inputs: 0)
+            if named {
+                _ = feed.row(workspace, machine: .local) {
+                    count.maps += 1
+                    return SidebarWorkspace(id: workspace, machineID: .local, title: "k0")
+                }
+            }
+            _ = feed.fill([])
+        }
+        #expect(count.maps == 1, "the launch window has the saved window's id and mapped the row of its own workspace \(count.maps) times")
     }
 
     /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked): a

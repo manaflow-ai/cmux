@@ -159,6 +159,16 @@ import Testing
         #expect(rows.allSatisfy { $0.title.hasSuffix("inputs 1") }, "rows mapped with old inputs: \(rows.filter { !$0.title.hasSuffix("inputs 1") }.map(\.title))")
     }
 
+    /// The pass that parks a space can be the one whose inputs change (a mute and a space switch in one turn): the
+    /// rows it parks were mapped with the old inputs, and no later pass with the new inputs maps them again.
+    @Test func aRowParkedByThePassThatChangesTheInputsIsNotServedWithOldInputs() {
+        let fixture = Fixture(), a = Fixture.space("a", 20), b = Fixture.space("b", 20)
+        fixture.show(a, inputs: 0)
+        fixture.show(b, inputs: 1) // the muted set changes in the pass that leaves space a
+        let rows = fixture.show(a, inputs: 1)
+        #expect(rows.allSatisfy { $0.title.hasSuffix("inputs 1") }, "rows mapped with old inputs: \(rows.filter { !$0.title.hasSuffix("inputs 1") }.map(\.title))")
+    }
+
     @Test func aListingChangedWhileParkedAnswersWhenItsSpaceShows() {
         let fixture = Fixture(), a = Fixture.space("a", 20), b = Fixture.space("b", 20)
         fixture.show(a)
