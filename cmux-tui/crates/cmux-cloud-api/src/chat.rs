@@ -32,12 +32,19 @@ pub(crate) const CALLS: [&str; 2] = ["machine.chat_access", "machine.share_chat"
 /// A machine or user id, the only path parts that vary: 1 to 256 letters, digits, `_` or `-`
 /// (the platform's `MachineId`), so nothing else ever lands in the URL.
 pub(crate) fn is_path_id(id: &str) -> bool {
-    (1..=256).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    (1..=256).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 fn id<'a>(args: &'a Map<String, Value>, name: &str) -> Result<&'a str, Failure> {
     let value = text(args, name)?;
     if is_path_id(value) { Ok(value) } else { Err(Failure::Transport(format!("not a {name} id"))) }
+}
+
+/// `value` as the generated client's path parameter type (its 1 to 256 character string), which
+/// `is_path_id` already holds to.
+fn typed<T: std::str::FromStr>(value: &str) -> Result<T, Failure> {
+    value.parse().map_err(|_| Failure::Transport(format!("not a path id: {value}")))
 }
 
 fn flag(args: &Map<String, Value>, name: &str) -> bool {
@@ -60,14 +67,20 @@ pub(crate) async fn run(
             }
             let client = client(request)?;
             let path = format!("/v1/machines/{machine}/chat-grants");
-            let sent = async {
-                if revoke {
-                    client.machines_unshare_chat(machine, user).await.map(|r| json!(r.into_inner()))
-                } else {
-                    client.machines_share_chat(machine, user).await.map(|r| json!(r.into_inner()))
-                }
+            let answer = if revoke {
+                let (on, to) = (typed(machine)?, typed(user)?);
+                let sent = async {
+                    client.machines_unshare_chat(&on, &to).await.map(|r| json!(r.into_inner()))
+                };
+                answered(request, CHAT_TIMEOUT, path, sent).await
+            } else {
+                let (on, to) = (typed(machine)?, typed(user)?);
+                let sent = async {
+                    client.machines_share_chat(&on, &to).await.map(|r| json!(r.into_inner()))
+                };
+                answered(request, CHAT_TIMEOUT, path, sent).await
             };
-            match answered(request, CHAT_TIMEOUT, path, sent).await {
+            match answer {
                 Err(refusal) if me && is_not_creator_or_admin(&refusal) => {
                     match access(request, machine).await {
                         Ok(found) if starts_chats(&found) => Ok(found),
@@ -84,7 +97,8 @@ pub(crate) async fn run(
 /// `GET /v1/machines/{machine}/chat-access`.
 async fn access(request: &Request, machine: &str) -> Result<Value, Failure> {
     let client = client(request)?;
-    let sent = async { client.machines_chat_access(machine).await.map(|r| json!(r.into_inner())) };
+    let on = typed(machine)?;
+    let sent = async { client.machines_chat_access(&on).await.map(|r| json!(r.into_inner())) };
     answered(request, CHAT_TIMEOUT, format!("/v1/machines/{machine}/chat-access"), sent).await
 }
 

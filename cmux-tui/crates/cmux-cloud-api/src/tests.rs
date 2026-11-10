@@ -1426,8 +1426,7 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
 const ACCESS_NONE: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"none","canShare":false,"grants":[]}"#;
 const ACCESS_GRANTED: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":false,"grants":[]}"#;
 const ACCESS_ADMIN: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":true,"grants":["user_me"]}"#;
-const NOT_CREATOR: &str =
-    r#"{"_tag":"MachineForbidden","code":"machine.creator_or_admin","message":"not allowed to share_chat this"}"#;
+const NOT_CREATOR: &str = r#"{"_tag":"MachineForbidden","code":"machine.creator_or_admin","message":"not allowed to share_chat this"}"#;
 
 fn share(origin: &str, args: Value) -> Request {
     let mut call = request(origin, Auth::Worker, "machine.share_chat", args);
@@ -1453,13 +1452,17 @@ fn a_revoke_deletes_the_grant() {
     let (origin, seen) = fake(|_| ok(ACCESS_NONE));
     let call = share(&origin, json!({ "machine": "vm_team", "user": "user_mate", "revoke": true }));
     assert_eq!(go(&call).unwrap()["chatStart"], "none");
-    assert_eq!(seen.lock().unwrap()[0].target(), "DELETE /v1/machines/vm_team/chat-grants/user_mate");
+    assert_eq!(
+        seen.lock().unwrap()[0].target(),
+        "DELETE /v1/machines/vm_team/chat-grants/user_mate"
+    );
 }
 
 #[test]
 fn the_chat_access_is_the_callers() {
     let (origin, seen) = fake(|_| ok(ACCESS_GRANTED));
-    let call = request(&origin, Auth::Worker, "machine.chat_access", json!({ "machine": "vm_team" }));
+    let call =
+        request(&origin, Auth::Worker, "machine.chat_access", json!({ "machine": "vm_team" }));
     assert_eq!(go(&call).unwrap()["chatStart"], "granted");
     assert_eq!(seen.lock().unwrap()[0].target(), "GET /v1/machines/vm_team/chat-access");
 }
@@ -1490,7 +1493,8 @@ fn share_with_me_after_the_owner_shared_answers_the_access() {
         if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_GRANTED) }
     });
     let answer =
-        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true }))).unwrap();
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
+            .unwrap();
     assert_eq!(answer["chatStart"], "granted");
 }
 
@@ -1499,7 +1503,8 @@ fn a_teammates_share_refusal_never_reads_the_callers_access() {
     let (origin, seen) = fake(|s| {
         if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_GRANTED) }
     });
-    let failure = go(&share(&origin, json!({ "machine": "vm_team", "user": "user_mate" }))).unwrap_err();
+    let failure =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_mate" }))).unwrap_err();
     assert!(matches!(failure, Failure::Http { status: 403, .. }));
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
@@ -1512,7 +1517,9 @@ fn a_private_machine_refusal_keeps_its_code() {
     let failure =
         go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
             .unwrap_err();
-    assert!(matches!(failure, Failure::Http { status: 403, code: Some(c), .. } if c == "machine.private"));
+    assert!(
+        matches!(failure, Failure::Http { status: 403, code: Some(c), .. } if c == "machine.private")
+    );
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 
