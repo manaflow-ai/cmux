@@ -7,7 +7,8 @@
 //! - A prompt, a page of events and a cancel on A go through, and the prompt runs under the
 //!   header's author whatever author the request named.
 //! - The same verbs on B, and every verb outside the teammate's allowlist (a session start, a
-//!   load, the session list, a permission answer, a method no acpmux has yet), are refused with
+//!   load, the session list, a permission answer, a method no acpmux has yet, and every other
+//!   method `rpc::method` lists, read from its source), are refused with
 //!   JSON-RPC code -32003 (`carrier::NOT_A_TEAMMATE_VERB`) and `data.reason:
 //!   "carrier.team_refused"`.
 //!
@@ -115,13 +116,25 @@ impl Carrier {
         self.next
     }
 
-    /// The answer to request `id`, keeping the notifications read on the way.
+    /// The answer to request `id`, keeping the notifications and other answers read on the way:
+    /// one read while waiting for another request's answer is taken from those first.
     async fn answer(&mut self, id: i64) -> Value {
+        if let Some(i) = self.seen.iter().position(|v| is_answer(v, id)) {
+            return self.seen.remove(i);
+        }
         loop {
             let v = self.frame().await;
-            if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
+            if is_answer(&v, id) {
                 return v;
             }
+            self.seen.push(v);
+        }
+    }
+
+    /// Read frames until the answers to every one of `ids` are among those read.
+    async fn read_answers(&mut self, ids: &[i64]) {
+        while !ids.iter().all(|id| self.seen.iter().any(|v| is_answer(v, *id))) {
+            let v = self.frame().await;
             self.seen.push(v);
         }
     }
@@ -144,6 +157,30 @@ impl Carrier {
             self.seen.push(v);
         }
     }
+}
+
+fn is_answer(v: &Value, id: i64) -> bool {
+    v.get("id") == Some(&json!(id)) && v.get("method").is_none()
+}
+
+/// Every method name in `rpc::method`, read from its source as `carrier_tests.rs`'s
+/// `every_method` reads it, so a method added later is swept here too.
+fn every_method() -> Vec<String> {
+    let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/rpc.rs"));
+    let start = src.find("pub mod method").expect("rpc.rs has a method module");
+    let end = start + src[start..].find("\n}\n").expect("the method module ends");
+    let mut out = Vec::new();
+    for line in src[start..end].lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("pub const ")
+            && let Some((_, value)) = rest.split_once("= \"")
+            && let Some(name) = value.strip_suffix("\";")
+        {
+            out.push(name.to_owned());
+        }
+    }
+    assert!(out.len() > 200, "read {} methods from rpc.rs", out.len());
+    out
 }
 
 fn prompt(chat: &str, text: &str) -> Value {
@@ -219,7 +256,11 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
         p.contains("agent_message_chunk") && p.contains("running")
     })
     .await;
-    let r = mate.call(method::SESSION_CANCEL, json!({"sessionId": a})).await;
+    let cancel = mate.send(method::SESSION_CANCEL, json!({"sessionId": a})).await;
+    // Both answers are read before either is asked for, so each is taken from those already read,
+    // whichever came first (the prompt's may come before the cancel's).
+    mate.read_answers(&[cancel, running]).await;
+    let r = mate.answer(cancel).await;
     assert!(r.get("error").is_none(), "a teammate's cancel on its chat: {r}");
     let r = mate.answer(running).await;
     assert_eq!(r["result"]["stopReason"], "cancelled", "{r}");
@@ -251,6 +292,34 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
         // A method no acpmux has yet is refused too.
         ("_acpmux/some_future_verb", json!({"sessionId": a})),
     ] {
+        let r = mate.call(m, params).await;
+        assert_team_refused(m, &r);
+    }
+
+    // Every other method acpmux has, as `rpc::method` lists it, on chat A: only the teammate's
+    // verbs (`carrier::team_allows`) are allowed, the rest refused.
+    let methods = every_method();
+    let allowed: Vec<&str> =
+        methods.iter().map(String::as_str).filter(|m| carrier::team_allows(m)).collect();
+    let mut want = vec![
+        method::INITIALIZE,
+        method::MUX_ATTACH,
+        method::MUX_INFO,
+        method::MUX_EVENTS,
+        method::MUX_ATTACHMENT,
+        method::SESSION_PROMPT,
+        method::SESSION_CANCEL,
+        method::MUX_DETACH,
+    ];
+    let mut got = allowed.clone();
+    got.sort_unstable();
+    got.dedup();
+    want.sort_unstable();
+    assert_eq!(got, want, "the teammate's verbs: docs/carrier-roles.md");
+    let refused: Vec<&String> = methods.iter().filter(|m| !carrier::team_allows(m)).collect();
+    assert!(refused.len() > 200, "{} refused methods", refused.len());
+    for m in refused {
+        let params = json!({"sessionId": a, "cwd": d.join("work"), "mcpServers": []});
         let r = mate.call(m, params).await;
         assert_team_refused(m, &r);
     }
