@@ -223,6 +223,8 @@ def swap_line(owner):
     return None if line is None else line.split("; previous file")[0].split("output cleanup: ")[1]
 
 
+# A first pass, or a pass that goes on with the staging file of a killed owner.
+STAGING_LINES = ["output cleanup: staging ", "output cleanup: resuming after sequence"]
 BAD_BUILD = ("output cleanup: not enough free space", "output cleanup: skipped, the registry",
              "output cleanup: staging failed")
 
@@ -236,7 +238,7 @@ def build(args, state, label):
         result["error"] = "not ready"
         owner.stop()
         return result
-    staging = owner.wait_log(["output cleanup: staging "], args.build_timeout, BAD_BUILD)
+    staging = owner.wait_log(STAGING_LINES, args.build_timeout, BAD_BUILD)
     result["staging_started_s"] = None if staging is None else staging[1]
     built = None
     if staging is not None and staging[1] is not None:
@@ -253,7 +255,7 @@ def build(args, state, label):
     return result
 
 
-def start_stop(args, state, label, binary=None):
+def start_stop(args, state, label, binary=None, ask=True):
     owner = Owner(args, state, label, binary=binary)
     ready = owner.wait_ready()
     result = {"arm": label, "ready_s": ready, "swap": swap_line(owner),
@@ -262,7 +264,7 @@ def start_stop(args, state, label, binary=None):
         lines = owner.log_text().splitlines()
         result["error"] = "not ready"
         result["last_line"] = (lines[-1] if lines else "")[:200]
-    else:
+    elif ask:
         result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
@@ -307,7 +309,7 @@ def main_arm(args, state, before, report):
 def kill_stage_arm(args, state, before, report):
     owner = Owner(args, state, "kill-stage-a")
     owner.wait_ready()
-    seen = owner.wait_log(["output cleanup: staging "], args.build_timeout, BAD_BUILD)
+    seen = owner.wait_log(STAGING_LINES, args.build_timeout, BAD_BUILD)
     staging = registry_of(state).parent / STAGING
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline and drs.file_size(staging) < 1 << 20:
@@ -460,18 +462,19 @@ def main():
     scratch = Path(args.scratch)
     generated = counts(args, args.state)
     say("RMP-COUNTS", {"at": "generated", **generated})
-    # One plain start and stop first (shorter than the 60 s before any staging): what a start
-    # alone changes in a generated registry (its agents are not real terminals) is not a result
-    # of the migration, so the counts "before" are read after it.
-    plain = start_stop(args, args.state, "plain-start")
+    # One plain start and stop first: what a start alone changes in a generated registry (its
+    # agents are not real terminals) is not a result of the migration, so the counts "before"
+    # are read after it. It stops when it is ready (the cleanup worker waits 60 s after a start),
+    # and it does not ask for the History list (that waits for the fold).
+    plain = start_stop(args, args.state, "plain-start", ask=False)
     before = counts(args, args.state)
     plain["changed_by_a_plain_start"] = compare(generated, before)
     say("RMP", plain)
     say("RMP-COUNTS", {"at": "before", **before})
     report = {"generated": generated, "before": before, "steps": [plain], "arms": args.arms,
               "host_load_1m": os.getloadavg()[0], "free_bytes": shutil.disk_usage(scratch).free}
-    if before["staging_bytes"] or before["backup_bytes"] or plain["ready_s"] is None:
-        plain["error"] = "the plain start staged, swapped or did not get ready"
+    if before["backup_bytes"] or plain["ready_s"] is None:
+        plain["error"] = "the plain start swapped or did not get ready"
     for name in ("kill-stage", "space"):
         if name in args.arms:
             clone(args.state, scratch / name)
@@ -492,7 +495,8 @@ def main():
     failed = [step["arm"] for step in report["steps"] if "error" in step]
     if report.get("served_lost"):
         lost.append("served")
-    say("RMP-VERDICT", {"lost_in": lost, "failed": failed})
+    unread = [step["arm"] for step in report["steps"] if "error" in (step.get("served") or {})]
+    say("RMP-VERDICT", {"lost_in": lost, "failed": failed, "served_not_read_in": unread})
     return 1 if lost or failed or not ok else 0
 
 
