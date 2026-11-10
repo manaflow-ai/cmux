@@ -327,3 +327,60 @@ fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
          for the prompt of the terminal before it"
     );
 }
+
+/// A try that follows a failed launch after a wait (the supervisor's
+/// backoff) took no turn in the respawn gate: it launched when its wait
+/// ended, beside the launch that had the turn. After the wait it takes its
+/// place at the end of the line, as a try with no wait does.
+///
+/// 4 kept tabs, 1 slot, each launch held 3 s in its turn, and the first 5
+/// launches fail: one terminal fails two times, so its third try waits 7.5 s
+/// and comes due in the middle of another terminal's turn. The other 3
+/// terminals restart one turn (3 s) apart; the try with no turn restarted
+/// between two of them.
+#[test]
+fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
+    const TABS: usize = 4;
+    const HOLD_MS: u64 = 3_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("kept-restore-wait-turn");
+    let terminals = create_workspaces(&harness, "late", TABS);
+    end_sessions_keep_layout(&mut harness);
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS".into(), (TABS + 1).to_string()));
+    // A restart's tries: at once, at once, then after 7.5 s.
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_BACKOFF_MS".into(), "0,7500,7500,7500".into()));
+    harness.restart();
+    let kept = all_tabs(&harness);
+    assert_eq!(kept.len(), TABS, "the restart did not keep every tab");
+    restart_kept_tabs(&harness, &kept);
+
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(90));
+    let mut at = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .filter_map(|event| event["at_ms"].as_u64())
+            .collect::<Vec<_>>();
+        if at.len() >= terminals.len() {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "only {} of {TABS} terminals restarted", at.len());
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    at.sort_unstable();
+    // The first 3 restarts are the 3 terminals that failed one time: each had
+    // its own turn, so they are one hold apart.
+    for pair in at[..3].windows(2) {
+        let gap = pair[1] - pair[0];
+        assert!(
+            gap >= HOLD_MS * 3 / 4,
+            "two kept terminals restarted {gap} ms apart with 1 respawn slot and {HOLD_MS} ms \
+             per turn: a try after a wait launched with no turn (restarts at {at:?})"
+        );
+    }
+}
