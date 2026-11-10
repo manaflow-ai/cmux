@@ -259,8 +259,9 @@ fn a_hold_waits_out_a_write_in_flight_before_its_lease_ends_it() {
     let (finish, wait_finish) = std::sync::mpsc::channel::<()>();
     std::thread::scope(|scope| {
         let request = json!({ "hold": job }).as_object().cloned().unwrap();
-        let writer = scope.spawn(|| {
-            held_op(Some(&service), &json!(1), request, |_| {
+        let (service, folder) = (&service, &folder);
+        let writer = scope.spawn(move || {
+            held_op(Some(service), &json!(1), request, move |_| {
                 started.send(()).unwrap();
                 wait_finish.recv().unwrap();
                 std::fs::write(folder.join("slow.md"), "x").unwrap();
