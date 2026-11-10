@@ -96,8 +96,11 @@ struct SidebarCodexMatchTests {
 
     // MARK: Inks and fills
 
-    @Test(arguments: [ThemeInput.ghosttyDefault, ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1A1C1F))])
-    func titlesAreSofterAndStillRead(_ input: ThemeInput) {
+    /// The default dark theme and a light one (Codex's light foreground on white).
+    @Test(arguments: [true, false])
+    func titlesAreSofterAndStillRead(dark: Bool) {
+        let input = dark ? CmuxTheme.ThemeInput.ghosttyDefault
+            : CmuxTheme.ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1A1C1F))
         let tokens = ThemeTokens.derive(from: input)
         let bg = tokens.windowBackground.withAlpha(1)
         #expect(tokens.sidebarTitle != tokens.textPrimary, "softer than the primary text")
@@ -109,7 +112,7 @@ struct SidebarCodexMatchTests {
 
     /// In a see-through window the title still reads over the worst desktop behind it.
     @Test func titlesReadInASeeThroughWindow() {
-        var input = ThemeInput.ghosttyDefault
+        var input = CmuxTheme.ThemeInput.ghosttyDefault
         input.background = ThemeRGB(hex: 0x6A6A6A)
         input.foreground = ThemeRGB(hex: 0xFFFFFF)
         input.backgroundOpacity = 0.6
