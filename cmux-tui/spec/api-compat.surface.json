@@ -8449,6 +8449,10 @@
       "/consent": {
         "ty": "boolean",
         "nullable": true
+      },
+      "/generation": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "request:cloud-start-chat-reservation": {

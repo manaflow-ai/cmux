@@ -106,7 +106,8 @@ fn a_sign_out_ends_the_copy_and_no_lease_fails_closed() {
 #[test]
 fn a_stale_consent_read_never_overwrites_a_later_one() {
     let control = Arc::new(SpareWarmControl::default());
-    let guard = LiveGuard::new(Some(leased("user_a")), control.clone(), &params_for("user_a", Some(true)));
+    let guard =
+        LiveGuard::new(Some(leased("user_a")), control.clone(), &params_for("user_a", Some(true)));
     // A warm read yes (generation 4), then awaited its tokens; meanwhile the person turned copying
     // off and the follower sent that read (generation 5) first.
     assert!(control.set_consent(7, 5, Some(false)));
