@@ -75,6 +75,8 @@ nonisolated enum SidebarPerfCounters {
         /// Builds of the model's row index (`SidebarRowIndex`: every listed row), by the first reader of a row's place
         /// after a structural set.
         case rowIndexBuilds = "row_index_builds"
+        /// Workspaces a full set counted the listings of, for the one-row changes after it (`SidebarRowChangeBase`).
+        case rowListingReads = "row_listing_reads"
         /// Rows mapped from their stores, with or without a feed (`SidebarRowFeed.Make.rows`).
         case rowsMade = "rows_made"
         /// Rows the slot rule's placeholder filter walked (`SidebarSection.withoutPlaceholders`).
