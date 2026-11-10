@@ -550,6 +550,7 @@ mod incognito_orphans;
 mod incognito_remote;
 mod input_lane;
 mod layout_receipts_shutdown;
+mod list_workspaces_cost;
 mod outbound_and_scheduler;
 mod rds_input_lane;
 mod read_barrier;
