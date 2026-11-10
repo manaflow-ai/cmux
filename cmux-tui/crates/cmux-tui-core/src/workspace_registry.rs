@@ -3038,6 +3038,8 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
+            // After the repair: it can tombstone terminals too.
+            resource_store::prune_agent_records_of_closed_terminals_at_open(&tx)?;
             public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             // Additive: also on a registry a build before the table wrote.

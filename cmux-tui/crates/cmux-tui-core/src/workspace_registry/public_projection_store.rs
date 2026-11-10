@@ -247,8 +247,11 @@ enum StoredCursorStyle {
 
 impl WorkspaceRegistry {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove notification links, while
-    /// agent reports remain durable historical projections keyed by terminal.
+    /// writer. Missing or tombstoned terminals remove notification links. An
+    /// agent record is the current projection of a live terminal: the tombstone
+    /// of the terminal deletes it and its hook fence in the same transaction,
+    /// and the open deletes the ones older builds left, so no row read here
+    /// belongs to a closed terminal.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
