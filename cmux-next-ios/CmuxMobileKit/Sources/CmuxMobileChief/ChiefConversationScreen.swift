@@ -225,6 +225,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
+            // A send clears the field from code, which posts no text change.
+            if !self.slashSuggestions.isHidden { self.updateSlashSuggestions() }
             // The conversation becomes known on connect (or the store moves to another
             // Chief): that chat's own colours apply then.
             if self.chatColorsKey != self.appliedChatColorsKey { self.applyChatColors() }
@@ -235,6 +237,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         installSendGate()
         observeAvailability()
         installPageMenu()
+        installSlashSuggestions()
     }
 
     // MARK: Chief unavailable (full verify D2, D3)
@@ -272,7 +275,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         holdUnsentMessage()
     }
 
-    private var composerTextView: UITextView? {
+    /// The composer's `/` list (ChiefSlashSuggestionsView.swift).
+    let slashSuggestions = ChiefSlashSuggestionsView()
+
+    var composerTextView: UITextView? {
         conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
     }
 
@@ -605,6 +611,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         if view.window != nil, !isCovered { enableEdgePop() }
         layoutQuestionBar()
         anchorLiveBubble()
+        // The keyboard moved the field: the list follows it.
+        if !slashSuggestions.isHidden { updateSlashSuggestions() }
     }
 
     /// The back swipe from the left edge, as in Messages. On iOS 26 and later
