@@ -18,11 +18,12 @@ Rules:
                    real glass instead of the card veil, a surface that builds both, a kind
                    that allows no glass.
   native-stale     a manifest entry whose file is gone or no longer builds glass.
-  web-floating     a floating web surface (`ui-popup ui-glass`) in the agent pane's code (webviews/src/ui,
-                   webviews/src/agent-session) without `data-host-glass`: in a see-through Chromium pane
-                   it reads as a flat box beside the menus on the App's glass. `host-glass-allow: <reason>`
-                   within its element passes; so does a file in web_floating_pending, the backlog, which
-                   fails as stale once the file is marked.
+  web-floating     a floating web surface in the agent pane's code (webviews/src/ui, webviews/src/agent-session):
+                   a JSX element whose own className carries both `ui-popup` and `ui-glass` (a string, a
+                   multiline cx(...)) and no `data-host-glass=` attribute of its own. In a see-through
+                   Chromium pane it reads as a flat box beside the menus on the App's glass. A
+                   `host-glass-allow: <reason>` comment inside that opening tag passes; so does a file in
+                   web_floating_pending, the backlog, which fails as stale once the file has no unmarked surface.
 """
 from __future__ import annotations
 
@@ -42,7 +43,10 @@ REAL_GLASS = re.compile(
     r"NSVisualEffectView\(|\.glassEffect\(|FindPillView\(|OverlaySurfaceView\("
 )
 CARD_VEIL = re.compile(r"CardSurfaceView\(")
-FLOATING = re.compile(r"""className=.*\bui-popup\b.*\bui-glass\b|className=.*\bui-glass\b.*\bui-popup\b""")
+POPUP = re.compile(r"(?<![\w-])ui-popup(?![\w-])")
+GLASS = re.compile(r"(?<![\w-])ui-glass(?![\w-])")
+HOST_GLASS = re.compile(r"(?<![\w-])data-host-glass=")
+TAG_START = re.compile(r"<[A-Za-z][\w.]*")
 SKIP_WEB = re.compile(r"(\.gallery\.|\.test\.|/prototypes/|/test/)")
 
 
@@ -53,6 +57,182 @@ def code_lines(text: str) -> list[str]:
         stripped = line.lstrip()
         out.append("" if stripped.startswith("//") or stripped.startswith("*") else line)
     return out
+
+
+def opening_tags(text: str):
+    """Each JSX opening tag: (offset, its whole text, its own attributes, its own comments). Its own attributes are
+    the tag's text outside braces with string contents blanked, so a mark nested in a value (a child element, a
+    string) is not the element's; its own comments are the comments outside braces."""
+    for match in TAG_START.finditer(text):
+        depth = 0
+        quote = ""
+        own: list[str] = []
+        notes: list[str] = []
+        index = match.end()
+        while index < len(text):
+            char = text[index]
+            if not quote and text.startswith(("//", "/*"), index):
+                block = text.startswith("/*", index)
+                end = text.find("*/" if block else "\n", index + 2)
+                end = len(text) if end < 0 else end + (2 if block else 0)
+                if depth == 0:
+                    notes.append(text[index:end])
+                index = end
+                continue
+            if quote:
+                if char == "\\":
+                    index += 1
+                elif char == quote:
+                    quote = ""
+                    if depth == 0:
+                        own.append(char)
+            elif char in "\"'`":
+                quote = char
+                if depth == 0:
+                    own.append(char)
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            elif char == ">" and depth == 0:
+                yield match.start(), text[match.start() : index + 1], "".join(own), "\n".join(notes)
+                break
+            elif char == "<" and depth == 0:
+                break  # a comparison or a stray `<`, not a tag
+            elif depth == 0:
+                own.append(char)
+            index += 1
+
+
+# A class held in a const: a string or a cx(...) of strings, never a component or a function.
+CONST = re.compile(r"\bconst\s+(\w+)\s*=([^;]*);", re.S)
+# `className=`, with the whitespace JSX allows around the `=`.
+CLASS_NAME = re.compile(r"className\s*=\s*")
+
+
+def class_attribute(tag: str) -> str:
+    """The value of the tag's own `className` (outside braces), or "" without one."""
+    depth = 0
+    quote = ""
+    index = 0
+    while index < len(tag):
+        char = tag[index]
+        if not quote and tag.startswith(("//", "/*"), index):
+            block = tag.startswith("/*", index)
+            end = tag.find("*/" if block else "\n", index + 2)
+            index = len(tag) if end < 0 else end + (2 if block else 0)
+            continue
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif depth == 0 and tag[index - 1 : index].isspace() and (attribute := CLASS_NAME.match(tag, index)):
+            return balanced_value(tag, attribute.end())
+        index += 1
+    return ""
+
+
+def balanced_value(tag: str, start: int) -> str:
+    """The attribute value at `start`: a quoted string to its quote, or `{...}` to its balancing brace."""
+    opener = tag[start : start + 1]
+    if opener in ("\"", "'"):
+        end = tag.find(opener, start + 1)
+        return tag[start : (len(tag) if end < 0 else end + 1)]
+    if opener != "{":
+        return ""
+    depth = 0
+    quote = ""
+    index = start
+    while index < len(tag):
+        char = tag[index]
+        if not quote and tag.startswith(("//", "/*"), index):
+            block = tag.startswith("/*", index)
+            end = tag.find("*/" if block else "\n", index + 2)
+            index = len(tag) if end < 0 else end + (2 if block else 0)
+            continue
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return tag[start : index + 1]
+        index += 1
+    return tag[start:]
+
+
+def strings_and_code(value: str) -> tuple[str, str]:
+    """A className value split into the text of its string literals (the classes) and the code around them (where a
+    const is named), with comments in neither. A template literal's text is a string; its `${...}` is code."""
+    strings: list[str] = []
+    code: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if value.startswith(("//", "/*"), index):
+            block = value.startswith("/*", index)
+            end = value.find("*/" if block else "\n", index + 2)
+            index = len(value) if end < 0 else end + (2 if block else 0)
+            code.append(" ")
+            continue
+        if char in "\"'`":
+            index += 1
+            while index < len(value) and value[index] != char:
+                if value[index] == "\\":
+                    index += 1
+                elif char == "`" and value.startswith("${", index):
+                    inner = balanced_value(value, index + 1)
+                    inner_strings, inner_code = strings_and_code(inner[1:-1])
+                    strings.append(" " + inner_strings + " ")
+                    code.append(" " + inner_code + " ")
+                    index += 1 + len(inner)
+                    continue
+                else:
+                    strings.append(value[index])
+                index += 1
+            strings.append(" ")
+            code.append(' "" ')
+            index += 1
+            continue
+        code.append(char)
+        index += 1
+    return "".join(strings), "".join(code)
+
+
+def unmarked_surfaces(text: str) -> list[int]:
+    """The 1-based lines of the floating glass elements with no host glass of their own and no allowance. A class
+    held in a const of the same file (`const popupClassName = cx("ui-popup ui-glass ...")`) counts as the tag's when
+    the tag's className names it."""
+    floating_names = [
+        m.group(1)
+        for m in CONST.finditer(text)
+        if POPUP.search(m.group(2)) and GLASS.search(m.group(2)) and "<" not in m.group(2) and "=>" not in m.group(2)
+    ]
+    lines = []
+    for offset, tag, own, notes in opening_tags(text):
+        # The element's own className, whole: a string, or a braced expression to its balancing brace.
+        classes = class_attribute(tag)
+        # Its classes are the text of its string literals; a const is named only in its code, a braced expression.
+        strings, code = strings_and_code(classes)
+        code = code if classes.startswith("{") else ""
+        named = any(re.search(r"\b" + name + r"\b", code) for name in floating_names)
+        floating = (POPUP.search(strings) and GLASS.search(strings)) or named
+        if floating and not HOST_GLASS.search(own) and "host-glass-allow:" not in notes:
+            lines.append(text.count("\n", 0, offset) + 1)
+    return lines
 
 
 def native_materials(text: str) -> set[str]:
@@ -114,22 +294,16 @@ def check(root: Path) -> list[str]:
             rel = path.relative_to(web).as_posix()
             if not rel.startswith(WEB_SCOPES) or SKIP_WEB.search("/" + rel):
                 continue
-            lines = path.read_text(errors="replace").splitlines()
-            for index, line in enumerate(lines):
-                if not FLOATING.search(line):
-                    continue
-                element = "\n".join(lines[max(0, index - 8) : index + 10])
-                if "data-host-glass" in element or "host-glass-allow:" in element:
-                    continue
+            for line in unmarked_surfaces(path.read_text(errors="replace")):
                 unmarked.add(rel)
                 if rel not in pending:
                     errors.append(
-                        f"{WEB_ROOT}/{rel}:{index + 1}: [web-floating] a floating ui-glass surface without data-host-glass:"
+                        f"{WEB_ROOT}/{rel}:{line}: [web-floating] a floating ui-glass surface without data-host-glass:"
                         " in the agent pane it reads flat beside menus on the App's glass. Mark it"
                         ' data-host-glass="menu|popover|chip" (ui/glass/hostGlass.ts) or say why: host-glass-allow: <reason>'
                     )
     for rel in sorted(set(pending) - unmarked):
-        errors.append(f"{MANIFEST}: [web-floating] {rel} is marked now: remove it from web_floating_pending")
+        errors.append(f"{MANIFEST}: [web-floating] {rel} is marked or gone now: remove it from web_floating_pending")
     return errors
 
 

@@ -7,6 +7,12 @@
   row now keeps right of the band's edge on screen (`SidebarView.titlebarControlsFloor`, re-applied by the
   container's layout on every frame of the width slide) and the sidebar's clip closes over it there; an expand runs
   backwards. At rest nothing moves; Reduce Motion still snaps. Regression: `SidebarPlusSlideTests`.
+- 2026-11-09: the Update Ready card's Automatic Updates control is body-size text with a switch to match. Leo,
+  verbatim: "at least let's just make the automatic updates thing, like, bigger ... Why is the font so small in
+  general, you know?" `SidebarUpdateToggle` drew a caption (10.5/11 pt) beside a switch an icon less a step tall; the
+  default `sidebar.updateCard.automaticSize` (Regular) sets the label in `Typography.body` and the switch at
+  `Metrics.smallIconSize`, and the card's height follows. Compact (before) and Large stay in Debug Settings.
+  Regression: `UpdateReadyCardStyleTests.automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt`.
 - 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
   command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
   it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the
@@ -1902,3 +1908,14 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   side inset in from the top and the bottom (updateSurfaces.css), so the text has the same room on all four sides.
   Regression: updated-card-even-insets (browser lane). Sidebar-Look: Lawrence 2026-11-07 11:28pm, "feels like too
   much padding on top".
+- 2026-11-09 (lane tab-group-vibrant-glass, for a590): `GroupGlassPaint` and `SidebarGroupGlass` move unchanged
+  from CmuxNextSidebar to CmuxNextDesign (`GroupGlass/`), so the tab strip's group chips, the saved groups bar and
+  the vertical tab list's group headers draw the same glass with a rim (`GroupChipGlass`) and follow
+  `sidebar.groupGlass` and `sidebar.groupHeader.background`. Ask: "Restyle tab group colors as vibrant glass with
+  rim". Sidebar-Look: no visual change (the headers' paint is the same code; `GroupGlassPaint` only gains an optional
+  ground, nil being the sidebar's background).
+- 2026-11-09 (a1027, for a590): the Updated card's changes popover gets four Debug looks beside the shipped
+  `sections` (Debug Settings `sidebar.updatedCard.notesLook`, `UpdatedNotesLook`, theme slot `updated-notes-look`):
+  `digest` (one line per area, opens in place), `chips` (area filter chips), `headline` (top three at full size, then
+  See all changes) and `ledger` (one line per change, area label once). `sections` stays the default until Lawrence
+  picks. Tests: updated-notes-looks. Sidebar-Look: Lawrence 2026-11-09, "make and show me more versions of this ui".
