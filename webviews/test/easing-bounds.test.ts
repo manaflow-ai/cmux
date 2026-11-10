@@ -1,6 +1,6 @@
-// No bounce in any motion (Lawrence; plans/cmux-next/motion-first-principles-DESIGN.md principle 5:
-// "Position never passes its target"). For a webview this means: no easing may go past its end (1)
-// and come back, or dip under its start (0) before it leaves. This test samples every easing the
+// No bounce in any motion (Lawrence; plans/cmux-next/motion.md: "a tab, row or pane never passes its
+// target"). For a webview this means: no easing may go past its end (1) and come back, or dip under
+// its start (0) before it leaves. This test samples every easing the
 // webviews declare (the scanner is test/easing-bounds.ts: CSS files, strings in scripts, curves
 // written as numbers) and the curves that are code (the thread rail's grow-in table, the script
 // springs), and fails when a sample is more than 1e-6 of the travel outside 0...1. It reads source
