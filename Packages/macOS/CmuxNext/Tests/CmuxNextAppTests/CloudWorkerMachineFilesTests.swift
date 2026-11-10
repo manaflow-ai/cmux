@@ -14,14 +14,16 @@ struct CloudWorkerMachineFilesTests {
 
     private func fake() -> CloudDaemonFake {
         CloudDaemonFake { _, args in
-            CloudDaemonFake.value(switch args["op"] as? String {
-            case "exec": #"{"exitCode":0,"stdout":"ok","stderr":""}"#
+            switch args["op"] as? String {
+            case "exec":
+                return CloudDaemonFake.value(#"{"exitCode":0,"stdout":"ok","stderr":""}"#)
             case "read":
                 // The daemon fills the read's file (the path form) and answers its metadata.
                 if let local = args["local_path"] as? String { FileManager.default.createFile(atPath: local, contents: Data("hi".utf8)) }
-                #"{"path":"/a","size":2}"#
-            default: #"{"ok":true,"path":"/a"}"#
-            })
+                return CloudDaemonFake.value(#"{"path":"/a","size":2}"#)
+            default:
+                return CloudDaemonFake.value(#"{"ok":true,"path":"/a"}"#)
+            }
         }
     }
 

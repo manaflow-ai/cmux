@@ -50,11 +50,16 @@ extension CloudAPIClient {
             var path: String?
             var size: Int64?
         }
-        let file = try CloudTransferFile()
-        defer { file.remove() }
-        let read = try await machine("read", id, ["path": path, "local_path": file.url.path], wait: .seconds(120), as: Read.self)
-        let data = try file.read()
-        return CloudFileContents(path: read.path, dataBase64: data.base64EncodedString(), size: read.size ?? Int64(data.count))
+        let file = try await CloudTransferFile.make()
+        do {
+            let read = try await machine("read", id, ["path": path, "local_path": file.url.path], wait: .seconds(120), as: Read.self)
+            let (encoded, count) = try await file.base64()
+            await file.remove()
+            return CloudFileContents(path: read.path, dataBase64: encoded, size: read.size ?? Int64(count))
+        } catch {
+            await file.remove()
+            throw error
+        }
     }
 
     /// Writes a guest file atomically. Past ``CloudTransferFile/inlineLimit`` the bytes go through a
@@ -68,11 +73,16 @@ extension CloudAPIClient {
             _ = try await machine("write", id, args, wait: .seconds(120))
             return
         }
-        let file = try CloudTransferFile()
-        defer { file.remove() }
-        try file.write(data)
-        args["local_path"] = file.url.path
-        _ = try await machine("write", id, args, wait: .seconds(120))
+        let file = try await CloudTransferFile.make()
+        do {
+            try await file.write(data)
+            args["local_path"] = file.url.path
+            _ = try await machine("write", id, args, wait: .seconds(120))
+        } catch {
+            await file.remove()
+            throw error
+        }
+        await file.remove()
     }
 
     public func makeDirectory(_ id: String, path: String) async throws {
@@ -106,34 +116,36 @@ extension CloudAPIClient {
 /// One file of the path form of `cloud.machine.io` (cmux-cloud-api `local_file`): a new name in the
 /// transfer folder `<NSTemporaryDirectory()>/cmux-cloud-transfer` (0700), the only folder the daemon
 /// takes a file from or makes one in. Removed by its exact path after the call.
-struct CloudTransferFile {
+struct CloudTransferFile: Sendable {
     /// The largest write that goes inline as base64: well under a protocol request's 4 MiB.
     static let inlineLimit = 1 << 20
 
     let url: URL
 
     /// A fresh name in the transfer folder, made 0700 if it is new; nothing is created at the name.
-    /// (The daemon refuses a folder open to anyone else.)
-    init() throws {
+    /// (The daemon refuses a folder open to anyone else.) Off the caller's actor, as is every disk
+    /// step here: a Cloud action handler calls these on the main actor.
+    @concurrent nonisolated static func make() async throws -> CloudTransferFile {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("cmux-cloud-transfer", isDirectory: true)
         try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        url = folder.appendingPathComponent(UUID().uuidString, isDirectory: false)
+        return CloudTransferFile(url: folder.appendingPathComponent(UUID().uuidString, isDirectory: false))
     }
 
     /// Writes `data` to a new 0600 file at the name (in a folder only this user may enter).
-    func write(_ data: Data) throws {
+    @concurrent nonisolated func write(_ data: Data) async throws {
         guard FileManager.checked.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
             throw CloudAPIError.transport("the transfer file could not be written")
         }
     }
 
-    /// The bytes the daemon wrote at the name.
-    func read() throws -> Data {
-        try Data(blockingContentsOf: url)
+    /// The bytes the daemon wrote at the name, as base64, and how many there are.
+    @concurrent nonisolated func base64() async throws -> (String, Int) {
+        let data = try Data(blockingContentsOf: url)
+        return (data.base64EncodedString(), data.count)
     }
 
-    func remove() {
+    @concurrent nonisolated func remove() async {
         try? FileManager.checked.removeItem(at: url)
     }
 }

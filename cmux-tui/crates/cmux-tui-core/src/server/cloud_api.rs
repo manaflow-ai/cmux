@@ -125,7 +125,8 @@ mod calls {
     ) -> bool {
         let id = request.envelope.id.clone();
         let operation = request.envelope.operation;
-        let (call, key) = match parse(operation, &request.fields) {
+        let mut request = request;
+        let (call, key) = match parse(operation, &mut request.fields) {
             Ok(parsed) => parsed,
             Err(error) => return send_resource_response(writer, id, operation, Err(error)),
         };
@@ -181,8 +182,13 @@ mod calls {
     /// The library's request and the keyed start's key. Errors never echo a field's value.
     pub(super) fn parse(
         operation: ResourceOperation,
-        fields: &Map<String, Value>,
+        fields: &mut Map<String, Value>,
     ) -> Result<(Request, Zeroizing<Vec<u8>>), ResourceError> {
+        // The key leaves the fields (no copy of it stays there) into a buffer that is wiped.
+        let encoded = Zeroizing::new(match fields.remove("key_base64") {
+            Some(Value::String(text)) => text,
+            _ => String::new(),
+        });
         let call = operation
             .wire_name()
             .strip_prefix("cloud.")
@@ -203,7 +209,6 @@ mod calls {
             Some(Value::Object(args)) => args.clone(),
             Some(_) => return Err(invalid("args", "args is an object")),
         };
-        let encoded = Zeroizing::new(text(fields, "key_base64").unwrap_or_default());
         let key = Zeroizing::new(
             base64::engine::general_purpose::STANDARD
                 .decode(encoded.as_bytes())
