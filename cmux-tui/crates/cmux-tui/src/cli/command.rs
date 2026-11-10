@@ -44,6 +44,8 @@ pub(super) use settings::KEY_ALIASES;
 pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resolve_alias};
 mod sidebar_doc;
 mod state;
+#[cfg(test)]
+mod tab_focus_tests;
 mod terminal;
 mod values;
 mod workspace;
@@ -944,6 +946,7 @@ fn parse_pane_strings(
             selectors.insert("pane", "pane", selector)?;
             let mut params = run_params(tail, argv, flags)?;
             add_size(&mut params, flags)?;
+            insert_tab_focus(&mut params, flags);
             request(ResourceOperation::PaneRun, selectors, flags, params)
         }
         [selector, "tab", tail @ ..] => {
@@ -988,6 +991,7 @@ fn parse_tab_strings(
             insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
+            insert_tab_focus(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1001,6 +1005,7 @@ fn parse_tab_strings(
             browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
+            insert_tab_focus(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {
@@ -1749,6 +1754,17 @@ fn request_with_required_name(
 ) -> Result<CommandPlan, UsageError> {
     let params = name_flags::rename_params(operation, flags)?;
     request(operation, selectors, flags, params)
+}
+
+/// `--focus` on a tab creation in a pane (`pane run`, `tab create`,
+/// `browser open`): the new tab becomes the pane's selected tab. Without it
+/// the daemon keeps the selected tab (socket focus policy); `--no-focus`, the
+/// default, is accepted.
+pub(super) fn insert_tab_focus(params: &mut Map<String, Value>, flags: &mut Flags) {
+    let _ = flags.boolean("no-focus");
+    if flags.boolean("focus") {
+        params.insert("focus".into(), Value::Bool(true));
+    }
 }
 
 fn run_params(

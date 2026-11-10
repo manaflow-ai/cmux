@@ -124,7 +124,13 @@ impl Mux {
             .context("bad request: tab.create_browser needs a url")?
             .to_string();
         let placement = FrontendTabPlacement {
-            activate: fields.get(ACTIVATE_FIELD).and_then(Value::as_bool).unwrap_or(true),
+            // The frontend's own field, else the resource `focus` field
+            // (`TAB_CREATE_FOCUS_FIELD`, false unless a router caller asks).
+            activate: fields
+                .get(ACTIVATE_FIELD)
+                .or_else(|| fields.get(super::TAB_CREATE_FOCUS_FIELD))
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
             index: tab_strip::tab_slot::effect_index(fields),
         };

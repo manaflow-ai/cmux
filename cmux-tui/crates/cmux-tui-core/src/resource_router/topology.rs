@@ -360,6 +360,18 @@ fn dispatch_exact_topology_mutation(
         // never come through here (tests/agent-evals/RESULTS.md, mode 1).
         fields.entry(crate::mux::PANE_SPLIT_FOCUS_FIELD).or_insert(Value::Bool(false));
     }
+    if matches!(
+        operation,
+        ResourceOperation::PaneRun
+            | ResourceOperation::TabCreateTerminal
+            | ResourceOperation::TabCreateBrowser
+    ) {
+        // A programmatic tab in a pane leaves the pane's selected tab as it
+        // is unless the caller asks: `agent start --no-focus` made its agent
+        // the selected tab, and the person's view jumped there at the next
+        // TUI reconnect (bench round 5, W6-A).
+        fields.entry(crate::mux::TAB_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
     if operation == ResourceOperation::WorkspaceCreate {
         // Likewise a programmatic `workspace.create` opens in the background
         // unless the caller passes `focus: true`.

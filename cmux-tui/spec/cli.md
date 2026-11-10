@@ -669,7 +669,10 @@ terminal runs it instead of a shell. Apps need `workspace:execute` for these
 too. Text after `--` on a command that starts no terminal is a usage error.
 `screen create` does not move the focus: the workspace's focused screen
 stays, unless `--focus` is given (or the workspace had no screen). It takes
-`--workspace <selector>` to choose the workspace.
+`--workspace <selector>` to choose the workspace. Likewise `pane <selector>
+run`, `tab create terminal|browser` and `browser open` add the tab behind the
+pane's selected tab, unless `--focus` is given (or the pane had no tab): the
+person's view and the pane's selected tab stay, also after a reconnect.
 
 ```bash
 cmux tab create terminal --pane current -- htop

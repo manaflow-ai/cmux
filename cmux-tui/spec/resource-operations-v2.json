@@ -29652,6 +29652,14 @@
               "minimum": 1
             }
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new tab the pane's selected tab. Default false: the pane's selected tab stays."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -35761,6 +35769,14 @@
               "minimum": 1
             }
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "In a pane, make the new tab its selected tab. Default false: the pane's selected tab stays."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -35880,6 +35896,14 @@
               "name": "uint16",
               "minimum": 1
             }
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "In a pane, make the new tab its selected tab. Default false: the pane's selected tab stays."
           },
           "expected_revision": {
             "required": false,

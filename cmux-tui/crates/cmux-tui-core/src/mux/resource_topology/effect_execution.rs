@@ -429,6 +429,7 @@ impl Mux {
                     effect_cell_size(fields)?,
                     effect_on_exit(fields)?,
                     None,
+                    effect_tab_focus(fields),
                 )
                 .map(|created| created.path)
             }
@@ -444,6 +445,7 @@ impl Mux {
                         effect_cell_size(fields)?,
                         None,
                         tab_strip::tab_slot::effect_index(fields),
+                        effect_tab_focus(fields),
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -767,6 +769,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         on_exit: Option<TerminalOnExit>,
         index: Option<usize>,
+        select: bool,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         // `pinned-dock-v1`: a pinned column that takes no tabs refuses
         // before anything spawns, and again when the tab attaches.
@@ -804,9 +807,15 @@ impl Mux {
                     // At its end, or at the strip index the creation names
                     // (`tab_slot`: Reopen Closed puts a tab back in place).
                     let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
+                    let had_tabs = !pane.tabs.is_empty();
                     pane.tabs.insert(index, surface.id);
-                    pane.active_tab = index;
-                    pane.active_at = active_at;
+                    if select || !had_tabs {
+                        pane.active_tab = index;
+                        pane.active_at = active_at;
+                    } else if index <= pane.active_tab {
+                        // The selected tab moved one place right; it stays selected.
+                        pane.active_tab += 1;
+                    }
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
                     let (workspace_index, screen_index) =

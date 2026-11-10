@@ -328,6 +328,7 @@ fn parse_browser_open(
     insert_engine(&mut params, flags)?;
     add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
     add_pixel_size(&mut params, flags)?;
+    super::insert_tab_focus(&mut params, flags);
     request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
 }
 

@@ -131,7 +131,7 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep|shell>] [--focus] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--index <n>] [--focus]
   cmux pane <selector> move --to-tab <selector> [--index <n>] [--focus]
     (with --to-pane or --to-tab: [--to-workspace <selector>] [--to-screen <selector>])
@@ -141,7 +141,8 @@ USAGE
 
 list --name <name> keeps the panes named exactly <name>; list --cwd <path>
 keeps those with a terminal in <path> or a folder inside it.
-split keeps the focus where it is unless --focus is given. With --shell or
+split keeps the focus where it is unless --focus is given, and run keeps the
+pane's selected tab (the new tab opens behind it) unless --focus. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
 to a pane that already exists, use `cmux tab create terminal --pane <selector>`
@@ -189,10 +190,10 @@ USAGE
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
   cmux tab <selector> update [--icon <value>|--clear-icon] [--marked-unread <bool>]
   cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
-    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>] [--focus]
     [--correlation-key <value>] [--shell <script> | -- <argv...>]
   cmux tab create browser --url <value> [--name <value>] [--width-px <n> --height-px <n>]
-    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>] [--focus]
     [--correlation-key <value>]
   cmux tab <selector> terminal|browser ...
   cmux tab group list [--pane <pane_…>]
@@ -211,6 +212,9 @@ USAGE
   cmux tab group saved list [--room <room>]
   cmux tab group saved <saved> reopen [--pane <pane_…>]
   cmux tab group saved <saved> delete
+
+tab create opens the tab behind the pane's selected tab (the person's view
+stays) unless --focus is given.
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact

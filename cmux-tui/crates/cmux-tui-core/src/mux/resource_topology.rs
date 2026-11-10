@@ -31,6 +31,7 @@ use effect_fields::created_identity_kind;
 use effect_fields::effect_cell_size;
 use effect_fields::effect_command;
 use effect_fields::effect_on_exit;
+use effect_fields::effect_tab_focus;
 use effect_fields::effect_target;
 use effect_fields::is_created_path_operation;
 use effect_fields::is_effectful;
@@ -126,6 +127,15 @@ pub(crate) use pane_browser::{PANE_BROWSER_URL_FIELD, TabSplit};
 /// split keeps the user's focus; the daemon's and the user's own splits omit
 /// it and focus the new pane.
 pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
+
+/// The `focus` field of a tab creation in a pane (`pane.run`,
+/// `tab.create_terminal`, `tab.create_browser`): whether the new tab becomes
+/// the pane's selected tab. The resource router sends `false` when a caller
+/// omits it, so a programmatic tab (`cmux agent start --no-focus`, a script,
+/// MCP) leaves the tab the person looks at selected; the person's own new tab
+/// (`new-tab`, `run-command`) omits it and is selected. A pane with no tab
+/// selects its first tab either way.
+pub(crate) const TAB_CREATE_FOCUS_FIELD: &str = "focus";
 
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the
 /// focused one. The resource router sends `false` when a caller omits it.

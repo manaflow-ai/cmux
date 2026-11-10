@@ -453,10 +453,12 @@ impl Call<'_> {
         id: &str,
         steps: &StepKeys,
     ) -> Result<Value, ResourceError> {
+        // The link's tab becomes its pane's selected tab (rule 4), as a
+        // frontend tab does; a plain `tab.create_browser` would open behind it.
         let created = self.inner(
             ResourceOperation::TabCreateBrowser,
             Map::from_iter([(scope.to_string(), json!(id))]),
-            json!({"url": self.url}),
+            json!({"url": self.url, "focus": true}),
             Some(&steps.create),
         )?;
         let mut value = created["value"].clone();

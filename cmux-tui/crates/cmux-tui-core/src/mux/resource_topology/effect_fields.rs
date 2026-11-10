@@ -207,6 +207,14 @@ pub(super) fn effect_on_exit(
         .transpose()
 }
 
+/// Whether a tab created in a pane becomes its selected tab
+/// ([`TAB_CREATE_FOCUS_FIELD`]): absent only on the person's own new tabs,
+/// which are selected; the resource router sends `false` for a caller that
+/// did not ask.
+pub(super) fn effect_tab_focus(fields: &Map<String, Value>) -> bool {
+    fields.get(TAB_CREATE_FOCUS_FIELD).and_then(Value::as_bool).unwrap_or(true)
+}
+
 /// `argv` or `shell` when the creation names one, else none (the default
 /// shell). Placement verbs store `argv` for `shell_args`.
 pub(super) fn optional_effect_command(
