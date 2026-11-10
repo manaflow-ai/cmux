@@ -363,5 +363,136 @@ class Sticky(unittest.TestCase):
         self.assertIn("aaaaaaaaaa", qr.render_markdown(r, public=False))
 
 
+def ci_commit(oid, at, suites):
+    """suites: {workflow: {job: [conclusion per attempt, in start order]}}"""
+    nodes = []
+    for wf, jobs in suites.items():
+        runs = []
+        for job, concl in jobs.items():
+            for i, c in enumerate(concl):
+                runs.append({"name": job, "conclusion": c, "startedAt": f"{at[:11]}0{i}:00:00Z", "completedAt": None})
+        nodes.append({"app": {"slug": "github-actions"}, "workflowRun": {"workflow": {"name": wf}}, "checkRuns": {"nodes": runs}})
+    return {"oid": oid, "committedDate": at, "checkSuites": {"nodes": nodes}}
+
+
+class CIHealth(unittest.TestCase):
+    # newest first, as GitHub's history gives them
+    COMMITS = [
+        ci_commit("c3", "2026-11-10T03:00:00Z", {"web": {"lint": ["FAILURE"], "tests": ["SUCCESS"], "slow": [None]},
+                                                 "guards": {"guard": ["CANCELLED"]}}),
+        ci_commit("c2", "2026-11-10T02:00:00Z", {"web": {"lint": ["SUCCESS"], "tests": ["FAILURE", "SUCCESS"], "slow": ["SUCCESS"]},
+                                                 "guards": {"guard": ["FAILURE"]}}),
+        ci_commit("c1", "2026-11-10T01:00:00Z", {"web": {"lint": ["SKIPPED"], "tests": ["TIMED_OUT"], "slow": ["SUCCESS"]},
+                                                 "guards": {"guard": ["SUCCESS"]}}),
+    ]
+
+    def test_green_share_takes_each_checks_newest_finished_run(self):
+        h = qr.ci_branch_health(self.COMMITS)
+        # lint red at c3; tests green at c3; slow still running at c3 so c2's green; guard cancelled at c3 so c2's red
+        self.assertEqual((h["checks"], h["green_checks"], h["green_share"]), (4, 2, 0.5))
+        self.assertEqual([x["check"] for x in h["red_now"]], ["guards / guard", "web / lint"])
+        self.assertEqual(h["head_sha"], "c3")
+
+    def test_flake_is_red_then_green_on_the_same_commit(self):
+        h = qr.ci_branch_health(self.COMMITS)
+        # pairs: c3 lint, tests; c2 lint, tests, slow, guard; c1 tests, slow, guard (skipped and cancelled say nothing)
+        self.assertEqual((h["pairs"], h["flaky_pairs"]), (9, 1))
+        self.assertEqual(h["flaky"], [{"check": "web / tests", "flaky": 1}])
+        # a red final after a green attempt is red, not a flake
+        h2 = qr.ci_branch_health([ci_commit("x", "2026-11-10T01:00:00Z", {"w": {"j": ["SUCCESS", "FAILURE"]}})])
+        self.assertEqual((h2["flaky_pairs"], h2["green_share"]), (0, 0.0))
+
+    def test_a_dispatch_on_the_same_commit_is_another_attempt(self):
+        c = ci_commit("x", "2026-11-10T01:00:00Z", {"w": {"j": ["FAILURE"]}})
+        c["checkSuites"]["nodes"].append({"app": {"slug": "github-actions"}, "workflowRun": {"workflow": {"name": "w"}},
+                                          "checkRuns": {"nodes": [{"name": "j", "conclusion": "SUCCESS", "startedAt": "2026-11-10T09:00:00Z"}]}})
+        h = qr.ci_branch_health([c])
+        self.assertEqual((h["pairs"], h["flaky_pairs"], h["green_share"]), (1, 1, 1.0))
+
+    def test_branches_pool_and_a_failed_branch_says_why(self):
+        def hist(repo, branch, n):
+            if branch == "gone":
+                raise qr.SourceError("no such branch")
+            return self.COMMITS[:n]
+        ci = qr.ci_health(["feat", "gone"], 50, "o/r", hist)
+        self.assertEqual((ci["checks"], ci["green_share"], ci["source"]), (4, 0.5, "github-checks"))
+        self.assertEqual(ci["branches"]["gone"], {"why": "no such branch"})
+        self.assertIsNone(ci["why"])
+        none = qr.ci_health(["gone"], 50, "o/r", hist)
+        self.assertIsNone(none["green_share"])
+        self.assertIn("no such branch", none["why"])
+
+    def test_an_odd_reply_costs_only_that_branch(self):
+        def hist(repo, branch, n):
+            if branch == "odd":
+                return [{"checkSuites": None, "oid": "x"}, None]
+            return self.COMMITS
+        ci = qr.ci_health(["feat", "odd"], 50, "o/r", hist)
+        self.assertEqual(ci["green_share"], 0.5)
+        self.assertIn("unreadable check runs", ci["branches"]["odd"]["why"])
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [], ci_branches=["feat", "odd"], ci_history=hist)
+        self.assertTrue(qr.headline(r)["CI checks green on base"].endswith("newest run on feat"))
+
+    def test_history_pages_until_enough_commits(self):
+        calls = []
+        def graphql(q, v):
+            calls.append(v)
+            page = len(calls)
+            nodes = [ci_commit(f"p{page}c{i}", "2026-11-10T01:00:00Z", {}) for i in range(v["n"])]
+            return {"data": {"repository": {"object": {"history": {"nodes": nodes, "pageInfo": {"hasNextPage": True, "endCursor": f"k{page}"}}}}}}
+        out = qr.gh_ci_history("o/r", "feat", 12, graphql)
+        self.assertEqual(len(out), 12)
+        self.assertEqual([c["n"] for c in calls], [5, 5, 2])
+        self.assertEqual([c["after"] for c in calls], [None, "k1", "k2"])
+        self.assertEqual(calls[0]["expr"], "feat")
+
+    def test_graphql_error_is_a_source_error(self):
+        with self.assertRaises(qr.SourceError):
+            qr.gh_ci_history("o/r", "feat", 5, lambda q, v: {"errors": [{"message": "Bad credentials"}]})
+        fail = lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "HTTP 401")
+        with self.assertRaises(qr.SourceError):
+            qr.gh_graphql("q", {"n": 5}, run=fail)
+
+    def test_report_headline_markdown_and_sticky_carry_the_two_numbers(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                            ci_branches=["feat"], ci_history=lambda repo, b, n: self.COMMITS)
+        h = qr.headline(r, public=True)
+        self.assertIn("50.00% of 4 checks", h["CI checks green on base"])
+        self.assertIn("11.11% of 9", h["CI flake rate"])
+        md = qr.render_markdown(r, public=True)
+        self.assertIn("### CI health", md)
+        self.assertIn("`guards / guard` 1/2", md)
+        body = qr.sticky_body(r, md, "")
+        self.assertIn("| CI green | CI flake |", body)
+        self.assertIn("| 50.00% | 11.11% |", body)
+        self.assertEqual(qr.public_report(r)["ci_health"]["green_share"], 0.5)
+
+    def test_empty_checks_token_says_so_and_a_set_one_is_used(self):
+        seen = {}
+        def run(cmd, **k):
+            seen["env"] = k.get("env")
+            return subprocess.CompletedProcess(cmd, 0, "{}", "")
+        old = os.environ.get("CI_GH_TOKEN")
+        try:
+            os.environ["CI_GH_TOKEN"] = ""
+            with self.assertRaises(qr.SourceError) as e:
+                qr.gh_graphql("q", {}, run=run)
+            self.assertIn("no checks-read token", str(e.exception))
+            os.environ["CI_GH_TOKEN"] = "t0k"
+            qr.gh_graphql("q", {}, run=run)
+            self.assertEqual(seen["env"]["GH_TOKEN"], "t0k")
+        finally:
+            if old is None:
+                os.environ.pop("CI_GH_TOKEN", None)
+            else:
+                os.environ["CI_GH_TOKEN"] = old
+
+    def test_no_branches_is_a_slot_not_a_failure(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        self.assertIsNone(r["ci_health"]["green_share"])
+        self.assertIn("n/a (no --ci-branches given)", qr.headline(r)["CI flake rate"])
+        self.assertNotIn("### CI health", qr.render_markdown(r, public=False))
+
+
 if __name__ == "__main__":
     unittest.main()

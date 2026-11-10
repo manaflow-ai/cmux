@@ -146,7 +146,7 @@ pub(super) async fn handle(
         created_at: now,
         updated_at: now,
     };
-    // Its attachments are kept beside outbox.json, once, not in each rewrite of it.
+    // Its attachments are kept beside outbox.json, once, never in its snapshot or journal.
     let kept = hub.outbox.attachments_path(&new);
     if let Some(path) = kept.clone() {
         let request = new.request.clone();
@@ -155,7 +155,7 @@ pub(super) async fn handle(
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
     }
-    // The send's one durable write (the whole of outbox.json, a group commit with other
+    // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
     // a slow disk never holds an async worker that serves other connections, and agent work at
     // its clamped priority never starves the write the sender waits on.
