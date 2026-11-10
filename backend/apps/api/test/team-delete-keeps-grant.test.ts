@@ -146,6 +146,20 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect(t.w.userVmPlans.get(t.stackUser)).toBe("max")
     expect((await carried(t.team))?.outcome).toBe("moved")
   })
+
+  // Review F3: a grant read that finds the team already gone keeps the copy a delete carries.
+  it("a stale grant refresh after the team is gone in Stack keeps the copy, and the delete still carries it", async () => {
+    const t = await ownedTeamWithGrant("max")
+    t.w.teams.delete(t.stackTeam)
+    t.w.vmPlans.delete(t.stackTeam)
+    await inDO(teamStub(t.team), async (instance, state) => {
+      state.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0`)
+      expect(await instance.cloudVmPlan(t.team)).toEqual({ ok: true, vm_plan: "max" })
+    })
+    expect((await deliver("team.deleted", { id: t.stackTeam })).status).toBe(200)
+    expect(t.w.userVmPlanWrites).toEqual([{ user: t.stackUser, vm_plan: "max" }])
+    expect((await carried(t.team))?.outcome).toBe("moved")
+  })
 })
 
 /** The sign-in service as HTTP: one user record whose read-only metadata other writers may change between requests. */
