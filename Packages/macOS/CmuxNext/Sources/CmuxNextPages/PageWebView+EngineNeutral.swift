@@ -24,8 +24,16 @@ extension PageWebView {
     /// is the app's main thread, and a full retina PNG took 80-140 ms there (see `CEFThumbnail`).
     /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
     /// multi-megabyte base64 string) is parsed and decoded off the main actor.
-    public func snapshot() async -> NSImage? {
-        guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
+    ///
+    /// - Parameter afterScreenUpdates: WebKit waits for the page's next screen update first (the
+    ///   default). Pass false for a page that may be parked: a hidden page makes no screen update,
+    ///   so the picture is of what it last drew.
+    public func snapshot(afterScreenUpdates: Bool = true) async -> NSImage? {
+        guard let page = chromiumSession?.page else {
+            let configuration = WKSnapshotConfiguration()
+            configuration.afterScreenUpdates = afterScreenUpdates
+            return try? await webView.takeSnapshot(configuration: configuration)
+        }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size

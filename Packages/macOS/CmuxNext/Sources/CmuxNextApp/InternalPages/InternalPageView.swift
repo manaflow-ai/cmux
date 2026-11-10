@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextPages
@@ -87,6 +88,11 @@ final class InternalPageView: TitleRowHostView {
 
     override var acceptsFirstResponder: Bool { false }
 
+    /// Times the page came on screen (unparked, into a window): its hover picture's staleness (``PageTabPictures``).
+    private(set) var shownGeneration = 0
+    override func viewDidUnhide() { super.viewDidUnhide(); shownGeneration += 1 }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window != nil { shownGeneration += 1 } }
+
     /// Runs Go Back (true) or Go Forward (false): the mouse side buttons and a
     /// swipe over the page (history.md 4.2b). Set by the page's host.
     var navigate: ((Bool) -> Void)?
@@ -109,3 +115,5 @@ extension InternalPageView: ToolbarEdgeHosting {}
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
 extension InternalPageView: PageHistoryHosting {}
 extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { (content as? any ChiefPanelContent)?.chiefShowsThrough == true } set { (content as? any ChiefPanelContent)?.chiefShowsThrough = newValue } }; var chiefHeaderHeight: CGFloat { (content as? any ChiefPanelContent)?.chiefHeaderHeight ?? 0 } }
+/// Its hover-card picture (``PageTabPictures``): a React page's, nothing for a native page.
+extension InternalPageView: PagePictureSubject { var pictureKey: String { key }; var isOnScreen: Bool { window != nil && !isHiddenOrHasHiddenAncestor }; func picture() async -> CGImage? { await PageWebView.shown(in: content)?.snapshot(afterScreenUpdates: false)?.cgImage(forProposedRect: nil, context: nil, hints: nil) } }

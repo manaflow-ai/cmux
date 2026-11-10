@@ -14,6 +14,7 @@ final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
+    @ObservationIgnored let pictures = PageTabPictures()  // the tabs' hover-card pictures
     /// The main window each tab opened in, for its provider's theme scope.
     @ObservationIgnored private var windows: [String: WindowController] = [:]
     /// The daemon tree each pane with page tabs belongs to; watched so the
@@ -378,6 +379,7 @@ final class InternalPageTabStore {
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperviewDetachingSubviews() // never a page leaving its hierarchy in a dealloc
         windows[key] = nil
+        pictures.forget(key)
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 
