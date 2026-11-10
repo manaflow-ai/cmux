@@ -132,7 +132,8 @@ assert NAME_SPAN + 8 <= OVERLAP, "a key's name across chunks must fit in the ove
 PREFILTER = re.compile(
     # Every key name ends in one of these, in any case (`aws_secret_access_key`, `Mistral_Api_Key`), as character
     # classes: as fast as plain words, where a case-blind group costs the walk 2 to 1000 times over.
-    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|_[Kk][Ee][Yy]|_[Tt][Oo][Kk][Ee][Nn]|_[Jj][Ss][Oo][Nn]"
+    # `\u00` too: JSON may write any ASCII character of a name or prefix that way (readings() takes it off).
+    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|_[Kk][Ee][Yy]|_[Tt][Oo][Kk][Ee][Nn]|_[Jj][Ss][Oo][Nn]|\\u00"
 )
 # A key's name as a command-line word: `NAME=value`, `--name=value`, or `--name` then the value as the next word,
 # in any case, with `-` for `_`. Inside a longer word (a `sh -c` script) only the `NAME=value` form.
@@ -279,8 +280,9 @@ REFRESH = dict(SHAPES)["an OAuth refresh token"]
 assert all(re.search(r"_(KEY|TOKEN|JSON)\b|_TOKEN_", n) for n in KEY_NAMES), "a key name the prefilter misses"
 
 
-# A quote, backslash or slash escaped for a shell string or JSON (`\"`), and a JSON-escaped quote (`\u0022`).
-ESCAPED = re.compile(r'\\(["\'\\/])|\\u0022')
+# A quote, backslash or slash escaped for a shell string or JSON (`\"`), and any ASCII character JSON writes as
+# `\u00XX` (`sk\u002dproj-`, `OPENAI\u005fAPI\u005fKEY`, `\u0022`).
+ESCAPED = re.compile(r'\\(["\'\\/])|\\u00([0-7][0-9A-Fa-f])')
 
 
 def readings(text):
@@ -289,7 +291,7 @@ def readings(text):
     field only once they are unescaped. Every detector checks each reading, so an escaped credential is found as a plain one."""
     out = [text]
     while "\\" in out[-1] and len(out) < 4:
-        nxt = ESCAPED.sub(lambda m: m.group(1) or '"', out[-1])
+        nxt = ESCAPED.sub(lambda m: m.group(1) or chr(int(m.group(2), 16)), out[-1])
         if nxt == out[-1]:
             break
         out.append(nxt)

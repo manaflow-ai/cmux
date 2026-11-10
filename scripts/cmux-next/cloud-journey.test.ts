@@ -1429,6 +1429,33 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("any ASCII character JSON writes as \\u00XX is read as itself, in a text file and a binary one", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const proj = PROJ.replace("sk-", "sk\\u002d");
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/conf.json": `{"OPENAI\\u005fAPI\\u005fKEY":"${named}"}\n`,
+    });
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`{"k":"${proj}"}`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/c.db"), page);
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain(named);
+      expect(out).not.toContain(PROJ.slice(8));
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: an OpenAI project key",
+        "file /workspace/project/[a name].json:1: OPENAI_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("in a binary file, a \\u0022-escaped refresh token's field and an escaped one longer than a hit's span are found", () => {
     const short = "Mx4Tq9Ld2Wv7Rk5Ns8Pb3Hz6Jc1Fg0Ya";
     const long = "Aa8k_".repeat(150);
