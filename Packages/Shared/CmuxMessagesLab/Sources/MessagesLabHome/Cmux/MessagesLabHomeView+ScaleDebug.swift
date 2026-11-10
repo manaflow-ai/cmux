@@ -2,6 +2,10 @@ import AppKit
 
 // cmux: automation evidence for the per-view render scale (MessagesLab 258b385; scripts/cmux-next/home-scale-change.py).
 extension MessagesLabHomeView {
+    /// The selected text, as Copy reads it (`debug.home.drive` `selection`,
+    /// https://github.com/manaflow-ai/cmux/issues/38145).
+    public var debugSelectedText: String { controller.selection.selectedText }
+
     /// The pane's render scale and the scale of what its visible rows show, for `debugGeometry`:
     /// `renderScale` (MessagesWindowView.renderScale), `windowScale` (its window's backing scale), `rowBitmaps` (visible
     /// text rows that show a bitmap), `rowBitmapsOffScale` (those whose image is not drawn at the view's scale: its pixel
