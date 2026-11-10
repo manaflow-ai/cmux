@@ -24,6 +24,9 @@ spec.loader.exec_module(excuse)
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+# The fleet's compile receipt is a network read too: tests see no receipt unless they fake one; CompileReceiptRead and
+# FfiPinCompileReceipt run the real reader against a faked urlopen.
+REAL_COMPILE_RECEIPT = excuse.compile_receipt
 # HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
 os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
@@ -32,6 +35,9 @@ def setUpModule():
     patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
     patch.start()
     unittest.addModuleCleanup(patch.stop)
+    receipt = unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: None)
+    receipt.start()
+    unittest.addModuleCleanup(receipt.stop)
     # The fakes reuse run ids with other jobs from test to test: no base job list is kept on disk unless a test asks.
     env = unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_JOBS_CACHE": "off"})
     env.start()
@@ -3715,13 +3721,13 @@ class CompileReceiptRead(unittest.TestCase):
 
     def test_the_receipt_answer_404_and_errors(self):
         with self.answer(self.RECEIPT):
-            self.assertEqual(excuse.compile_receipt(REPO, HEAD)["state"], "fail")
+            self.assertEqual(REAL_COMPILE_RECEIPT(REPO, HEAD)["state"], "fail")
         with self.answer(code=404):
-            self.assertIsNone(excuse.compile_receipt(REPO, HEAD))
+            self.assertIsNone(REAL_COMPILE_RECEIPT(REPO, HEAD))
         with self.answer(code=524), self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
-            excuse.compile_receipt(REPO, HEAD)
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
         with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
-            excuse.compile_receipt(REPO, HEAD)
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
 
     def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
         """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
@@ -3729,7 +3735,7 @@ class CompileReceiptRead(unittest.TestCase):
         for other in ({"recipe_version": 1}, {"configuration": "debug"}, {"recipe_version": None}, {"configuration": None}):
             with self.subTest(other=other), self.answer(dict(self.RECEIPT, **other)), \
                     self.assertRaisesRegex(excuse.Refused, "another recipe"):
-                excuse.compile_receipt(REPO, HEAD)
+                REAL_COMPILE_RECEIPT(REPO, HEAD)
 
 
 CLIPPY = "clippy (changed cmux-tui packages)"
@@ -5324,6 +5330,64 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.statuses = [{"context": "cmux-next/compile", "state": "failure"}]
         with self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
             self.judge()
+
+    # cmux#39251 at 3c886d8d (2026-11-10): Swift beside a published base pin, and every app compile check was skipped by
+    # routing, so no cmux-next/compile status was posted; the fleet's own receipt for that head read "pass". The
+    # receipt is what that status publishes (cmux-next.yml's compile-status step), read the same strict way.
+    RECEIPT = {"version": 1, "repo": REPO, "sha": HEAD, "job_id": "c257c52ddd346afa97008a22", "state": "pass",
+               "recipe_version": 2, "configuration": "release-onone",
+               "log_url": f"https://github.com/{REPO}/actions/runs/42721510171", "log_url_kind": "source_run"}
+
+    def receipt_answer(self, body):
+        """The real receipt reader, with the receipts host answering BODY for HEAD (None: 404, no receipt)."""
+        def urlopen(request, timeout):
+            self.assertTrue(request.full_url.startswith(f"{excuse.COMPILE_RECEIPTS}/{HEAD}?"), request.full_url)
+            if body is None:
+                raise urllib.error.HTTPError(request.full_url, 404, "x", {}, None)
+            return contextlib.closing(io.BytesIO(json.dumps(body).encode()))
+        stack = contextlib.ExitStack()
+        stack.enter_context(unittest.mock.patch.object(excuse, "compile_receipt", REAL_COMPILE_RECEIPT))
+        stack.enter_context(unittest.mock.patch("urllib.request.urlopen", urlopen))
+        return stack
+
+    def test_swift_against_the_base_pin_with_a_passing_fleet_receipt_at_the_head_is_excused(self):
+        self.pr_files(*self.STEP_B)
+        with self.receipt_answer(self.RECEIPT):
+            self.assertEqual(self.judge(), [
+                f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+                f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from "
+                "1f63d516ecfc, which is on feat-cmux-next, and the fleet's app compile receipt (job "
+                f"c257c52ddd346afa97008a22, recipe 2, release-onone) compiled {HEAD} against that pin and passed"])
+
+    def test_a_fleet_receipt_of_another_commit_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        with self.receipt_answer(dict(self.RECEIPT, sha=BASE_SHA)), \
+                self.assertRaisesRegex(excuse.Refused, "names another commit"):
+            self.judge()
+        with self.receipt_answer(dict(self.RECEIPT, repo="someone/cmux")), \
+                self.assertRaisesRegex(excuse.Refused, "names another commit"):
+            self.judge()
+
+    def test_a_fleet_receipt_that_did_not_pass_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        for state in ("fail", "unavailable", "running", "queued", None):
+            with self.subTest(state=state), self.receipt_answer(dict(self.RECEIPT, state=state)), \
+                    self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
+                self.judge()
+        with self.receipt_answer(None), self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
+            self.judge()
+
+    def test_a_receipt_that_is_not_the_app_compile_is_refused(self):
+        """Only the controller's own app check (`--app --release`, recipe 2: release-onone) is the receipt the
+        workflow trusts. Another recipe or configuration, or a package check's row (cmux-ci compile-check --package:
+        package, ok, no state or configuration), proves nothing about the app."""
+        self.pr_files(*self.STEP_B)
+        package_row = {"package": "CmuxNext", "repo": REPO, "sha": HEAD, "ok": True, "recipe_version": 2}
+        for body in (dict(self.RECEIPT, recipe_version=1), dict(self.RECEIPT, configuration="debug"),
+                     dict(self.RECEIPT, configuration=None), package_row):
+            with self.subTest(body=body), self.receipt_answer(body), \
+                    self.assertRaisesRegex(excuse.Refused, "another recipe"):
+                self.judge()
 
     def test_a_pin_not_on_the_base_is_refused_naming_it(self):
         self.pr_files(*self.STEP_B)

@@ -34,8 +34,9 @@ extension AgentPaneModel {
     /// A connect flow opens app UI, so it uses the user's fresh gesture in the pane (the grant
     /// credit, as Choose Folder…); page script cannot make one. The native creation handler owns
     /// sign-in and its continuation. An action the app did not run (turned off, or not for this tab)
-    /// is an `unavailable` failure, so the page can say so; one that ran and
-    /// then stopped reports itself in the app (its refusal or toast).
+    /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
+    /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
+    /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil) -> [String: Any] {
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
@@ -43,12 +44,30 @@ extension AgentPaneModel {
         }
         // Bound to the chat whose menu offered it: a tab that shows another chat by now runs nothing.
         if let session, header?.showsChat(session) != true {
-            return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
+            return Self.refused("This chat is no longer shown.")
         }
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
         if let environment { arguments["environment"] = environment }
-        if onRunAction(id, arguments) { return AgentPaneReply.success() }
-        return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
+        switch onRunAction(id, arguments) {
+        case .ran: return AgentPaneReply.success()
+        case .refused(let reason): return Self.refused(reason)
+        case .notRun: return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
+        }
     }
+
+    /// An `unavailable` failure that carries the reason the person reads (`details.reason`): the page's
+    /// toast says it (webviews actionRefusal.ts), never a generic "couldn't start".
+    static func refused(_ reason: String) -> [String: Any] {
+        AgentPaneReply.failure(code: "unavailable", message: reason, details: ["reason": reason], retryable: false, origin: "native")
+    }
+}
+
+/// What the app did with a page's `action.run`: ran it; refused it with the reason the person reads
+/// (Move to Cloud on a chat with no first message: "Send a first message, then move this chat."); or
+/// did not run it with no reason to give (turned off, not for this tab).
+public enum AgentPaneActionRun: Equatable, Sendable {
+    case ran
+    case refused(String)
+    case notRun
 }

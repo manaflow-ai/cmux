@@ -943,7 +943,16 @@ def generated_no_verdict(log: str) -> str | None:
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
-    `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
+    `Release compile` or `Reuse that pass` step succeeded), a cmux-next/compile success, or else the fleet's compile
+    receipt for SHA reading "pass" (compile_receipt: this repository, that exact commit, recipe 2, release-onone).
+
+    The receipt is what cmux-next/compile publishes (cmux-next.yml's compile-status step maps the same fields to the
+    same verdict), and the fleet keeps one for every same-repository PR head whether or not that job runs: a PR whose
+    route skips the status job has no status, but its receipt still says whether the app compiled. The fleet compiles
+    each head as the app executable (`--app --release`, compiled and linked), resolving the binary targets the
+    head's own manifest pins (its url and checksum), so a pass compiled the app against the head's pin
+    (cmux#39251, 2026-11-10: every app compile check skipped by routing, the receipt at 3c886d8d a pass). An unread
+    receipt, or one of another commit, repository or recipe, refuses (compile_receipt)."""
     candidates = []
     # Every attempt (filter=all): one rerun into startup_failure ran no jobs and must not hide the pass before it.
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
@@ -977,6 +986,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
             if found.get("state") == "success":
                 return f"the {COMPILE_PASS_STATUS} status"
             break
+    receipt = compile_receipt(repo, sha)
+    if receipt is not None and receipt.get("state") == "pass":
+        return (f"the fleet's app compile receipt (job {receipt.get('job_id') or 'unnamed'}, recipe "
+                f"{receipt['recipe_version']}, {receipt['configuration']})")
     return None
 
 
@@ -1327,7 +1340,8 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # moves the pin, so this base classifier can judge that PR) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
-# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
+# PR's exact head (compile_pass_at: the Mac Release compile, cmux-next/compile, or the fleet's compile receipt for that
+# head, which cmux-next/compile publishes and which a PR whose route skips the status job still has). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
 # resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -1431,8 +1445,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
         return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"
     proof = compile_pass_at(repo, sha, github)
     if proof is None:
-        return None, (f"no app compile check passed at {sha} (cmux-next/compile, or the Release compile), so nothing "
-                      f"proves the app builds against {tag}")
+        return None, (f"no app compile check passed at {sha} (cmux-next/compile, the Release compile, or the fleet's "
+                      f"compile receipt), so nothing proves the app builds against {tag}")
     return (f"pins {tag}, a published release built from {pin[:12]}, which is on {base}, and {proof} compiled {sha} "
             "against that pin and passed"), ""
 

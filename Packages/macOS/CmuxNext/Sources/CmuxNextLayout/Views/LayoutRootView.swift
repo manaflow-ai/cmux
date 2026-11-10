@@ -77,6 +77,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     var hoveredPane: PaneID?
     /// Delivers pointer moves for focus-follows-mouse (owner: self).
     private var hoverTrackingArea: NSTrackingArea?
+    /// How far the pointer has moved since the focus ring was earned (``handlePointerTravel(_:)``).
+    var pointerTravelSinceRing: CGFloat = 0
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -236,6 +238,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     override public func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         guard event.window === window else { return }
+        handlePointerTravel(abs(event.deltaX) + abs(event.deltaY))
         focusPaneForPointerHover(at: event.locationInWindow)
     }
 
@@ -360,6 +363,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
+        // A newly earned ring, or the ring moving to another pane by key, measures pointer travel from
+        // zero (``handlePointerTravel(_:)``).
+        if snapshot.focusRingEarned, previous?.focusRingEarned != true || previous?.focused != snapshot.focused {
+            pointerTravelSinceRing = 0
+        }
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
         // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
         let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
@@ -748,7 +756,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if !deferredScreens.isEmpty { mountDeferredScreensWhenIdle() }
             if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true })
                 || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .mouseMoved]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }

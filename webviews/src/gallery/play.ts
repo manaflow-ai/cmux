@@ -36,6 +36,8 @@ export type PlayContext = {
   /** Opens a point-anchored context menu with a trusted right-click in the matrix runner. */
   contextMenu(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
+  /** Focuses `target` as a key would: the element's own `:focus-visible` decides its ring, which
+   * the focus-ring owner lets show (ui/focusModality.ts). */
   focus(target: PlayTarget): Promise<void>;
   /** Moves a scroll container to an absolute offset or one of its edges. */
   scroll(target: PlayTarget, position: number | "top" | "bottom"): Promise<void>;

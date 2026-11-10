@@ -1706,6 +1706,12 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
+   list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
+   while the group is open, as a Mac outline's disclosure does. */
+.acpmux-env-row.acpmux-env-unavailable { color: var(--agent-muted); }
+.acpmux-env-unavailable-chevron { transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out); }
+.acpmux-env-unavailable[data-expanded] .acpmux-env-unavailable-chevron { transform: rotate(90deg); }
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
    then one row per folder in the same name column as the folders above, × at the end. */
 .acpmux-extra-folders {

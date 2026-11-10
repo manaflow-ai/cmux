@@ -152,7 +152,8 @@ pub fn browser_path(args: &Args, names: &PortNames) -> Checked<String> {
 
 /// One text argument the action needs, by `check`: `publicKey` (scp), `contents` (file-write),
 /// `snapshot`, `linkId` (preview-revoke), `key` (api-key-revoke).
-pub fn needed(args: &Args, check: &str) -> Checked<String> {
+/// A missing `linkId` is refused as `portFailed` with the machine and port in `names`.
+pub fn needed(args: &Args, check: &str, names: &PortNames) -> Checked<String> {
     let raw = |name: &str, missing: Said| text(args, name).map(str::to_owned).ok_or(missing);
     match check {
         // Sent as given; only a blank one refuses.
@@ -167,7 +168,7 @@ pub fn needed(args: &Args, check: &str) -> Checked<String> {
         },
         "linkId" => match text(args, "linkId") {
             Some(id) if !id.is_empty() => Ok(id.to_owned()),
-            _ => Err(Said::with("portFailed", ["linkId is required"])),
+            _ => Err(names.said("portFailed", &["linkId is required"])),
         },
         "key" => required(args, "key", Said::key("apiKeyRequired")),
         _ => Err(Said::text(format!("unknown argument check {check}"))),
