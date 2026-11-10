@@ -66,6 +66,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// images, file links, git remote, comments or table widths read beside it on this Mac.
     let files: any FilePageFiles
     private(set) var file: URL?
+    /// Another machine's file holds an edit not saved yet (no crash draft keeps it): app health's reload refuses.
+    private(set) var remoteUnsaved: String?
     /// Strong: the tab host holds its service weakly, so no cycle.
     private(set) var host: (any FilePageHosting)?
     private let clock: any Clock<Duration>
@@ -426,7 +428,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             throw PageError(code: kind.op("save_failed"), message: reason, retryable: true)
         }
         // The quit documents and the omnibar's git state are this Mac's files.
-        if files.isLocal { host?.saved(file, hash: result.hash) }
+        if files.isLocal { host?.saved(file, hash: result.hash) } else if remoteUnsaved == text { remoteUnsaved = nil }
         return ["hash": .string(result.hash)]
     }
 
@@ -466,13 +468,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
         // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
-        guard files.isLocal else { return ["recovery": "invalidID"] }
-        let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
-        switch accepted {
-        case .kept: return ["recovery": "kept"]
-        case .tooLarge: return ["recovery": "tooLarge"]
-        case .invalidID: return ["recovery": "invalidID"]
-        }
+        remoteUnsaved = files.isLocal ? nil : text
+        let accepted = files.isLocal ? host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable) : .invalidID
+        return ["recovery": .string(accepted.rawValue)]
     }
 
     // MARK: Preferences
