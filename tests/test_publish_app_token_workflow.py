@@ -13,6 +13,8 @@ import re
 import unittest
 from pathlib import Path
 
+from job_lists_routing import load_jobs, release_environment_jobs
+
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 
@@ -24,6 +26,35 @@ APP_JOBS = {
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
     "publish-nightly-next-github": "write",
 }
+# The permission each job mints is a choice, so APP_JOBS stays hand-kept, but every nightly.yml
+# job that can run under a release environment or reads the release App's credentials must be
+# classified: in APP_JOBS, or here with why it does not mint through the wrapper.
+# test_every_release_app_job_is_classified fails on a new one.
+APP_TOKEN_EXEMPT = {
+    "build-sign-notarize-nightly": (
+        "signs and notarizes; its only github.token use is nightly_sign_yield.py reading newer runs, "
+        "which writes nothing to a release"
+    ),
+    "promote-nightly-next": (
+        "mints its own release App token (step app-token) in nightly-next-promote and hands it to "
+        "promote-nightly-next.mjs as APP_TOKEN; it sends no github.token for the wrapper to replace"
+    ),
+    "promote-nightly-next-acked": (
+        "the acked twin of promote-nightly-next: same own App token, same APP_TOKEN hand-off"
+    ),
+}
+RELEASE_APP_SECRET = re.compile(r"secrets\.CMUX_RELEASE_APP_(?:ID|KEY)\b")
+
+
+def release_app_jobs(jobs: dict) -> set[str]:
+    """Jobs that can hold the release App's credentials: a release environment, or a direct read."""
+    return release_environment_jobs(jobs) | {name for name, job in jobs.items() if RELEASE_APP_SECRET.search(str(job))}
+
+
+def unclassified_app_jobs(jobs: dict) -> set[str]:
+    return release_app_jobs(jobs) - set(APP_JOBS) - set(APP_TOKEN_EXEMPT)
+
+
 APP_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_app_token\.sh --install")
 BUDGET_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 
@@ -33,6 +64,23 @@ class WorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import yaml
         cls.jobs = yaml.safe_load(NIGHTLY.read_text(encoding="utf-8"))["jobs"]
+
+    def test_every_release_app_job_is_classified(self) -> None:
+        self.assertLessEqual({"publish-nightly", "promote-nightly-next"}, release_app_jobs(self.jobs))
+        self.assertEqual(set(APP_JOBS) & set(APP_TOKEN_EXEMPT), set())
+        self.assertEqual(unclassified_app_jobs(self.jobs), set())
+        # A classified name that no longer holds the credentials is stale.
+        self.assertEqual((set(APP_JOBS) | set(APP_TOKEN_EXEMPT)) - release_app_jobs(self.jobs), set())
+
+    def test_a_new_release_app_job_must_be_classified(self) -> None:
+        tail = "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"
+        for name, job in (
+            ("publish-env-fixture", {"environment": tail, "steps": [{"run": "gh release upload"}]}),
+            ("publish-secret-fixture", {"environment": "pr-media",
+                                        "steps": [{"with": {"app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}"}}]}),
+        ):
+            with self.subTest(job=name):
+                self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
 
     def test_publish_jobs_mint_the_app_token_and_install_before_the_budget_wait(self) -> None:
         for name, contents in APP_JOBS.items():
