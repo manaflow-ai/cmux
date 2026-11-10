@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 620,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -246,6 +246,27 @@
             "min": 10,
             "max": 95,
             "unit": "count"
+          }
+        },
+        {
+          "key": "agents.chats.coldArchive",
+          "title": "Compress Old Chats",
+          "help": "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.coldArchiveAfterDays",
+          "title": "Compress Chats Idle For",
+          "help": "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.",
+          "kind": "number",
+          "default": 30,
+          "group": "Chats",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "unit": "days"
           }
         },
         {
@@ -2003,6 +2024,14 @@
           ]
         },
         {
+          "key": "agentPane.display.promptCoach",
+          "title": "Prompt Coach",
+          "help": "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -2119,6 +2148,19 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.unreadBanner",
+          "title": "Unread Banner",
+          "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
+          "kind": "choice",
+          "default": "expanded",
+          "group": "Agent Chat",
+          "values": [
+            "expanded",
+            "collapsed",
+            "off"
+          ]
         },
         {
           "key": "agentPane.display.vscodeMinimap",
@@ -3725,14 +3767,15 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
           "kind": "choice",
           "default": "auto",
           "group": "Sidebar",
           "values": [
             "auto",
             "glass",
-            "solid"
+            "solid",
+            "sections"
           ]
         },
         {
@@ -4393,18 +4436,6 @@
           ]
         },
         {
-          "key": "ui.animations.bounce",
-          "title": "Animation Bounce",
-          "help": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-          "kind": "choice",
-          "default": "none",
-          "group": "Density and Motion",
-          "values": [
-            "none",
-            "subtle"
-          ]
-        },
-        {
           "key": "ui.animations.cursor",
           "title": "Animate the Agent Cursor",
           "help": "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
@@ -4537,7 +4568,7 @@
         {
           "key": "ui.paneAnimations",
           "title": "Animate Panes",
-          "help": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+          "help": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.",
           "kind": "toggle",
           "default": true,
           "group": "Density and Motion"
@@ -6574,6 +6605,14 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.turnCheckpoints",
+          "title": "Save a Checkpoint Before Each Cloud Chat Turn",
+          "help": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
