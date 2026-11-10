@@ -85,5 +85,8 @@ struct CloudStartMachineReadTests {
         steps.done("login")
         steps.done("approvals")
         #expect(lines == ["cloud start step: connect 40 ms", "cloud start step: login 2500 ms", "cloud start step: approvals 0 ms"])
+        // The same steps, for the start's answer (`stages_ms`): `cmux cloud start-chat` lists them under its step.
+        #expect(steps.recorded.map(\.step) == ["connect", "login", "approvals"])
+        #expect(steps.recorded.map(\.ms) == [40, 2500, 0])
     }
 }

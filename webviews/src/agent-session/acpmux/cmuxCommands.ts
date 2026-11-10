@@ -1,5 +1,6 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
 import { commandPlace } from "./commandPlace";
+import { cloudChatHome } from "./folderlessCloud";
 import type { StringKey } from "./i18n";
 import { goesAsText, type SlashCommand } from "./slashCommands";
 
@@ -114,7 +115,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
-    hint: "<prompt>",
+    // `--on=cloud` (or `--on cloud`) opens a new Cloud chat with the prompt (commandPlace.ts).
+    hint: "[--on=cloud] <prompt>",
     source: "cmux",
     action: "side",
   },
@@ -265,7 +267,7 @@ export function composerCommand(
 }
 
 /// The commands that take `--on here|cloud` before their arguments (commandPlace.ts): the ones that
-/// start a chat. `/cd --on cloud` starts its new chat in Cloud; the others say why they can't.
+/// start a chat. `/side` and `/cd` start theirs in Cloud; `/fork` and `/continue` say why they can't.
 export const PLACED_ACTIONS: ReadonlySet<CmuxCommand["action"]> = new Set(["side", "cd", "fork", "continue"]);
 
 /** The same refusal policy is used before either composer dispatches a command. */
@@ -290,19 +292,24 @@ export function cmuxCommandRefusal(
     newTab?: boolean;
     /// The chat runs in Cloud: `--on cloud` is where its `/side` and `/cd` already start.
     inCloud?: boolean;
+    /// This pane can open New Cloud Chat for a started chat's `--on cloud` (not Quick Chat).
+    cloudStart?: boolean;
   },
 ): StringKey | undefined {
   const placed = PLACED_ACTIONS.has(command.action) ? commandPlace(typedArgs) : undefined;
   if (placed && "refused" in placed) return "composer.cmuxOnPlace";
   if (placed?.place === "cloud" && !state.inCloud) {
-    // `/cd --on cloud` in a chat with no turn yet picks the folder and Cloud in this composer, whose
-    // first Send starts the chat there. A started chat would need another tab opened in Cloud for it,
-    // which the page cannot open itself; /fork, /continue and /side take this chat with them.
-    if (command.action === "cd" && !state.session) {
+    // `/cd --on cloud`: a chat with no turn yet picks the folder and Cloud in this composer; a
+    // started one opens New Cloud Chat in the folder. `/side --on cloud` opens New Cloud Chat with the
+    // prompt: a new chat, not a fork. /fork and /continue take this chat with them.
+    if (command.action === "cd") {
       if (state.newTab) return "composer.cmuxCdNewTab";
-      return !placed.rest || cdFolder(placed.rest, state.cwd) ? undefined : "composer.cmuxCdPath";
+      if (state.session && !state.cloudStart) return "composer.cmuxUnavailable";
+      return !placed.rest || cdFolder(placed.rest, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
     }
-    return command.action === "cd" ? "composer.cmuxOnCloudStarted" : "composer.cmuxOnCloudCarries";
+    if (command.action === "side")
+      return state.session && !state.newTab && state.cloudStart ? undefined : "composer.cmuxSideUnavailable";
+    return "composer.cmuxOnCloudCarries";
   }
   const args = placed ? placed.rest : typedArgs;
   switch (command.action) {
@@ -320,7 +327,7 @@ export function cmuxCommandRefusal(
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":
       if (state.newTab) return "composer.cmuxCdNewTab";
-      return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";
+      return !args?.trim() || cdFolder(args, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
     case "side":
       // `/side <prompt>` sends the prompt to the side chat; the chat itself gets nothing.
       if (!state.sideAvailable) return "composer.cmuxSideUnavailable";
@@ -342,13 +349,21 @@ export function cmuxCommandRefusal(
 /// The folder `/cd <folder>` names: an absolute path as typed, or one relative to the chat's folder
 /// (`..`, `./src`, `src`), with `.` and `..` resolved and no trailing slash. Undefined when it
 /// cannot be read here: `~` (the host's home is not the pane's to spell) or a relative path with
-/// no chat folder to read it against.
-export function cdFolder(args: string | undefined, cwd: string | undefined): string | undefined {
+/// no chat folder to read it against. A folderless Cloud chat is the one exception: its fresh
+/// folder (`<home>/chats/<chat>`, folderlessCloud.ts) names the machine's home, so `~` and `~/PATH`
+/// go there, as `cmux chat cd SESSION ~/PATH` does. Only in a chat on a Cloud machine (`inCloud`):
+/// elsewhere `~/chats/x` is a folder like any other.
+export function cdFolder(args: string | undefined, cwd: string | undefined, inCloud = false): string | undefined {
   let typed = args?.trim() ?? "";
   // A path pasted in quotes, as a shell would take it.
   if (typed.length >= 2 && (typed[0] === '"' || typed[0] === "'") && typed.at(-1) === typed[0])
     typed = typed.slice(1, -1).trim();
-  if (!typed || typed.startsWith("~")) return undefined;
+  if (!typed) return undefined;
+  if (typed === "~" || typed.startsWith("~/")) {
+    const home = inCloud ? cloudChatHome(cwd) : undefined;
+    if (!home) return undefined;
+    typed = home + typed.slice(1);
+  } else if (typed.startsWith("~")) return undefined;
   const base = typed.startsWith("/") ? "" : cwd;
   if (base === undefined || (base && !base.startsWith("/"))) return undefined;
   const parts: string[] = [];
