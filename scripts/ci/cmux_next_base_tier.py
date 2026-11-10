@@ -378,21 +378,20 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
             continue
         if decided:
             break
-    if deadline is not None and deadline.left() <= 0:
+    # The settle is reserved before the dispatch, never skipped after it (Codex review of #40471): a
+    # dispatch with no settle frees the kick's concurrency slot before GitHub lists the new run, and the
+    # next kick, seconds later, finds no run at the tip and dispatches the same Mac work again.
+    if deadline is not None and deadline.left() < SETTLE_S:
         if covered():
             return None
-        raise PastDeadline(f"the reads before the dispatch used this job's time to its deadline; not dispatching "
-                           f"{tip[:12]}; the next push's kick dispatches at a tip that contains it")
+        raise PastDeadline(f"{max(0, int(deadline.left()))} s left before this job's deadline, less than the "
+                           f"{SETTLE_S} s settle a dispatch needs; not dispatching {tip[:12]}; the next "
+                           f"push's kick dispatches at a tip that contains it")
     status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
                       {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
     if status != 204:
         raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
     log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
-    if deadline is not None and deadline.left() < SETTLE_S:
-        # The settle and the cancels after it come out of the same deadline; the next kick cancels.
-        log(f"{max(0, int(deadline.left()))} s left before the job's deadline; "
-            "leaving superseded runs to the next kick")
-        return tip
     sleep(SETTLE_S)
     cancel_superseded(api, repo, tip, log)
     return tip
