@@ -42,13 +42,13 @@ const rng = (seed: number) => () => {
 }
 
 /** feed.answer's effect on the outbox: one `integration.approval.answered` item for the team's CloudDO. */
-const answers: Domain<Record<string, never>, { request: string }> = {
+const answers: Domain<Record<string, never>> = {
   initial: () => ({}),
   reduce: (state, _op, params) => ({
     ok: true,
     state,
     value: null,
-    outbox: [{ kind: "integration.approval.answered", entity: `approval:${params.request}`, payload: { request: params.request, decision: "allow" }, target: { class: "CloudDO", name: "team_p" } }],
+    outbox: [{ kind: "integration.approval.answered", entity: `approval:${(params as { request: string }).request}`, payload: { request: (params as { request: string }).request, decision: "allow" }, target: { class: "CloudDO", name: "team_p" } }],
   }),
 }
 
