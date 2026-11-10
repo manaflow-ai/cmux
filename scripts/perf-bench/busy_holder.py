@@ -42,8 +42,15 @@ SAFETY (each one is enforced here, not left to the caller):
      load when the lock is gone or belongs to another owner.
   4. `stop` signals only a PID that it can prove is a busy_holder supervisor (state file + token on the command
      line); workers are the supervisor's own children.
-  5. It refuses to start at a changed priority (nice != 0, or a QoS class that is not the default): the load must
-     be what a program started from a terminal is.
+  5. It refuses to start at a changed nice value (nice != 0): the load must be what a program started from a
+     terminal is. The workers are new threads at the default QoS class.
+
+PRIORITY TRAP (measured 2026-11-10, macOS 26.7): a process that ssh started has a QoS ceiling of utility. Each of
+its threads runs at scheduler priority 20 for every QoS class (background: 4), and a zsh login shell starts a `&`
+job at nice 5. On a person's Mac a default thread has 31 and the app's main thread 46 or 47. So start the load,
+the app and the bench driver through LaunchServices (`open -W -n -g <a background-only bundle whose executable is a
+copy of /bin/bash> --args job.sh`; `open` does not pass the environment: write it to a file). `start` and `status`
+print the scheduler priority of the supervisor (`sched_pri`): 31 is right, 20 means the ssh ceiling.
 The caller's duty: stop it before the job ends, run `cooldown` inside the same hold, then check `status` = live 0.
 
 A bench tool: never a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
@@ -161,6 +168,16 @@ def _libsystem():
         return None
 
 
+def sched_pri(pid: int):
+    """The scheduler priority of the process's first thread (`ps -o pri=`): 31 is a default thread of a program that
+    a person started; 20 is the ceiling of a process that ssh started. None when ps does not say."""
+    try:
+        out = subprocess.run(["ps", "-o", "pri=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.strip()
+        return int(out)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
 def current_qos() -> str:
     lib = _libsystem()
     if lib is None:
@@ -265,6 +282,7 @@ def supervise(args) -> int:
              "threads": args.threads, "procs": args.procs, "cores": os.cpu_count(),
              "threads_per_core": round(args.threads / float(os.cpu_count() or 1), 1),
              "max_seconds": max_s, "piece_iters": args.iters, "qos": current_qos(), "nice": os.nice(0),
+             "sched_pri": sched_pri(me),
              "load1_start": load1(), "started_utc": time.strftime("%H:%M:%SZ", time.gmtime()),
              "workers": [], "ready": False, "ended": None}
     workers = []
@@ -349,8 +367,9 @@ def cmd_start(args) -> int:
     if refusal:
         return fail("refused: " + refusal)
     qos, nice = current_qos(), os.nice(0)
-    if nice != 0 or qos not in ("unspecified", "default"):
-        return fail("refused: start it at the default priority (nice %d, QoS %s); no nice, no taskpolicy" % (nice, qos))
+    if nice != 0:
+        return fail("refused: start it at nice 0 (it is %d; a zsh login shell gives a `&` job nice 5: start from bash); "
+                    "no nice, no taskpolicy" % nice)
     watch = args.watch_pid or os.getppid()
     if not alive(watch):
         return fail("the watched process %d is not alive" % watch)
@@ -378,7 +397,7 @@ def cmd_start(args) -> int:
         return fail("the supervisor was not ready in 20 s; stopped")
     sys.stderr.write(json.dumps({k: state[k] for k in (
         "pid", "owner", "watch_pid", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos", "nice",
-        "load1_start", "started_utc")}) + "\n")
+        "sched_pri", "load1_start", "started_utc") if k in state}) + "\n")
     print(sup.pid)
     return 0
 

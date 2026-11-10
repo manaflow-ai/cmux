@@ -270,7 +270,13 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
   the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
   `~/perf-lead/gui.lock/owner` starts with `--owner` (a bench host inside the caller's own GUI lock hold; never a
   build host, never a laptop), and it ends when that lock is gone; `stop` signals only a PID it can prove is its
-  own; it refuses to start at a changed priority.
+  own; it refuses to start at a changed nice value.
+- Priority trap: a process that ssh started has a QoS ceiling of utility (each thread at scheduler priority 20 for
+  every QoS class), and a zsh login shell gives a `&` job nice 5. A person's Mac has the app's main thread at 46 or
+  47 and a default thread at 31. Start the load, the app and the driver through LaunchServices: `open -W -n -g
+  <Runner.app> --args job.sh`, where Runner.app is a background-only bundle whose executable is a copy of
+  `/bin/bash`; the app itself with `open -n -W --env ...` so that it has an app role. `start` prints `sched_pri`
+  (31 is right, 20 is the ssh ceiling). Write the main-thread priority of each arm (`ps -M`) next to each number.
 - The row order is quiet, oversub, oversub, quiet in one hold. A row's driver runs at user-interactive QoS so that
   its own wait for a core is not in the number; the app's clocks are the result.
 
