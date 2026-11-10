@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42742446422",
+  "recorded_at": "2026-11-10T02:27:53Z",
+  "reason": "cmux-tui c040954330ff changes the image's cmux-tui (pinned ead197d51e23)",
+  "dry_run": false,
+  "cmux_tui": "c040954330ff06682699a9e9f76a042e4d75f1e6",
+  "fixes": [
+    {
+      "sha": "c040954330ff06682699a9e9f76a042e4d75f1e6",
+      "mergedAt": "2026-11-09T17:50:45-08:00",
+      "subject": "cmux chat --repo: read @REF as git checkout does; check --attach files before cloning (#40032)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T02:27:53Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
