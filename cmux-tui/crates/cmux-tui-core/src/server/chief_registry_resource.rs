@@ -950,7 +950,9 @@ fn with_store<T>(
     let mut store = mux.chiefs().store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if store.is_none() {
         let directory = mux.session_state_directory();
-        *store = Some(ChiefStore::open(directory.as_deref()).map_err(|e| internal(operation, &e))?);
+        mux.chiefs()
+            .open_into(&mut store, directory.as_deref())
+            .map_err(|e| internal(operation, &e))?;
     }
     match store.as_mut() {
         Some(store) => run(store),

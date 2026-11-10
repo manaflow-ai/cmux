@@ -202,8 +202,14 @@ impl RegistryConnection {
                     None
                 }
             });
+        let connection = Arc::new(ReentrantMutex::new(connection));
+        // The lock exists now: the syncer takes it for the tail of each WAL
+        // restart (`wal_durability`).
+        if let Some(durability) = &durability {
+            durability.own_restart(ConnectionWriterLock(Arc::downgrade(&connection)));
+        }
         Arc::new(Self {
-            connection: Arc::new(ReentrantMutex::new(connection)),
+            connection,
             reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
@@ -232,6 +238,37 @@ impl RegistryConnection {
     pub(crate) fn request_flush(&self) {
         if let Some(durability) = &self.durability {
             durability.request_flush();
+        }
+    }
+
+    /// One PASSIVE checkpoint of the registry's WAL at a clean stop, on the
+    /// syncer thread; waits a short, bounded time for it (`wal_durability`).
+    pub(crate) fn checkpoint_at_stop(&self) {
+        if let Some(durability) = &self.durability {
+            durability.checkpoint_at_stop();
+        }
+    }
+
+    /// Tries of the WAL restart rule the syncer ended.
+    #[cfg(test)]
+    pub(crate) fn wal_restart_tries_for_test(&self) -> u64 {
+        self.durability.as_ref().map_or(0, super::wal_durability::WalDurability::restart_tries)
+    }
+
+    /// The spans in which the WAL restart rule kept the connection from other threads.
+    #[cfg(test)]
+    pub(crate) fn wal_restart_holds_for_test(&self) -> Vec<(Instant, Instant)> {
+        self.durability
+            .as_ref()
+            .map(super::wal_durability::WalDurability::restart_holds)
+            .unwrap_or_default()
+    }
+
+    /// Test seam: the copy of the WAL's bulk for each restart takes `delay` longer.
+    #[cfg(test)]
+    pub(crate) fn slow_wal_restart_bulk_for_test(&self, delay: std::time::Duration) {
+        if let Some(durability) = &self.durability {
+            durability.slow_restart_bulk(delay);
         }
     }
 
@@ -332,6 +369,30 @@ impl RegistryConnection {
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+    }
+}
+
+/// The connection lock for the WAL syncer (`wal_durability::WriterLock`):
+/// every registry commit runs under it. Held weak: the connection's commit
+/// hook owns the syncer's state.
+struct ConnectionWriterLock(std::sync::Weak<ReentrantMutex<Connection>>);
+
+impl super::wal_durability::WriterLock for ConnectionWriterLock {
+    /// The syncer thread holds no other lock and takes none under this one
+    /// (its checkpoint runs on its own connection), so the lock order
+    /// registry -> connection -> state holds: like the journal writer, it
+    /// takes only the connection lock. A blocking wait with a deadline: a
+    /// session build takes the lock again at once after each release, so a
+    /// try alone would never win; parking_lot hands the lock to a waiter.
+    fn exclude_commits(&self, deadline: Instant, tail: &mut dyn FnMut()) -> bool {
+        let Some(connection) = self.0.upgrade() else { return false };
+        HeldRank::check(LockRank::RegistryConnection, CONNECTION_LOCK_NAME);
+        let Some(guard) = connection.try_lock_until(deadline) else { return false };
+        let rank = record_rank();
+        tail();
+        drop(rank);
+        drop(guard);
+        true
     }
 }
 

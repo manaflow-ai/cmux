@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::agent_session_attach::agent_session_link::AcpmuxLink;
 use super::{ClientTransport, MessageWriter, Mux, Response, send_response};
-use crate::chief_registry::{ChiefStore, DEFAULT_CHIEF};
+use crate::chief_registry::DEFAULT_CHIEF;
 use crate::conversation_store::LOCAL_USER;
 
 pub(super) const CAPABILITY: &str = "chief-work-v1";
@@ -95,9 +95,8 @@ fn answer(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failu
 fn target(mux: &Mux, chief: &str) -> Result<(PathBuf, PathBuf), Failure> {
     let mut slot = mux.chiefs().store.lock().map_err(|_| UNAVAILABLE)?;
     if slot.is_none() {
-        *slot = Some(
-            ChiefStore::open(mux.session_state_directory().as_deref()).map_err(|_| UNAVAILABLE)?,
-        );
+        let directory = mux.session_state_directory();
+        mux.chiefs().open_into(&mut slot, directory.as_deref()).map_err(|_| UNAVAILABLE)?;
     }
     let known = slot.as_ref().ok_or(UNAVAILABLE)?.get(chief).map_err(|_| UNAVAILABLE)?.is_some();
     drop(slot);

@@ -51,7 +51,7 @@ use std::time::{Duration, Instant};
 use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 use serde::Deserialize;
 
-use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF};
+use crate::chief_registry::{ChiefRecord, DEFAULT_CHIEF};
 use crate::conversation_store::ConversationEvent;
 use crate::mux::Mux;
 
@@ -1367,9 +1367,9 @@ fn is_default(record: &ChiefRecord) -> bool {
 fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
     let mut store = mux.chiefs().store.lock().unwrap_or_else(PoisonError::into_inner);
     if store.is_none() {
-        match ChiefStore::open(mux.session_state_directory().as_deref()) {
-            Ok(opened) => *store = Some(opened),
-            Err(_) => return Vec::new(),
+        let directory = mux.session_state_directory();
+        if mux.chiefs().open_into(&mut store, directory.as_deref()).is_err() {
+            return Vec::new();
         }
     }
     store.as_ref().and_then(|s| s.list().ok()).unwrap_or_default()

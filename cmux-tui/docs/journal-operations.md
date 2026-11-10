@@ -18,16 +18,40 @@ a commit is in the WAL (the page cache, which a daemon crash keeps) when it
 returns, in well under a millisecond. One syncer thread
 (`workspace_registry/wal_durability.rs`) runs the WAL checkpoints off every
 request (SQLite syncs the WAL before each one) and flushes the drive cache
-once at close, so no request and no lock holder waits for the disk;
+once at close, so no request waits for the disk or for a checkpoint. The syncer checkpoints
+once the commits wrote 4 MiB of frames since its last checkpoint of the whole
+WAL (it does not decide by the WAL file's size, which stays at 64 MiB after a
+cut);
 `write_path.wal_commits` and `wal_synced_commits` show how many commits are
 known on disk, and `registry_wal_frame_bytes` how many bytes their WAL frames
 took (two reads around one change give that change's bytes). A PASSIVE
 checkpoint never shrinks the WAL file, so each connection sets
 `journal_size_limit` to 64 MiB: the WAL restarts from its first frame, and the
 file shrinks to that size, at the first commit after a PASSIVE checkpoint
-copied the whole WAL and the last reader of the old WAL ended. A complete
-checkpoint alone does not make the next commit shrink it: a read transaction
-still open after the checkpoint delays the restart until it ends. A fully idle
+copied the whole WAL and the last reader of the old WAL ended. A checkpoint
+that runs beside commits never copies the whole WAL, so under commits with no
+pause (a session build, a restore) the file once grew without a bound. The
+restart rule: the syncer thread owns the restart, and no commit and no
+request waits for a checkpoint. When the WAL holds 16 MiB of frames, the
+syncer copies the bulk beside the commits with PASSIVE checkpoints and syncs
+the database file itself, with no lock. Then it takes the database's writer
+lock (the registry's connection lock; a store's own lock) for one more
+PASSIVE checkpoint: no commit can land, so it copies the whole WAL (the few
+commits since the bulk and two small syncs), and the next commit restarts the
+WAL. Other writers of that database wait only for that last part; the syncer
+waits at most 250 ms for the lock. The WAL file thus normally stays under
+64 MiB. A try can end with no restart: a read transaction open at that moment
+stops the copy at its snapshot (the try then takes no lock), the writer lock
+does not come in 250 ms, or a reader of the old WAL is still open at the next
+commit. The syncer then tries again after each further 4 MiB; nobody waits,
+and the file grows by what commits write until one try ends. Nothing holds
+commits back, so commits faster than the copy also grow the file until a try
+ends. A WAL that a previous
+run left over 4 MiB is checkpointed by the syncer when the registry opens
+(on the syncer's thread: the open itself runs no checkpoint and, at the
+current schema, commits 2 frames whatever the session's size), and a clean
+stop ends with one PASSIVE checkpoint; cmux never deletes the WAL
+file (SQLite removes it when the last connection closes cleanly). A fully idle
 registry keeps its WAL at its size until its next commit. The syncer runs no
 TRUNCATE or RESTART checkpoint, which would hold the writer lock while it
 waited for readers and fail a transaction's read-to-write upgrade with

@@ -124,6 +124,8 @@ pub(crate) mod attachments;
 
 pub(crate) struct ConversationStore {
     connection: Connection,
+    /// The WAL syncer of a store on disk (`wal_durability`).
+    durability: Option<crate::workspace_registry::wal_durability::WalDurability>,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
 }
@@ -138,19 +140,38 @@ impl ConversationStore {
     /// Open `conversations.sqlite3` in `directory`, or an in-memory store
     /// when there is no directory (an in-memory session, tests).
     pub(crate) fn open(directory: Option<&Path>) -> anyhow::Result<Self> {
-        let connection = match directory {
+        let (connection, durability) = match directory {
             Some(directory) => {
                 let path = directory.join(CONVERSATIONS_FILE);
                 let connection = crate::workspace_registry::open_registry_database(&path)
                     .with_context(|| format!("open conversation store {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict conversation store {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
-                connection
+                let durability =
+                    crate::workspace_registry::wal_durability::attach_store(&connection, &path);
+                (connection, Some(durability))
             }
-            None => Connection::open_in_memory()?,
+            None => (Connection::open_in_memory()?, None),
         };
-        Self::initialize(connection, attachments::Attachments::open(directory)?)
+        let mut store = Self::initialize(connection, attachments::Attachments::open(directory)?)?;
+        store.durability = durability;
+        Ok(store)
+    }
+
+    /// Open the store into `slot`, the content of `lock`: the lock under
+    /// which every commit of this store runs. The WAL syncer takes it for the
+    /// tail of each WAL restart (`wal_durability`).
+    pub(crate) fn open_into(
+        slot: &mut Option<Self>,
+        lock: &Arc<Mutex<Option<Self>>>,
+        directory: Option<&Path>,
+    ) -> anyhow::Result<()> {
+        let store = Self::open(directory)?;
+        if let Some(durability) = &store.durability {
+            durability.own_restart(Arc::downgrade(lock));
+        }
+        *slot = Some(store);
+        Ok(())
     }
 
     fn initialize(
@@ -250,7 +271,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments })
+        Ok(Self { connection, durability: None, attachments })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
@@ -935,7 +956,7 @@ pub(crate) type TypingByConversation = std::collections::BTreeMap<
 /// `store`, then the workspace registry.
 #[derive(Default)]
 pub(crate) struct ConversationHost {
-    pub(crate) store: Mutex<Option<ConversationStore>>,
+    pub(crate) store: Arc<Mutex<Option<ConversationStore>>>,
     /// `conversation.draft` replay and rate state (memory only).
     pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
     /// The live text of running runs (`chief-live-v1`, memory only).

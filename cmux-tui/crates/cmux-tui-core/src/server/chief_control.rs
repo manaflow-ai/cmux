@@ -180,10 +180,9 @@ fn target(
             mux.chiefs().store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if store.is_none() {
             let directory = mux.session_state_directory();
-            *store = Some(
-                crate::chief_registry::ChiefStore::open(directory.as_deref())
-                    .map_err(|e| failed("internal", format!("{e:#}")))?,
-            );
+            mux.chiefs()
+                .open_into(&mut store, directory.as_deref())
+                .map_err(|e| failed("internal", format!("{e:#}")))?;
         }
         let Some(store) = store.as_ref() else {
             return Err(failed("internal", "chief registry is not open".to_owned()));

@@ -96,9 +96,13 @@ pub struct WritePathSnapshot {
     /// count when it writes more frames than the old WAL held (a commit over about 4 MiB, the checkpoint size).
     /// Frames another connection appends to the same database count toward the next commit of this one.
     pub registry_wal_frame_bytes: u64,
-    /// The registry's WAL file size now. It shrinks to 64 MiB at the first commit after a checkpoint copied the
-    /// whole WAL and the last reader of the old WAL ended: a read transaction still open after the checkpoint
-    /// delays it (`workspace_registry::wal_durability`). An idle registry keeps its size.
+    /// The registry's WAL file size now. No commit waits for it: from 16 MiB of WAL frames on, the WAL
+    /// syncer's thread copies the WAL into the database with no lock, then keeps the writer lock for the
+    /// last small part, and the next commit restarts the WAL (a file past 64 MiB is cut to 64 MiB then).
+    /// So the size is not a hard bound: a read transaction open at that moment delays the restart until it
+    /// ends, and so does a writer that keeps the lock past the syncer's 250 ms; the file grows by what
+    /// commits write until the next try, 4 MiB later (`workspace_registry::wal_durability`). An idle
+    /// registry keeps its size.
     pub registry_wal_file_bytes: u64,
     /// The largest registry WAL file size seen since the daemon started.
     pub registry_wal_file_high_water_bytes: u64,
