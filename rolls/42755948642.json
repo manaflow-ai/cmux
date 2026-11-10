@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42755948642",
+  "recorded_at": "2026-11-10T04:38:04Z",
+  "reason": "cmux-tui 2742632626d5 changes the image's cmux-tui (pinned 392ee1e30e9e)",
+  "dry_run": false,
+  "cmux_tui": "2742632626d53c8821717de1dfd80e00e4e6a099",
+  "fixes": [
+    {
+      "sha": "2742632626d53c8821717de1dfd80e00e4e6a099",
+      "mergedAt": "2026-11-09T20:10:33-08:00",
+      "subject": "fix(next): never draw private or missing SF Symbols (macOS 27.3 launch abort) (#39966)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T04:38:04Z",
+    "snapshot_id": "sh-4b75af7e3fcd4c8baa0f5c65a8979ca9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42755948642): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0151e4786e82fde604a3e4c8af6279bfdd62c259",
+    "image": "cloud-native-auto-27426326-42755948642-1",
+    "revision": "ci-42755948642-1",
+    "at": "2026-11-10T04:38:04Z"
+  },
+  "rolled_back": false
+}
