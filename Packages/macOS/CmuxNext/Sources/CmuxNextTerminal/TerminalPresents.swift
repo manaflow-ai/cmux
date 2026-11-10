@@ -71,7 +71,8 @@ nonisolated final class TerminalPresents: Sendable {
 }
 
 extension TerminalPresents.Present {
-    init(_ raw: ghostty_surface_present_s) {
+    /// Runs on the thread of Ghostty's present callback, so it is not on the main actor (the package default).
+    nonisolated init(_ raw: ghostty_surface_present_s) {
         self.init(widthPixels: Int(raw.width_px), heightPixels: Int(raw.height_px),
                   reason: raw.reason == GHOSTTY_PRESENT_RESIZE ? .resize : .content,
                   sequence: raw.seq, hostTime: raw.host_time)
