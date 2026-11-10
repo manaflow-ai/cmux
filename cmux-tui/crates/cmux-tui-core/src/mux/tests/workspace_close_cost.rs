@@ -407,10 +407,10 @@ fn close_at(mux: &Arc<Mux>, index: usize) {
 /// The indexes of the live state that are not what a rebuild of every index gives now, each with
 /// both forms.
 fn index_differences(mux: &Arc<Mux>) -> Vec<String> {
-    fn entries<K: std::fmt::Debug, V: std::fmt::Debug>(map: &HashMap<K, V>) -> BTreeSet<String> {
+    fn entries<K: fmt::Debug, V: fmt::Debug>(map: &HashMap<K, V>) -> BTreeSet<String> {
         map.iter().map(|(key, value)| format!("{key:?} -> {value:?}")).collect()
     }
-    fn placements<K: std::fmt::Debug>(map: &HashMap<K, Vec<SurfaceId>>) -> BTreeSet<String> {
+    fn placements<K: fmt::Debug>(map: &HashMap<K, Vec<SurfaceId>>) -> BTreeSet<String> {
         map.iter()
             .map(|(key, value)| {
                 let mut value = value.clone();
@@ -454,6 +454,23 @@ fn index_differences(mux: &Arc<Mux>) -> Vec<String> {
     })
 }
 
+/// The public id of each live split (a split of the live tree, by the split index), `None` for one
+/// that has none. The rebuild in [`index_differences`] copies these ids from the live index
+/// (`State::rebuild_workspace_indexes`), so it cannot see an id that a close removed from a live
+/// workspace: the test compares them with the ids before the closes.
+fn live_split_public_ids(mux: &Arc<Mux>) -> BTreeMap<String, Option<String>> {
+    mux.with_state(|state| {
+        state
+            .split_screens
+            .keys()
+            .map(|split| {
+                let public_id = state.resource_indexes.split_ids.get(split);
+                (format!("{split:?}"), public_id.map(|id| format!("{id:?}")))
+            })
+            .collect()
+    })
+}
+
 /// The positions (workspace indexes) that the split index names.
 fn split_positions(mux: &Arc<Mux>) -> BTreeSet<usize> {
     mux.with_state(|state| state.split_screens.values().map(|location| location.0).collect())
@@ -472,26 +489,41 @@ fn a_workspace_close_leaves_the_indexes_that_a_rebuild_gives() {
     }
     assert_eq!(split_positions(&mux), BTreeSet::from([3, 6]), "the fixture's splits");
     assert_eq!(index_differences(&mux), Vec::<String>::new(), "the fixture, before any close");
+    let stated = live_split_public_ids(&mux);
+    assert_eq!(stated.len(), 2, "the fixture's live splits");
+    assert_eq!(stated.values().flatten().count(), 2, "the fixture: each split has a public id");
+    // A live split keeps the public id that it had before the closes.
+    let live_splits_keep_their_ids = |live_splits: usize, what: &str| {
+        let live = live_split_public_ids(&mux);
+        assert_eq!(live.len(), live_splits, "{what}: the live splits");
+        for (split, public_id) in live {
+            assert_eq!(Some(&public_id), stated.get(&split), "{what}: the id of split {split}");
+        }
+    };
 
     // A middle workspace before both: each split entry moves one position down.
     without_crosscheck(|| close_at(&mux, 2));
     assert_eq!(split_positions(&mux), BTreeSet::from([2, 5]), "after a close before the splits");
     assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close before the splits");
+    live_splits_keep_their_ids(2, "after a close before the splits");
 
     // The first workspace that has a split: its entries go, the later one's move.
     without_crosscheck(|| close_at(&mux, 2));
     assert_eq!(split_positions(&mux), BTreeSet::from([4]), "after a close of a split workspace");
     assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close of a split workspace");
+    live_splits_keep_their_ids(1, "after a close of a split workspace");
 
     // A workspace after the last split: no entry moves.
     let live = mux.with_state(|state| state.workspaces.len());
     without_crosscheck(|| close_at(&mux, live - 1));
     assert_eq!(split_positions(&mux), BTreeSet::from([4]), "after a close behind the splits");
     assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close behind the splits");
+    live_splits_keep_their_ids(1, "after a close behind the splits");
 
     without_crosscheck(|| close_at(&mux, 0));
     assert_eq!(split_positions(&mux), BTreeSet::from([3]), "after a close of the first workspace");
     assert_eq!(index_differences(&mux), Vec::<String>::new(), "after a close of the first one");
+    live_splits_keep_their_ids(1, "after a close of the first workspace");
 }
 
 /// The scoped close commits what the full projection would, in a session where two workspaces
@@ -536,7 +568,10 @@ fn a_workspace_close_commits_what_the_full_projection_would() {
     let active = mux.with_state(|state| state.active_workspace);
     close_and_compare(active, "the active workspace");
 
-    // A selection that no commit stored, as a local change of the active workspace leaves it.
+    // A selection that no commit stored (the stored active workspace is not the live one). This
+    // state is synthetic: the test writes `active_workspace` itself and names no product path
+    // that leaves it. The scoped walk must then take the stored and the live active workspace
+    // into its scope.
     let (selected, other) = {
         let mut state = mux.state.lock().unwrap();
         let count = state.workspaces.len();
