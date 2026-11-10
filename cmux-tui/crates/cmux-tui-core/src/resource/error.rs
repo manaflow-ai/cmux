@@ -2,6 +2,7 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
+use serde_json::Map;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourceError {
@@ -214,21 +215,63 @@ pub(crate) fn is_catalog_error_code(code: &str) -> bool {
     RESOURCE_ERROR_CODES.contains(&code)
 }
 
-/// The catalog's `errors` and `types`, the only parts the error checks read. Its
-/// `operations` are most of its 1.2 MB, and as parsed values they took about 3.5 MB of
-/// every daemon's idle heap for nothing.
+/// The catalog's `errors` and the `types` they name, the only parts the error checks
+/// read. Its `operations` are most of its 1.2 MB, and as parsed values they took about
+/// 3.5 MB of every daemon's idle heap for nothing; of its 361 `types` the error
+/// contracts reach 5, and the others held another 2.5 MB.
 #[derive(Deserialize)]
 pub(super) struct ErrorCatalog {
     pub(super) errors: Value,
-    pub(super) types: Value,
+    pub(super) types: Map<String, Value>,
+}
+
+impl ErrorCatalog {
+    /// Keeps only the types a `ref` in `errors` reaches, directly or through
+    /// other kept types: the checks look types up by those names alone.
+    fn keep_error_types(mut self) -> Self {
+        let mut kept = Map::new();
+        let mut pending = Vec::new();
+        collect_type_refs(&self.errors, &mut pending);
+        while let Some(name) = pending.pop() {
+            if kept.contains_key(&name) {
+                continue;
+            }
+            if let Some(descriptor) = self.types.remove(&name) {
+                collect_type_refs(&descriptor, &mut pending);
+                kept.insert(name, descriptor);
+            }
+        }
+        self.types = kept;
+        self
+    }
+}
+
+/// The type names `ref` descriptors anywhere in `value` name.
+fn collect_type_refs(value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::Object(members) => {
+            if members.get("kind").and_then(Value::as_str) == Some("ref")
+                && let Some(name) = members.get("name").and_then(Value::as_str)
+            {
+                names.push(name.to_owned());
+            }
+            members.values().for_each(|member| collect_type_refs(member, names));
+        }
+        Value::Array(items) => items.iter().for_each(|item| collect_type_refs(item, names)),
+        _ => {}
+    }
+}
+
+fn parse_error_catalog() -> ErrorCatalog {
+    serde_json::from_str::<ErrorCatalog>(include_str!(
+        "../../../../spec/resource-operations-v2.json"
+    ))
+    .expect("checked-in resource operation catalog")
 }
 
 pub(super) fn error_catalog() -> &'static ErrorCatalog {
     static CATALOG: OnceLock<ErrorCatalog> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../../spec/resource-operations-v2.json"))
-            .expect("checked-in resource operation catalog")
-    })
+    CATALOG.get_or_init(|| parse_error_catalog().keep_error_types())
 }
 
 pub(super) fn catalog_error_contract_matches(code: &str, details: &Value, retryable: bool) -> bool {
@@ -337,3 +380,46 @@ impl fmt::Display for ResourceError {
 }
 
 impl std::error::Error for ResourceError {}
+
+#[cfg(test)]
+mod error_catalog_tests {
+    use super::*;
+
+    /// Every type an error contract can look up is kept, and only those.
+    #[test]
+    fn the_error_catalog_keeps_exactly_the_types_error_contracts_reach() {
+        let full = parse_error_catalog();
+        let kept = &error_catalog().types;
+        assert!(
+            !kept.is_empty() && kept.len() < full.types.len(),
+            "{} of {}",
+            kept.len(),
+            full.types.len()
+        );
+        let mut reached = std::collections::BTreeSet::new();
+        let mut pending = Vec::new();
+        collect_type_refs(&full.errors, &mut pending);
+        while let Some(name) = pending.pop() {
+            if reached.insert(name.clone()) {
+                let descriptor = full.types.get(&name).expect("a ref names a catalog type");
+                collect_type_refs(descriptor, &mut pending);
+            }
+        }
+        assert_eq!(kept.keys().cloned().collect::<std::collections::BTreeSet<_>>(), reached);
+        for (name, descriptor) in kept {
+            assert_eq!(Some(descriptor), full.types.get(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn type_refs_are_found_at_any_depth() {
+        let mut names = Vec::new();
+        collect_type_refs(
+            &json!({"a": [{"kind": "ref", "name": "x"}, {"b": {"kind": "ref", "name": "y"}}],
+                    "kind": "object", "name": "not-a-ref"}),
+            &mut names,
+        );
+        names.sort();
+        assert_eq!(names, ["x", "y"]);
+    }
+}
