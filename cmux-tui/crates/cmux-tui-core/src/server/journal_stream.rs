@@ -668,6 +668,7 @@ pub(super) fn run_session_journal_stream(
                 }
                 if stream.shared_fanout && stream.reader.is_some() {
                     switch_to_shared_journal(mux, &mut stream);
+                    continue;
                 }
                 break;
             }
@@ -739,6 +740,7 @@ pub(super) fn run_session_journal_stream(
             if stream.last_sequence >= head_sequence {
                 if stream.shared_fanout && stream.reader.is_some() {
                     switch_to_shared_journal(mux, &mut stream);
+                    continue;
                 }
                 break;
             }
@@ -762,7 +764,10 @@ pub(super) fn run_session_journal_stream(
 }
 
 /// A stream that caught up on its database reader reads the shared ring
-/// from here on, and waits for the ring's next publication.
+/// from here on. It takes the ring's epoch first and the caller reads the
+/// ring once more before it waits: a record the ring published after the
+/// last database page is then either in that read or past the epoch, so the
+/// stream never waits for a later commit to deliver it.
 fn switch_to_shared_journal(mux: &Mux, stream: &mut SessionJournalStreamStart) {
     #[cfg(test)]
     if let Some(hook) = mux
