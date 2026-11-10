@@ -275,6 +275,18 @@ public final class MainFrameBudget {
         return try body()
     }
 
+    /// Runs one task that arrived on its own, not from a budgeted queue that asked ``mayRun(_:)`` (an
+    /// `ObservationStream` re-evaluation after a change, ``ObservationEvaluationBudget``), as
+    /// ``run(_:owner:_:)`` does. Outside any task, while no budgeted link runs, a window older than one
+    /// frame is closed first, as ``mayRun(_:)`` closes it: on an idle app, evaluations seconds apart are
+    /// charged to their own frames, not summed into one old window.
+    @discardableResult
+    public func runArrived<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, _ body: () throws -> T) rethrows -> T {
+        let now = uptimeNanos()
+        if open.isEmpty, !tickOwnsWindow, now &- windowStart >= windowLength { roll(at: now, offTick: true) }
+        return try run(workClass, owner: owner, body)
+    }
+
     private func finish(index: Int?) {
         let end = uptimeNanos()
         guard let task = open.popLast() else { return }
