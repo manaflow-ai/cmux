@@ -368,7 +368,11 @@ fn handle_websocket_connection_with_permit(
             let mut writer_stream = writer_stream;
             while let Some(item) = writer_outbound.recv() {
                 let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    OutboundItem::Text(text) => {
+                        let result = writer_stream.write_websocket_text(&text);
+                        text.note_written(result.is_ok());
+                        result
+                    }
                     OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
                         let _ = flushed.send(());
                     }),

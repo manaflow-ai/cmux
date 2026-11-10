@@ -143,10 +143,20 @@ const foldFrameBound = () => ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeig
 
 /// The most a move of `px` over `ms` on `curve` moves in any one 120 Hz frame: every frame-long
 /// window, read at quarter-frame offsets, since a fold's first frame may land anywhere on the grid.
-function longestFoldFrame(px: number, ms: number, curve: CubicBezier): number {
+/// A window's ends are four quarter frames apart, so each step reads the curve once. It stops at the
+/// first window past `over` (the caller only asks whether the move fits). The straight line is read
+/// as it is: each frame moves the frame's share of the move.
+function longestFoldFrame(px: number, ms: number, curve: CubicBezier, over = Infinity): number {
+  if (curve[0] === curve[1] && curve[2] === curve[3]) return px * Math.min(1, FRAME_MS / ms);
+  const quarter = FRAME_MS / 4;
+  const ring = [0, 1, 2, 3].map((index) => bezierAt(curve, (index * quarter) / ms));
   let longest = 0;
-  for (let start = 0; start < ms; start += FRAME_MS / 4)
-    longest = Math.max(longest, px * (bezierAt(curve, (start + FRAME_MS) / ms) - bezierAt(curve, start / ms)));
+  for (let index = 0; index * quarter < ms; index += 1) {
+    const end = bezierAt(curve, ((index + 4) * quarter) / ms);
+    longest = Math.max(longest, px * (end - ring[index % 4]!));
+    if (longest > over) return longest;
+    ring[index % 4] = end;
+  }
   return longest;
 }
 
@@ -155,13 +165,41 @@ function longestFoldFrame(px: number, ms: number, curve: CubicBezier): number {
 function foldFits(px: number, ms: number, easing: string): boolean {
   const curve = parseBezier(easing);
   const move = Math.abs(px);
-  return !curve || ms <= 0 || move <= foldFrameBound() || longestFoldFrame(move, ms, curve) <= foldFrameBound() + 1e-9;
+  const most = foldFrameBound() + 1e-9;
+  return !curve || ms <= 0 || move <= foldFrameBound() || longestFoldFrame(move, ms, curve, most) <= most;
+}
+
+/// The first of `count` candidates that `fits`, or undefined: candidates that fit only follow ones
+/// that do not (a longer fold, or a curve leaned further toward the straight line, only slows its
+/// fastest frame), so it bisects, reading about log2(count) of them. The first is read first: most
+/// folds that need a search fit there.
+function firstFit(count: number, fits: (index: number) => boolean): number | undefined {
+  if (count <= 0) return undefined;
+  if (fits(0)) return 0;
+  if (!fits(count - 1)) return undefined;
+  let low = 1;
+  let high = count - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (fits(middle)) high = middle;
+    else low = middle + 1;
+  }
+  return low;
 }
 
 /// The straight line, as a cubic-bezier(): its frames are all the same, the move over its frames.
 const LINEAR_BEZIER: CubicBezier = [1 / 3, 1 / 3, 2 / 3, 2 / 3];
 /// How finely the curve leans toward the straight line at the cap: 1/32 of the way a step.
 const LEAN_STEPS = 32;
+/// The timings found, by move (whole pixels, rounded up), settle and bound: a fold's passes ask again
+/// for the same moves. Kept to the latest few, so it stays small.
+const TIMINGS_KEPT = 64;
+const timings = new Map<string, { ms: number; easing: string }>();
+
+/// Forgets the timings found (the bench and tests time a search from cold).
+export function clearTurnEndFoldMemo(): void {
+  timings.clear();
+}
 
 /// The fold's length and curve for a move of `px`: the settle's (`ms` on `easing`), changed only as a
 /// long move needs to keep every 120 Hz frame under ARRIVAL_FRAME_LINES of a line. The settle runs
@@ -183,20 +221,48 @@ const LEAN_STEPS = 32;
 export function turnEndFoldTiming(px: number, ms: number, easing: string): { ms: number; easing: string } {
   const curve = parseBezier(easing);
   const most = foldFrameBound();
-  const move = Math.abs(px);
-  if (!curve || ms <= 0 || move <= most) return { ms, easing };
-  const fits = (length: number, on: CubicBezier) => longestFoldFrame(move, length, on) <= most + 1e-9;
+  if (!curve || ms <= 0 || Math.abs(px) <= most) return { ms, easing };
+  // Read for the whole pixels over the move: what fits them fits the move.
+  const move = Math.ceil(Math.abs(px));
+  const key = `${move} ${ms} ${easing} ${most}`;
+  const known = timings.get(key);
+  if (known) {
+    timings.delete(key);
+    timings.set(key, known);
+    return known;
+  }
+  const found = searchFoldTiming(move, ms, easing, curve, most);
+  timings.set(key, found);
+  if (timings.size > TIMINGS_KEPT) timings.delete(timings.keys().next().value!);
+  return found;
+}
+
+/// turnEndFoldTiming's search, for a move past the bound: each step bisects (`firstFit`), and each
+/// candidate stops at its first frame past the bound, so a move of any length reads a few hundred
+/// points of the curve, never tens of thousands (review of #40627: 9.6 ms for 274 px).
+function searchFoldTiming(
+  move: number,
+  ms: number,
+  easing: string,
+  curve: CubicBezier,
+  most: number,
+): { ms: number; easing: string } {
+  const over = most + 1e-9;
+  const fits = (length: number, on: CubicBezier) => longestFoldFrame(move, length, on, over) <= over;
   const cap = Math.ceil(4 * ms);
-  for (let length = ms; length < cap; length += FRAME_MS) {
-    const whole = Math.ceil(length);
-    if (fits(whole, curve)) return { ms: whole, easing };
-  }
+  // The settle's curve, a frame longer a step, up to the cap.
+  const lengths: number[] = [];
+  for (let length = ms; length < cap; length += FRAME_MS) lengths.push(Math.ceil(length));
+  const longer = firstFit(lengths.length, (index) => fits(lengths[index]!, curve));
+  if (longer !== undefined) return { ms: lengths[longer]!, easing };
   // The curve the browser plays is the CSS text's, so each lean is read back from it.
-  for (let step = 0; step <= LEAN_STEPS; step += 1) {
+  const leanText = (step: number) => {
+    if (step === 0) return easing;
     const lean = curve.map((value, index) => value + ((LINEAR_BEZIER[index]! - value) * step) / LEAN_STEPS);
-    const text = step === 0 ? easing : cssBezier(lean as unknown as CubicBezier);
-    if (fits(cap, parseBezier(text)!)) return { ms: cap, easing: text };
-  }
+    return cssBezier(lean as unknown as CubicBezier);
+  };
+  const lean = firstFit(LEAN_STEPS + 1, (step) => fits(cap, parseBezier(leanText(step))!));
+  if (lean !== undefined) return { ms: cap, easing: leanText(lean) };
   let length = Math.max(cap, Math.ceil((move * FRAME_MS) / most));
   while (!fits(length, LINEAR_BEZIER)) length += 1;
   return { ms: length, easing: cssBezier(LINEAR_BEZIER) };

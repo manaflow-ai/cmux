@@ -54,6 +54,11 @@ fn handle_frame(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
+    // The slow request log's record of this line, from here to its reply written
+    // (diagnostics/request_log.rs). It ends on this thread, or travels with the queued request.
+    let _slow_log = mux.connection_stats().request_log().map(|log| {
+        log.begin(client, mux.control_clients.log_labels(client), &writer.open, message)
+    });
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
@@ -99,6 +104,9 @@ fn handle_frame(
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
             return keep_open;
+        }
+        if let Ok(envelope) = &request {
+            crate::diagnostics::request_log::decoded_operation(envelope.operation.wire_name());
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -178,6 +186,7 @@ fn handle_frame(
     // The command is counted under its name where it runs, here or on the connection's
     // dispatch thread (`handle_request_with_cancellation`).
     crate::diagnostics::line_is_named();
+    crate::diagnostics::request_log::decoded_command();
     // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
     // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
     if let Command::Send(send) = &request.cmd
