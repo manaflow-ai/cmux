@@ -21,11 +21,11 @@ extension PaneHandlers {
         for (id, side, direction) in swaps {
             registry.bindEffect(id, effect: { invocation in
                 guard let pane = ctx.daemonPane(invocation) else { return .done }
-                // No window lays the pane out (a scripted run on a hidden workspace): a model change only, on the daemon's event.
-                guard let shown = ctx.services.paneController(for: pane), let content = shown.workspace else { return ctx.services.daemon(for: pane).swapEffect(pane.handle, toward: direction) }
+                // The window the key went to, else one that shows the pane; none (a scripted run on a hidden workspace): a model change only, on the daemon's event.
+                guard let shown = ctx.services.windows.active?.focusedPane.flatMap({ $0.pane === pane ? $0 : nil }) ?? ctx.services.paneController(for: pane), let content = shown.workspace else { return ctx.services.daemon(for: pane).swapEffect(pane.handle, toward: direction) }
                 // With the pane the screen shows on that side (Focus Pane Left's rule, on the displayed frames): the swap seen is the swap sent.
                 guard let other = neighbor(of: shown.layoutPaneID, direction: side, in: content).flatMap({ content.panes[$0] }) else { return .refused(RefusalStrings.noPaneInDirection(RefusalStrings.direction(side)), quiet: true) }
-                return showNow(ctx, pane) { $0.swapEffect(pane.handle, with: other.pane.handle) }
+                return showNow(ctx, pane) { $0.swapEffect(pane.handle, with: other.pane.handle, toward: direction) }
             })
         }
         // Also what a pane drag's drop runs (PaneSwapDrag).

@@ -218,7 +218,7 @@ struct PaneVerbsKeyTurnTests {
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
 
-        #expect(!failures.isEmpty, "the refused zoom reported no failure to its caller")
+        #expect(failures.count == 1, "the refused zoom is reported once to its caller: \(failures)")
         let back = await Self.eventually { !shown.zoomed }
         #expect(back, "the layout model is still zoomed after the daemon refused the zoom")
         #expect(shown.order == [Self.left, Self.right], "the refused zoom did not bring the panes back: \(shown.order)")
@@ -237,7 +237,7 @@ struct PaneVerbsKeyTurnTests {
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
 
-        #expect(!failures.isEmpty, "the refused swap reported no failure to its caller")
+        #expect(failures.count == 1, "the refused swap is reported once to its caller: \(failures)")
         let back = await Self.eventually { shown.order == [Self.left, Self.right] }
         #expect(back, "the panes did not go back after the daemon refused the swap: \(shown.order)")
         #expect(shown.store.screen(containing: Self.left)?.layout == Self.split(Self.left, Self.right), "the store still shows the refused swap")
@@ -286,5 +286,26 @@ struct PaneVerbsKeyTurnTests {
         #expect(shown.content.debugApplies == applies, "the daemon's echo of the shown swap applied the layout \(shown.content.debugApplies - applies) more time(s)")
         #expect(shown.order == [Self.right, Self.left], "the swap the daemon confirmed did not stay: \(shown.order)")
         #expect(shown.store.screen(containing: Self.left)?.layout == Self.split(Self.right, Self.left))
+    }
+
+    /// The daemon also sends `tree-changed` for a swap, and the snapshot the client then reads lists the screen's pane
+    /// records in the new tree order. The store's records change order; the layout the window shows is the same tree,
+    /// so no layout is applied.
+    @Test func theDaemonsSnapshotOfAShownSwapAppliesNoLayout() async throws {
+        let shown = try await Self.shown()
+        defer { shown.close() }
+        #expect(Self.run("swapPaneRight", on: shown.left, shown))
+        try #require(shown.order == [Self.right, Self.left], "the swap does not show before the daemon's answer, so its snapshot is the first change")
+        let applies = shown.content.debugApplies
+        let leftFrame = shown.frame(shown.left), rightFrame = shown.frame(shown.right)
+
+        shown.store.apply(snapshot: Self.tree(Self.split(Self.right, Self.left)))
+        shown.content.applyLayoutIfChanged()
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(shown.content.debugApplies == applies, "the daemon's snapshot of the shown swap applied the layout \(shown.content.debugApplies - applies) more time(s)")
+        #expect(shown.order == [Self.right, Self.left], "the swap the daemon confirmed did not stay: \(shown.order)")
+        #expect(shown.frame(shown.left) == leftFrame && shown.frame(shown.right) == rightFrame)
     }
 }

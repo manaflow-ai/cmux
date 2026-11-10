@@ -27,6 +27,19 @@ extension DaemonService {
         intentEffect("swap-pane", store.swapIntent(of: pane, with: other)) { try await $0.swapPane(pane, with: .pane(other)) }
     }
 
+    /// A directional swap of a shown pane: `pane` and `other`, the pane the window shows on its `direction` side, change
+    /// places now. A neighbor still opening (a split the daemon has not confirmed) has no daemon pane to name, so that
+    /// swap goes by direction: the daemon finds the pane, after its split on the same connection.
+    ///
+    /// - Parameters:
+    ///   - pane: The pane the swap is run on.
+    ///   - other: The pane the window shows on that side.
+    ///   - direction: The side.
+    /// - Returns: ``ActionEffect/applied(_:)``, or ``ActionEffect/waiting(_:_:)`` for a neighbor still opening.
+    public func swapEffect(_ pane: PaneID, with other: PaneID, toward direction: PaneDirection) -> ActionEffect {
+        ProvisionalPane.isStandIn(other) ? swapEffect(pane, toward: direction) : swapEffect(pane, with: other)
+    }
+
     /// `pane` swaps with the pane the daemon finds on its `direction` side: for a pane no window lays out. No frame
     /// shows it, and its neighbor is a matter of geometry only the daemon has, so the store changes on the daemon's event.
     ///
