@@ -20,7 +20,7 @@ public final class HomeViewController: UIViewController {
     private let inviteItem = UIBarButtonItem()
     private let settingsItem = UIBarButtonItem()
 
-    /// Opens Settings > Chat Server; the button shows only while this is set.
+    /// Opens Settings (Chat Server, Account); the button shows only while this is set.
     public var onOpenSettings: (() -> Void)? {
         didSet { if isViewLoaded { configureTrailingItems() } }
     }
@@ -133,8 +133,9 @@ public final class HomeViewController: UIViewController {
         }
         inviteItem.accessibilityHint = HomeText.inviteHint
         settingsItem.image = UIImage(systemName: "gearshape")
-        settingsItem.accessibilityLabel = HomeText.chatServerSettings
-        settingsItem.primaryAction = UIAction(title: HomeText.chatServerSettings, image: UIImage(systemName: "gearshape")) { [weak self] _ in
+        settingsItem.accessibilityLabel = HomeText.settings
+        settingsItem.accessibilityIdentifier = "home.settings"
+        settingsItem.primaryAction = UIAction(title: HomeText.settings, image: UIImage(systemName: "gearshape")) { [weak self] _ in
             self?.onOpenSettings?()
         }
         configureTrailingItems()

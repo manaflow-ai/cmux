@@ -34,6 +34,7 @@ let package = Package(
             name: "CmuxiOSApp",
             dependencies: [
                 "CmuxiOSAuth",
+                "CmuxiOSAccount",
                 "CmuxHomeUI",
                 "CmuxiOSTerminal",
                 "CmuxiOSDesign",
@@ -65,6 +66,25 @@ let package = Package(
                 // The `42` debug sign-in shortcut and auto-login exist only in DEBUG.
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
             ]
+        ),
+        // Settings > Delete Account (App Store Guideline 5.1.1(v)): the flow's
+        // model and its Settings section, over CmuxAuthRuntime's deletion request.
+        .target(
+            name: "CmuxiOSAccount",
+            dependencies: [
+                "CmuxiOSDesign",
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSAccountTests",
+            dependencies: [
+                "CmuxiOSAccount",
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
             name: "CmuxHomeUI",

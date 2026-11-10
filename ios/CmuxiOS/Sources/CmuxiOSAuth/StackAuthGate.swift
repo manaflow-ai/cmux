@@ -40,6 +40,15 @@ public final class StackAuthGate: AuthGate {
         refresh()
     }
 
+    /// Ends the local session after Delete Account succeeded. The account
+    /// and its sessions are already gone on the service, so the
+    /// session-backed cleanup in `beforeSignOut` has nothing to talk to; the
+    /// signed-out state's own cleanup (push target, install) still runs.
+    public func signOutAfterAccountDeletion() async {
+        await coordinator.signOut()
+        refresh()
+    }
+
     private func observe() {
         withObservationTracking {
             _ = coordinator.isAuthenticated

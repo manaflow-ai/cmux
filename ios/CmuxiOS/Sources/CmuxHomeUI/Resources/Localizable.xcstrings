@@ -10612,133 +10612,133 @@
         }
       }
     },
-    "home.settings.chatServer": {
+    "home.settings": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خادم الدردشة"
+            "value": "الإعدادات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Server za chat"
+            "value": "Postavke"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chatserver"
+            "value": "Indstillinger"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chat-Server"
+            "value": "Einstellungen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat Server"
+            "value": "Settings"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Servidor de chat"
+            "value": "Ajustes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Serveur de discussion"
+            "value": "Réglages"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Server di chat"
+            "value": "Impostazioni"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "チャットサーバー"
+            "state": "needs_review",
+            "value": "設定"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនមេជជែក"
+            "value": "ការកំណត់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "채팅 서버"
+            "value": "설정"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chatteserver"
+            "value": "Innstillinger"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Serwer czatu"
+            "value": "Ustawienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Servidor de chat"
+            "value": "Ajustes"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сервер чата"
+            "value": "Настройки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เซิร์ฟเวอร์แชท"
+            "value": "การตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sohbet Sunucusu"
+            "value": "Ayarlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сервер чату"
+            "value": "Параметри"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chủ trò chuyện"
+            "value": "Cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "聊天服务器"
+            "value": "设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "聊天伺服器"
+            "value": "設定"
           }
         }
       }

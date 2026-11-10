@@ -2,19 +2,41 @@ import Foundation
 
 typealias AccountDeletionRequestLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
+/// The deletion route answered that it is not served on this deployment
+/// (an origin whose backend has not shipped it yet). Nothing was deleted.
+struct AccountDeletionRouteUnavailable: Error, Equatable {
+    let statusCode: Int
+}
+
 struct AccountDeletionClient: Sendable {
+    /// cmux.com's account route: deletes the Stack account (which ends every
+    /// session), billing and the cmux data it owns.
+    static let accountPath = "/api/account"
+    /// The NEXT Cloud route (cmux-platform `DELETE /v1/me`): erases the data
+    /// NEXT Cloud holds for the account, then does what `accountPath` does.
+    static let cloudPath = "/v1/me"
+
     private let apiBaseURL: String
+    private let path: String
+    private let unavailableStatusCodes: Set<Int>
     private let requestTimeout: TimeInterval
     private let load: AccountDeletionRequestLoader
 
+    /// `unavailableStatusCodes`: statuses that mean the route is not on this
+    /// deployment; they throw `AccountDeletionRouteUnavailable` instead of a
+    /// rejection, so a caller can use another route.
     init(
         apiBaseURL: String,
+        path: String = AccountDeletionClient.accountPath,
+        unavailableStatusCodes: Set<Int> = [],
         requestTimeout: TimeInterval = 60,
         load: @escaping AccountDeletionRequestLoader = { request in
             try await URLSession.shared.data(for: request)
         }
     ) {
         self.apiBaseURL = apiBaseURL
+        self.path = path
+        self.unavailableStatusCodes = unavailableStatusCodes
         self.requestTimeout = requestTimeout
         self.load = load
     }
@@ -22,7 +44,7 @@ struct AccountDeletionClient: Sendable {
     @concurrent
     func deleteAccount(accessToken: String, refreshToken: String) async throws -> AccountDeletionResult {
         let trimmedBaseURL = apiBaseURL.hasSuffix("/") ? String(apiBaseURL.dropLast()) : apiBaseURL
-        guard let url = URL(string: trimmedBaseURL + "/api/account") else {
+        guard let url = URL(string: trimmedBaseURL + path) else {
             throw AccountDeletionRequestError.invalidAPIBaseURL
         }
 
@@ -51,6 +73,8 @@ struct AccountDeletionClient: Sendable {
             return try accountDeletionResult(in: data)
         case 401:
             throw AccountDeletionRequestError.unauthorized
+        case let status where unavailableStatusCodes.contains(status):
+            throw AccountDeletionRouteUnavailable(statusCode: status)
         default:
             let errorCode = accountDeletionErrorCode(in: data)
             if isRetryablePartialAccountDeletionError(errorCode) {

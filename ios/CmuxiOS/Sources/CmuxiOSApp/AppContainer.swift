@@ -1,6 +1,7 @@
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
+import CmuxiOSAccount
 import CmuxiOSAuth
 import CmuxiOSIdentity
 import CmuxiOSPush
@@ -230,6 +231,26 @@ final class AppContainer {
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }
+
+    /// Settings > Delete Account. The account lives in the cmux cloud
+    /// whatever chat server Home uses: NEXT Cloud's `DELETE /v1/me` when an
+    /// API origin is configured (it falls back to cmux.com's account route
+    /// itself), else cmux.com's account route. Sign-out follows success.
+    func accountDeletion() -> AccountDeletionModel {
+        let coordinator = auth.coordinator
+        let cloud = Self.cloudAPIBaseURL()
+        let auth = self.auth
+        return AccountDeletionModel(
+            delete: {
+                if let cloud {
+                    _ = try await coordinator.deleteAccount(cloudAPIBaseURL: cloud.absoluteString)
+                } else {
+                    _ = try await coordinator.deleteAccount()
+                }
+            },
+            signOut: { await auth.signOutAfterAccountDeletion() }
+        )
+    }
 }
 
 /// Adapts the install principal to the push client's token seam.

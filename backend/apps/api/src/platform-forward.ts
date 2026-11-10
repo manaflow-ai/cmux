@@ -32,8 +32,11 @@ const INFERENCE_GATEWAY_PATH = /^\/v1\/cloud\/inference-gateway(?:\/connect)?$/
 /** The machine routes only cmux-platform serves (cmux-api has no handler for them). */
 const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH]
 
+/** Delete Account (cmux-platform `DELETE /v1/me`): erases what NEXT Cloud holds for the person, then deletes the account and its sessions. No handler here; unbound, it answers 404 and the iPhone app falls back to cmux.com's account route. */
+const ACCOUNT_DELETE_PATH = /^\/v1\/me$/
+
 /** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session, guest exec and files, trajectories, the carrier ticket, the team's inference gateway), the platform's Native network target read (cmux-platform NativeNetwork.ts), the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts) and its client config (the app's origins and the backend's create capabilities, cmux-platform Http.ts), which have no op and no route here. Unbound, the client config answers 404 here as before and the app keeps its built-in table. */
-const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/, /^\/v1\/client-config$/]
+const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/, /^\/v1\/client-config$/, ACCOUNT_DELETE_PATH]
 
 /** Whether a path is a NEXT Cloud machine route only cmux-platform serves. */
 export const isCloudPath = (path: string): boolean => PLATFORM_ONLY_PATHS.some((p) => p.test(path))

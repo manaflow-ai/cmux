@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxHomeUI
+import CmuxiOSAccount
 import CmuxiOSAuth
 import CmuxiOSDesign
 import CmuxiOSPush
@@ -65,6 +66,8 @@ final class RootViewController: UIViewController {
         case .restoring:
             install(LaunchPlaceholderViewController())
         case .signedOut:
+            // A sheet (Settings after Delete Account) never stays over sign-in.
+            if presentedViewController != nil { dismiss(animated: true) }
             container.signedOut()
             install(SignInScreen.make(coordinator: container.auth.coordinator))
         case .signedIn(let account):
@@ -86,7 +89,7 @@ final class RootViewController: UIViewController {
         let store = container.homeStore(for: account)
         let home = HomeViewController(store: store, options: container.devOptions.options)
         home.updateRequired = container.updateRequired
-        home.onOpenSettings = { [weak self] in self?.presentChatServerSettings(account: account) }
+        home.onOpenSettings = { [weak self] in self?.presentSettings(account: account) }
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
@@ -115,11 +118,12 @@ final class RootViewController: UIViewController {
         #endif
     }
 
-    /// Settings > Chat Server. Saving another server rebuilds Home on it.
-    private func presentChatServerSettings(account: SignedInAccount) {
+    /// Settings: Chat Server (saving another server rebuilds Home on it) and
+    /// Account > Delete Account.
+    private func presentSettings(account: SignedInAccount) {
         guard presentedViewController == nil else { return }
         let before = container.chatServers.load()
-        let model = ChatServerSettingsModel(current: before) { [weak self] server in
+        let chatServer = ChatServerSettingsModel(current: before) { [weak self] server in
             guard let self, server != before else { return }
             self.container.setChatServer(server)
             self.showHome(account: account)
@@ -127,7 +131,8 @@ final class RootViewController: UIViewController {
         weak var sheet: UIViewController?
         let close: () -> Void = { sheet?.dismiss(animated: true) }
         let hosting = UIHostingController(rootView: NavigationStack {
-            ChatServerSettingsView(model: model, onDone: close, onCancel: close)
+            SettingsView(email: account.email, chatServer: chatServer,
+                         deletion: container.accountDeletion(), onClose: close)
         })
         sheet = hosting
         present(hosting, animated: true)
