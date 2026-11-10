@@ -134,7 +134,7 @@ A Claude Code session in the desktop app or a terminal, or a Codex desktop threa
 acpmux name from its own shell, and from then on is an address like any lane:
 
 ```bash
-acpmux register desktop-zoe                          # run in that session's Bash tool or a SessionStart hook
+acpmux register desktop-zoe                          # in its Bash tool, or a SessionStart hook on resume
 acpmux send --no-wait cosmic-gray/desktop-zoe "..."  # from any peered machine; prints a delivery id
 acpmux send --status ID                              # queued, delivering, delivered, held or failed
 ```

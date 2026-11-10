@@ -72,8 +72,9 @@ How it degrades:
 - The session is closed or restarted: a send the outbox carries is refused as
   `bridge.not_running` (retryable), so the outbox keeps it and tries again for a day; `--status`
   shows it queued. A person's own prompt in the chat gets the read-only refusal with Take Over. A restarted
-  session has a new token, so it registers again (a `SessionStart` hook running `acpmux register
-  NAME` does that by itself).
+  session has a new token, so it registers again (a `SessionStart` hook does that on resume).
+  A brand-new session registers after its first turn: register needs its transcript, and refuses
+  a session that has none yet.
 - The inbox is a symlink, or the connection fails: nothing is written, the outbox tries again.
 - The session holds or refuses inbound messages (`crossSessionInbound`): Claude Code applies its
   own rules; acpmux reports what it wrote, not what the model read.

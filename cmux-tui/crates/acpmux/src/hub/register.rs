@@ -51,15 +51,15 @@ fn with_registered<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
     f(set)
 }
 
-/// Keeps chat `id` registered, across a daemon restart.
+/// Keeps chat `id` registered, across a daemon restart. The file is written while the record's
+/// lock is held, so two registrations at once never write an older set over a newer one.
 fn mark_registered(id: &str) -> anyhow::Result<()> {
-    let ids = with_registered(|set| {
+    with_registered(|set| -> anyhow::Result<()> {
         set.insert(id.to_owned());
         let mut ids: Vec<&String> = set.iter().collect();
         ids.sort();
-        serde_json::to_vec(&ids)
-    })?;
-    crate::agent_tools::write_private(&registered_file(), &ids)
+        crate::agent_tools::write_private(&registered_file(), &serde_json::to_vec(&ids)?)
+    })
 }
 
 /// Marks chat `id` registered for this process only (tests, which must not write the home).

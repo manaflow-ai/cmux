@@ -231,7 +231,7 @@ A session acpmux did not start (the Claude desktop app's Code tab, a terminal
 `claude`, a Codex desktop thread) takes a stable name from its own shell:
 
 ```bash
-acpmux register desktop-zoe            # in that session's Bash tool or a SessionStart hook
+acpmux register desktop-zoe            # in its Bash tool, or a SessionStart hook on resume
 acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
 ```
 

@@ -552,7 +552,8 @@ pub enum Command {
     /// hook. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
     /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
     /// Run it again after the session restarts (a new process gets a new token); a SessionStart
-    /// hook does that by itself
+    /// hook does that on resume. A brand-new session registers after its first turn, once it has a
+    /// transcript
     #[command(
         after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
     )]
