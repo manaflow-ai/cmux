@@ -720,6 +720,10 @@ def inline_keychain_fixture_failures(documents: dict[str, dict]) -> list[str]:
     found = inline_keychain_classification(fixture, INLINE_DEVELOPER_ID_KEYCHAINS | {(workflow, "inline-keychain-fixture")})
     if found:
         problems.append(f"INLINE_DEVELOPER_ID_KEYCHAINS: a listed inline import fails the guard: {found}")
+    quiet = with_job(documents, workflow, "inline-keychain-fixture", {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]})
+    found = inline_keychain_classification(quiet, INLINE_DEVELOPER_ID_KEYCHAINS | {(workflow, "inline-keychain-fixture")})
+    if found != [f"{label}: in INLINE_DEVELOPER_ID_KEYCHAINS but imports no Developer ID certificate inline; drop it"]:
+        problems.append(f"INLINE_DEVELOPER_ID_KEYCHAINS: a stale entry is not named: {found}")
     return problems
 
 
@@ -860,8 +864,10 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     text = json.dumps(job)
     pool_signer = release_pool_signer(job)
     if pool_signer:
-        runner = str(job.get("runs-on", ""))
-        if "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
+        # Every matrix cell's runner (workflow_jobs.runs_on_cells); a runner nothing resolves is not a literal ubuntu label.
+        cells = workflow_jobs.runs_on_cells(job)
+        if ("keychain" in text or pool_signer not in text or not cells
+                or any("ubuntu" not in cell or "macos" in cell for cell in cells)):
             failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
         certificate_steps = [step for step in steps if isinstance(step, dict) and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")]
         if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):

@@ -100,6 +100,18 @@ def unclassified_secret_jobs(doc):
     return secret_jobs(doc) - set(HOSTED_SECRET_JOBS) - set(OWNED_SECRET_JOBS)
 
 
+def linux_routes(doc):
+    """(job, its body, one matrix cell's runs-on) for each cell whose route can name Ubuntu and no macOS label
+    (workflow_jobs.runs_on_cells). A job whose matrix runner nothing resolves fails here: it may be either."""
+    for name, job in workflow_jobs.jobs(doc).items():
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None:
+            raise AssertionError(f'{name}: runs-on has a matrix value nothing resolves')
+        for cell in cells:
+            if 'ubuntu' in cell and 'macos' not in cell:
+                yield name, job, cell
+
+
 def credentialed_control_jobs(doc):
     """Every Linux control that holds a credential, outside the hosted secret jobs and the signer route (whose
     jobs end on the signer's label, test_nightly_sign_runner.py and the publish tests): derived, not kept by hand."""
@@ -520,12 +532,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         # the owned nightly slot or the nightly-only Mac pool, whatever LINUX_RUNNER or RUNNER_POOLS hold.
         # Only a secret job glaeda does not give the whole mini yet takes hosted Ubuntu.
         checked = 0
-        for name, job in DOC['jobs'].items():
-            runs_on = job.get('runs-on', '')
-            if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on:
-                continue
+        for name, job, runs_on in linux_routes(DOC):
             checked += 1
-            source = runs_on.removeprefix('${{').removesuffix('}}')
+            source = runs_on.strip().removeprefix('${{').removesuffix('}}') if runs_on.strip().startswith('${{') \
+                else repr(runs_on.strip())
             self.assertNotIn('blacksmith', source, name)
             self.assertNotIn('RUNNER_POOLS', source, name)
             self.assertNotIn('LINUX_RUNNER', source, name)
