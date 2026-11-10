@@ -67,12 +67,14 @@ await requireBrowserLane("local-commands-gallery-browser.test.ts", async () => {
   const queued = (page: Page) => page.locator(".acpmux-composer-queue .acpmux-queued").count();
   const sessionInfoShown = (page: Page) =>
     page.evaluate(() => {
-      const aside = document.querySelector("aside.acpmux-session-info");
-      return !!aside && aside.getBoundingClientRect().width > 0;
+      const panel = document.querySelector(".acpmux-session-info[data-presence=shown]");
+      return !!panel && panel.getBoundingClientRect().width > 0;
     });
 
   test("a new chat starts with Session Info closed", async () => {
     const { page } = await open("new-chat-info-closed", false);
+    // Session Info is on (its toggle is in the header), and closed.
+    await page.waitForSelector(".acpmux-session-info-toggle", { timeout: 30_000 });
     expect(await sessionInfoShown(page)).toBe(false);
     await page.close();
   });

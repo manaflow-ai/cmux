@@ -33,6 +33,9 @@ const newChat = noChat([], {
   summary: { sessionId: "new-chat", cwd: CWD, harness: "claude", turnCount: 0, host: "This Mac", hostKind: "local" },
 });
 
+/// Session Info on, as the App's header state has it by default (AgentPaneTunables `agent.sessionInfo`).
+const native = { "pane.tabState": { inspector: true } };
+
 /// Types `command` alone and sends it with Return, as the person does mid-turn, then waits for what
 /// it shows (`shows`): the play fails when it never comes.
 const runs = (command: string, shows: string) => async (ctx: PlayContext) => {
@@ -58,16 +61,19 @@ export default agentPaneEntry({
     "new-chat-info-closed": {
       note: "A new chat: Session Info is closed; only its header toggle opens it.",
       snapshot: newChat,
+      native,
     },
     "status-mid-turn": {
       note: "/status typed alone while a turn runs: the status card shows at once; nothing joins the queue.",
       snapshot: running(),
+      native,
       play: runs("/status", ".acpmux-harness-status"),
     },
     "mcp-mid-turn": {
       note: "/mcp typed alone while a turn runs: Session Info opens on Connectors at once; the queue keeps only what the person queued.",
       snapshot: running(),
-      play: runs("/mcp", "aside.acpmux-session-info"),
+      native,
+      play: runs("/mcp", ".acpmux-session-info[data-presence=shown]"),
     },
     "queue-beside": {
       note: "The queue next to it: a turn running with one queued prompt, before any command. A normal prompt sent now still waits here.",
@@ -75,6 +81,7 @@ export default agentPaneEntry({
         { id: "q-1", prompt: "Then run the fetch tests." },
         { id: "q-2", prompt: "And open a PR when they pass." },
       ]),
+      native,
     },
   },
 });
