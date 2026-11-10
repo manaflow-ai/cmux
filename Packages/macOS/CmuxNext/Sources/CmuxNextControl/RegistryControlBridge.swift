@@ -330,8 +330,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
                 choices: cases.map { ControlArgumentInfo.Choice(value: $0.value, title: $0.title) }
             )
         case .target(let kind):
-            ControlArgumentInfo(name: argument.name, title: argument.title, kind: .target, isRequired: argument.isRequired, targetKind: kind.rawValue,
-                                isSuppliedByTarget: argument.isSuppliedByTarget)
+            ControlArgumentInfo(name: argument.name, title: argument.title, kind: .target, isRequired: argument.isRequired, targetKind: kind.rawValue)
         }
     }
 
