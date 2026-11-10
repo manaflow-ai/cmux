@@ -10,6 +10,8 @@ import type { ComposerChief } from "./MessageComposer";
 export interface ChiefTurnProps {
   chief?: ComposerChief;
   toast?: ReactNode;
+  /** Start now on a queued agent (ChiefTurn.startAgent): a refusal's words show in the toast. */
+  startAgent?: (agent: string) => Promise<boolean>;
 }
 
 /** `working`: the Chief types or writes its reply in the conversation (HomeHostView: `isChief && typing`).
@@ -27,6 +29,7 @@ export function useChiefTurn(
   useEffect(() => () => turn.dispose(), [turn]);
   useEffect(() => turn.update(isChief && working, sequence), [turn, isChief, working, sequence]);
   const view = useSyncExternalStore(turn.subscribe, turn.getSnapshot);
+  const startAgent = useMemo(() => (host ? (agent: string) => turn.startAgent(agent) : undefined), [host, turn]);
   if (!isChief) return {};
   const toast = view.toast;
   return {
@@ -36,6 +39,7 @@ export function useChiefTurn(
       onStop: (all) => turn.stop(all),
       onContinue: () => turn.continueTurn(),
     },
+    ...(startAgent ? { startAgent } : {}),
     ...(toast
       ? {
           toast: (

@@ -169,8 +169,24 @@ function part(raw: Json): HomePart {
       return place;
     }
     default:
-      return { type: "other", text: String(raw.type ?? "") };
+      return { type: "other", text: unknownPartText(raw) };
   }
+}
+
+/** A part type this page does not draw, as native showed it (HomeCoreMapping): an agent's widget
+ * (an app and a fallback) by its fallback text; any other by its link when it carries one, else
+ * its type (ConversationPart.plainText). */
+export function unknownPartText(raw: Json): string {
+  if (
+    raw.type === "widget" &&
+    typeof raw.app === "string" &&
+    raw.app &&
+    typeof raw.fallback === "string" &&
+    raw.fallback
+  )
+    return raw.fallback;
+  if (typeof raw.url === "string" && raw.url) return raw.url;
+  return String(raw.type ?? "");
 }
 
 const HARNESSES = new Set(["claude", "codex", "acp", "chief"]);

@@ -15,6 +15,7 @@ import { createStrings, type Strings } from "../../shared/i18n";
 import { pageError, type PageClient } from "../../shared/pageClient";
 import { APPROVAL_DECIDE_OP, ApprovalDecisions } from "../cards/approval/approval";
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
+import { useSetupCard } from "./HomeSetupCard";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
 import { cardStrings } from "../cards/strings";
@@ -48,7 +49,6 @@ import { useChiefTurn } from "../transcript/useChiefTurn";
 import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine";
 import type { TranscriptExtras } from "../transcript/extras";
 import { useAgents } from "../cards/pills/useAgents";
-import { CHIEF_TURN_OPS } from "../transcript/chiefTurn";
 import {
   bubbleHostActions,
   chatAppearance,
@@ -464,18 +464,12 @@ function ConversationView(
     [host],
   );
   const isChief = conversation.kind === "chief";
-  // Start now on a queued agent's pill or card: the brain starts it past its cap (chief.startAgent).
-  const startAgent = useMemo(
-    () =>
-      host && isChief
-        ? (agent: string) =>
-            host
-              .call(CHIEF_TURN_OPS.startAgent, { conversation: conversation.id, agent })
-              .then(() => true)
-              .catch(() => false)
-        : undefined,
-    [host, isChief, conversation.id],
-  );
+  // Start now on a queued agent's pill or card: the brain starts it past its cap (chief.startAgent);
+  // a refusal shows the Chief's words in the turn's toast.
+  const { startAgent: startTurnAgent, ...turnProps } = turn;
+  const startAgent = isChief ? startTurnAgent : undefined;
+  // Set Up cmux on a first run, pinned under a Chief chat's header as the native transcript had it.
+  const setupCard = useSetupCard(host, isChief, words.cards);
   const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, isChief, startAgent);
   const extras = useMemo<TranscriptExtras | undefined>(
     () => {
@@ -590,7 +584,8 @@ function ConversationView(
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
         {...(props.approvals ? { approvals: props.approvals } : {})}
-        {...turn}
+        {...turnProps}
+        {...(setupCard ? { pinned: setupCard } : {})}
         {...(extras ? { extras } : {})}
         {...(firstRunShown
           ? {

@@ -335,3 +335,13 @@ test("a plain question shows its prompt and numbered options", () => {
   expect(host.querySelector(".mt-text")?.textContent).toBe("a1 needs permission to run Bash\n1. Allow once\n2. Deny");
   expect(buttons(host)).toEqual([]);
 });
+
+test("a part the page does not draw shows what native did: a widget's fallback, else its link, else its type", () => {
+  const texts = wire([
+    { type: "widget", app: "com.example.weather", fallback: "Sunny, 21°C", props: {} },
+    { type: "widget", fallback: "no app" },
+    { type: "poll", url: "https://example.com/poll/1" },
+    { type: "poll" },
+  ]).parts.map((part) => partText(part));
+  expect(texts).toEqual(["Sunny, 21°C", "widget", "https://example.com/poll/1", "poll"]);
+});
