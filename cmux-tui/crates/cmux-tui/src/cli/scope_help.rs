@@ -77,7 +77,8 @@ passes the last target visits each entry once. null when nothing needs the
 person. It moves focus only with --focus. A blocked entry's reason is the
 agent's own message (the permission it asks for). list answers the whole
 queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the same
-order from the tab the person looks at; `Ctrl-b A` lists it.
+order from the tab the person looks at and moves the session focus there, as
+--focus does; `Ctrl-b A` lists it.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\

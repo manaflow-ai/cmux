@@ -467,6 +467,26 @@ impl Session {
         }
     }
 
+    /// Move the session's shared focus to tab `tab` of `pane`: what `pane
+    /// list` and `tab list` report as focused, and where the next attach
+    /// lands. Only for the person's explicit request to go to a tab (the
+    /// attention jump and its list), as `cmux attention next --focus` does;
+    /// ordinary navigation goes through [`Session::report_focus`], which
+    /// leaves the shared focus alone. Best effort: remote sends are never
+    /// awaited.
+    pub(crate) fn focus_tab_for_person(&self, pane: PaneId, tab: usize) {
+        match self {
+            Session::Local(mux) => {
+                mux.focus_pane_as(me(), pane);
+                mux.select_tab_as(me(), Some(pane), Some(tab), None);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.notify(json!({"cmd": "focus-pane", "pane": pane}));
+                let _ = remote.notify(json!({"cmd": "select-tab", "pane": pane, "index": tab}));
+            }
+        }
+    }
+
     /// This client's remembered focus on this session, falling back to the
     /// session's last reported focus from any client, if the server has
     /// either and its pane is still alive. The remote server applies the
