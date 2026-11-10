@@ -38,6 +38,8 @@ pub struct FakeDesktop {
     pub captures: Mutex<u32>,
     /// Full window lists read so far.
     pub window_lists: Mutex<u32>,
+    /// Where the person's pointer is.
+    pub pointer: Mutex<Option<Point>>,
     /// From capture number `.0` on, the pixels are `.1` (an app that
     /// redraws a little after an action).
     pub repaint_from: Mutex<Option<(u32, u8)>>,
@@ -93,6 +95,7 @@ impl FakeDesktop {
             paint: Mutex::new(200),
             captures: Mutex::new(0),
             window_lists: Mutex::new(0),
+            pointer: Mutex::new(None),
             repaint_from: Mutex::new(None),
         }
     }
@@ -134,6 +137,9 @@ impl Desktop for FakeDesktop {
     }
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.windows.iter().find(|w| w.id == id).cloned())
+    }
+    fn pointer(&self) -> Option<Point> {
+        *self.pointer.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     fn window_capture_isolated(&self) -> bool {
         self.isolated_window_capture

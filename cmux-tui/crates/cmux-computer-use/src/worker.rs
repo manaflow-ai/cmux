@@ -31,9 +31,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::cursor::{CursorSink, NoCursor};
+use crate::cursor::CursorSink;
 use crate::desktop::Desktop;
-use crate::engine::{Answer, Approver, Engine, EngineParts, NoTakeover, PersonActivity, Question};
+use crate::engine::{Answer, Approver, Engine, EngineParts, PersonActivity, Question};
 use crate::policy::PolicyConfig;
 use crate::wire;
 
@@ -133,8 +133,8 @@ pub fn platform() -> Result<Platform, String> {
     if std::env::var_os("CMUX_CU_FAKE_DESKTOP").is_some_and(|v| v == "1") {
         return Ok(Platform {
             desktop: Arc::new(crate::desktop::fake::FakeDesktop::standard()),
-            cursor: Arc::new(NoCursor),
-            takeover: Arc::new(NoTakeover),
+            cursor: Arc::new(crate::cursor::NoCursor),
+            takeover: Arc::new(crate::engine::NoTakeover),
         });
     }
     #[cfg(feature = "desktop")]

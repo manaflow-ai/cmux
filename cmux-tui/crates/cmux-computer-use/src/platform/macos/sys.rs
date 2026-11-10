@@ -121,6 +121,8 @@ unsafe extern "C" {
     pub fn CGEventSetFlags(event: CFTypeRef, flags: u64);
     pub fn CGEventSetIntegerValueField(event: CFTypeRef, field: u32, value: i64);
     pub fn CGEventSetLocation(event: CFTypeRef, at: CGPoint);
+    pub fn CGEventCreate(source: CFTypeRef) -> CFTypeRef;
+    pub fn CGEventGetLocation(event: CFTypeRef) -> CGPoint;
     pub fn CGEventPostToPid(pid: i32, event: CFTypeRef);
     pub fn CGEventPost(tap: u32, event: CFTypeRef);
     pub fn CGImageGetWidth(image: CFTypeRef) -> usize;

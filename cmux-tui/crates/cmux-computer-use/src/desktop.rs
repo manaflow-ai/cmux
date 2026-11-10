@@ -300,6 +300,18 @@ pub trait Desktop: Send + Sync {
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.list_windows()?.into_iter().find(|w| w.id == id))
     }
+    /// Whether the app of `window` is the frontmost app (where the person's
+    /// keys go). The default looks it up in [`Self::list_apps`].
+    fn is_frontmost_app(&self, window: &Window) -> bool {
+        self.list_apps()
+            .map(|apps| apps.iter().any(|a| a.pid == window.pid && a.frontmost))
+            .unwrap_or(true)
+    }
+    /// Where the person's pointer is now (global points), when the desktop
+    /// can tell.
+    fn pointer(&self) -> Option<Point> {
+        None
+    }
     /// The name the person knows the app of `window` by, when known. The
     /// default looks it up in [`Self::list_apps`].
     fn app_name(&self, window: &Window) -> Option<String> {

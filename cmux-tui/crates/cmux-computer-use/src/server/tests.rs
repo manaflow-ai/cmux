@@ -88,6 +88,11 @@ fn fixture(tag: &str, uid: Option<u32>) -> Fixture {
     let mut parts = EngineParts::new(desktop.clone());
     parts.takeover = gate.clone();
     parts.sleep = Arc::new(|_| {});
+    // Each clock read is a second later: the settle wait ends at once.
+    let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    parts.clock = Arc::new(move || {
+        Duration::from_secs(ticks.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+    });
     let engine = Arc::new(Engine::new(parts));
     let mut listener = transport::Listener::bind(path.to_str().unwrap()).unwrap();
     if let Some(uid) = uid {
@@ -248,6 +253,11 @@ fn a_stale_socket_is_replaced_but_a_regular_file_is_not() {
     assert!(path.exists());
     let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
     parts.sleep = Arc::new(|_| {});
+    // Each clock read is a second later: the settle wait ends at once.
+    let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    parts.clock = Arc::new(move || {
+        Duration::from_secs(ticks.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+    });
     let engine = Arc::new(Engine::new(parts));
     serve(engine.clone(), path.to_str().unwrap(), &SECRET).unwrap().stop();
     std::fs::write(&path, b"not a socket").unwrap();

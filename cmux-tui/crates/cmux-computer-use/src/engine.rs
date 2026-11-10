@@ -192,8 +192,16 @@ pub struct EngineParts {
     pub takeover: Arc<dyn PersonActivity>,
     pub machine_name: String,
     pub settle: Settle,
-    /// The settle wait's sleep (tests pass one that returns at once).
+    /// The settle wait's sleep and the monotonic clock it measures the
+    /// ceiling with (tests pass a pair that only advances on sleep).
     pub sleep: Arc<dyn Fn(Duration) + Send + Sync>,
+    pub clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+}
+
+/// Time since the first call, from the monotonic clock.
+fn monotonic() -> Duration {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed()
 }
 
 impl EngineParts {
@@ -208,6 +216,7 @@ impl EngineParts {
             machine_name: String::new(),
             settle: Settle::default(),
             sleep: Arc::new(std::thread::sleep),
+            clock: Arc::new(monotonic),
         }
     }
 }
@@ -227,6 +236,17 @@ pub struct Engine {
     machine_name: String,
     settle: Settle,
     sleep: Arc<dyn Fn(Duration) + Send + Sync>,
+    clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+}
+
+/// What a capture checks before it reads a window.
+enum Check<'a> {
+    /// The policy check, asking the person when the mode says so.
+    Authorize,
+    /// The state after an action already authorized on `app`: the window
+    /// must still be that app's and the app still allowed (deny list,
+    /// protected, Never), with no question asked again.
+    StillAllowed(&'a TargetApp),
 }
 
 fn args_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -284,6 +304,7 @@ impl Engine {
             machine_name: parts.machine_name,
             settle: parts.settle,
             sleep: parts.sleep,
+            clock: parts.clock,
         }
     }
 
@@ -331,6 +352,14 @@ impl Engine {
         if let Some(call_id) = acting_id {
             match self.sessions.prior(&ctx.session, call_id) {
                 Prior::Finished(done) => {
+                    // The first reply may not have arrived; its state did not
+                    // either, so the agent's next screenshot of the window
+                    // returns the image, not unchanged.
+                    if tools::OBSERVES.contains(&name)
+                        && let Some(id) = args.get("window_id").and_then(Value::as_str)
+                    {
+                        lock(&self.seen).remove(&(ctx.session.clone(), format!("w:{id}")));
+                    }
                     if let Some(out) = serde_json::from_str::<Value>(&done)
                         .ok()
                         .as_ref()
@@ -363,8 +392,9 @@ impl Engine {
             && tools::OBSERVES.contains(&name)
             && args.get("observe").and_then(Value::as_bool) != Some(false)
             && let Some(window_id) = args_str(&args, "window_id")
+            && let Some(app) = &app
         {
-            self.attach_state(&self.config(), ctx, window_id, &mut out);
+            self.attach_state(ctx, window_id, app, &mut out);
         }
         self.write_audit(ctx, name, app.as_ref(), &out);
         out
@@ -475,7 +505,7 @@ impl Engine {
                     .and_then(Value::as_str)
                     .ok_or_else(|| ToolOutput::error("invalid_arguments", "text is required"))?;
                 let delivery = parse_delivery(args)?;
-                let app = self.act_on(&config, ctx, &window, delivery)?;
+                let app = self.act_on(&config, ctx, &window, delivery, false)?;
                 self.cursor.show(CursorEvent::Typing {
                     session: ctx.session.clone(),
                     label: ctx.label.clone(),
@@ -493,7 +523,7 @@ impl Engine {
                 let combo = KeyCombo::parse(need(args, "keys")?)
                     .map_err(|e| ToolOutput::error("invalid_arguments", e))?;
                 let delivery = parse_delivery(args)?;
-                let app = self.act_on(&config, ctx, &window, delivery)?;
+                let app = self.act_on(&config, ctx, &window, delivery, false)?;
                 self.cursor.show(CursorEvent::Typing {
                     session: ctx.session.clone(),
                     label: ctx.label.clone(),
@@ -508,7 +538,7 @@ impl Engine {
             }
             "scroll" => {
                 let window = self.window(need(args, "window_id")?)?;
-                let app = self.act_on(&config, ctx, &window, Delivery::Background)?;
+                let app = self.act_on(&config, ctx, &window, Delivery::Background, true)?;
                 let target = self.pointer_target(ctx, &window, args)?;
                 let dx = args_f64(args, "dx").unwrap_or(0.0).clamp(-200.0, 200.0);
                 let dy = args_f64(args, "dy").unwrap_or(0.0).clamp(-200.0, 200.0);
@@ -522,7 +552,7 @@ impl Engine {
             "drag" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let delivery = parse_delivery(args)?;
-                let app = self.act_on(&config, ctx, &window, delivery)?;
+                let app = self.act_on(&config, ctx, &window, delivery, true)?;
                 let g = self.geometry_for(ctx, &window);
                 let from = g.to_global(need_f64(args, "from_x")?, need_f64(args, "from_y")?);
                 let to = g.to_global(need_f64(args, "to_x")?, need_f64(args, "to_y")?);
@@ -536,7 +566,7 @@ impl Engine {
             }
             "set_value" => {
                 let window = self.window(need(args, "window_id")?)?;
-                let app = self.act_on(&config, ctx, &window, Delivery::Background)?;
+                let app = self.act_on(&config, ctx, &window, Delivery::Background, false)?;
                 let value = args.get("value").and_then(Value::as_str).unwrap_or_default();
                 let out = self
                     .desktop
@@ -546,7 +576,7 @@ impl Engine {
             }
             "perform_action" => {
                 let window = self.window(need(args, "window_id")?)?;
-                let app = self.act_on(&config, ctx, &window, Delivery::Background)?;
+                let app = self.act_on(&config, ctx, &window, Delivery::Background, false)?;
                 let out = self
                     .desktop
                     .perform_action(&window.id, need(args, "element_id")?, need(args, "action")?)
@@ -732,12 +762,20 @@ impl Engine {
         ctx: &CallContext,
         window: &Window,
         delivery: Delivery,
+        pointer: bool,
     ) -> Result<TargetApp, ToolOutput> {
         let app = self.app_of(window);
         self.authorize(config, ctx, Access::Act, Some(&app), delivery == Delivery::Foreground)?;
-        // Background input to a window the person is not using cannot meet
-        // theirs; foreground input, or the person's own window, can.
-        let could_collide = delivery == Delivery::Foreground || window.focused;
+        // Background input meets the person's own only where theirs goes:
+        // foreground input is system-wide; keys posted to an app reach its key
+        // window (a sheet the person types in, too), so any window of the
+        // frontmost app collides; pointer input goes to the window under the
+        // person's pointer.
+        let pointer_in = |w: &Window| self.desktop.pointer().is_some_and(|p| contains(&w.frame, p));
+        let could_collide = delivery == Delivery::Foreground
+            || window.focused
+            || self.desktop.is_frontmost_app(window)
+            || (pointer && pointer_in(window));
         if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
             return Err(ToolOutput::error(
                 "person_in_control",
@@ -854,7 +892,7 @@ impl Engine {
                 (window, target)
             }
         };
-        let app = self.act_on(config, ctx, &window, delivery)?;
+        let app = self.act_on(config, ctx, &window, delivery, true)?;
         if let PointerTarget::Point { point, .. } = &target {
             self.glide(ctx, *point);
         }
@@ -883,40 +921,43 @@ impl Engine {
         ctx: &CallContext,
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
-        self.capture_for(config, ctx, args, true, true)
+        self.capture_for(config, ctx, args, true, Check::Authorize)
     }
 
     /// Waits for the window to settle after an acting call ([`Settle`]) and
-    /// adds its screenshot and tree to `out` as `state`. A window that closed
-    /// or cannot be read leaves the action's result as it is, with the reason.
+    /// adds its screenshot and tree to `out` as `state`. The ceiling counts
+    /// elapsed time, captures included. The window must still be `app`'s and
+    /// `app` still allowed before every capture and the tree; a window that
+    /// closed, changed app or became denied leaves the action's result as it
+    /// is, with the reason.
     fn attach_state(
         &self,
-        config: &PolicyConfig,
         ctx: &CallContext,
         window_id: &str,
+        app: &TargetApp,
         out: &mut ToolOutput,
     ) {
         let s = self.settle;
+        let start = (self.clock)();
         (self.sleep)(s.floor);
-        let mut waited = s.floor;
         let args = json!({"window_id": window_id});
+        let mut captures = 0u32;
         let shot = loop {
-            // The action was just authorized on this app; observing it needs no
-            // second check (in Ask every time it would ask the person again).
-            match self.capture_for(config, ctx, &args, false, false) {
+            let config = self.config();
+            captures += 1;
+            match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {
                 Ok((shot, _)) => {
                     let changed = shot.body["unchanged"] != json!(true);
-                    if changed || waited >= s.ceiling {
-                        break Ok(shot);
+                    let elapsed = (self.clock)().saturating_sub(start);
+                    if changed || elapsed >= s.ceiling {
+                        break Ok((shot, elapsed));
                     }
+                    (self.sleep)(s.step.min(s.ceiling - elapsed));
                 }
                 Err(e) => break Err(e),
             }
-            let step = s.step.min(s.ceiling.saturating_sub(waited));
-            (self.sleep)(step);
-            waited += step;
         };
-        let shot = match shot {
+        let (shot, elapsed) = match shot {
             Ok(shot) => shot,
             Err(e) => {
                 out.body["state"] = json!({
@@ -928,8 +969,12 @@ impl Engine {
             }
         };
         let mut state = shot.body.clone();
-        state["waited_ms"] = json!(waited.as_millis() as u64);
-        if let Ok(mut tree) = self.desktop.ui_tree(window_id, TreeOptions::default()) {
+        state["waited_ms"] = json!(elapsed.as_millis() as u64);
+        state["captures"] = json!(captures);
+        let config = self.config();
+        if self.still_allowed(&config, ctx, window_id, app).is_ok()
+            && let Ok(mut tree) = self.desktop.ui_tree(window_id, TreeOptions::default())
+        {
             // The capture just recorded this window's geometry for the session.
             let seen = lock(&self.seen)
                 .get(&(ctx.session.clone(), format!("w:{window_id}")))
@@ -945,13 +990,39 @@ impl Engine {
         out.png_base64 = shot.png_base64;
     }
 
+    /// The window is still `app`'s and `app` is still allowed (deny list,
+    /// protected, Never) under `config`.
+    fn still_allowed(
+        &self,
+        config: &PolicyConfig,
+        _ctx: &CallContext,
+        window_id: &str,
+        app: &TargetApp,
+    ) -> Result<Window, ToolOutput> {
+        let window = self.window(window_id)?;
+        if !window.app_id.eq_ignore_ascii_case(&app.id) {
+            return Err(ToolOutput::error(
+                "target_not_found",
+                format!("window {window_id:?} now belongs to another app"),
+            ));
+        }
+        let saved = self.sessions.saved();
+        if let Some(refusal) = self.blocked(config, &saved, app) {
+            return Err(ToolOutput::refused(&refusal, Some(app)));
+        }
+        if config.mode == policy::Mode::Off {
+            return Err(ToolOutput::refused(&Refusal::Off, Some(app)));
+        }
+        Ok(window)
+    }
+
     fn capture_for(
         &self,
         config: &PolicyConfig,
         ctx: &CallContext,
         args: &Value,
         look: bool,
-        check: bool,
+        check: Check<'_>,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
         // A window capture that holds only its window's pixels needs that
@@ -976,8 +1047,13 @@ impl Engine {
                     ToolOutput::error("target_not_found", format!("no window {id:?}"))
                 })?;
                 let app = self.target_of(window, &names);
-                if check {
-                    self.authorize(config, ctx, Access::Observe, Some(&app), false)?;
+                match &check {
+                    Check::Authorize => {
+                        self.authorize(config, ctx, Access::Observe, Some(&app), false)?
+                    }
+                    Check::StillAllowed(acted_on) => {
+                        self.still_allowed(config, ctx, id, acted_on)?;
+                    }
                 }
                 (
                     CaptureTarget::Window(id.to_string()),
@@ -987,8 +1063,14 @@ impl Engine {
                 )
             }
             None => {
-                if check {
-                    self.authorize(config, ctx, Access::Observe, None, false)?;
+                match &check {
+                    Check::Authorize => {
+                        self.authorize(config, ctx, Access::Observe, None, false)?
+                    }
+                    // The state after an action is always of its window.
+                    Check::StillAllowed(_) => {
+                        return Err(ToolOutput::error("invalid_arguments", "no window"));
+                    }
                 }
                 let display = args_str(args, "display").map(str::to_string);
                 let key = format!("d:{}", display.as_deref().unwrap_or("main"));

@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
 use crate::desktop::fake::{Event, FakeDesktop};
@@ -26,6 +27,18 @@ impl PersonActivity for Busy {
     }
 }
 
+/// Time that only moves when the engine sleeps: the settle wait's ceiling is
+/// exact, and tests never wait.
+fn instant_time(parts: &mut EngineParts) -> Arc<AtomicU64> {
+    let now = Arc::new(AtomicU64::new(0));
+    let (a, b) = (now.clone(), now.clone());
+    parts.sleep = Arc::new(move |d| {
+        a.fetch_add(d.as_millis() as u64, Ordering::SeqCst);
+    });
+    parts.clock = Arc::new(move || Duration::from_millis(b.load(Ordering::SeqCst)));
+    now
+}
+
 fn ctx(call: Option<&str>) -> CallContext {
     CallContext {
         session: "s1".into(),
@@ -37,9 +50,9 @@ fn ctx(call: Option<&str>) -> CallContext {
 
 fn engine(desktop: Arc<FakeDesktop>, config: PolicyConfig) -> Engine {
     let mut parts = EngineParts::new(desktop);
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.config = config;
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     Engine::new(parts)
 }
 
@@ -95,7 +108,7 @@ fn approved_apps_asks_and_saves_always() {
     let d = Arc::new(FakeDesktop::standard());
     let approver = Arc::new(Scripted(Mutex::new(vec![Answer::AlwaysAllow]), Mutex::new(vec![])));
     let mut parts = EngineParts::new(d);
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.config = PolicyConfig { mode: Mode::ApprovedApps, ..PolicyConfig::default() };
     parts.approver = approver.clone();
     let e = Engine::new(parts);
@@ -124,9 +137,9 @@ fn takeover_pauses_acting_but_not_looking() {
     fake.windows[1].focused = true; // Safari is the window the person is using.
     let d = Arc::new(fake);
     let mut parts = EngineParts::new(d);
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.takeover = Arc::new(Busy);
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     let e = Engine::new(parts);
     let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
     assert_eq!(out.code.as_deref(), Some("person_in_control"));
@@ -137,9 +150,9 @@ fn takeover_pauses_acting_but_not_looking() {
 fn takeover_never_holds_background_input_to_a_window_the_person_is_not_using() {
     let d = Arc::new(FakeDesktop::standard());
     let mut parts = EngineParts::new(d.clone());
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.takeover = Arc::new(Busy);
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.config.allow_foreground = true;
     let e = Engine::new(parts);
     let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
@@ -159,9 +172,12 @@ struct Slept(Mutex<Vec<Duration>>);
 fn settling_engine(d: Arc<FakeDesktop>) -> (Engine, Arc<Slept>) {
     let slept = Arc::new(Slept(Mutex::new(vec![])));
     let mut parts = EngineParts::new(d);
-    parts.sleep = Arc::new(|_| {});
+    let now = instant_time(&mut parts);
     let rec = slept.clone();
-    parts.sleep = Arc::new(move |t| rec.0.lock().unwrap().push(t));
+    parts.sleep = Arc::new(move |t| {
+        now.fetch_add(t.as_millis() as u64, Ordering::SeqCst);
+        rec.0.lock().unwrap().push(t);
+    });
     (Engine::new(parts), slept)
 }
 
@@ -248,7 +264,7 @@ fn cursor_glides_then_clicks() {
     let d = Arc::new(FakeDesktop::standard());
     let rec = Arc::new(Recorder(Mutex::new(vec![])));
     let mut parts = EngineParts::new(d);
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
     e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
@@ -345,7 +361,7 @@ fn a_call_cut_off_by_a_restart_is_not_run_again() {
     Sessions::open(Some(&dir)).begin("s1", "cut");
     let d = Arc::new(FakeDesktop::standard());
     let mut parts = EngineParts::new(d.clone());
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.state_dir = Some(dir.clone());
     let e = Engine::new(parts);
     let out = e.call(&ctx(Some("cut")), "click", &json!({"window_id": "1", "element_id": "e1"}));
@@ -362,7 +378,7 @@ fn labels_shown_to_the_person_are_bounded() {
     assert_eq!(safe_label(&long).chars().count(), LABEL_MAX_CHARS);
     let rec = Arc::new(Recorder(Mutex::new(vec![])));
     let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
-    parts.sleep = Arc::new(|_| {});
+    instant_time(&mut parts);
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
     let mut c = ctx(None);
@@ -460,4 +476,72 @@ fn window_calls_never_read_every_window_when_the_capture_is_isolated() {
     // A display screenshot still reads them all, to paint out denied windows.
     assert!(!e.call(&ctx(None), "screenshot", &json!({})).is_error);
     assert!(*d.window_lists.lock().unwrap() >= 1);
+}
+
+#[test]
+fn input_to_the_frontmost_app_waits_for_the_person() {
+    let mut fake = FakeDesktop::standard();
+    fake.apps[0].frontmost = true; // Safari is frontmost; window 1 is not marked focused.
+    let d = Arc::new(fake);
+    let mut parts = EngineParts::new(d.clone());
+    parts.takeover = Arc::new(Busy);
+    instant_time(&mut parts);
+    let e = Engine::new(parts);
+    // Keys posted to Safari reach its key window (a sheet the person types in, too).
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
+    assert_eq!(out.code.as_deref(), Some("person_in_control"));
+    assert!(d.events().is_empty());
+}
+
+#[test]
+fn pointer_input_waits_while_the_persons_pointer_is_over_the_window() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.pointer.lock().unwrap() = Some(Point { x: 150.0, y: 150.0 }); // inside Safari (window 1)
+    let mut parts = EngineParts::new(d.clone());
+    parts.takeover = Arc::new(Busy);
+    instant_time(&mut parts);
+    let e = Engine::new(parts);
+    let out = e.call(&ctx(None), "scroll", &json!({"window_id": "1", "dy": 3}));
+    assert_eq!(out.code.as_deref(), Some("person_in_control"));
+    // Keys to that background app do not meet the pointer.
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
+    assert!(!out.is_error, "{:?}", out.body);
+}
+
+#[test]
+fn the_state_is_withheld_when_the_app_is_denied_during_the_wait() {
+    let d = Arc::new(FakeDesktop::standard());
+    let mut parts = EngineParts::new(d.clone());
+    let engine: Arc<std::sync::OnceLock<std::sync::Weak<Engine>>> = Arc::default();
+    let hook = engine.clone();
+    parts.sleep = Arc::new(move |_| {
+        // The person adds Safari to the deny list while the agent waits.
+        if let Some(e) = hook.get().and_then(std::sync::Weak::upgrade) {
+            let mut c = e.config();
+            c.denied_apps.push("com.apple.Safari".into());
+            e.set_config(c);
+        }
+    });
+    parts.clock = Arc::new(|| Duration::ZERO);
+    let e = Arc::new(Engine::new(parts));
+    engine.set(Arc::downgrade(&e)).ok();
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["state"]["available"], false, "{}", out.body);
+    assert!(out.png_base64.is_none());
+    assert_eq!(*d.captures.lock().unwrap(), 0);
+}
+
+#[test]
+fn a_replayed_action_makes_the_next_screenshot_carry_the_image() {
+    let d = Arc::new(FakeDesktop::standard());
+    let e = engine(d.clone(), PolicyConfig::default());
+    let args = json!({"window_id": "1", "element_id": "e1"});
+    let first = e.call(&ctx(Some("k")), "click", &args);
+    assert!(first.png_base64.is_some());
+    // The first reply was lost; the agent retries, then looks.
+    e.call(&ctx(Some("k")), "click", &args);
+    let shot = e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
+    assert_eq!(shot.body["unchanged"], false);
+    assert!(shot.png_base64.is_some());
 }

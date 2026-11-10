@@ -30,7 +30,7 @@ impl Tool {
             if OBSERVES.contains(&self.name) {
                 props.insert(
                     "observe".into(),
-                    json!({"type": "boolean", "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. false: skip it."}),
+                    json!({"type": "boolean", "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it."}),
                 );
             }
             props.insert(

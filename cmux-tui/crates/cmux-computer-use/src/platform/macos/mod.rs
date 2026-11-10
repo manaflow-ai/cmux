@@ -243,6 +243,18 @@ impl Desktop for MacDesktop {
         Ok(Some(window))
     }
 
+    fn is_frontmost_app(&self, window: &Window) -> bool {
+        workspace::app_for_pid(window.pid as i32).is_none_or(|a| a.active)
+    }
+
+    fn pointer(&self) -> Option<Point> {
+        // SAFETY: a null source makes a plain event at the pointer; released by Cf.
+        let event = sys::Cf::created(unsafe { sys::CGEventCreate(std::ptr::null()) })?;
+        // SAFETY: event is a live CGEvent.
+        let at = unsafe { sys::CGEventGetLocation(event.ptr()) };
+        Some(Point { x: at.x, y: at.y })
+    }
+
     fn app_name(&self, window: &Window) -> Option<String> {
         workspace::app_for_pid(window.pid as i32).map(|a| a.name)
     }
