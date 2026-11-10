@@ -72,7 +72,8 @@ How it degrades:
 - The session is closed or restarted: a send the outbox carries is refused as
   `bridge.not_running` (retryable), so the outbox keeps it and tries again for a day; `--status`
   shows it queued. A person's own prompt in the chat gets the read-only refusal with Take Over. A restarted
-  session has a new token, so it registers again (a `SessionStart` hook does that on resume).
+  session has a new token, so it registers again (a `SessionStart` hook does that on resume);
+  until then its sends wait the same way, and are never opened with the peer key instead.
   A brand-new session registers after its first turn: register needs its transcript, and refuses
   a session that has none yet.
 - The inbox is a symlink, or the connection fails: nothing is written, the outbox tries again.
@@ -80,7 +81,8 @@ How it degrades:
   own rules; acpmux reports what it wrote, not what the model read.
 - A chat only the bridge setting listed (`agents.desktopBridge.enabled`, no register) still uses
   the peer key Claude Code publishes beside its registry entry. That file is not documented, so
-  register is the supported path.
+  register is the supported path. Register itself refuses a shell without
+  `CLAUDE_CODE_MESSAGING_TOKEN` (`register.no_token`).
 
 ## Tests
 

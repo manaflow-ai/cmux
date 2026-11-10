@@ -272,14 +272,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Register { name } => {
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-            let mut params = json!({"name": name});
             // Claude Code exports both to its Bash commands and hooks (its documented inbox).
-            if let Some(socket) = env("CLAUDE_CODE_MESSAGING_SOCKET") {
-                params["socket"] = json!(socket);
-                if let Some(token) = env("CLAUDE_CODE_MESSAGING_TOKEN") {
-                    params["token"] = json!(token);
-                }
-            }
+            let socket = env("CLAUDE_CODE_MESSAGING_SOCKET");
+            let token = socket.as_ref().and(env("CLAUDE_CODE_MESSAGING_TOKEN"));
+            let params = json!({"name": name, "socket": socket, "token": token});
             let v = client.request(method::MUX_REGISTER, params).await?;
             if json_out {
                 print_json(&v)
@@ -288,9 +284,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
                 let how = match field("token").as_str() {
                     "registered" => "delivered with its own messaging token",
-                    "peer-key" => {
-                        "delivered with its peer key (no CLAUDE_CODE_MESSAGING_TOKEN here)"
-                    }
                     _ => "reached over ACP",
                 };
                 println!(

@@ -149,6 +149,13 @@ impl Hub {
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .ok_or_else(not_found)?;
+        // A registered Claude Code chat is delivered only with its session's own token (never the
+        // undocumented peer key), so a shell that has none registers nothing.
+        if matches!(found, Found::Claude(_)) && (req.token.is_none() || req.socket.is_none()) {
+            return Err(RpcError::invalid_params(
+                "register.no_token: this shell has no CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN; run it in the Claude Code session's own Bash tool or hook",
+            ));
+        }
         let (family, agent_session_id, cwd, tags, pid) = match &found {
             Found::Claude(p) => (
                 "claude",
@@ -251,7 +258,7 @@ impl Hub {
             "agentSessionId": agent_session_id,
             "pid": pid,
             "bridged": watched,
-            "token": if token_kept { "registered" } else if watched && family == "claude" { "peer-key" } else { "none" },
+            "token": if token_kept { "registered" } else { "none" },
         }))
     }
 }
