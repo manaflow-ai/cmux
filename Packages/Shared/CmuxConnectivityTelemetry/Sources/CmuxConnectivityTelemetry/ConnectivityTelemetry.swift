@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
 import os
-#endif
 
 /// Records a device's connectivity events for its signed-in audience.
 ///
@@ -16,7 +14,7 @@ import os
 /// The message stream is unbounded on purpose: a dropped flush or audience message would hang a
 /// waiter or keep team detail; the sinks are synchronous and cheap (a file append, a log line, a
 /// Sentry breadcrumb), and everyone's records are budgeted.
-public final class ConnectivityTelemetry: @unchecked Sendable {
+public final class ConnectivityTelemetry: Sendable {
     /// The process's recorder. Apps configure it once at launch (``setJournal(_:)``,
     /// ``addSink(_:)``) and follow the account (``setAccount(email:)``).
     public static let shared = ConnectivityTelemetry()
@@ -33,19 +31,18 @@ public final class ConnectivityTelemetry: @unchecked Sendable {
         case flush(CheckedContinuation<Void, Never>)
     }
 
-    private struct State {
+    private struct State: Sendable {
         var audience: ConnectivityAudience = .everyone
         var policy: ConnectivityPolicy
     }
 
     // lint:allow lock - record() is synchronous from any thread; the region only runs the pure
-    // policy and reads the audience, never I/O.
-    private let lock = NSLock()
-    private var state: State
+    // policy, reads the audience and yields to the stream, never I/O.
+    private let state: OSAllocatedUnfairLock<State>
     private let messages: AsyncStream<Message>.Continuation
 
     public init(configuration: ConnectivityPolicy.Configuration = ConnectivityPolicy.Configuration()) {
-        state = State(policy: ConnectivityPolicy(configuration: configuration))
+        state = OSAllocatedUnfairLock(initialState: State(policy: ConnectivityPolicy(configuration: configuration)))
         let (stream, continuation) = AsyncStream<Message>.makeStream()
         messages = continuation
         // task-owner: the recorder's drain; ends when the recorder is released.
@@ -74,9 +71,7 @@ public final class ConnectivityTelemetry: @unchecked Sendable {
 
     /// The audience records are kept for now.
     public var audience: ConnectivityAudience {
-        lock.lock()
-        defer { lock.unlock() }
-        return state.audience
+        state.withLock { $0.audience }
     }
 
     /// Follows the signed-in account: its email's audience (``ConnectivityAudience/init(email:)``),
@@ -88,17 +83,18 @@ public final class ConnectivityTelemetry: @unchecked Sendable {
 
     /// Sets the audience directly (tests, a forced debug override).
     public func setAudience(_ next: ConnectivityAudience) {
-        lock.lock()
-        defer { lock.unlock() }
-        if state.audience != next {
-            state.audience = next
-            state.policy.reset()
-        }
+        let messages = messages
+        state.withLock { state in
+            if state.audience != next {
+                state.audience = next
+                state.policy.reset()
+            }
         // Yielded under the lock, after every record admitted for the earlier audience, so a
         // team record never reaches the journal after the clear. Not team: the drain clears a
         // journal still holding team records (also one a team account left at the last quit).
         // Everyone's records hold no free text, so a team sign-in keeps the history before it.
-        if next != .team { messages.yield(.audience(next)) }
+            if next != .team { messages.yield(.audience(next)) }
+        }
     }
 
     /// Where kept records are written on this device; nil writes none.
@@ -114,10 +110,11 @@ public final class ConnectivityTelemetry: @unchecked Sendable {
     /// Records one step. Returns at once; the record (if kept) reaches the journal and sinks on
     /// the drain task.
     public func record(_ event: ConnectivityEvent) {
-        lock.lock()
-        defer { lock.unlock() }
+        let messages = messages
         // Yielded under the lock (a yield to an unbounded stream never waits): see setAudience.
-        if let record = state.policy.admit(event, audience: state.audience) { messages.yield(.record(record)) }
+        state.withLock { state in
+            if let record = state.policy.admit(event, audience: state.audience) { messages.yield(.record(record)) }
+        }
     }
 
     /// Records one step (``ConnectivityEvent/init(_:_:outcome:fields:detail:date:)``).
@@ -133,7 +130,6 @@ public final class ConnectivityTelemetry: @unchecked Sendable {
         }
     }
 
-    #if canImport(os)
     /// A sink writing each record to the unified log under `subsystem`, category
     /// `connectivity`. The team's records are public, so Console and a sysdiagnose show them
     /// unredacted; everyone's carry only fixed-vocabulary fields.
@@ -147,5 +143,4 @@ public final class ConnectivityTelemetry: @unchecked Sendable {
             }
         }
     }
-    #endif
 }

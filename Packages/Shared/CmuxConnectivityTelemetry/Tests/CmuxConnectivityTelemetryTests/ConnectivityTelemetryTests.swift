@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxConnectivityTelemetry
 
@@ -195,11 +196,10 @@ struct ConnectivityJournalTests {
     }
 }
 
-final class SeenRecords: @unchecked Sendable {
-    private let lock = NSLock()
-    private var records: [ConnectivityRecord] = []
-    func add(_ record: ConnectivityRecord) { lock.withLock { records.append(record) } }
-    var all: [ConnectivityRecord] { lock.withLock { records } }
+final class SeenRecords: Sendable {
+    private let records = OSAllocatedUnfairLock<[ConnectivityRecord]>(initialState: [])
+    func add(_ record: ConnectivityRecord) { records.withLock { $0.append(record) } }
+    var all: [ConnectivityRecord] { records.withLock { $0 } }
 }
 
 @Suite("Connectivity remote gate")
