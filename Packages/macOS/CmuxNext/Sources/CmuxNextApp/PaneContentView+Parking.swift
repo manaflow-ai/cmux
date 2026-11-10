@@ -106,7 +106,7 @@ extension PaneContentView {
 
     /// Drops parked views that are gone, moved to another pane, or not
     /// `live` (a closed tab, a replaced view).
-    func prunePark(live: ((NSView) -> Bool)? = nil) {
+    func prunePark(live: ((NSView) -> Bool)? = nil, keeps: ((NSView) -> Bool)? = nil) {
         parked.removeAll { entry in
             guard let view = entry.view else { return true }
             guard view.superview === contentHost else {
@@ -120,7 +120,7 @@ extension PaneContentView {
             guard live?(view) ?? true else {
                 (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
                 (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
-                if keepsClosedPage?(view) != true { view.removeFromSuperview() } // kept: its owner moved it inside the window
+                if keeps?(view) != true { view.removeFromSuperview() } // kept: its owner moved it inside the window
                 refreshNativeToolOwner()
                 return true
             }
@@ -159,7 +159,7 @@ extension PaneContentView {
     func dropClosedParked(liveContent: () -> [TabContent]) {
         guard !parked.isEmpty else { return }
         let live = Set(liveContent().map { if case .browser = $0, let chrome = browserChrome.chrome { ObjectIdentifier(chrome) } else { ObjectIdentifier($0.view) } })
-        prunePark { live.contains(ObjectIdentifier($0)) }
+        prunePark(live: { live.contains(ObjectIdentifier($0)) }, keeps: keepsClosedPage) // only a closed tab's page is kept
     }
 
     /// Takes every parked view out of the pane (the pane goes away).
