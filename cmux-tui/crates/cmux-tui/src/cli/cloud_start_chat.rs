@@ -198,6 +198,7 @@ pub(super) fn send_existing(
 /// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
 /// deadline from its start; a step that answered after it is that phase's timeout, as in [`run`].
 fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session: &str) -> Outcome {
+    super::last_chat::remember(session, Some(machine_id));
     let answer = json!({
         "machine_id": machine_id,
         "target": format!("machine:{machine_id}"),
@@ -337,12 +338,7 @@ pub(super) fn parse(
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let seconds =
-                    text.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
-                        UsageError::new(format!("--timeout {text}: give seconds"))
-                    })?;
-                timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
+                timeout = super::chat_send::timeout_value(&value()?)?.min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
             "--make-room" => make_room = true,
@@ -1318,6 +1314,7 @@ fn steps(
     if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
         progress.made = Some(machine_id.to_owned());
     }
+    super::last_chat::remember(session, Some(machine_id));
     let mut answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),
