@@ -16,6 +16,7 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         account: None,
         machine: None,
         prompt_suggestions: None,
+        model: None,
     }
 }
 
