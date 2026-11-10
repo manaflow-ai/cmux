@@ -30,7 +30,27 @@ extension ThemeTokens {
     /// backdrop and the shade lies on that tint, so a fill over the shade can never show what the
     /// content shows for an unknown backdrop (it would add the tint twice): nil, and the caller keeps
     /// a fill that still shows. A folder tab cuts the shade away instead and needs no fill.
-    public func selectedSurface(panesPaint: Bool) -> ThemeRGB? {
-        panesPaint ? selectedSurface.withAlpha(1) : nil
+    ///
+    /// The content's surface reads as the selection only where it stands out of the chrome around it:
+    /// no shade (a chrome that shares the content's surface), or a shade too faint to see over a very
+    /// dark content (black over Builtin Dark's #000000), would hide it, so it is nil there too
+    /// (``selectedOnChrome(_:chromeShade:)``).
+    public func selectedSurface(panesPaint: Bool, chromeShade: Double) -> ThemeRGB? {
+        panesPaint ? Self.selectedOnChrome(selectedSurface, chromeShade: chromeShade) : nil
+    }
+
+    /// The lowest WCAG contrast between a selected item in the content's surface and the chrome it
+    /// sits on (black at the chrome's shade over that surface) for the item to read as selected. The
+    /// default shades clear it on every built-in theme but the near-black ones: white under the light
+    /// shade (0.045) is 1.10, #1E1E1E under the dark one (0.28) 1.09, #000000 1.00.
+    public static let minimumSelectedContrast = 1.04
+
+    /// `content`, opaque, when it reads as a selection on its chrome (black at `chromeShade` over it,
+    /// ``chromeSurface(shade:)``): opaque itself, and at least ``minimumSelectedContrast`` from that
+    /// chrome. nil otherwise: the caller keeps `selectionFill`, which always shows.
+    public static func selectedOnChrome(_ content: ThemeRGB, chromeShade: Double) -> ThemeRGB? {
+        guard content.alpha >= 1 else { return nil }
+        let chrome = ThemeRGB.black.withAlpha(min(max(chromeShade, 0), 1)).composited(over: content)
+        return content.contrast(with: chrome) >= minimumSelectedContrast ? content : nil
     }
 }

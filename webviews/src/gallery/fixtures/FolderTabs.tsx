@@ -20,7 +20,16 @@ export type FolderTabsProps = {
   join: FolderJoin;
   /** Which tab is selected; 0 is the first, on the content's leading edge. */
   selected: number;
+  /** Pins the look instead of following the gallery's theme and background axes: light, dark, or a
+   * picture behind a see-through window (the selected row keeps the selection fill there). */
+  scene?: FolderScene;
+  /** card: one content card (the default window); floating: Floating Panes, each pane its own card
+   * with its own strip, its pane padding kept (Metrics.codePanePadding). */
+  panes?: FolderPanes;
 };
+
+export type FolderScene = "light" | "dark" | "image";
+export type FolderPanes = "card" | "floating";
 
 const TABS = ["retry.ts", "Agent: plan the fix", "docs / backoff", "Terminal"];
 const W = 760;
@@ -32,6 +41,8 @@ const TAB_TOP = 14;
 const TAB_W = 132;
 const TAB_GAP = 2;
 const CARD_R = 12;
+/** Floating Panes' pane padding: each strip's first tab starts this far inside its card. */
+const PANE_PAD = 4;
 
 type Box = { x0: number; x1: number; top: number; bottom: number };
 
@@ -68,45 +79,88 @@ function cardOutline({ x0, x1, top: T, bottom: B }: Box): string {
   return `M ${x0} ${T + R} A ${R} ${R} 0 0 1 ${x0 + R} ${T} L ${x1 - R} ${T} A ${R} ${R} 0 0 1 ${x1} ${T + R} L ${x1} ${B - R} A ${R} ${R} 0 0 1 ${x1 - R} ${B} L ${x0 + R} ${B} A ${R} ${R} 0 0 1 ${x0} ${B - R} Z`;
 }
 
-export function FolderTabs({ shape, fillet, radius, join, selected }: FolderTabsProps) {
+type Pane = { card: Box; tabs: string[]; selected: number; inset: number };
+
+export function FolderTabs({ shape, fillet, radius, join, selected, scene, panes = "card" }: FolderTabsProps) {
   const stripBottom = STRIP_TOP + 36;
-  const card: Box = { x0: SIDEBAR + GAP, x1: W - GAP, top: stripBottom, bottom: H - GAP };
-  const tabX = (index: number) => card.x0 + index * (TAB_W + TAB_GAP);
-  const a = tabX(selected);
-  const tab = { a, b: a + TAB_W, top: TAB_TOP };
+  const area: Box = { x0: SIDEBAR + GAP, x1: W - GAP, top: stripBottom, bottom: H - GAP };
+  const mid = (area.x0 + area.x1) / 2;
+  const layout: Pane[] =
+    panes === "floating"
+      ? [
+          {
+            card: { ...area, x1: mid - GAP / 2 },
+            tabs: TABS.slice(0, 2),
+            selected: Math.min(selected, 1),
+            inset: PANE_PAD,
+          },
+          { card: { ...area, x0: mid + GAP / 2 }, tabs: TABS.slice(2), selected: 0, inset: PANE_PAD },
+        ]
+      : [{ card: area, tabs: TABS, selected, inset: 0 }];
   const joined = shape !== "pill";
-  const outline = joined ? folderOutline(card, tab, radius, shape === "goo" ? fillet : 0) : cardOutline(card);
-  const shade = `M 0 0 H ${W} V ${H} H 0 Z ${outline}`;
+  const tabX = (pane: Pane, index: number) => pane.card.x0 + pane.inset + index * (TAB_W + TAB_GAP);
+  const outlines = layout.map((pane) => {
+    const a = tabX(pane, pane.selected);
+    const tab = { a, b: a + TAB_W, top: TAB_TOP };
+    return joined ? folderOutline(pane.card, tab, radius, shape === "goo" ? fillet : 0) : cardOutline(pane.card);
+  });
+  const shade = `M 0 0 H ${W} V ${H} H 0 Z ${outlines.join(" ")}`;
+  const body = layout[0].card;
   return (
-    <div className="folder-tabs" data-shape={shape} data-join={join} style={{ width: W, height: H }}>
+    <div
+      className="folder-tabs"
+      data-shape={shape}
+      data-join={join}
+      data-scene={scene}
+      data-panes={panes}
+      style={{ width: W, height: H }}
+    >
       <svg className="folder-tabs-layers" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">
         <path className="folder-tabs-chrome" d={shade} fillRule="evenodd" />
-        <path className="folder-tabs-content" d={outline} />
-        {join === "hairline" ? <path className="folder-tabs-edge" d={outline} /> : null}
-        {joined ? null : (
-          <rect
-            className="folder-tabs-pill"
-            x={a}
-            y={TAB_TOP}
-            width={TAB_W}
-            height={stripBottom - TAB_TOP - 6}
-            rx={radius}
-          />
-        )}
-      </svg>
-      <ol className="folder-tabs-strip" role="tablist" style={{ left: card.x0, top: TAB_TOP }}>
-        {TABS.map((title, index) => (
-          <li
-            key={title}
-            className="folder-tabs-tab"
-            role="tab"
-            aria-selected={index === selected}
-            style={{ left: index * (TAB_W + TAB_GAP), width: TAB_W, height: stripBottom - TAB_TOP - (joined ? 0 : 6) }}
-          >
-            {title}
-          </li>
+        {outlines.map((outline) => (
+          <path key={outline} className="folder-tabs-content" d={outline} />
         ))}
-      </ol>
+        {join === "hairline"
+          ? outlines.map((outline) => <path key={outline} className="folder-tabs-edge" d={outline} />)
+          : null}
+        {joined
+          ? null
+          : layout.map((pane) => (
+              <rect
+                key={pane.card.x0}
+                className="folder-tabs-pill"
+                x={tabX(pane, pane.selected)}
+                y={TAB_TOP}
+                width={TAB_W}
+                height={stripBottom - TAB_TOP - 6}
+                rx={radius}
+              />
+            ))}
+      </svg>
+      {layout.map((pane) => (
+        <ol
+          key={pane.card.x0}
+          className="folder-tabs-strip"
+          role="tablist"
+          style={{ left: pane.card.x0 + pane.inset, top: TAB_TOP }}
+        >
+          {pane.tabs.map((title, index) => (
+            <li
+              key={title}
+              className="folder-tabs-tab"
+              role="tab"
+              aria-selected={index === pane.selected}
+              style={{
+                left: index * (TAB_W + TAB_GAP),
+                width: TAB_W,
+                height: stripBottom - TAB_TOP - (joined ? 0 : 6),
+              }}
+            >
+              {title}
+            </li>
+          ))}
+        </ol>
+      ))}
       <ul className="folder-tabs-sidebar" style={{ width: SIDEBAR - GAP * 2, left: GAP, top: stripBottom }}>
         <li>Workspaces</li>
         <li className="folder-tabs-row" aria-current="true">
@@ -117,7 +171,7 @@ export function FolderTabs({ shape, fillet, radius, join, selected }: FolderTabs
       </ul>
       <div
         className="folder-tabs-body"
-        style={{ left: card.x0 + 20, top: stripBottom + 22, width: card.x1 - card.x0 - 40 }}
+        style={{ left: body.x0 + 20, top: stripBottom + 22, width: body.x1 - body.x0 - 40 }}
       >
         <p>The selected tab is the content it opens: one shape, one surface.</p>
         <i />

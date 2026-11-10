@@ -4,7 +4,8 @@ import { FolderTabs, type FolderTabsProps } from "./FolderTabs";
 
 // Leo, 2026-11-10: "The selected tab should be white as well ... We can like morph it in as like, you
 // know how folder tabs look, right? Like just integrate that. Like make it look cohesive. Make it look
-// good." The theme axis gives light and dark, the background axis an image behind the window.
+// good." The theme axis gives light and dark, the background axis an image behind the window; the
+// pinned variants show light, dark, a picture and Floating Panes side by side for review.
 const variants: Record<string, { props: FolderTabsProps; note: string }> = {
   "goo-r8": {
     props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1 },
@@ -29,6 +30,26 @@ const variants: Record<string, { props: FolderTabsProps; note: string }> = {
   "goo-r8-hairline": {
     props: { shape: "goo", fillet: 8, radius: 6, join: "hairline", selected: 1 },
     note: "the same shape with a hairline along the folder and the content's edge",
+  },
+  "goo-r8-light": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "light" },
+    note: "light, pinned: the selected tab and row are white, like the content, on the shaded chrome",
+  },
+  "goo-r8-dark": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "dark" },
+    note: "dark, pinned: the selected tab and row are the content's black, the chrome a shade darker",
+  },
+  "goo-r8-image": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "image" },
+    note: "over a picture: the folder tab shows exactly what the content shows (the shade is cut away); the row keeps the fill",
+  },
+  "goo-r8-floating": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, panes: "floating" },
+    note: "Floating Panes: each pane is its own card with its own folder tab, its pane padding kept",
+  },
+  "goo-r8-floating-dark": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 0, panes: "floating", scene: "dark" },
+    note: "Floating Panes, dark, the first tabs selected: the padding keeps a fillet on the leading side too",
   },
   "pill-before": {
     props: { shape: "pill", fillet: 0, radius: 6, join: "seamless", selected: 1 },

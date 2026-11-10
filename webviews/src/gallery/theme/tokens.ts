@@ -44,6 +44,16 @@ export function contrast(a: ThemeRGB, b: ThemeRGB): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
+/** ThemeTokens.minimumSelectedContrast: a selected item in the content's surface must stand this far out of its chrome. */
+export const MINIMUM_SELECTED_CONTRAST = 1.04;
+
+/** ThemeTokens.selectedOnChrome: `content` when, opaque, it reads against black at `shade` over it; else null. */
+export function selectedOnChrome(content: ThemeRGB, shade: number): ThemeRGB | null {
+  if (content.alpha < 1) return null;
+  const chrome = composited(withAlpha(BLACK, clamp(shade)), content);
+  return contrast(content, chrome) >= MINIMUM_SELECTED_CONTRAST ? content : null;
+}
+
 export function mixed(color: ThemeRGB, other: ThemeRGB, fraction: number): ThemeRGB {
   const t = clamp(fraction);
   return rgb(

@@ -32,8 +32,19 @@ surface, never a gray picked per component:
   lies on that tint, so no fill over the shade can show what the content shows: it would add the
   tint twice. The tab strip cuts the shade away under the selected tab instead (the folder tab is
   clear there). A sidebar row, which cannot cut the shade, keeps `Palette.selectionFill` in a
-  see-through window (`ThemeTokens.selectedSurface(panesPaint:)` is nil); in an opaque window it is
+  see-through window (`ThemeTokens.selectedSurface(panesPaint:chromeShade:)` is nil); in an opaque window it is
   the content's surface, opaque.
+
+The content's surface counts as the selection only where it stands out of the chrome around it:
+WCAG contrast of at least 1.04 against black at the chrome's shade over it
+(`ThemeTokens.minimumSelectedContrast`, `ThemeTokens.selectedOnChrome`, mirrored in the gallery's
+`selectedOnChrome`). No shade (bare, panes, flat-sidebar-line), or a near-black theme whose shade
+does not show (Builtin Dark's #000000), keeps `Palette.selectionFill`.
+
+The folder join changes no layout's geometry: Floating Panes and Blocks (pane separation `cards`)
+keep their pane padding (`Metrics.codePanePadding`), so each pane's first tab sits inside its card.
+While a tab's width moves, the folder's outline is keyframed on the same samples as the pill
+(`TabCell+InnerPath`), so the folder moves with the tab.
 
 `selectedSurface` is the token, mapped to `contentSurface`: `ThemeTokens.selectedSurface`,
 `Palette.selectedSurface` (a row over the shade), `Palette.selectedFolderSurface` (the folder tab, =

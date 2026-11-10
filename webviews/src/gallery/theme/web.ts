@@ -23,6 +23,7 @@ import {
   opaqueOverlayFill,
   MINIMUM_TEXT_CONTRAST,
   parseHex,
+  selectedOnChrome,
   readable,
   withAlpha,
   type ThemeInput,
@@ -66,15 +67,16 @@ export function webThemePayload(
   const tooltip = tooltipSurface(tokens);
   const card = cardMaterial(tokens);
   // The foreground and background layers (WebTheme.swift, design/selected-is-foreground.md): a
-  // selected item on the chrome is the content's surface when the page paints it opaque, else the
-  // selection fill (no fill over the shade shows a see-through page's tint).
+  // selected item on the chrome is the content's surface when the page paints it opaque and it stands
+  // out of the shade, else the selection fill (no fill over the shade shows a see-through page's tint;
+  // a near-black page under black shade would hide it).
   const content = seeThrough ? withAlpha(page, 0) : page;
   const shade = chromeShade(tokens);
   return {
     variables: {
       "--cmux-content-surface": css(content),
       "--cmux-chrome-shade": css(withAlpha(BLACK, shade)),
-      "--cmux-selected-surface": css(content.alpha >= 1 ? content : tokens.selectionFill),
+      "--cmux-selected-surface": css(selectedOnChrome(content, shade) ?? tokens.selectionFill),
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
       "--cmux-surface-solid": css(page),

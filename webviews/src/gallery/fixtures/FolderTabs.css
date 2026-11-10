@@ -42,3 +42,25 @@
 .folder-tabs-body p { margin: 0; color: var(--ft-muted); }
 .folder-tabs-body i { display: block; width: 82%; height: var(--ds-space-1); border-radius: var(--ds-space-1); background: color-mix(in srgb, var(--ft-ink) 13%, transparent); }
 .folder-tabs-body i.short { width: 56%; }
+/* A pinned scene (the `scene` prop): the same layers without the gallery's theme axis. Light and dark
+   take the default shades (chrome.mainPane.shadeLight 0.045, shadeDark 0.28) over the system canvas. */
+.folder-tabs[data-scene] {
+  --ft-ink: CanvasText;
+  --ft-muted: color-mix(in srgb, CanvasText 62%, transparent);
+  --ft-edge: color-mix(in srgb, CanvasText 10%, transparent);
+  --ft-pill: color-mix(in srgb, CanvasText 10%, transparent);
+  background: Canvas;
+}
+.folder-tabs[data-scene="light"] { color-scheme: light; --ft-content: Canvas; --ft-selected: Canvas; --ft-shade: rgb(0 0 0 / 0.045); }
+.folder-tabs[data-scene="dark"] { color-scheme: dark; --ft-content: Canvas; --ft-selected: Canvas; --ft-shade: rgb(0 0 0 / 0.28); }
+/* A picture behind a see-through window: the window's one tint over the picture, the content clear on
+   it, the shade on the chrome only. A sidebar row cannot cut the shade, so it keeps the selection fill. */
+.folder-tabs[data-scene="image"] {
+  color-scheme: light;
+  --ft-content: transparent;
+  --ft-selected: var(--ft-pill);
+  --ft-shade: rgb(0 0 0 / 0.045);
+  background-image: linear-gradient(color-mix(in srgb, Canvas 72%, transparent), color-mix(in srgb, Canvas 72%, transparent)), url("./assets/liquid-glass-wallpaper.jpg");
+  background-size: cover;
+  background-position: center;
+}

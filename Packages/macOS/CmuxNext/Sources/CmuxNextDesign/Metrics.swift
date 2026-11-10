@@ -146,7 +146,9 @@ public struct Metrics {
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
         // The flush corner (`chrome.cornerFlush`): each strip's first tab starts on its pane's (the card's) edge.
-        if CornerFlush.current.isOn { return 0 }
+        // Floating Panes and Blocks (`cards`) keep their pane padding: each pane is its own card there, and
+        // the folder join never changes a layout's geometry.
+        if CornerFlush.current.isOn && paneSeparation != .cards { return 0 }
         let chrome = DesignSettings.shared.paneChrome
         return chrome.padding ?? paneSeparation.impliedPadding ?? densityPanePadding
     }

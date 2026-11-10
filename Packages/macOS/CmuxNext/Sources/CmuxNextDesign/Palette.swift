@@ -98,17 +98,18 @@ public struct Palette {
     /// translucent theme, an image) the content is the window's own tint and the shade sits on that
     /// tint, so no fill over the shade can show what the content shows; only a hole in the shade can
     /// (the folder tab, `ChromeShadeHoles`). A row there keeps `selectionFill`
-    /// (``ThemeTokens/selectedSurface(panesPaint:)``). `check-selected-surface.py` keeps every
+    /// (``ThemeTokens/selectedSurface(panesPaint:chromeShade:)``). `check-selected-surface.py` keeps every
     /// selected tab and row on these tokens.
     ///
-    /// The content's surface reads as the foreground only against a shaded chrome. A chrome that shares
-    /// the content's surface (no shade: bare, panes, flat-sidebar-line, a shared sidebar surface) would
-    /// lose the selection entirely, so a row there keeps `selectionFill` too.
+    /// The content's surface reads as the foreground only where it contrasts with the chrome around it
+    /// (``ThemeTokens/minimumSelectedContrast``). A chrome that shares the content's surface (no shade:
+    /// bare, panes, flat-sidebar-line, a shared sidebar surface), or a near-black theme whose shade
+    /// does not show (Builtin Dark), would lose the selection, so a row there keeps `selectionFill` too.
     public static var selectedSurface: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        guard Metrics.mainPaneChromeShade(isDark: tokens.isDark) > 0 else { return selectionFill }
+        let shade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
         let paints = WindowBackdrop.current(tokens).panesPaintBackground
-        return tokens.selectedSurface(panesPaint: paints)?.nsColor ?? selectionFill
+        return tokens.selectedSurface(panesPaint: paints, chromeShade: shade)?.nsColor ?? selectionFill
     }
     /// The selected folder tab (`TabCell+CornerFeet`): exactly what the content paints
     /// (``contentSurface``), since the chrome's shade is cut away under it (`ChromeShadeHoles`). Over

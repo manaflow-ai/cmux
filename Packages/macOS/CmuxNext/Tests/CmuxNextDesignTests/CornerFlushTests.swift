@@ -32,6 +32,23 @@ import Testing
         }
     }
 
+    /// The folder join leaves a layout's geometry alone: Floating Panes and Blocks, each pane its own
+    /// card, keep their pane padding under the folder tab (Codex at 922f9ad0, F1).
+    @Test func floatingAndBlocksKeepTheirPanePadding() {
+        guard CornerFlush.tunable.override == nil, ChromeTunables.mainPaneCurved.override == nil,
+              DesignSettings.shared.paneChrome.padding == nil else { return }
+        let design = DesignSettings.shared
+        let before = design.chromeStyle
+        defer { design.chromeStyle = before }
+        for style in [ChromeStyle.floating, .blocks] {
+            design.chromeStyle = style
+            guard CornerFlush.current.isOn else { continue }
+            #expect(Metrics.codePanePadding == Metrics.densityPanePadding, "\(style) keeps its pane padding")
+        }
+        design.chromeStyle = .flat
+        #expect(Metrics.codePanePadding == 0, "the flat card's first tab starts on the card's edge")
+    }
+
     @Test func tightHasNoGapOnTheSidebarSide() {
         #expect(CornerFlush.tight.sidebarGap == 0)
         #expect(CornerFlush.flush.sidebarGap == CornerFlush.flush.gap)
