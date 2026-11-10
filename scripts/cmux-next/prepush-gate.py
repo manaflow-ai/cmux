@@ -88,16 +88,17 @@ Also wherever the scanners run (the hook, a plain run and CI's --base/--head and
 the push touches (a changed or deleted .rs file, or a Rust row of crash-safety-baseline.json the push changes, also with
 no crate file changed), at the base and the head, each with its own baseline's Rust rows. So a crate under its row
 passes, a crate pushed over it is refused, a raised row is refused, a hit moved into another crate passes only when the
-head's baseline carries its row, and test code is told from the whole crate (`#[cfg(test)] mod`, `#[path]`), as in CI
-(2026-11-08: #39304's first head added two non-test `.lock().unwrap()` to a crate at its row, passed the hook and CI
-refused it). A crate the push does not touch has the same verdict on both sides. The scanner's own Rust ratchet lines
-are dropped (part of a crate against its whole row). The ratchet and comparison code are CI's, never a copy of their
-rules; the hook reads the installed crash_ratchet.py and origin/feat-cmux-next's crash_ratchet_compare.py, never the
-pushed ones, and the pushed baseline, which the comparison judges against the base's as CI does. A main-based push (its
-tree has no CmuxNext app entry, or the base it is judged against is on origin/main and not on origin/feat-cmux-next; a
-feat branch that merged main stays feat-based) skips check-crash-safety.sh, which reads that feat-only file, and this
-layer: main's CI has no crash ratchet and main keeps no baseline, so the gate passes what main's CI passes (lead
-decision on #39853; the layer refused 6 of the last 40 main ports).
+head's baseline carries its row, and test code is told from the whole crate (`#[cfg(test)] mod`, `#[path]`; a crate that
+a `#[cfg(test)] #[path]` links to a touched crate joins the trees), as in CI (2026-11-08: #39304's first head added two
+non-test `.lock().unwrap()` to a crate at its row, passed the hook and CI refused it). A crate the push does not touch
+has the same verdict on both sides. The scanner's own Rust ratchet lines are dropped (part of a crate against its whole
+row). The ratchet and comparison code are CI's, never a copy of their rules; the hook reads the installed
+crash_ratchet.py and origin/feat-cmux-next's crash_ratchet_compare.py, never the pushed ones, and the pushed baseline,
+which the comparison judges against the base's as CI does. A main-based push (its tree has no CmuxNext app entry, or the
+base it is judged against is on origin/main and not on origin/feat-cmux-next; a feat branch that merged main stays
+feat-based) skips check-crash-safety.sh, which reads that feat-only file, and this layer: main's CI has no crash ratchet
+and main keeps no baseline, so the gate passes what main's CI passes (lead decision on #39853; the layer refused 6 of
+the last 40 main ports).
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
