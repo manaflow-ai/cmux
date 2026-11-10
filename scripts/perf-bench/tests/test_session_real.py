@@ -384,6 +384,154 @@ class Counts(unittest.TestCase):
         self.assertEqual(role.get(500), "bundle_other")  # a bundle path with a space is compared whole
 
 
+class RestoredAgents(unittest.TestCase):
+    """After a restore, the product's "Resume Agents After Restart" starts the real `claude --resume session-real-<name>`
+    in an agent terminal. `agents` ends that CLI by its exact PID (from the daemon's own terminal list), types the
+    start line when the shell is back, and never types into or signals another program."""
+
+    STUB = "/bin/zsh -f /kit/session_real_agent.zsh idle "
+    CLI = "/Users/x/.local/bin/claude --settings /Users/x/.local/share/cmux-tui/claude-settings/11cb.json --resume session-real-"
+
+    def world(self):
+        rows = table(
+            (100, 1, "cmux-tui __terminal-host --owner a:b@1"), (101, 100, "/bin/zsh"),
+            (102, 101, self.CLI + "real-0001"), (103, 102, "node /x/helper.js"),                       # 1: resumed, with a child
+            (110, 1, "login -flp x /bin/bash --noprofile --norc -c exec -l /bin/zsh"), (111, 110, "-/bin/zsh"),   # 2: shells only
+            (121, 1, self.STUB + "real-0003"),                                                             # 3: the bench program
+            (131, 1, "/bin/zsh -l"), (132, 131, "vim notes.txt"),                                          # 4: another program
+            (141, 1, "/bin/zsh"), (142, 141, self.CLI + "real-0009"),                                      # 5: another terminal's id
+            (151, 1, "/bin/zsh"), (152, 151, "/Users/x/.local/bin/claude --resume 6f2c1a52-0d1e-4c8e-9d3b-0a4d5a7e9b11"),  # 6: a real session
+            (181, 1, "/bin/zsh"), (182, 181, self.CLI + "real-0008"), (183, 181, "sleep 100"),             # 8: the CLI and a program beside it
+            (191, 1, "/bin/zsh"),                                                                          # 9: the daemon cut its list
+            (201, 1, "/bin/sh /shim/claude --resume session-real-real-0010"),                              # 10: the product's shim, for a moment
+            (211, 1, self.STUB + "real-0003"))                                                             # 11: a program with another name
+        terminals = [
+            {"surface": 10, "pid": 101, "processes": [{"pid": 101}, {"pid": 102}, {"pid": 103}]},
+            {"surface": 20, "pid": 110, "processes": [{"pid": 110}, {"pid": 111}]},
+            {"surface": 30, "pid": 121, "processes": [{"pid": 121}]},
+            {"surface": 40, "pid": 131, "processes": [{"pid": 131}, {"pid": 132}]},
+            {"surface": 50, "pid": 141, "processes": [{"pid": 141}, {"pid": 142}]},
+            {"surface": 60, "pid": 151, "processes": [{"pid": 151}, {"pid": 152}]},
+            {"surface": 80, "pid": 181, "processes": [{"pid": 181}, {"pid": 182}, {"pid": 183}]},
+            {"surface": 90, "pid": 191, "processes": [{"pid": 191}], "truncated": True},
+            {"surface": 100, "pid": 201, "processes": [{"pid": 201}]},
+            {"surface": 110, "pid": 211, "processes": [{"pid": 211}]}]
+        tabs = [(n, {"surface": n * 10}) for n in range(1, 12)]
+
+        class Daemon:
+            def call(self, cmd, **params):
+                assert cmd == "terminal-resources"
+                return {"ok": True, "data": {"terminals": terminals, "missing": [70]}}
+
+        return Daemon(), tabs, rows
+
+    def test_each_agent_terminal_has_one_state_from_the_daemons_own_list(self):
+        daemon, tabs, rows = self.world()
+        states = m.agent_terminal_states(daemon, tabs, rows)
+        self.assertEqual(states["real-0001"], ("resumed", {102: START, 103: START}))
+        self.assertEqual(states["real-0002"], ("shell", None))
+        self.assertEqual(states["real-0003"], ("program", 121))
+        self.assertEqual(states["real-0007"], ("none", None))
+        for name in ("real-0004", "real-0005", "real-0006", "real-0008", "real-0009", "real-0010", "real-0011"):
+            self.assertEqual(states[name][0], "other", (name, states[name]))   # never typed into, never signalled
+        self.assertEqual(m.agent_programs(daemon, tabs, rows), {"real-0003": 121})
+
+    def test_a_signal_goes_only_to_the_same_process(self):
+        rows = table((102, 101, self.CLI + "real-0001"), (103, 102, "node /x/helper.js", "Tue Nov 10 19:00:00 2026"))
+        sent = []
+        done = m.end_resumed({102: START, 103: START, 104: START}, rows, kill=lambda pid, sig: sent.append((pid, sig)))
+        self.assertEqual(done, [102])                       # 103 has another start time (a new process), 104 is gone
+        self.assertEqual(sent, [(102, signal.SIGTERM)])
+
+    def run_agents(self, states, settle=60, stays=(), deaf=(), force=False):
+        """A terminal world for `start_agents`: `end` makes a resumed terminal a shell (not one in `stays`), `send`
+        makes a shell the program (not one in `deaf`), `restart` gives a dead tab a shell."""
+        log, now = {"end": [], "send": [], "restart": []}, [1000.0]
+        tabs = [(int(name[5:]), {"surface": int(name[5:]) * 10}) for name in sorted(states)]
+
+        def end(pids, sig):
+            name = next(name for name, state in states.items() if state == ("resumed", pids))
+            log["end"].append((name, sorted(pids), sig))
+            if name not in stays:
+                states[name] = ("shell", None)
+            return sorted(pids)
+
+        def send(number, tab, state):
+            name = f"real-{number:04d}"
+            log["send"].append((name, states[name][0], state))
+            if states[name][0] == "none":
+                return False                                 # the new shell is not in the tab yet
+            if name not in deaf and states[name][0] == "shell":
+                states[name] = ("program", 9000 + number)
+            return True
+
+        def restart(tab):
+            name = f"real-{tab['surface'] // 10:04d}"
+            log["restart"].append(name)
+            states[name] = ("shell", None)
+            return None
+
+        def sleep(seconds):
+            now[0] += seconds
+
+        result = m.start_agents(tabs, lambda: dict(states), send, restart, end, lambda rank: "working" if rank < 1 else "idle",
+                                settle, force, clock=lambda: now[0], sleep=sleep)
+        return result, log
+
+    def test_a_resumed_cli_is_ended_by_its_pids_and_then_the_program_starts(self):
+        states = {"real-0001": ("resumed", {102: START, 103: START}), "real-0002": ("shell", None), "real-0003": ("program", 121),
+                  "real-0004": ("other", "vim notes.txt"), "real-0007": ("none", None)}
+        result, log = self.run_agents(states)
+        self.assertEqual(log["end"], [("real-0001", [102, 103], signal.SIGTERM)])        # one signal, the exact PIDs
+        self.assertEqual(log["restart"], ["real-0007"])
+        typed_into = {(name, kind) for name, kind, _ in log["send"]}
+        self.assertEqual(typed_into, {("real-0001", "shell"), ("real-0002", "shell"), ("real-0007", "shell")})   # never into the CLI or vim
+        self.assertEqual(log["send"][0], ("real-0002", "shell", "idle"))                 # rank 1; real-0001 (rank 0) works
+        self.assertIn(("real-0001", "shell", "working"), log["send"])
+        self.assertEqual({name: state[0] for name, state in result["states"].items()},
+                         {"real-0001": "program", "real-0002": "program", "real-0003": "program", "real-0004": "other",
+                          "real-0007": "program"})
+        self.assertEqual((result["started"], result["already_running"], result["restarted_shells"]), (3, 1, 1))
+        self.assertEqual(result["ended_resumed"], {"real-0001": [102, 103]})
+        self.assertEqual(result["not_typed"], [])
+
+    def test_a_cli_that_stays_gets_sigkill_one_time_and_is_a_fault(self):
+        states = {"real-0001": ("resumed", {102: START})}
+        result, log = self.run_agents(states, settle=30, stays=("real-0001",))
+        self.assertEqual([sig for _, _, sig in log["end"]], [signal.SIGTERM, signal.SIGKILL])
+        self.assertEqual(log["send"], [])                                                 # nothing typed into it
+        self.assertEqual(result["states"]["real-0001"][0], "resumed")
+        faults = m.agents_faults(1, 0, 1, 0, [], {}, ["real-0001"])
+        self.assertTrue(any("still run the real CLI" in fault for fault in faults), faults)
+
+    def test_a_start_line_that_started_nothing_is_typed_again_after_a_wait(self):
+        states = {"real-0002": ("shell", None)}
+        result, log = self.run_agents(states, settle=20, deaf=("real-0002",))
+        self.assertGreaterEqual(len(log["send"]), 2)
+        self.assertLessEqual(len(log["send"]), 3)                                         # every RETYPE_SECONDS, not every round
+        self.assertEqual(result["started"], 1)
+
+    def test_with_no_time_nothing_is_typed_and_nothing_is_ended(self):
+        states = {"real-0001": ("resumed", {102: START}), "real-0002": ("shell", None)}
+        result, log = self.run_agents(states, settle=0)
+        self.assertEqual(log, {"end": [], "send": [], "restart": []})
+        self.assertEqual(result["not_typed"], ["real-0002"])
+
+    def test_another_program_is_a_fault_and_is_not_waited_for_long(self):
+        states = {"real-0004": ("other", "vim notes.txt"), "real-0003": ("program", 121)}
+        result, log = self.run_agents(states, settle=600)
+        self.assertEqual(log, {"end": [], "send": [], "restart": []})
+        self.assertLess(result["rounds"], 40)                                             # OTHER_SECONDS, not the 600 s
+        faults = m.agents_faults(2, 1, 2, 0, [], {"real-0004": "vim notes.txt"}, [])
+        self.assertTrue(any("another program" in fault and "vim notes.txt" in fault for fault in faults), faults)
+
+    def test_a_daemon_that_cannot_say_gets_the_start_line_one_time(self):
+        states = {"real-0001": ("unknown", None), "real-0003": ("program", 121)}
+        result, log = self.run_agents(states)
+        self.assertEqual(log["send"], [("real-0001", "unknown", "working")])
+        self.assertEqual(log["end"], [])
+
+
 class BuildFailure(unittest.TestCase):
     """After a failed `build`, the daemon is asked to end its terminals first; then only exact PIDs get a signal."""
 
