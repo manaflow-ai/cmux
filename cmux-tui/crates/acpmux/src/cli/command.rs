@@ -546,6 +546,18 @@ pub enum Command {
     },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
+    /// Give the session this shell runs in a stable name every machine that peers this one sends
+    /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
+    /// terminal `claude`) or a Codex desktop thread. Run it from that session's own Bash tool or a
+    /// hook. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
+    /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
+    /// Run it again after the session restarts (a new process gets a new token); a SessionStart
+    /// hook does that by itself
+    #[command(after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'")]
+    Register {
+        /// The name, e.g. desktop-zoe.
+        name: String,
+    },
     #[command(hide = true)]
     DetachParent { session: String },
     #[command(hide = true)]

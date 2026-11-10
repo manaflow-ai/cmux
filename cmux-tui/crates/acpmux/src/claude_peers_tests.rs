@@ -141,7 +141,7 @@ async fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
         conn.read_to_string(&mut got).unwrap();
         got
     });
-    deliver(&dir, &peer, "hello desk", "u-9", "acpmux:test").await.unwrap();
+    deliver(&dir, &peer, "hello desk", "u-9", "acpmux:test", None).await.unwrap();
     let got = reader.join().unwrap();
     let lines: Vec<Value> = got.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines[0]["token"], "0123456789abcdef0123456789abcdef");
@@ -163,11 +163,79 @@ async fn deliver_sends_nothing_without_a_key_and_names_an_inbox_it_cannot_reach(
         version: None,
         socket: Some(dir.join("gone.sock")),
     };
-    let err = deliver(&dir, &peer, "x", "u", "f").await.unwrap_err();
+    let err = deliver(&dir, &peer, "x", "u", "f", None).await.unwrap_err();
     assert!(err.contains("missing or unreadable"), "no key, nothing sent: {err}");
     let key = key_file(&dir, 1, &dir.join("gone.sock"));
     std::fs::write(key, json!({"peerToken": "0123456789abcdef0123456789abcdef"}).to_string())
         .unwrap();
-    let err = deliver(&dir, &peer, "x", "u", "f").await.unwrap_err();
+    let err = deliver(&dir, &peer, "x", "u", "f", None).await.unwrap_err();
     assert!(err.contains("could not reach"), "{err}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_registered_child_token_opens_the_delivery_instead_of_the_peer_key() {
+    let dir = scratch("child-token");
+    let sock = dir.join("in.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+    let reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut got = String::new();
+        conn.read_to_string(&mut got).unwrap();
+        got
+    });
+    let peer = Peer {
+        pid: 1,
+        session_id: "s".into(),
+        cwd: None,
+        entrypoint: Some("claude-desktop".into()),
+        kind: None,
+        name: None,
+        version: None,
+        socket: Some(sock.clone()),
+    };
+    // No key file: the child token alone opens it.
+    deliver(&dir, &peer, "hi", "u-c", "acpmux:test", Some("child-tok")).await.unwrap();
+    let got = reader.join().unwrap();
+    let lines: Vec<Value> = got.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines[0], json!({"type": "auth", "token": "child-tok"}));
+    assert_eq!(lines[1]["type"], "user");
+    assert_eq!(lines[1]["from"], "acpmux:test");
+}
+
+#[test]
+fn a_kept_token_is_the_live_sessions_only_while_its_process_and_inbox_are_the_same() {
+    let home = scratch("token-store");
+    let sock = PathBuf::from("/tmp/cc-socks/42.sock");
+    let kept = ChildToken { pid: 42, socket: sock.clone(), token: "tok".into() };
+    save_token(&home, "chat-1", &kept).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(token_file(&home, "chat-1")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "owner-only");
+    }
+    let mut peer = Peer {
+        pid: 42,
+        session_id: "s".into(),
+        cwd: None,
+        entrypoint: None,
+        kind: None,
+        name: None,
+        version: None,
+        socket: Some(sock),
+    };
+    assert_eq!(token_for(&home, "chat-1", &peer).as_deref(), Some("tok"));
+    assert_eq!(token_for(&home, "chat-2", &peer), None, "another chat's is not this one's");
+    peer.pid = 43;
+    assert_eq!(token_for(&home, "chat-1", &peer), None, "a restarted session has a new token");
+    peer.pid = 42;
+    peer.socket = Some(PathBuf::from("/tmp/cc-socks/other.sock"));
+    assert_eq!(token_for(&home, "chat-1", &peer), None);
+    forget_token(&home, "chat-1");
+    peer.socket = Some(PathBuf::from("/tmp/cc-socks/42.sock"));
+    assert_eq!(token_for(&home, "chat-1", &peer), None);
+    // A chat id never leaves the folder.
+    assert_eq!(token_file(&home, "../x").parent(), Some(home.join("bridge-tokens").as_path()));
 }

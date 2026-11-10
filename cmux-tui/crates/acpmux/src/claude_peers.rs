@@ -16,7 +16,23 @@
 //!   read from the registry entry the session wrote, never typed by a sender;
 //! - deliver a prompt into one (`hub/bridge.rs`): the watch then shows the turn it ran.
 //!
-//! Off unless `agents.desktopBridge.enabled` is true in the settings file.
+//! Off unless `agents.desktopBridge.enabled` is true in the settings file, or the session itself
+//! asked for a name with `acpmux register NAME` (`hub/register.rs`): that one session is then
+//! bridged whatever the setting says.
+//!
+//! Which token a delivery opens with. Claude Code documents the inbox for "a script or hook to
+//! post into a session" (code.claude.com/docs/en/cross-session-messaging, "The session's inbox
+//! socket"): it exports the socket's path and a per-session token to the session's hooks and
+//! Bash commands as `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN`, and a
+//! connection that opens with `{"type":"auth","token":<that token>}` is the session's own child,
+//! delivered under its inbound rules (held only by an explicit `crossSessionInbound`). `acpmux
+//! register`, run in the session's shell, hands that token to the daemon ([`save_token`]), and
+//! each later delivery opens with it while the same process runs. The message line is the
+//! `{"type":"user","message":{"role":"user","content":...}}` line Claude Code's own `--debug` log
+//! prints for injecting into the inbox, the shape of its documented stream-json input. Without a
+//! registered token (the bridge setting's listing) the delivery opens with the peer key Claude
+//! Code publishes beside the registry entry, as before: that file is not documented, so a chat
+//! only the setting bridged says so in `acpmux ls` (`bridge.token=peer-key`).
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -194,8 +210,49 @@ pub fn from_address(sender: &str) -> String {
     format!("acpmux:{clean}")
 }
 
+/// The token `acpmux register` handed over for one chat: the session's documented
+/// `CLAUDE_CODE_MESSAGING_TOKEN`, good only while the process `pid` that exported it runs with the
+/// inbox at `socket`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChildToken {
+    pub pid: u32,
+    pub socket: PathBuf,
+    pub token: String,
+}
+
+/// Where the daemon keeps the token registered for chat `chat_id` (0600, in a 0700 folder).
+pub fn token_file(home: &Path, chat_id: &str) -> PathBuf {
+    let safe: String =
+        chat_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    home.join("bridge-tokens").join(format!("{safe}.json"))
+}
+
+/// Keeps `token` for chat `chat_id`, replacing an older one.
+pub fn save_token(home: &Path, chat_id: &str, token: &ChildToken) -> anyhow::Result<()> {
+    let bytes = serde_json::to_vec(token)?;
+    crate::agent_tools::write_private(&token_file(home, chat_id), &bytes)
+}
+
+/// The token kept for chat `chat_id`, if it is still the live `peer`'s: a session that restarted
+/// (another pid, or another inbox) has a new one, which only another `acpmux register` hands over.
+pub fn token_for(home: &Path, chat_id: &str, peer: &Peer) -> Option<String> {
+    let path = token_file(home, chat_id);
+    if std::fs::metadata(&path).ok()?.len() > MAX_FILE {
+        return None;
+    }
+    let kept: ChildToken = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    (kept.pid == peer.pid && peer.socket.as_deref() == Some(kept.socket.as_path()))
+        .then_some(kept.token)
+}
+
+/// Removes the token kept for chat `chat_id`, when it has one.
+pub fn forget_token(home: &Path, chat_id: &str) {
+    let _ = std::fs::remove_file(token_file(home, chat_id));
+}
+
 /// Delivers `text` into `peer`'s inbox as message `uuid`: connecting and writing take at most
-/// [`IO_TIMEOUT`] together.
+/// [`IO_TIMEOUT`] together. `child_token` is the session's own registered token ([`token_for`]);
+/// without one, the peer key file is read.
 #[cfg(unix)]
 pub async fn deliver(
     config: &Path,
@@ -203,22 +260,34 @@ pub async fn deliver(
     text: &str,
     uuid: &str,
     from: &str,
+    child_token: Option<&str>,
 ) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
     let send = async {
-        // Claude Code drops what comes without its token: with no readable key, nothing is sent.
-        // Only a small regular file is read (never a FIFO), within the same deadline.
-        let small_file =
-            tokio::fs::metadata(&key).await.is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
-        let bytes = if small_file { tokio::fs::read(&key).await.ok() } else { None };
-        let token = bytes
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
-            .ok_or_else(|| {
-                format!("the session's inbox key {} is missing or unreadable", key.display())
-            })?;
+        let token = match child_token {
+            Some(token) => token.to_owned(),
+            None => {
+                // Claude Code drops what comes without its token: with no readable key, nothing
+                // is sent. Only a small regular file is read (never a FIFO), within the deadline.
+                let small_file = tokio::fs::metadata(&key)
+                    .await
+                    .is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
+                let bytes = if small_file { tokio::fs::read(&key).await.ok() } else { None };
+                bytes
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
+                    .ok_or_else(|| {
+                        format!("the session's inbox key {} is missing or unreadable", key.display())
+                    })?
+            }
+        };
+        // Claude Code refuses to write through a symlink at a peer's socket path; neither does
+        // acpmux.
+        if std::fs::symlink_metadata(socket).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(format!("the session's inbox {} is a symlink", socket.display()));
+        }
         let frames = frames(Some(&token), text, uuid, from);
         let mut stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
             format!("could not reach the session's inbox {}: {e}", socket.display())
@@ -236,7 +305,14 @@ pub async fn deliver(
 }
 
 #[cfg(not(unix))]
-pub async fn deliver(_: &Path, _: &Peer, _: &str, _: &str, _: &str) -> Result<(), String> {
+pub async fn deliver(
+    _: &Path,
+    _: &Peer,
+    _: &str,
+    _: &str,
+    _: &str,
+    _: Option<&str>,
+) -> Result<(), String> {
     Err("delivering to a Claude Code session is Unix-only".into())
 }
 

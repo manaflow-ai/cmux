@@ -207,6 +207,48 @@ async fn a_watched_chat_with_no_live_app_is_still_read_only() {
     assert!(err.unwrap_err().message.contains("watch.read_only"));
 }
 
+/// A chat its session registered keeps its name while its app is not running: the prompt is
+/// refused as retryable, so the outbox keeps it queued and tries again.
+#[tokio::test]
+async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
+    let config = scratch("registered-gone");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("closed-desktop".into());
+        for (k, v) in [("bridge", "claude"), (crate::hub::register::REGISTERED_TAG, "true")] {
+            meta.tags.insert(k.into(), crate::store::Tag { value: v.into(), expires_at: None });
+        }
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: config.join("x.jsonl"),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub
+        .prompt_with(&session, blocks, "test", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("bridge.not_running"), "{}", err.message);
+    let data = err.data.unwrap();
+    assert_eq!(data["reason"], "bridge.not_running");
+    assert_eq!(data["retryable"], true, "the outbox tries it again");
+}
+
 /// A watched chat the bridge did not list (no `bridge` tag) is refused even while its app is
 /// live and delivers: a person watching a terminal session keeps it read-only.
 #[cfg(unix)]
@@ -248,12 +290,12 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
 
 #[test]
 fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed() {
-    assert_eq!(with_reply_hint("hi", None), "hi");
-    assert_eq!(with_reply_hint("hi", Some("  ")), "hi");
-    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"));
+    assert_eq!(with_reply_hint("hi", None, None), "hi");
+    assert_eq!(with_reply_hint("hi", Some("  "), None), "hi");
+    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None);
     assert!(hinted.starts_with("hi\n\n[From cosmic-gray/claude-sr2-coord"), "{hinted}");
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
-    let quoted = with_reply_hint("hi", Some("it's"));
+    let quoted = with_reply_hint("hi", Some("it's"), None);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
 }
 
