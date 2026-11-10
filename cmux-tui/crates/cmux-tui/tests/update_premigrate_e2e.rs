@@ -42,7 +42,9 @@
 //! (one session put, default 1024), `CMUX_E2E_DEADLINE_S` (each wait,
 //! default 3600), `CMUX_E2E_RESULT_FILE` (the summary line is written there
 //! too), `CMUX_E2E_CACHE` (a folder that keeps the generated registry for the
-//! next run with the same generator and options).
+//! next run with the same generator and options), `CMUX_E2E_LEGACY_SEGMENTS=1`
+//! (the sealed segments lose the indexes a seal writes, as in a registry
+//! sealed by a build before them: see [`strip_segment_indexes`]).
 
 #![cfg(target_os = "linux")]
 
@@ -87,6 +89,8 @@ struct Settings {
     cache: Option<PathBuf>,
     /// Debugging only: the premigrate scenario is skipped.
     baseline_only: bool,
+    /// The sealed segments have no kind maps and no kept reducer rows.
+    legacy_segments: bool,
 }
 
 impl Settings {
@@ -114,6 +118,7 @@ impl Settings {
             result_file: var("CMUX_E2E_RESULT_FILE").map(PathBuf::from),
             cache: var("CMUX_E2E_CACHE").map(PathBuf::from),
             baseline_only: var("CMUX_E2E_BASELINE_ONLY").is_some_and(|value| value == "1"),
+            legacy_segments: var("CMUX_E2E_LEGACY_SEGMENTS").is_some_and(|value| value == "1"),
         }
     }
 }
@@ -431,6 +436,51 @@ fn create_workspace(name: &str, key: &str) -> Value {
 
 fn read_only(registry: &Path) -> Connection {
     Connection::open_with_flags(registry, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap()
+}
+
+/// Makes the sealed segments look sealed by a build before the seal-time
+/// indexes (the 2026-11-09 registry): no kind map (`journal_segment_kinds`),
+/// no kept reducer rows (`journal_segment_reducer_records`), and no backfill
+/// markers, so the next read that needs them backfills or decodes whole
+/// segments. Only while no owner runs. Returns the rows it removed.
+fn strip_segment_indexes(registry: &Path) -> u64 {
+    let connection = Connection::open(registry).unwrap();
+    let mut removed = 0;
+    for table in ["journal_segment_kinds", "journal_segment_reducer_records"] {
+        removed += connection.execute(&format!("DELETE FROM {table}"), []).unwrap() as u64;
+    }
+    connection
+        .execute(
+            "DELETE FROM meta WHERE key IN (
+               'journal_segment_kinds_backfill', 'journal_segment_kinds_backfill_through',
+               'journal_segment_kinds_backfill_end', 'journal_segment_reducer_records_backfill'
+             )",
+            [],
+        )
+        .unwrap();
+    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+    removed
+}
+
+/// Rows in the seal-time segment indexes: kind maps and kept reducer rows.
+fn segment_index_rows(registry: &Path) -> (u64, u64) {
+    let connection = read_only(registry);
+    let count = |table: &str| -> u64 {
+        connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get::<_, i64>(0))
+            .map_or(0, |count| count as u64)
+    };
+    (count("journal_segment_kinds"), count("journal_segment_reducer_records"))
+}
+
+/// In legacy mode, strips the segment indexes before `label` and says what
+/// was there: build N (this tree) may have backfilled some while it served.
+fn legacy_point(settings: &Settings, site: &Site, label: &str) {
+    if settings.legacy_segments {
+        let rows = segment_index_rows(&site.registry());
+        let removed = strip_segment_indexes(&site.registry());
+        eprintln!("e2e: legacy segments before {label}: had {rows:?} index rows, removed {removed}");
+    }
 }
 
 /// The highest journal sequence, live or sealed (`query_journal_head`).
@@ -893,20 +943,28 @@ fn an_update_that_bumps_the_roster_reducer_repairs_itself() {
         "the fold has no agents"
     );
 
+    legacy_point(&settings, &template, "the scenarios");
     // Premigrate's copy first: the baseline runs on the template itself.
     let warm_site =
         (!settings.baseline_only).then(|| Site::copy_of(&template, &settings.root, "premigrate"));
 
     let old = start_old(&settings, &template, "baseline-n");
     old.hand_off(&settings.new_bin);
+    legacy_point(&settings, &template, "baseline-n1");
     let baseline =
         start_new(&settings, &template, "baseline-n1", (old_version, new_version), &entries, false);
     drop(template);
 
     let warm = warm_site.map(|warm_site| {
         let mut old = start_old(&settings, &warm_site, "premigrate-n");
+        if settings.legacy_segments {
+            // Build N serves: what it backfilled stays (an older build would not have).
+            let rows = segment_index_rows(&warm_site.registry());
+            eprintln!("e2e: legacy segments at the premigrate: {rows:?} index rows");
+        }
         let took = premigrate(&settings, &warm_site, &mut old, new_version);
         old.hand_off(&settings.new_bin);
+        legacy_point(&settings, &warm_site, "premigrate-n1");
         (
             took,
             start_new(
@@ -941,7 +999,10 @@ fn an_update_that_bumps_the_roster_reducer_repairs_itself() {
         baseline.ensures,
         warm.as_ref().map_or(0, |(_, start)| start.ensures),
     );
-    let versions = format!("E2E-ROSTER old={old_version} new={new_version}");
+    let versions = format!(
+        "E2E-ROSTER old={old_version} new={new_version} legacy_segments={}",
+        u8::from(settings.legacy_segments)
+    );
     println!("{versions}");
     println!("{summary}");
     if let Some(path) = &settings.result_file {
