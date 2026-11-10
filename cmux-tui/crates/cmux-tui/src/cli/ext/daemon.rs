@@ -12,6 +12,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::super::GlobalArgs;
+use super::Field as _;
 
 /// How long one request may take to answer.
 pub(super) const REQUEST_DEADLINE: Duration = Duration::from_secs(15);
@@ -194,14 +195,14 @@ impl Daemon {
             return;
         }
         let line = json!({
-            "app": value["app"], "level": value["level"], "message": value["message"],
+            "app": value.field("app"), "level": value.field("level"), "message": value.field("message"),
         });
         if self.echo_logs {
             println!(
                 "  {} [{}] {}",
-                line["app"].as_str().unwrap_or(""),
-                line["level"].as_str().unwrap_or(""),
-                line["message"].as_str().unwrap_or("")
+                line.field("app").as_str().unwrap_or(""),
+                line.field("level").as_str().unwrap_or(""),
+                line.field("message").as_str().unwrap_or("")
             );
         }
         if self.logs.len() < 200 {

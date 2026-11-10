@@ -26,6 +26,7 @@ fn dev_options(dir: &Path) -> DevOptions {
         remove_on_exit: false,
         install: false,
         build: None,
+        build_timeout: dev::BUILD_TIMEOUT,
         bun: None,
     }
 }
@@ -61,6 +62,11 @@ fn parses_new_dev_list_remove_and_help() {
         panic!("keep")
     };
     assert!(!options.remove_on_exit, "--keep after --remove-on-exit keeps");
+    assert_eq!(options.build_timeout, dev::BUILD_TIMEOUT);
+    let Ok(Request::Dev(options)) = parse(&words("dev --build-timeout 5")) else {
+        panic!("build timeout")
+    };
+    assert_eq!(options.build_timeout, std::time::Duration::from_secs(5));
     assert_eq!(parse(&words("list")), Ok(Request::List));
     assert_eq!(parse(&words("remove local/x")), Ok(Request::Remove { app: "local/x".into() }));
     for bad in [
@@ -73,8 +79,18 @@ fn parses_new_dev_list_remove_and_help() {
         "dev a b",
         "dev --bogus",
         "dev --build",
+        "dev --build-timeout",
+        "dev --build-timeout 0",
+        "dev --build-timeout soon",
         "remove",
         "remove acme/x",
+        // An id names one folder in the local apps folder, never a path out of it.
+        "remove local/../..",
+        "remove local/../other",
+        "remove local/local/x",
+        "remove local/a/b",
+        "remove local/",
+        "remove local/customize",
         "list extra",
         "frobnicate",
     ] {
@@ -112,9 +128,55 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     assert!(main.contains("globalThis.__cmuxAppExports"), "dist/main.js hands its exports over");
     assert!(dir.join("cmux-app.d.ts").is_file() && dir.join("README.md").is_file());
     // Only what the daemon loads is copied: no sources, no types.
-    let files = dev::package_files(&pkg);
+    let files = dev::package_files(&pkg).unwrap();
     assert_eq!(files, vec![PathBuf::from("cmux-app.json"), PathBuf::from("dist/main.js")]);
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
+}
+
+#[test]
+fn package_files_refuse_links_and_paths_out_of_the_folder() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "linked");
+    let secret = root.path().join("secret.txt");
+    std::fs::write(&secret, "not the extension's").unwrap();
+    let path = dir.join("cmux-app.json");
+    let original: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let with_files = |files: Value| {
+        let mut manifest = original.clone();
+        manifest["files"] = files;
+        std::fs::write(&path, manifest.to_string()).unwrap();
+        dev::load_package(&dir).unwrap_or_else(|errors| panic!("{errors:?}"))
+    };
+
+    // A `files` entry that is a link to a file outside the folder.
+    std::os::unix::fs::symlink(&secret, dir.join("notes.txt")).unwrap();
+    let error = dev::package_files(&with_files(json!(["dist/", "notes.txt"]))).unwrap_err();
+    assert_eq!(error.file.as_deref(), Some("notes.txt"), "{error:?}");
+    assert!(error.message.contains("symbolic link"), "{error:?}");
+
+    // A link inside a listed folder is refused by its path too.
+    std::os::unix::fs::symlink(&secret, dir.join("dist/leak.js")).unwrap();
+    let error = dev::package_files(&with_files(json!(["dist/"]))).unwrap_err();
+    assert_eq!(error.file.as_deref(), Some("dist/leak.js"), "{error:?}");
+    std::fs::remove_file(dir.join("dist/leak.js")).unwrap();
+
+    // A linked folder, and a path that climbs out.
+    std::os::unix::fs::symlink(root.path(), dir.join("assets")).unwrap();
+    let error = dev::package_files(&with_files(json!(["dist/", "assets/secret.txt"]))).unwrap_err();
+    assert!(error.message.contains("symbolic link"), "{error:?}");
+    // The manifest check may refuse a climbing path first; either way it is
+    // never copied.
+    let mut manifest = original.clone();
+    manifest["files"] = json!(["dist/", "../secret.txt"]);
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    if let Ok(pkg) = dev::load_package(&dir) {
+        let error = dev::package_files(&pkg).unwrap_err();
+        assert!(error.message.contains("outside the extension folder"), "{error:?}");
+    }
+
+    // Nothing linked: the listed files only.
+    let files = dev::package_files(&with_files(json!(["dist/"]))).unwrap();
+    assert_eq!(files, vec![PathBuf::from("cmux-app.json"), PathBuf::from("dist/main.js")]);
 }
 
 #[test]
@@ -163,6 +225,17 @@ fn a_failed_build_names_file_and_line_and_exits_5() {
         (Some("src/main.ts"), Some(3), Some(9))
     );
     assert!(error.message.contains("Expected"), "{error:?}");
+
+    // A build that hangs is stopped at its deadline, with what it started.
+    let mut options = dev_options(&dir);
+    options.build = Some("sleep 600 & sleep 600".into());
+    options.build_timeout = std::time::Duration::from_secs(1);
+    let started = std::time::Instant::now();
+    let outcome = dev::once(&global(Path::new("/nonexistent/cmux.sock")), &options, false);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    assert_eq!(outcome.phase, Phase::Build);
+    assert_eq!(outcome.exit_code(), exit::BUILD_FAILED);
+    assert!(outcome.errors[0].message.contains("--build-timeout"), "{:?}", outcome.errors);
 }
 
 #[test]

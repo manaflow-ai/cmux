@@ -15,9 +15,22 @@ mod tests;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+
+/// A key read that never panics: a missing key, or a value that is not an
+/// object, reads as `null` (what `value["key"]` returns, without the index).
+pub(super) trait Field {
+    fn field(&self, key: &str) -> &Value;
+}
+
+impl Field for Value {
+    fn field(&self, key: &str) -> &Value {
+        static NULL: Value = Value::Null;
+        self.get(key).unwrap_or(&NULL)
+    }
+}
 
 /// Exit codes of `ext dev` (`--once` is what an agent's loop reads).
 pub(super) mod exit {
@@ -37,7 +50,8 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
 
-ext dev options: --build CMD (run instead of the packer), --remove-on-exit, --no-install.
+ext dev options: --build CMD (run instead of the packer), --build-timeout SECS (default 120),
+  --remove-on-exit, --no-install.
 Docs: docs/cmux-next/extensions/dev-loop.md";
 
 /// `ext dev`'s options.
@@ -49,6 +63,8 @@ pub(super) struct DevOptions {
     /// Ask the person to install it when it is not (watch mode).
     pub install: bool,
     pub build: Option<String>,
+    /// How long one build may run before it is stopped (`--build-timeout`).
+    pub build_timeout: std::time::Duration,
     /// `bun` for the packer (found on PATH; tests set none).
     pub bun: Option<PathBuf>,
 }
@@ -117,6 +133,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 remove_on_exit: false,
                 install: true,
                 build: None,
+                build_timeout: dev::BUILD_TIMEOUT,
                 bun: None,
             };
             let mut dir = None;
@@ -132,6 +149,14 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                             words.next().ok_or_else(|| usage("--build needs a command"))?.clone(),
                         )
                     }
+                    "--build-timeout" => {
+                        let seconds = words
+                            .next()
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .filter(|s| *s > 0)
+                            .ok_or_else(|| usage("--build-timeout needs a number of seconds"))?;
+                        options.build_timeout = std::time::Duration::from_secs(seconds);
+                    }
                     flag if flag.starts_with('-') => {
                         return Err(usage(&format!("unknown option {flag}")));
                     }
@@ -146,7 +171,12 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         }
         "list" if rest.is_empty() => Ok(Request::List),
         "remove" => match rest {
-            [app] if app.starts_with("local/") => Ok(Request::Remove { app: app.clone() }),
+            [app] if app.strip_prefix("local/").is_some_and(scaffold::valid_name) => {
+                Ok(Request::Remove { app: app.clone() })
+            }
+            [app] if app.starts_with("local/") => Err(usage(&format!(
+                "{app}: an extension id is local/NAME, NAME lowercase letters, digits and '-'"
+            ))),
             [app] => Err(usage(&format!(
                 "{app}: ext remove drops an extension `ext dev` loaded (local/NAME); other apps: cmux apps remove"
             ))),
@@ -159,7 +189,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
 /// `cmux [global options] ext ...` when `args` names it.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, words) = super::parse_globals(args).ok()?;
-    let rest = words.strip_prefix(&["ext".to_string()][..])?;
+    let rest = words.split_first().filter(|(verb, _)| *verb == "ext").map(|(_, rest)| rest)?;
     // `--json` after the verb, as `cmux apps list --json`.
     let rest: Vec<String> = rest
         .iter()
@@ -181,8 +211,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
     };
     // The global words, for the `apps install` child `ext dev` may start.
-    let globals =
-        args.iter().position(|w| w == "ext").map(|at| args[..at].to_vec()).unwrap_or_default();
+    let globals = args
+        .iter()
+        .position(|w| w == "ext")
+        .and_then(|at| args.get(..at))
+        .map(<[_]>::to_vec)
+        .unwrap_or_default();
     Some(run(&global, request, json_out, globals))
 }
 
@@ -263,13 +297,14 @@ fn list_or_remove(global: &GlobalArgs, request: Request, json_out: bool) -> i32 
     };
     match request {
         Request::Remove { app } => {
-            let Some(local_dir) = data["local_dir"].as_str() else {
+            let Some(local_dir) = data.field("local_dir").as_str() else {
                 eprintln!(
                     "cmux: this cmux does not say where it loads local apps from; update cmux"
                 );
                 return 1;
             };
-            let name = app.trim_start_matches("local/");
+            // `parse` checked the id: `local/` once, then a plain folder name.
+            let name = app.strip_prefix("local/").unwrap_or(&app);
             let folder = PathBuf::from(local_dir).join(name);
             match dev::remove_made_folder(&folder) {
                 Ok(true) => {

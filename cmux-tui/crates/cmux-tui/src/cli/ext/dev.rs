@@ -21,16 +21,21 @@ use std::process::Command;
 use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use notify::event::{AccessKind, AccessMode, EventKind};
 use serde_json::{Value, json};
 
 use super::daemon::{Daemon, Stop, Wake};
-use super::{DevOptions, exit};
+use super::{DevOptions, Field as _, exit};
 use crate::cli::GlobalArgs;
 
 /// Quiet time after the last file event before a reload starts: an editor's
 /// save (write, rename, chmod) and a build tool's burst become one reload.
 pub(super) const DEBOUNCE: Duration = Duration::from_millis(120);
+
+/// How long one build may run (`--build-timeout SECS` changes it): a hung
+/// build stops with a build error instead of holding the loop.
+pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How long the daemon may take to pick up a copied change.
 const PICKUP_DEADLINE: Duration = Duration::from_secs(10);
@@ -68,6 +73,10 @@ pub(super) struct Problem {
 impl Problem {
     pub(super) fn message(message: impl Into<String>) -> Self {
         Self { message: message.into(), ..Self::default() }
+    }
+
+    fn in_file(file: &str, message: impl Into<String>) -> Self {
+        Self { file: Some(file.to_string()), message: message.into(), ..Self::default() }
     }
 
     fn to_json(&self) -> Value {
@@ -170,7 +179,7 @@ pub(super) fn load_package(dir: &Path) -> Result<Package, Vec<Problem>> {
     let Some(manifest) = report.manifest else {
         return Err(vec![Problem::message(format!("{manifest_file} did not parse"))]);
     };
-    let id = manifest["id"].as_str().unwrap_or_default().to_string();
+    let id = manifest.field("id").as_str().unwrap_or_default().to_string();
     let field = |message: String| Problem {
         file: Some(manifest_file.into()),
         field: Some("/id".into()),
@@ -220,12 +229,19 @@ pub(super) fn build_plan(pkg: &Package, command: Option<&str>, bun: Option<&Path
     }
 }
 
-/// Runs `plan`; the problems carry file:line from the tool's output.
-pub(super) fn build(pkg: &Package, plan: &BuildPlan) -> Result<(), Vec<Problem>> {
+/// Runs `plan`, stopped after `deadline`; the problems carry file:line from
+/// the tool's output.
+pub(super) fn build(
+    pkg: &Package,
+    plan: &BuildPlan,
+    deadline: Duration,
+) -> Result<(), Vec<Problem>> {
     let output = match plan {
         BuildPlan::None { .. } => return Ok(()),
         BuildPlan::Command(command) => {
-            Command::new("sh").arg("-c").arg(command).current_dir(&pkg.dir).output()
+            let mut sh = Command::new("sh");
+            sh.arg("-c").arg(command).current_dir(&pkg.dir);
+            run_bounded(sh, deadline)
         }
         BuildPlan::Pack(bun) => {
             let packer = tempfile::Builder::new()
@@ -233,15 +249,21 @@ pub(super) fn build(pkg: &Package, plan: &BuildPlan) -> Result<(), Vec<Problem>>
                 .tempdir()
                 .and_then(|dir| std::fs::write(dir.path().join("pack.ts"), PACK_TS).map(|()| dir));
             let packer = packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
-            Command::new(bun)
-                .arg(packer.path().join("pack.ts"))
-                .arg(&pkg.dir)
-                .current_dir(&pkg.dir)
-                .output()
+            let mut pack = Command::new(bun);
+            pack.arg(packer.path().join("pack.ts")).arg(&pkg.dir).current_dir(&pkg.dir);
+            run_bounded(pack, deadline)
         }
     };
-    let output =
-        output.map_err(|e| vec![Problem::message(format!("the build did not start: {e}"))])?;
+    let output = match output {
+        Ok(Some(output)) => output,
+        Ok(None) => {
+            return Err(vec![Problem::message(format!(
+                "the build ran past {}s and was stopped (--build-timeout SECS allows longer)",
+                deadline.as_secs()
+            ))]);
+        }
+        Err(e) => return Err(vec![Problem::message(format!("the build did not start: {e}"))]),
+    };
     if output.status.success() {
         return Ok(());
     }
@@ -251,6 +273,69 @@ pub(super) fn build(pkg: &Package, plan: &BuildPlan) -> Result<(), Vec<Problem>>
         String::from_utf8_lossy(&output.stderr)
     );
     Err(build_problems(&text, &pkg.dir))
+}
+
+/// One build step's output, or `None` when it ran past `deadline`: then its
+/// process group (the step and anything it started) is killed. The step runs
+/// in a group of its own, so nothing else is signalled.
+fn run_bounded(
+    mut command: Command,
+    deadline: Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    use wait_timeout::ChildExt;
+
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
+    let mut child = command.spawn()?;
+    // Both pipes drain while the step runs, so a chatty build never blocks
+    // on a full pipe.
+    let (sender, receiver) = channel::<(bool, Vec<u8>)>();
+    let readers = [
+        child.stdout.take().map(|p| (true, Box::new(p) as Box<dyn Read + Send>)),
+        child.stderr.take().map(|p| (false, Box::new(p) as Box<dyn Read + Send>)),
+    ];
+    let mut pending = 0_u8;
+    for (is_stdout, mut pipe) in readers.into_iter().flatten() {
+        pending = pending.saturating_add(1);
+        let sender = sender.clone();
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            let _ = sender.send((is_stdout, bytes));
+        });
+    }
+    drop(sender);
+    let status = match child.wait_timeout(deadline)? {
+        Some(status) => Some(status),
+        None => {
+            if let Ok(group) = libc::pid_t::try_from(child.id()) {
+                // SAFETY: `group` is the process group this call made for
+                // the child it spawned (`process_group(0)`).
+                unsafe {
+                    libc::killpg(group, libc::SIGKILL);
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            None
+        }
+    };
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let started = Instant::now();
+    while pending > 0 {
+        // A process that left the group may hold a pipe open: wait a moment.
+        let left = Duration::from_secs(2).saturating_sub(started.elapsed());
+        let Ok((is_stdout, bytes)) = receiver.recv_timeout(left) else { break };
+        if is_stdout {
+            stdout = bytes
+        } else {
+            stderr = bytes
+        }
+        pending = pending.saturating_sub(1);
+    }
+    Ok(status.map(|status| std::process::Output { status, stdout, stderr }))
 }
 
 /// The build output's errors with their positions (`path:line[:column]`);
@@ -354,7 +439,8 @@ fn walk(dir: &Path, rel: &Path, out: &mut Vec<PathBuf>) {
         let path = rel.join(&*name);
         match entry.file_type() {
             Ok(kind) if kind.is_dir() => walk(dir, &path, out),
-            Ok(kind) if kind.is_file() => out.push(path),
+            // A link is listed too: `package_files` refuses it by name.
+            Ok(kind) if kind.is_file() || kind.is_symlink() => out.push(path),
             _ => {}
         }
     }
@@ -363,10 +449,17 @@ fn walk(dir: &Path, rel: &Path, out: &mut Vec<PathBuf>) {
 /// The files the daemon needs: the manifest files, the manifest's `files`
 /// (a folder entry is everything in it), its main script, catalog, icon and
 /// strings. With no `files`, everything but the sources (`src/`, `*.ts`).
-pub(super) fn package_files(pkg: &Package) -> Vec<PathBuf> {
+/// A symbolic link, or a path out of the folder, is refused by name: the
+/// copy in the state folder holds the folder's own files only.
+pub(super) fn package_files(pkg: &Package) -> Result<Vec<PathBuf>, Problem> {
     let mut set: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut refused: Option<Problem> = None;
     let mut add = |entry: &str| {
         let entry = entry.trim_end_matches('/');
+        if let Some(problem) = outside_or_linked(&pkg.dir, Path::new(entry)) {
+            refused.get_or_insert(problem);
+            return;
+        }
         let path = pkg.dir.join(entry);
         if path.is_dir() {
             let mut found = Vec::new();
@@ -399,7 +492,43 @@ pub(super) fn package_files(pkg: &Package) -> Vec<PathBuf> {
             add(entry);
         }
     }
-    set.into_iter().collect()
+    if let Some(problem) = refused {
+        return Err(problem);
+    }
+    // A folder entry's walk lists links inside it.
+    if let Some(problem) = set.iter().find_map(|rel| outside_or_linked(&pkg.dir, rel)) {
+        return Err(problem);
+    }
+    Ok(set.into_iter().collect())
+}
+
+/// Why `rel` may not be copied from `dir`: it leaves the folder (absolute,
+/// `..`), or it or a folder on its way is a symbolic link.
+fn outside_or_linked(dir: &Path, rel: &Path) -> Option<Problem> {
+    use std::path::Component;
+    let mut at = dir.to_path_buf();
+    for part in rel.components() {
+        match part {
+            Component::Normal(name) => at.push(name),
+            Component::CurDir => continue,
+            _ => {
+                return Some(Problem::in_file(
+                    &rel.to_string_lossy(),
+                    "outside the extension folder; list files inside it",
+                ));
+            }
+        }
+        if std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Some(Problem::in_file(
+                &rel.to_string_lossy(),
+                format!(
+                    "a symbolic link (to {}); copy the file into the extension folder",
+                    std::fs::read_link(&at).unwrap_or_default().display()
+                ),
+            ));
+        }
+    }
+    None
 }
 
 /// Copies `pkg`'s files into `target`, changed files only, each written to a
@@ -410,7 +539,7 @@ pub(super) fn sync(pkg: &Package, target: &Path) -> Result<bool, Problem> {
         Problem::message(format!("{what} {}: {e}", path.display()))
     };
     claim(pkg, target)?;
-    let mut files = package_files(pkg);
+    let mut files = package_files(pkg)?;
     if files.len() > MAX_FILES {
         return Err(Problem::message(format!("the package has more than {MAX_FILES} files")));
     }
@@ -462,7 +591,7 @@ fn claim(pkg: &Package, target: &Path) -> Result<(), Problem> {
             )));
         };
         let owner = serde_json::from_slice::<Value>(&raw).ok();
-        let owner = owner.as_ref().and_then(|v| v["source"].as_str()).map(PathBuf::from);
+        let owner = owner.as_ref().and_then(|v| v.field("source").as_str()).map(PathBuf::from);
         if owner.as_deref() != Some(source.as_path()) {
             return Err(Problem::message(format!(
                 "{} is being developed from {}; stop that one, or `cmux ext remove {}` first",
@@ -687,6 +816,7 @@ pub(super) struct Session {
     pub dir: PathBuf,
     pub build: Option<String>,
     pub bun: Option<PathBuf>,
+    pub build_timeout: Duration,
     pub daemon: Daemon,
     local_dir: Option<PathBuf>,
     followed: BTreeSet<String>,
@@ -704,6 +834,7 @@ impl Session {
             dir,
             build: options.build.clone(),
             bun: options.bun.clone(),
+            build_timeout: options.build_timeout,
             daemon,
             local_dir: None,
             followed: BTreeSet::new(),
@@ -734,7 +865,7 @@ impl Session {
             }
         };
         let started = Instant::now();
-        if let Err(errors) = build(&pkg, &plan) {
+        if let Err(errors) = build(&pkg, &plan, self.build_timeout) {
             return outcome.failed(Phase::Build, errors);
         }
         if outcome.build.is_some() {
@@ -802,9 +933,10 @@ impl Session {
             Ok((_, record)) => record,
             Err(_) => record,
         };
-        let installed = record.as_ref().is_some_and(|r| r["installed"] == true);
-        let enabled = record.as_ref().is_none_or(|r| r["enabled"] != false);
-        let hidden = record.as_ref().is_some_and(|r| r["hidden"] == true);
+        let installed =
+            record.as_ref().is_some_and(|r| r.field("installed").as_bool() == Some(true));
+        let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
+        let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
         outcome.placed = placements(&pkg.manifest, installed && enabled && !hidden);
         if !installed {
@@ -847,7 +979,7 @@ impl Session {
     /// outer error is a message (`Ok`) or a stop (`Err`).
     fn list(&mut self, id: &str) -> Result<(PathBuf, Option<Value>), Result<String, Stop>> {
         let data = self.daemon.call(json!({ "cmd": "apps-list" })).map_err(Err)?.map_err(Ok)?;
-        let local_dir = match (&self.local_dir, data["local_dir"].as_str()) {
+        let local_dir = match (&self.local_dir, data.field("local_dir").as_str()) {
             (_, Some(dir)) => PathBuf::from(dir),
             (Some(dir), None) => dir.clone(),
             (None, None) => {
@@ -857,11 +989,12 @@ impl Session {
             }
         };
         self.local_dir = Some(local_dir.clone());
-        let record = data["apps"]
+        let record = data
+            .field("apps")
             .as_array()
             .into_iter()
             .flatten()
-            .find(|row| row["id"].as_str() == Some(id))
+            .find(|row| row.field("id").as_str() == Some(id))
             .cloned();
         Ok((local_dir, record))
     }
@@ -889,14 +1022,17 @@ impl Session {
             let event = value.get("event").and_then(Value::as_str)?;
             let app = value.get("app").and_then(Value::as_str);
             match event {
-                "apps-changed" if app == Some(id) && value["transaction"] == "local-reload" => {
+                "apps-changed"
+                    if app == Some(id)
+                        && value.field("transaction").as_str() == Some("local-reload") =>
+                {
                     Some(Ok(()))
                 }
                 "apps-reload-failed" if app == Some(id) => {
-                    Some(Err(load_problem(value["reason"].as_str().unwrap_or(""))))
+                    Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }
                 "apps-log" if app == Some("cmux/supervisor") => {
-                    let message = value["message"].as_str().unwrap_or("");
+                    let message = value.field("message").as_str().unwrap_or("");
                     let issue = message.strip_prefix(&folder)?.strip_prefix(": ")?;
                     Some(Err(Problem { file: Some(V1.into()), ..Problem::message(issue) }))
                 }
@@ -917,7 +1053,7 @@ impl Session {
         let mount_id = format!("ext-dev-probe-{}-{}", std::process::id(), self.probes);
         let mut context = json!({});
         if preview {
-            context["preview"] = json!(true);
+            context.set("preview", json!(true));
         }
         let request = self.daemon.send(json!({
             "cmd": "apps-mount", "app": id, "interface": interface,
@@ -925,19 +1061,19 @@ impl Session {
         }))?;
         let result = self.daemon.wait(Instant::now() + PROBE_DEADLINE, |value| {
             if value.get("id").and_then(Value::as_str) == Some(request.as_str()) {
-                if value["ok"] == true {
+                if value.field("ok").as_bool() == Some(true) {
                     return None;
                 }
-                let message = value["error"].as_str().unwrap_or("the mount was refused");
+                let message = value.field("error").as_str().unwrap_or("the mount was refused");
                 return Some(Err(Problem::message(message.to_string())));
             }
-            if value["mount_id"].as_str() != Some(mount_id.as_str()) {
+            if value.field("mount_id").as_str() != Some(mount_id.as_str()) {
                 return None;
             }
-            match value["event"].as_str()? {
+            match value.field("event").as_str()? {
                 "apps-scene" => Some(Ok(())),
                 "apps-mount-failed" => {
-                    Some(Err(load_problem(value["reason"].as_str().unwrap_or(""))))
+                    Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }
                 _ => None,
             }
@@ -991,16 +1127,16 @@ pub(super) fn relevant(event: &notify::Result<notify::Event>, roots: &[PathBuf])
 
 /// The JSON fields of an extension row for `ext list`.
 pub(super) fn list_rows(data: &Value) -> Vec<Value> {
-    data["apps"]
+    data.field("apps")
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|row| row["id"].as_str().is_some_and(|id| id.starts_with("local/")))
+        .filter(|row| row.field("id").as_str().is_some_and(|id| id.starts_with("local/")))
         .map(|row| {
             json!({
-                "app": row["id"], "version": row["version"],
-                "installed": row["installed"], "enabled": row["enabled"],
-                "available": row["available"], "folder": row["bundle_dir"],
+                "app": row.field("id"), "version": row.field("version"),
+                "installed": row.field("installed"), "enabled": row.field("enabled"),
+                "available": row.field("available"), "folder": row.field("bundle_dir"),
             })
         })
         .collect()
@@ -1010,22 +1146,22 @@ pub(super) fn list_rows(data: &Value) -> Vec<Value> {
 pub(super) fn list_table(rows: &[Value]) -> String {
     let mut by_app: BTreeMap<String, &Value> = BTreeMap::new();
     for row in rows {
-        by_app.insert(row["app"].as_str().unwrap_or("").to_string(), row);
+        by_app.insert(row.field("app").as_str().unwrap_or("").to_string(), row);
     }
     let width = by_app.keys().map(String::len).max().unwrap_or(3).max(3);
     let mut out = format!("{:width$}  {:9}  {:10}  FOLDER\n", "APP", "VERSION", "STATE");
     for (app, row) in by_app {
-        let state = if row["installed"] != true {
+        let state = if row.field("installed").as_bool() != Some(true) {
             "preview"
-        } else if row["enabled"] == false {
+        } else if row.field("enabled").as_bool() == Some(false) {
             "off"
         } else {
             "installed"
         };
         out.push_str(&format!(
             "{app:width$}  {:9}  {state:10}  {}\n",
-            row["version"].as_str().unwrap_or(""),
-            row["folder"].as_str().unwrap_or("")
+            row.field("version").as_str().unwrap_or(""),
+            row.field("folder").as_str().unwrap_or("")
         ));
     }
     out
@@ -1083,7 +1219,7 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
             // With no daemon the build still runs: a broken build is the
             // first thing to fix, and it says so with its own exit code.
             let plan = build_plan(&pkg, options.build.as_deref(), options.bun.as_deref());
-            if let Err(errors) = build(&pkg, &plan) {
+            if let Err(errors) = build(&pkg, &plan, options.build_timeout) {
                 return outcome.failed(Phase::Build, errors);
             }
             return outcome.failed(Phase::Daemon, vec![Problem::message(message)]);
