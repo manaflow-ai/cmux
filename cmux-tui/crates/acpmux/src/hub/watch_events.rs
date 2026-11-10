@@ -41,6 +41,33 @@ impl Cursor {
         self.reply.extend(text.chars().take(remaining));
     }
 }
+/// The record kinds `collect` reads. A watch's page from a peer asks for these alone: an
+/// unfiltered page carried a 1 MB prompt image the 250 ms read gave up on, and the watch asked
+/// for the same page every few seconds for good (cosmic-gray, 2026-11-10).
+pub const WATCH_KINDS: &[&str] = &[
+    "turn_started",
+    "agent_message_chunk",
+    "tool_call",
+    "tool_call_update",
+    "agent_thought_chunk",
+    "plan",
+    "permission_request",
+    "permission_reissued",
+    "permission_decision",
+    "turn_result",
+    "status",
+];
+
+/// The most a watch's page from a peer may hold: one page always carries its first record,
+/// cut to a stub when it alone is past the bound (`hub/paging.rs` `fit`).
+pub const WATCH_PAGE_BYTES: u64 = 64 * 1024;
+
+/// A watch's `_acpmux/events` ask of a peer: after `after`, only `WATCH_KINDS`, bounded.
+pub fn remote_page(id: &str, after: u64) -> Value {
+    json!({"sessionId": id, "afterSeq": after, "limit": 256, "kinds": WATCH_KINDS,
+        "maxBytes": WATCH_PAGE_BYTES})
+}
+
 pub fn seed(hub: &Hub, key: &str, _pattern: Option<&str>) -> Cursor {
     let s = summary(hub, key);
     let await_fresh = s["stale"] == true || s["status"] == "unreachable";
@@ -66,23 +93,27 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
     let mut candidates = Vec::new();
     let mut end = None;
     let mut more = false;
+    let mut through = None;
     {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
         } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
             let page = tokio::time::timeout(
                 std::time::Duration::from_millis(250),
-                peer.request(
-                    method::MUX_EVENTS,
-                    json!({"sessionId": id, "afterSeq": c.seq, "limit": 256}),
-                ),
+                peer.request(method::MUX_EVENTS, remote_page(&id, c.seq)),
             )
             .await
             .map_err(|_| RpcError::internal("peer watch page timed out"))??;
             end = page["lastSeq"].as_u64();
             more = page["hasMore"] == true;
-            serde_json::from_value(page["events"].clone())
-                .map_err(|e| RpcError::internal(format!("watch events: {e}")))?
+            let events: Vec<crate::store::EventRecord> =
+                serde_json::from_value(page["events"].clone())
+                    .map_err(|e| RpcError::internal(format!("watch events: {e}")))?;
+            // The page holds only the kinds read below: the records it passed over (a prompt
+            // and its images, tool output) are read all the same, so the cursor moves past
+            // them and the next page never asks for them again.
+            through = page["pageThrough"].as_u64();
+            events
         } else {
             Vec::new()
         };
@@ -165,6 +196,11 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
         }
         emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
+        // `pageThrough` never passes a record the page held back for its byte bound (the page
+        // then ends on its own last record), so nothing the watch reads is skipped.
+        if let Some(through) = through.filter(|t| *t > c.seq && end.is_none_or(|end| *t <= end)) {
+            c.seq = through;
+        }
         if c.seq > before && (more || end.is_some_and(|end| c.seq < end)) {
             return Ok((found, true));
         }

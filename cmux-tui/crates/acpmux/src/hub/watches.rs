@@ -341,6 +341,9 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
     hub.watches.available.notify_one();
     Ok(())
 }
+/// How many times a failing watch source's retry wait doubles from 250 ms.
+pub const WATCH_RETRY_STEPS: u8 = 10;
+
 async fn remote_worker(hub: Arc<Hub>) {
     loop {
         let available = hub.watches.available.notified();
@@ -368,7 +371,9 @@ async fn remote_worker(hub: Arc<Hub>) {
         let failures = {
             let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
             let state = jobs.pending.entry(key.clone()).or_default();
-            state.1 = if failed { (state.1 + 1).min(6) } else { 0 };
+            // A source that keeps failing is asked again at most every ~2 min (250 ms << 9),
+            // not every 8 s: each failed read is a whole page the peer still sent.
+            state.1 = if failed { (state.1 + 1).min(WATCH_RETRY_STEPS) } else { 0 };
             state.1
         };
         if failed {
