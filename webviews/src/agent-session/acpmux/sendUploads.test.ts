@@ -223,3 +223,24 @@ test("a text-only send whose ticket comes after its chat was left goes to its ow
     pane.close?.();
   }
 });
+
+// https://github.com/manaflow-ai/cmux/issues/40066: `/side`'s files go in its side chat's first
+// prompt, but a side chat that does not exist yet holds no ticket an upload may hold (the host's
+// holdForUpload takes only one bound to the chat shown). Files that would need uploading are
+// refused before the fork, so they stay in the composer, instead of a side chat opening whose
+// prompt acpmux refuses as too large.
+test("/side refuses files that would need uploading and takes ones that fit", async () => {
+  const { pane, prompts, uploaded } = await client();
+  try {
+    const before = prompts.length;
+    expect(pane.sideRefusal("read these", [pdf(1), pdf(2), pdf(3)])).toBe(
+      "These files are too large for a side chat. Send them in this chat, or remove some.",
+    );
+    expect(pane.sideRefusal("read this", [pdf(1, 2 * MIB)])).toBeUndefined();
+    expect(pane.sideRefusal("no files", [])).toBeUndefined();
+    expect(uploaded.names).toEqual([]);
+    expect(prompts.length).toBe(before);
+  } finally {
+    pane.close?.();
+  }
+});
