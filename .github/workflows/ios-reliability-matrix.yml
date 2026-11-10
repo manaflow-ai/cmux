@@ -300,12 +300,37 @@ jobs:
           pattern: matrix-*-log
           path: logs
           merge-multiple: true
+      # A gate on pull requests to feat-cmux-next, so needs_verdict.py's rule judges the cells first: a failed
+      # protocol or ios job is a red, one that judged nothing (cancelled, abandoned, or ios skipped because its
+      # runner job failed) is no verdict (exit 3). Neither job has an `if:`, so neither may skip. Only when both
+      # passed does the table's own result (a failed `gate: true` cell) decide.
       - name: Matrix table
+        env:
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
         run: |
           set -o pipefail
+          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 failed="" unjudged="" pair name result; shift
+            for pair in "$@"; do
+              name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
+              case "${result%%[ :]*}" in
+                success) ;;
+                failure|invalid) failed+=" $name: $result;" ;;
+                *) unjudged+=" $name ${result:-none}," ;;
+              esac
+            done
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
+            if [[ -n "$unjudged" ]]; then
+              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
+            fi
+            echo "$what: every job passed"
+          }
+          needs_verdict "iOS reliability matrix" "protocol=$PROTOCOL_RESULT" "ios=$IOS_RESULT"
           args=()
-          [[ "${{ needs.protocol.result }}" != "skipped" ]] && args+=(--rust logs/rust.log)
-          [[ "${{ needs.ios.result }}" != "skipped" ]] && args+=(--ios logs/ios.log)
+          [[ "$PROTOCOL_RESULT" != "skipped" ]] && args+=(--rust logs/rust.log)
+          [[ "$IOS_RESULT" != "skipped" ]] && args+=(--ios logs/ios.log)
           python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

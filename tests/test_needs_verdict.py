@@ -246,6 +246,7 @@ WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
 # For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
 MIXED = {
     ("rust-workspaces.yml", "summary", "Every planned workspace passed"): {"PLAN": "abandoned", "WORKSPACES": "failure"},
+    ("ios-reliability-matrix.yml", "report", "Matrix table"): {"PROTOCOL_RESULT": "abandoned", "IOS_RESULT": "failure"},
     ("ios-e2e.yml", "ios-e2e-status", "Aggregate"): {
         "IS_FORK": "false", "RUN_E2E": "", "RUN_CLIENTS": "", "BACKEND_TAG": "", "ROUTE_RESULT": "abandoned",
         "BACKEND_RESULT": "failure", "MAC_IOS_RESULT": "skipped"},
@@ -346,6 +347,18 @@ class Summaries(unittest.TestCase):
                              ({"MAC_IOS_RESULT": "abandoned"}, 3), ({"RUN_CLIENTS": "false", "MAC_IOS_RESULT": "skipped"}, 0)):
             with self.subTest(change=change):
                 self.assertEqual(run_bash(body, {**base, **change}).returncode, code)
+
+    def test_ios_reliability_matrix(self):
+        """Neither cell job has an `if:`, so neither may skip: ios skipped means its runner job failed. The table only
+        decides once both passed, and that path reads the jobs' logs, so it is left to the run itself."""
+        body = step("ios-reliability-matrix.yml", "report", "Matrix table")["run"]
+        for protocol, ios, code in (("failure", "success", 1), ("success", "failure", 1), ("cancelled", "failure", 1),
+                                    ("success", "abandoned", 3), ("cancelled", "success", 3), ("success", "skipped", 3),
+                                    ("skipped", "success", 3), ("", "", 3)):
+            with self.subTest(protocol=protocol, ios=ios):
+                done = run_bash(body, {"PROTOCOL_RESULT": protocol, "IOS_RESULT": ios})
+                self.assertEqual(done.returncode, code, done.stdout + done.stderr)
+                self.assertEqual("::error::no verdict: iOS reliability matrix:" in done.stdout, code == 3)
 
     def test_ios_tests(self):
         body = step("test-ios.yml", "ios-tests", "Check iOS test routing")["run"]
