@@ -200,6 +200,11 @@ export const PAGES = {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
+  // The team board (src/pages/board/README.md).
+  board: {
+    out: "webviews/src/pages/board/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/board/Localizable.xcstrings" }],
+  },
   // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
   // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
   feed: {
