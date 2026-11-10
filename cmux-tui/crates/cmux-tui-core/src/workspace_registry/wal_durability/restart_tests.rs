@@ -14,18 +14,26 @@ use super::*;
 /// late on a busy disk (their steps: 4 MiB, then 8 MiB).
 const STORM_WAL_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + 4 * CHECKPOINT_BYTES;
 
-/// Commits `frame_bytes` of WAL frames with no pause between them: each
-/// rewrites one 64 KiB row and, like an answered request, asks for a
-/// flush. Returns the commit count.
-fn commit_storm(connection: &Connection, durability: &WalDurability, frame_bytes: u64) -> u64 {
-    let blob = vec![7u8; 64 * 1024];
+/// One commit that rewrites the 64 KiB row 1 and, like an answered request,
+/// asks for a flush. `round` makes each value new: SQLite writes no page
+/// whose content did not change, so an equal value is no commit at all.
+fn rewrite_the_row(connection: &Connection, durability: &WalDurability, round: u64) {
+    let blob = vec![u8::try_from(round % 251).unwrap_or(0); 64 * 1024];
     connection.execute("INSERT OR REPLACE INTO t(rowid, v) VALUES (1, ?1)", [&blob]).unwrap();
+    durability.request_flush();
+}
+
+/// Commits `frame_bytes` of WAL frames with no pause between them
+/// ([`rewrite_the_row`]). Returns the commit count.
+fn commit_storm(connection: &Connection, durability: &WalDurability, frame_bytes: u64) -> u64 {
+    rewrite_the_row(connection, durability, 0);
     let before = durability.wal_frame_bytes();
     let mut commits = 0;
     while durability.wal_frame_bytes() - before < frame_bytes {
-        connection.execute("UPDATE t SET v = ?1 WHERE rowid = 1", [&blob]).unwrap();
-        durability.request_flush();
         commits += 1;
+        rewrite_the_row(connection, durability, commits);
+        // A commit that wrote nothing would never end this loop.
+        assert!(commits < 100_000, "{commits} commits wrote under {frame_bytes} bytes of frames");
     }
     commits
 }
@@ -121,8 +129,7 @@ fn a_long_read_in_a_commit_storm_never_holds_a_commit_and_the_wal_is_cut_after_i
     let path = dir.join("r.sqlite");
     let wal = dir.join("r.sqlite-wal");
     let durability = WalDurability::attach(&connection, &path, None, false);
-    let blob = vec![7u8; 64 * 1024];
-    connection.execute("INSERT INTO t(rowid, v) VALUES (1, ?1)", [&blob]).unwrap();
+    rewrite_the_row(&connection, &durability, 0);
     let reader = Connection::open(&path).unwrap();
     reader.execute_batch("BEGIN").unwrap();
     let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
@@ -130,11 +137,11 @@ fn a_long_read_in_a_commit_storm_never_holds_a_commit_and_the_wal_is_cut_after_i
     let mut commits = 0u64;
     let mut slowest = Duration::ZERO;
     while durability.wal_frame_bytes() - before < 2 * WAL_SIZE_LIMIT_BYTES {
-        let started = Instant::now();
-        connection.execute("UPDATE t SET v = ?1 WHERE rowid = 1", [&blob]).unwrap();
-        slowest = slowest.max(started.elapsed());
-        durability.request_flush();
         commits += 1;
+        let started = Instant::now();
+        rewrite_the_row(&connection, &durability, commits);
+        slowest = slowest.max(started.elapsed());
+        assert!(commits < 100_000, "{commits} commits wrote under two limits of frames");
     }
     let (waits, longest) = durability.restart_waits();
     let pinned = std::fs::metadata(&wal).unwrap().len();
@@ -194,29 +201,33 @@ fn a_wal_left_over_the_limit_is_cut_in_a_commit_storm_from_the_first_moment() {
     let connection = Connection::open(&next_path).unwrap();
     connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;").unwrap();
     let durability = WalDurability::attach(&connection, &next_path, None, false);
-    let blob = vec![7u8; 64 * 1024];
+    // The first commit also counts the frames the previous run left.
+    rewrite_the_row(&connection, &durability, 0);
     let before = durability.wal_frame_bytes();
     let mut commits = 0u64;
-    let (written, now) = loop {
-        connection.execute("INSERT OR REPLACE INTO t(rowid, v) VALUES (1, ?1)", [&blob]).unwrap();
-        durability.request_flush();
+    // The WAL is cut once the syncer copied what the previous run left
+    // (commits do not wait for that copy) and one more commit came. The
+    // deadline only ends a run in which that never happens.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let (written, high_water, now) = loop {
         commits += 1;
+        rewrite_the_row(&connection, &durability, commits);
         let written = durability.wal_frame_bytes().saturating_sub(before);
-        let len = std::fs::metadata(&next_wal).map_or(0, |meta| meta.len());
-        if len <= WAL_SIZE_LIMIT_BYTES || written >= 2 * WAL_SIZE_LIMIT_BYTES {
-            break (written, len);
+        let (len, high_water) = durability.wal_file_bytes();
+        if len <= WAL_SIZE_LIMIT_BYTES || Instant::now() > deadline {
+            break (written, high_water, len);
         }
     };
     println!(
         "wal_left_storm: left_bytes={left} commits={commits} frame_bytes={written} \
-         wal_file_bytes={now} limit={WAL_SIZE_LIMIT_BYTES}"
+         wal_file_high_water_bytes={high_water} wal_file_bytes={now} limit={WAL_SIZE_LIMIT_BYTES}"
     );
     drop(connection);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(
         now <= WAL_SIZE_LIMIT_BYTES,
         "a WAL left at {left} bytes is {now} bytes after {commits} commits with no pause \
-         ({written} bytes of frames) of the next open"
+         ({written} bytes of frames, 30 s) of the next open"
     );
 }
 
