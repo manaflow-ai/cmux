@@ -7,6 +7,7 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountChromePage } from "../../browser-chrome/page-info/mountChromePage";
 import { PageInfoBubble } from "../../browser-chrome/page-info/PageInfoBubble";
 import type { PageInfoCommand, PageInfoModel } from "../../browser-chrome/page-info/model";
+import { forgetSiteData, withLastSiteData } from "../../browser-chrome/page-info/siteDataMemory";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -25,14 +26,22 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
     onState: (state) => applyMetrics(state.metrics),
     focus: ".pi-bubble",
     // The native panel's card is the glass; the page draws only the rows.
-    render: (model, send, strings) => (
-      <PageInfoBubble
-        model={model}
-        onCommand={(command) => send({ ...command, opening: model.opening })}
-        strings={strings}
-        glass={false}
-      />
-    ),
+    // A site read in an earlier opening draws its last cookie summary while the host reads it again.
+    render: (pushed, send, strings) => {
+      const model = withLastSiteData(pushed);
+      return (
+        <PageInfoBubble
+          model={model}
+          onCommand={(command) => {
+            // Managing the site's data can change its counts: the next opening waits for the host.
+            if (command.type === "manageSiteData") forgetSiteData(model.site.displayName);
+            send({ ...command, opening: model.opening });
+          }}
+          strings={strings}
+          glass={false}
+        />
+      );
+    },
   });
 }
 
