@@ -256,3 +256,34 @@ fn a_group_stores_its_own_sort() {
     // The members' stored order never changes.
     assert_eq!(list(&doc, Some("outer")), ["inner", "w3"]);
 }
+
+/// Leo, 2026-11-10: "just make it configurable" (chats per project). A group
+/// keeps its own cap (the right-click override) and how far "Show N more"
+/// revealed it, so the expanded state is remembered per project.
+#[test]
+fn a_group_stores_its_own_cap_and_how_far_it_was_revealed() {
+    let mut doc = fixture();
+    let update =
+        |patch: serde_json::Value| json!([{"op": "group.update", "id": "inner", "patch": patch}]);
+    let inner = |doc: &Doc| doc.item("inner").expect("inner").clone();
+    assert_eq!(inner(&doc).group_row_limit(), None, "follows the setting");
+    assert_eq!(inner(&doc).group_revealed(), 0);
+    try_run(&mut doc, update(json!({"row_limit": "10"}))).expect("10 is a cap");
+    assert_eq!(inner(&doc).extra.get(GROUP_ROW_LIMIT_KEY), Some(&json!("10")));
+    assert_eq!(inner(&doc).group_row_limit(), Some(10));
+    try_run(&mut doc, update(json!({"row_limit": 0}))).expect("0 is All");
+    assert_eq!(inner(&doc).extra.get(GROUP_ROW_LIMIT_KEY), Some(&json!("all")));
+    assert_eq!(inner(&doc).group_row_limit(), Some(0));
+    assert_eq!(try_run(&mut doc, update(json!({"row_limit": "7"}))), Err(Refusal::InvalidValue));
+    let ops: Vec<Op> = serde_json::from_value(update(json!({"revealed": 40}))).expect("ops read");
+    let inverse = run(&mut doc, ops);
+    assert_eq!(inner(&doc).group_revealed(), 40);
+    apply_rows(&mut doc, &inverse);
+    assert_eq!(inner(&doc).group_revealed(), 0, "undo hides them again");
+    assert_eq!(try_run(&mut doc, update(json!({"revealed": -1}))), Err(Refusal::InvalidValue));
+    try_run(&mut doc, update(json!({"revealed": 20, "row_limit": null}))).expect("both at once");
+    assert_eq!(inner(&doc).group_row_limit(), None);
+    try_run(&mut doc, update(json!({"revealed": 0}))).expect("0 clears");
+    assert!(!inner(&doc).extra.contains_key(GROUP_REVEALED_KEY));
+    assert_eq!(list(&doc, Some("outer")), ["inner", "w3"], "the stored order never changes");
+}
