@@ -1233,6 +1233,13 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"signedIn": true, "restarted": true}),
         ),
         (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start",
+                   "agent":"gateway:claude"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "gateway:claude", "sessionId": SESSION}),
+            json!({"gateway": true, "signedIn": true, "restarted": true}),
+        ),
+        (
             json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
                    "agent":"codex","key":"sk-test"}),
             "_acpmux/agent_login/api_key",
@@ -1257,6 +1264,9 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
     for bad in [
         json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"gateway:opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"gateway:claude",
+               "key":"sk-x"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),

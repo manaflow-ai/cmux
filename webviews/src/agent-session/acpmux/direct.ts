@@ -8304,6 +8304,7 @@ export class AcpmuxDirectClient {
             // (acpmux fail_unstarted_turn): the row still names it, as the paused queue's note does.
             error: msg.errorText ?? (status === "failed" && typeof msg.error === "string" ? msg.error : undefined),
             ...(typeof msg.errorCode === "string" && msg.errorCode ? { errorCode: msg.errorCode } : {}),
+            ...(status === "failed" && msg.signInGateway === true ? { signInGateway: true as const } : {}),
             ...(checkpoint ? { checkpoint } : {}),
             // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). The turn reads
             // as any stop does; only the footer's tooltip says cmux ended it (Leo, 2026-11-03:

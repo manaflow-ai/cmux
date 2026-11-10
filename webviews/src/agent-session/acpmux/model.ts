@@ -608,6 +608,9 @@ export type AcpmuxRow = {
   error?: string;
   /// acpmux's typed reason for a failed turn (`errorCode`, a string), for its card (failureCopy.ts).
   errorCode?: string;
+  /// A failed turn whose Cloud machine's team has gateway access for the agent, which has no
+  /// credential there (acpmux `signInGateway`): its sign-in card offers Use cmux's gateway.
+  signInGateway?: true;
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;

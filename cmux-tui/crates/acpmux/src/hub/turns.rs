@@ -1712,6 +1712,29 @@ impl Hub {
             e.message = text;
             signed_out = true;
         }
+        // A Cloud chat whose agent has no sign-in: whether its card may offer cmux's gateway beside
+        // its own sign-in and an API key (`agent_login.rs` `gateway:<agent>`), as the machine's
+        // image decides it. Plain Claude Code (explained above) or Codex only.
+        let sign_in_gateway = match &result {
+            Err(e) if cloud_host => {
+                let harness = session.meta().harness;
+                let agent = if signed_out {
+                    Some(crate::agent_login::Agent::Claude)
+                } else if crate::recovery::auth_kind(&e.message)
+                    == Some(crate::recovery::kind::AUTH_SIGNED_OUT)
+                    && harness.split(['-', '_', '.', '/']).next() == Some("codex")
+                {
+                    Some(crate::agent_login::Agent::Codex)
+                } else {
+                    None
+                };
+                match agent {
+                    Some(agent) => self.login_machine().gateway(agent).await,
+                    None => false,
+                }
+            }
+            _ => false,
+        };
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
             match &mut e.data {
                 Some(Value::Object(data)) => data.extend(info.clone()),
@@ -1840,6 +1863,9 @@ impl Hub {
                             o.extend(info.clone());
                         }
                         o.extend(crate::recovery::fields(e));
+                        if sign_in_gateway {
+                            o.insert("signInGateway".into(), json!(true));
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }

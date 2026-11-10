@@ -43,6 +43,15 @@
 //!   `NO_OPEN_BROWSER=1` keeps it from opening one. It takes no code and no
 //!   key here: a Cursor API key reaches the agent as the Cloud secret
 //!   `CURSOR_API_KEY` instead.
+//! - `start {agent: "gateway:<agent>"}` ([`gateway_agent`]): the card's third
+//!   way, cmux's gateway (Leo, 2026-11-10: "the stuff does of course go
+//!   through our gateway"). No CLI runs: on a cmux Cloud image whose
+//!   `agent-auth.sh` says the gateway serves the agent here
+//!   ([`Machine::gateway`], its `cmux_agent_gateway_available`: no credential
+//!   of the agent's own and a team account for it), the agent is set to team
+//!   mode as `cr use team <agent>` sets it ([`Machine::choose_team`]), so its
+//!   launcher gives it the CodeRouter pair; else `no_gateway`. A failed turn
+//!   says when this is on offer (`signInGateway`, `hub/turns.rs`).
 //!
 //! The CLI is the one this daemon starts the agent with (the `claude` or
 //! `codex` harness profile, else `claude`/`codex` on the login PATH), with
@@ -135,9 +144,33 @@ pub mod reason {
     pub const EXPIRED: &str = "expired";
     pub const FAILED: &str = "failed";
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
+    /// cmux's gateway does not serve the agent on this machine (not a Cloud image, a credential
+    /// of the agent's own is here, or the team has no account for it).
+    pub const NO_GATEWAY: &str = "no_gateway";
     /// A `sessionId` that names no chat here or on a peer.
     pub const UNKNOWN_SESSION: &str = "unknown_session";
 }
+
+/// `start`'s `agent` for the gateway way (module docs): `gateway:claude`, `gateway:codex`.
+pub const GATEWAY_PREFIX: &str = "gateway:";
+
+/// The agent a `gateway:<agent>` start names, or None for any other value.
+pub fn gateway_agent(name: &str) -> Option<Agent> {
+    name.strip_prefix(GATEWAY_PREFIX).and_then(Agent::parse)
+}
+
+/// How long [`Machine::gateway`] waits for the image's check (its account request is capped at
+/// 5 s and reused for a minute).
+pub const GATEWAY_WAIT: Duration = Duration::from_secs(10);
+
+/// The image's own check (module docs), with the machine's model plane loaded as a login shell
+/// loads it (`agent-config.sh`: the persisted copy, else the baked one). `$1` is the image's
+/// `etc/cmux`, `$2` the agent.
+const GATEWAY_CHECK: &str = r#"[ -n "${CMUX_CODEROUTER_URL-}" ] || for cmux_f in "$HOME/.config/cmux/model-plane.env" "$1/model-plane.env"; do
+  [ -f "$cmux_f" ] && . "$cmux_f" 2>/dev/null
+  [ -n "${CMUX_CODEROUTER_URL-}" ] && break
+done
+. "$1/agent-auth.sh" && cmux_agent_gateway_available "$2""#;
 
 /// An agent whose own sign-in this runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -321,13 +354,56 @@ impl Machine {
     /// (`~/.config/cmux/agent-auth/<agent>` = `own`), so the image's launcher
     /// stops using the team's CodeRouter for it. Only on a cmux Cloud image.
     pub fn choose_own(&self, agent: Agent) -> std::io::Result<bool> {
+        self.choose(agent, "own")
+    }
+
+    /// Records that `agent` uses the team's gateway here (`team`, as `cr use
+    /// team <agent>` records it), and drops the cached account answer as `cr
+    /// use` does, so the next launch asks again. Only on a cmux Cloud image.
+    pub fn choose_team(&self, agent: Agent) -> std::io::Result<bool> {
+        let chosen = self.choose(agent, "team")?;
+        match std::fs::remove_file(self.home.join(".cache/cmux/agent-access")) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        Ok(chosen)
+    }
+
+    fn choose(&self, agent: Agent, mode: &str) -> std::io::Result<bool> {
         if !self.cloud_image() {
             return Ok(false);
         }
         let dir = self.home.join(".config/cmux/agent-auth");
         private_dir(&dir)?;
-        write_private(&dir.join(agent.name()), b"own\n")?;
+        write_private(&dir.join(agent.name()), format!("{mode}\n").as_bytes())?;
         Ok(true)
+    }
+
+    /// Whether cmux's gateway serves `agent` here (module docs): the image's
+    /// `cmux_agent_gateway_available`, run with only HOME, PATH and the
+    /// daemon's CodeRouter origin (no credential of this daemon's), within
+    /// [`GATEWAY_WAIT`]. False off a cmux Cloud image, and on any failure.
+    pub async fn gateway(&self, agent: Agent) -> bool {
+        if !self.cloud_image() {
+            return false;
+        }
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg(GATEWAY_CHECK)
+            .arg("sh")
+            .arg(self.root.join("etc/cmux"))
+            .arg(agent.name())
+            .env_clear()
+            .env("HOME", &self.home)
+            .env("PATH", std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        if let Some(origin) = std::env::var_os("CMUX_CODEROUTER_URL") {
+            cmd.env("CMUX_CODEROUTER_URL", origin);
+        }
+        matches!(tokio::time::timeout(GATEWAY_WAIT, cmd.status()).await, Ok(Ok(s)) if s.success())
     }
 
     fn refuse_shared(&self) -> Result<(), LoginError> {

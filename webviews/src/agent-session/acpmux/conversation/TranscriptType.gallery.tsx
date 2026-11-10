@@ -66,6 +66,7 @@ function gallerySignIn(agent: LoginAgent, approve: boolean): CloudSignIn {
     openOnMachine: async () => true,
     finish: () => new Promise<boolean>(() => {}),
     apiKey: async () => true,
+    useGateway: async () => true,
     cancel: () => {},
     reserve: async () => undefined,
     resend: async () => {},

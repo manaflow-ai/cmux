@@ -517,6 +517,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           cloudSignIn={cloudSignIn}
+          signInGateway={row.signInGateway === true}
           apiKeySignIn={apiKeySignIn}
           retryRowId={row.retryRowId}
           prompt={prompt}
@@ -631,6 +632,7 @@ function TurnFailure({
   compact,
   reauthenticate,
   cloudSignIn,
+  signInGateway = false,
   apiKeySignIn,
   retryRowId,
   prompt,
@@ -653,6 +655,9 @@ function TurnFailure({
   reauthenticate?: () => void;
   /// A Cloud chat's own sign-in on its machine (cloudAgentLogin.ts, CloudSignIn.tsx).
   cloudSignIn?: CloudSignInActions;
+  /// The failed turn says cmux's gateway serves the agent on its Cloud machine (acpmux
+  /// `signInGateway`): the sign-in also offers Use cmux's gateway.
+  signInGateway?: boolean;
   /// A chat here whose built-in Claude Code or Codex is not signed in: Use an API key
   /// (cloudAgentLogin.ts `localApiKeyLogin`).
   apiKeySignIn?: CloudSignInActions;
@@ -819,6 +824,7 @@ function TurnFailure({
             rowId={retryRowId}
             prompt={prompt}
             keyOnly={teamMachine}
+            gateway={signInGateway}
             actionsRef={actionsRef}
           />
         )}
