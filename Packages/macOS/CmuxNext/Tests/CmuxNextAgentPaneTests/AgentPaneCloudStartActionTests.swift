@@ -17,7 +17,7 @@ struct AgentPaneCloudStartActionTests {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
         var arguments: [[String: String]] = []
-        model.onRunAction = { id, args in ran.append(id); arguments.append(args); return true }
+        model.onRunAction = { id, args in ran.append(id); arguments.append(args); return .ran }
         #expect(await model.respond(to: .runAction("palette.newCloudChat", handoff: Self.token))["ok"] as? Bool != true)
         #expect(ran.isEmpty, "no gesture, no tab")
         model.transport.gestures.record()

@@ -356,3 +356,131 @@ test("a deadline that ran late behind the page's own work leaves the queued answ
   await pastDeadline();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
+
+// Leo, 2026-11-09, of the This Mac/Cloud/Remote and Bypass permissions menus: "What the heck is this?"
+// An empty glass box stayed where the menu was after it closed. The detector: drive a surface through
+// open, close fade and unmount, with an App that draws the last report it received one frame later, and
+// at every step no glass (the App's, or the in-place blur) shows where the content is fading or gone.
+test("no step of an open and close shows the App's glass or the blur without the surface's content", async () => {
+  const doc = page();
+  const transcript = doc.createElement("section");
+  doc.getElementById("root")!.append(transcript);
+  const window = dom!.window;
+  const base = window.Element.prototype.getBoundingClientRect;
+  window.Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this === transcript)
+      return { left: 0, top: 0, right: 600, bottom: 400, width: 600, height: 400, x: 0, y: 0 } as DOMRect;
+    return base.call(this);
+  };
+  // The App draws a report a frame after it is sent (its own run loop), as it does on a busy pick.
+  let received: HostGlassSurface[] = [];
+  let drawn: HostGlassSurface[] = [];
+  const posts: HostGlassSurface[][] = [];
+  stop = reportHostGlass(
+    doc,
+    (surfaces) => {
+      posts.push(surfaces);
+      received = surfaces;
+      return Promise.resolve();
+    },
+    { candidates: () => [transcript] },
+  );
+  const appFrame = () => {
+    drawn = received;
+  };
+  const violations: string[] = [];
+  // `painted`: a frame has painted since the step (the App drew what it had received by then).
+  const check = (step: string, menu: HTMLElement, painted: boolean) => {
+    // The content shows at full strength only while open: a closing surface is fading.
+    const content = menu.isConnected && !menu.hasAttribute("data-ending-style");
+    const blur = transcript.hasAttribute("data-glass-under");
+    // What the App shows on screen, once a frame painted; before that, what is on its way to it.
+    const shown = (painted ? drawn : received).some((entry) => entry.opacity > 0);
+    if (!content && (shown || blur)) violations.push(`${step}: App glass ${shown} blur ${blur}`);
+  };
+  const menu = surface(doc, "menu");
+  menu.setAttribute("data-host-glass-cover", "");
+  for (let i = 0; i < 4; i += 1) {
+    await frames(1);
+    await settled();
+    appFrame();
+    check(`open ${i}`, menu, true);
+  }
+  expect(drawn).toHaveLength(1);
+  expect(transcript.hasAttribute("data-glass-under")).toBe(true);
+  // The close starts: Base UI marks the fade. The App's glass is withdrawn in this task, before any
+  // frame paints the fade, and the blur leaves with it.
+  const before = posts.length;
+  menu.setAttribute("data-ending-style", "");
+  menu.style.opacity = "0.6";
+  await Promise.resolve();
+  expect(posts.length).toBe(before + 1);
+  expect(posts.at(-1)).toEqual([]);
+  expect(transcript.hasAttribute("data-glass-under")).toBe(false);
+  // It fades on the page's own glass, drawn with its content.
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  check("close start", menu, false);
+  for (const opacity of ["0.3", "0"]) {
+    menu.style.opacity = opacity;
+    await frames(1);
+    await settled();
+    appFrame();
+    check(`fade ${opacity}`, menu, true);
+  }
+  expect(drawn).toEqual([]);
+  menu.remove();
+  await frames(1);
+  appFrame();
+  check("gone", menu, true);
+  expect(violations).toEqual([]);
+});
+
+test("a surface that opens again during its close fade goes back on the App's glass", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const menu = surface(doc, "menu");
+  await frames();
+  await settled();
+  menu.setAttribute("data-ending-style", "");
+  await Promise.resolve();
+  expect(reports.at(-1)).toEqual([]);
+  menu.removeAttribute("data-ending-style");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a surface that opens again during its fade before the App answered still falls back past the deadline", async () => {
+  const doc = page();
+  stop = reportHostGlass(doc, () => new Promise(() => undefined));
+  const menu = surface(doc, "menu");
+  await frames();
+  menu.setAttribute("data-ending-style", "");
+  await Promise.resolve();
+  // The first deadline passes while it closes, then it opens again.
+  await pastDeadline();
+  menu.removeAttribute("data-ending-style");
+  await frames();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  await pastDeadline();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});
+
+test("a surface the App had answered for, opened again during its fade, still falls back if the App stalls", async () => {
+  const doc = page();
+  let calls = 0;
+  stop = reportHostGlass(doc, () => (++calls === 1 ? Promise.resolve() : new Promise(() => undefined)));
+  const menu = surface(doc, "menu");
+  await frames();
+  await settled();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  menu.setAttribute("data-ending-style", "");
+  await Promise.resolve();
+  menu.removeAttribute("data-ending-style");
+  await frames();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  await pastDeadline();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});

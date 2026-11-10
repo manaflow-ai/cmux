@@ -41,7 +41,7 @@
   user-select: text;
 }
 
-.bm-search:focus {
+.bm-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -383,7 +383,7 @@
   user-select: text;
 }
 
-.bm-editor-input:focus {
+.bm-editor-input:focus-visible {
   border-color: var(--page-text-3);
 }
 

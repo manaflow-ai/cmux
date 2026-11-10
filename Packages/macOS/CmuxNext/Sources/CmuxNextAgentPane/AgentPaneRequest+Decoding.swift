@@ -376,8 +376,10 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
-        case "cloud.signInCancel": self = .cloudSignInCancel
-        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
+        case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.signIn":
+            // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
+            if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)

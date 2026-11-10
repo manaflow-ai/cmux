@@ -145,7 +145,7 @@ struct ChiefQuestionBar: View {
                     Image(systemName: "exclamationmark.triangle.fill").font(.body).foregroundStyle(.orange)
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Chief isn't available").font(.footnote.weight(.semibold))
+                    Text(session.unavailableTitle ?? String(localized: "Chief isn't available")).font(.footnote.weight(.semibold))
                     Text(reason).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
                 }
                 Spacer(minLength: 4)
