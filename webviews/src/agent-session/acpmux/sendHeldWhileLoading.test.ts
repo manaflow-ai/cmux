@@ -130,3 +130,51 @@ test("a prompt that waits out the host's deadline stays as a failed row with Ret
     client.close?.();
   }
 });
+
+test("the composer stops saying Sending when ready once acpmux takes the prompt, not when its turn ends", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { sendsHeldForHost } = await import("./sendWhenReady");
+  type Hooks = { answer: (method: string, params: any) => Promise<unknown>; deliver: (message: unknown) => void };
+  let asks = 0;
+  let taken!: () => void;
+  const tookIt = new Promise<void>((resolve) => (taken = resolve));
+  class SlowTurnHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        asks += 1;
+        if (asks === 1)
+          return Promise.reject(
+            Object.assign(new Error("The agent connection is not open."), { code: "native.not_connected" }),
+          );
+        // acpmux takes it; its turn runs on and the request stays open.
+        hooks.deliver({
+          jsonrpc: "2.0",
+          method: "_acpmux/prompt_accepted",
+          params: { sessionId: params.sessionId, promptId: params._meta.acpmux.promptId },
+        });
+        taken();
+        return new Promise(() => undefined);
+      };
+    }
+  }
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new SlowTurnHost() as unknown as WebSocket,
+  );
+  let accepted = 0;
+  try {
+    void client.send("ship it", [], "slow-turn", () => (accepted += 1)).catch(() => undefined);
+    await tookIt;
+    expect(accepted).toBe(1);
+    expect(sendsHeldForHost.get()).toBe(false);
+  } finally {
+    client.close?.();
+  }
+});
