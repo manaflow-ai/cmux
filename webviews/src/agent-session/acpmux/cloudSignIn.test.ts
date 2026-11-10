@@ -78,7 +78,13 @@ test("a sign-in that ends signed out offers Sign in again", async () => {
   const native = host();
   const wait = waitForCloudSignIn(native.call, "k");
   native.answer(false);
-  await expect(startAfterSignIn(wait, () => true, () => undefined)).resolves.toEqual(CLOUD_SIGN_IN_ANSWERS.notSignedIn);
+  await expect(
+    startAfterSignIn(
+      wait,
+      () => true,
+      () => undefined,
+    ),
+  ).resolves.toEqual(CLOUD_SIGN_IN_ANSWERS.notSignedIn);
 });
 
 test("a sign-in that never returns expires to Sign in again and ends the app's browser sign-in", async () => {
@@ -94,6 +100,9 @@ test("a sign-in that never returns expires to Sign in again and ends the app's b
 });
 
 test("the host's own refusal reaches the card with its code and words", async () => {
-  const wait = waitForCloudSignIn(() => Promise.reject({ code: "transport.gesture_required", message: "no click" }), "k");
+  const wait = waitForCloudSignIn(
+    () => Promise.reject({ code: "transport.gesture_required", message: "no click" }),
+    "k",
+  );
   await expect(wait.ended).resolves.toEqual({ ok: false, code: "transport.gesture_required", message: "no click" });
 });
