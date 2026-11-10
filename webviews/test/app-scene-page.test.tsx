@@ -143,3 +143,84 @@ test("a refused mount says why; a route with no app mounts nothing", async () =>
   expect(empty.querySelector(".cmux-app-scene-mount")).toBeNull();
   empty.remove();
 });
+
+test("a refused save keeps the scene and shows the reload marker under it; a good save's reset clears it", async () => {
+  const { mountAppScenePage } = await import("../src/pages/app-scene/main");
+  const { mockPanelScene } = await import("../src/apps/scene/panelsMock");
+  const client = await host();
+  const root = document.createElement("div");
+  document.body.append(root);
+  await act(async () => {
+    mountAppScenePage(root, client, "#/?app=samples/github-prs");
+  });
+  const scene = root.querySelector<HTMLElement>(".cmux-app-scene-mount")!;
+  expect(scene.querySelector(".cmux-app-scene-reload-marker")).toBeNull();
+  const reason = "init: SyntaxError: expecting ';' at main.js:2:12";
+  await act(async () => {
+    client.reloadFailure("mock-panel-1", reason);
+  });
+  // The scene keeps drawing the script that last loaded; the marker sits after it, as natively.
+  expect(scene.getAttribute("data-status")).toBe("ready");
+  expect(scene.querySelectorAll('[data-app-type="Row"]')).toHaveLength(3);
+  const marker = scene.querySelector<HTMLElement>(".cmux-app-scene-reload-marker")!;
+  expect(marker).not.toBeNull();
+  expect(scene.lastElementChild).toBe(marker);
+  expect(marker.querySelector(".cmux-app-scene-reload-marker-label")?.textContent).toBe("Not reloaded");
+  expect(marker.querySelector(".cmux-app-scene-reload-marker-place")?.textContent).toBe("main.js:2:12");
+  expect(marker.getAttribute("title")).toBe("main.js · Line 2, column 12: expecting ';'");
+  expect(marker.getAttribute("aria-label")).toBe(
+    "Not reloaded, main.js:2:12, main.js · Line 2, column 12: expecting ';'",
+  );
+
+  // A failed mount shows the failure row, not the marker.
+  await act(async () => {
+    client.status("mock-panel-1", "failed", "init: Error: nope");
+  });
+  expect(scene.querySelector(".cmux-app-scene-reload-marker")).toBeNull();
+  await act(async () => {
+    client.status("mock-panel-1", "ready");
+  });
+  expect(scene.querySelector(".cmux-app-scene-reload-marker")).not.toBeNull();
+
+  // The next good save resets the scene: the marker goes with no host clearing needed.
+  const panel = client.panels.find((entry) => entry.app === "samples/github-prs")!;
+  await act(async () => {
+    client.reload(panel, mockPanelScene(panel));
+  });
+  expect(scene.getAttribute("data-status")).toBe("ready");
+  expect(scene.querySelector(".cmux-app-scene-reload-marker")).toBeNull();
+
+  // The host's explicit clearing also takes it away.
+  await act(async () => {
+    client.reloadFailure("mock-panel-1", reason);
+  });
+  expect(scene.querySelector(".cmux-app-scene-reload-marker")).not.toBeNull();
+  await act(async () => {
+    client.reloadFailure("mock-panel-1", null);
+  });
+  expect(scene.querySelector(".cmux-app-scene-reload-marker")).toBeNull();
+  root.remove();
+});
+
+test("the page maps every theme token the scene's colors read (sceneStyle.ts) to the page theme", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const css = readFileSync(join(import.meta.dir, "../src/pages/app-scene/styles.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+  const style = readFileSync(join(import.meta.dir, "../src/apps/scene/sceneStyle.ts"), "utf8");
+  const sceneCss = readFileSync(join(import.meta.dir, "../src/apps/scene/scene.css"), "utf8");
+  const page = /html\[data-cmux-page="app-scene"\],\s*\.app-scene-page\s*\{([^}]*)\}/.exec(css);
+  expect(page).not.toBeNull();
+  const defined = new Map(
+    [...page![1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((match) => [match[1], match[2]!.trim()] as const),
+  );
+  for (const token of ["--agent-status-success", "--agent-status-warning", "--agent-control"]) {
+    expect(defined.get(token), token).toBeTruthy();
+  }
+  // Every `--agent-*` the scene's colors and its stylesheet read, so none falls back to plain text or transparent.
+  const read = new Set([...`${style}\n${sceneCss}`.matchAll(/var\((--agent-[\w-]+)/g)].map((match) => match[1]!));
+  const missing = [...read].filter((token) => !defined.has(token));
+  expect(missing).toEqual([]);
+});

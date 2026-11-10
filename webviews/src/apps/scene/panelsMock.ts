@@ -233,6 +233,15 @@ export class MockAppPanelsClient implements PageClient {
       listener({ mount_id: mountId, status, ...(reason !== undefined && { reason }) } satisfies SceneEvent, ++this.seq);
   }
 
+  /** Sends a mount's refused save (`reason`), or its clearing (`null`), as the host forwards its model's `reloadFailure`. */
+  reloadFailure(mountId: string, reason: string | null): void {
+    for (const listener of this.scenes.get(mountId) ?? [])
+      listener(
+        { mount_id: mountId, reload_failure: reason === null ? null : { reason } } satisfies SceneEvent,
+        ++this.seq,
+      );
+  }
+
   /** A mock local edit sends a replacement scene to every mount of the same contribution. */
   reload(panel: AppPanel, ops: SceneOp[]): void {
     for (const [mountId, mount] of this.mounts) {

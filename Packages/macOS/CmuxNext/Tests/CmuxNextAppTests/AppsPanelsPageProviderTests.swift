@@ -157,6 +157,55 @@ import Testing
         _ = subscription
     }
 
+    /// A saved script that does not load keeps every drawn view of the app on the script before it
+    /// (``AppSceneModel/reloadFailure``): each surface's page hears the refused save, a page that
+    /// subscribes later hears it too, and the next good save's reset scene clears it.
+    @Test func forwardsAndClearsTheRefusedSaveOnEverySurface() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        let reason = "init: SyntaxError: expecting ';' at main.js:2:12"
+        let drawn: [AppSceneOp] = [.create(id: "t", type: "Text", props: ["text": "Hi"]), .root(id: "t")]
+        var heard: [(mountID: String, box: Heard, subscription: PageSubscription)] = []
+        for (surface, section) in [("pane", nil), ("sessionInfoSection", "cmux.session.info.section/1"),
+                                   ("sidebarSection", "cmux.section/1"), ("hoverCard", nil)] as [(String, String?)] {
+            let mountID = try #require(try await Self.mount(provider, surface: surface, section: section)["mount_id"]?.stringValue)
+            await client.tail?.value
+            let box = Heard()
+            let subscription = try await provider.subscribe("cmux.apps.panels.scene", filter: .object(["mount_id": .string(mountID)]),
+                                                            context: Self.page) { box.events.append($0) }
+            #expect(!box.events.contains { $0["reload_failure"] != nil }, "a mount with no refused save says nothing of one")
+            transport.onEvent?(.scene(mountID: mountID, ops: drawn))
+            #expect(box.events.last?["status"]?.stringValue == "ready")
+            heard.append((mountID, box, subscription))
+        }
+
+        transport.onEvent?(.reloadFailed(app: "local/customize", reason: reason))
+        for (mountID, box, _) in heard {
+            #expect(box.events.last?["mount_id"]?.stringValue == mountID)
+            #expect(box.events.last?["reload_failure"]?["reason"]?.stringValue == reason)
+            let count = box.events.count
+            // The same refused save again sends nothing.
+            transport.onEvent?(.reloadFailed(app: "local/customize", reason: reason))
+            #expect(box.events.count == count)
+        }
+
+        // A page that subscribes after the refused save hears it with the status.
+        let (paneID, _, _) = try #require(heard.first)
+        let late = Heard()
+        let lateSubscription = try await provider.subscribe("cmux.apps.panels.scene", filter: .object(["mount_id": .string(paneID)]),
+                                                            context: Self.page) { late.events.append($0) }
+        #expect(late.events.map { $0["status"]?.stringValue } == ["ready", nil])
+        #expect(late.events.last?["reload_failure"]?["reason"]?.stringValue == reason)
+
+        // The next good save resets the scene: the mark goes, after the scene that replaced it.
+        transport.onEvent?(.scene(mountID: paneID, ops: drawn, reset: true))
+        #expect(late.events.last?["reload_failure"] == .null)
+        #expect(late.events.dropLast().last?["ops"] != nil)
+        #expect(heard.first?.box.events.last?["reload_failure"] == .null)
+        _ = (heard, lateSubscription)
+    }
+
     @Test func reloadIsGestureOnlyAndMountsTheAppAgain() async throws {
         let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
         let client = try await Self.listedClient(transport)

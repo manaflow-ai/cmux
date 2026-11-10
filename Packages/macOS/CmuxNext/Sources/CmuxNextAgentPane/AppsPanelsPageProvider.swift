@@ -13,7 +13,10 @@ import UniformTypeIdentifiers
 /// Ops: `list`, `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
 /// `dispatch` and `reload {mount_id}` (both only from the person's own click or key), `layout
 /// {mount_id, height}` and `unmount`. The `scene` stream carries each mount's ops batches and its
-/// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it.
+/// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it,
+/// and its kept view's refused save, `{mount_id, reload_failure: {reason}|null}`
+/// (``AppSceneModel/reloadFailure``: the app's last saved script did not load, so a ready view still
+/// draws the one before; null once a scene of a script that loaded replaces it), for every surface.
 /// The page's `__appbundle/<mount_id>/<path>` resources are the mount's bundle images.
 @MainActor
 public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSource {
@@ -31,6 +34,8 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     /// The status each mount's page last heard (or would hear on subscribe), so a status goes out once per change.
     private var statuses: [String: AppSceneModel.Status] = [:]
+    /// The refused save each mount's page last heard (or would hear on subscribe); absent for none.
+    private var reloadFailures: [String: String] = [:]
     /// Each mount's drawn height, as its page last reported it (`layout`).
     private var heights: [String: Double] = [:]
     /// Each mount's status watch (``follow(_:)``).
@@ -56,6 +61,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         mounts.removeAll()
         unheard.removeAll()
         statuses.removeAll()
+        reloadFailures.removeAll()
         heights.removeAll()
         for watch in statusWatches.values { watch.cancel() }
         statusWatches.removeAll()
@@ -109,6 +115,8 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             if let mountID, let mount = mounts[mountID] {
                 statuses[mountID] = mount.model.status
                 onEvent(statusJSON(mountID: mountID, status: mount.model.status))
+                reloadFailures[mountID] = mount.model.reloadFailure
+                if let reason = mount.model.reloadFailure { onEvent(reloadFailureJSON(mountID: mountID, reason: reason)) }
             }
             return PageSubscription { [weak self] in self?.sceneListeners.removeValue(forKey: id) }
         }
@@ -132,6 +140,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         let mount = client.mount(app, implementation: implementation, surface: surface.rawValue, context: context.objectValue ?? [:])
         mounts[mount.id] = mount
         statuses[mount.id] = mount.model.status
+        reloadFailures[mount.id] = mount.model.reloadFailure
         follow(mount)
         var reply: [String: JSONValue] = ["mount_id": .string(mount.id)]
         if servesBundleImages, mount.bundleDirectory != nil { reply["asset_base"] = .string("/\(Self.bundlePrefix)/\(mount.id)/") }
@@ -179,6 +188,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         guard let mount = mounts.removeValue(forKey: mountID) else { return .object([:]) }
         unheard.removeValue(forKey: mountID)
         statuses.removeValue(forKey: mountID)
+        reloadFailures.removeValue(forKey: mountID)
         heights.removeValue(forKey: mountID)
         statusWatches.removeValue(forKey: mountID)?.cancel()
         client.unmount(mount)
@@ -202,13 +212,28 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             break
         }
         // The client handled the event first: a scene made its mount ready, a failure failed it,
-        // a lost supervisor disconnected every mount.
+        // a lost supervisor disconnected every mount, a refused save marked the app's drawn views and
+        // a reset scene took that mark away.
         publishStatuses()
     }
 
-    /// Sends each mount's status that changed since its page last heard it.
+    /// Sends each mount's status and refused save that changed since its page last heard them.
     private func publishStatuses() {
-        for (mountID, mount) in mounts { publishStatus(mountID, mount.model.status) }
+        for (mountID, mount) in mounts {
+            publishStatus(mountID, mount.model.status)
+            publishReloadFailure(mountID, mount.model.reloadFailure)
+        }
+    }
+
+    /// Sends `mountID`'s refused save (`reason`), or its clearing (nil), once per change.
+    private func publishReloadFailure(_ mountID: String, _ reason: String?) {
+        guard mounts[mountID] != nil, reloadFailures[mountID] != reason else { return }
+        reloadFailures[mountID] = reason
+        let listeners = sceneListeners.values.filter { $0.mountID == nil || $0.mountID == mountID }
+        // No subscriber yet: the page hears the refused save current when it subscribes.
+        guard !listeners.isEmpty else { return }
+        let data = reloadFailureJSON(mountID: mountID, reason: reason)
+        for listener in listeners { listener.callback(data) }
     }
 
     private func publishStatus(_ mountID: String, _ status: AppSceneModel.Status) {
@@ -221,15 +246,16 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         for listener in listeners { listener.callback(data) }
     }
 
-    /// Follows `mount`'s status for changes no supervisor event carries (a refused mount call, a
-    /// reload that shows loading), for as long as the mount lives here.
+    /// Follows `mount`'s status and refused save for changes no supervisor event carries (a refused
+    /// mount call, a reload that shows loading and drops the mark), for as long as the mount lives here.
     private func follow(_ mount: AppMount) {
         let model = mount.model
         let mountID = mount.id
         // task-owner: one watch per mount, cancelled when the page unmounts it or closes.
         statusWatches[mountID] = Task { [weak self] in
-            for await status in ObservationStream({ model.status }) {
-                self?.publishStatus(mountID, status)
+            for await state in ObservationStream({ MountState(status: model.status, reloadFailure: model.reloadFailure) }) {
+                self?.publishStatus(mountID, state.status)
+                self?.publishReloadFailure(mountID, state.reloadFailure)
             }
         }
     }
@@ -301,6 +327,17 @@ private func statusJSON(mountID: String, status: AppSceneModel.Status) -> JSONVa
         value["reason"] = .string(reason)
     }
     return .object(value)
+}
+
+/// `{mount_id, reload_failure: {reason}|null}`: the kept view's refused save, or none.
+private func reloadFailureJSON(mountID: String, reason: String?) -> JSONValue {
+    .object(["mount_id": .string(mountID), "reload_failure": reason.map { .object(["reason": .string($0)]) } ?? .null])
+}
+
+/// What ``AppsPanelsPageProvider`` follows of a mount's model.
+private struct MountState: Equatable, Sendable {
+    let status: AppSceneModel.Status
+    let reloadFailure: String?
 }
 
 private func pageJSON(_ value: AppJSON) -> JSONValue {

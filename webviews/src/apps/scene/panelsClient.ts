@@ -9,11 +9,13 @@ export type MountContext = { session_id: string; cwd?: string; branch?: string; 
 export type NewTabMountContext = { surface: "newTab" };
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
 export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab";
-/** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
- * `failed {reason}`, `disconnected {reason}`). */
+/** The scene stream's three events: an ops batch, the mount's status (`loading`, `ready`,
+ * `failed {reason}`, `disconnected {reason}`), or its kept view's refused save (`reload_failure`:
+ * the app's last saved script did not load; `null` once a scene of one that loaded replaces it). */
 export type SceneEvent =
   | { mount_id: string; ops: SceneOp[]; reset?: boolean }
-  | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
+  | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string }
+  | { mount_id: string; reload_failure: { reason: string } | null };
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 /** Why a mounted panel draws nothing: its mount failed, or its scene broke its interface's limits
  * (it is unmounted then). Absent while it draws. */
@@ -184,6 +186,10 @@ export class AppSceneMount implements MountedScene {
         "cmux.apps.panels.scene",
         (event) => {
           if (this.cancelled || event?.mount_id !== mountId) return;
+          if ("reload_failure" in event) {
+            this.store.setReloadFailure(event.reload_failure?.reason);
+            return;
+          }
           if ("status" in event) {
             this.store.setStatus(event.status, event.reason);
             return;

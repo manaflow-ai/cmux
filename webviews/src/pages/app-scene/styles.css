@@ -10,6 +10,11 @@ html[data-cmux-page="app-scene"],
   --agent-accent-soft: var(--page-selection);
   --agent-control-hover: var(--page-hover);
   --agent-danger: var(--cmux-app-danger, #e5484d);
+  /* `success`, `warning` and `badge` (sceneStyle.ts), as the GitHub page maps them: the terminal
+     palette's status inks with the agent pane's first-paint fallbacks, and the page's separator fill. */
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-control: var(--page-separator);
   --acpmux-session-info-row-radius: 6px;
 }
 html[data-cmux-page="app-scene"],

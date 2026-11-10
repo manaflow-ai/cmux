@@ -9,7 +9,7 @@ import { MockAppPanelsClient } from "../../apps/scene/panelsMock";
 import type { SceneOp } from "../../apps/scene/store";
 import { AppScenePage } from "./AppScenePage";
 
-type Look = "list" | "settings" | "failed" | "disconnected" | "empty-route";
+type Look = "list" | "settings" | "colors" | "not-reloaded" | "failed" | "disconnected" | "empty-route";
 
 const settings: SceneOp[] = [
   { op: "create", id: "root", type: "VStack", props: { spacing: 8, padding: 12 } },
@@ -29,6 +29,40 @@ const settings: SceneOp[] = [
   { op: "root", id: "root" },
 ];
 
+/** The scene's status inks and badge fill (sceneStyle.ts `success`, `warning`, `badge`) on the page theme. */
+const colors: SceneOp[] = [
+  { op: "create", id: "root", type: "VStack", props: { spacing: 8, padding: 12 } },
+  { op: "create", id: "title", type: "Text", props: { text: "Checks", font: "headline" } },
+  {
+    op: "create",
+    id: "passed",
+    type: "Row",
+    props: { title: "Build and test", symbol: "checkmark.circle.fill", tint: "success", badge: "Passed" },
+  },
+  {
+    op: "create",
+    id: "pending",
+    type: "Row",
+    props: { title: "Release notes", symbol: "exclamationmark.triangle.fill", tint: "warning", badge: "Pending" },
+  },
+  { op: "create", id: "chips", type: "HStack", props: { spacing: 6 } },
+  {
+    op: "create",
+    id: "chip-ok",
+    type: "Text",
+    props: { text: "3 passing", color: "success", background: "badge", cornerRadius: 4, paddingHorizontal: 6 },
+  },
+  {
+    op: "create",
+    id: "chip-warn",
+    type: "Text",
+    props: { text: "1 waiting", color: "warning", background: "badge", cornerRadius: 4, paddingHorizontal: 6 },
+  },
+  { op: "children", id: "chips", children: ["chip-ok", "chip-warn"] },
+  { op: "children", id: "root", children: ["title", "passed", "pending", "chips"] },
+  { op: "root", id: "root" },
+];
+
 function AppSceneGallery({ look }: { look: Look }) {
   const [mount] = useState(() => {
     if (look === "empty-route") return undefined;
@@ -40,6 +74,9 @@ function AppSceneGallery({ look }: { look: Look }) {
     });
     void mount.start().then(() => {
       if (look === "settings") host.reload(host.panels[1]!, settings);
+      if (look === "colors") host.reload(host.panels[0]!, colors);
+      if (look === "not-reloaded")
+        host.reloadFailure("mock-panel-1", "init: SyntaxError: expecting ';' at main.js:2:12");
       if (look === "failed")
         host.status("mock-panel-1", "failed", "init: main: SyntaxError: expecting ';' at main.js:2:12");
       if (look === "disconnected") host.status("mock-panel-1", "disconnected", "cmux is reconnecting to its daemon");
@@ -72,6 +109,18 @@ export default componentEntry<{ look: Look }>({
       note: "A pane with a heading and a card Panel of Toggles and a Slider.",
       props: { look: "settings" },
       play: drawn,
+    },
+    colors: {
+      note: "Success and warning inks on rows and text, and the badge fill behind two chips, in the page theme.",
+      props: { look: "colors" },
+      play: drawn,
+    },
+    "not-reloaded": {
+      note: "A save whose script did not load: the last good rows stay, with the Not reloaded line and main.js:2:12 under them.",
+      props: { look: "not-reloaded" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cmux-app-scene-reload-marker") !== null);
+      },
     },
     failed: {
       note: "The app's script failed: the failure row with Reload, Copy Error and Details fills the pane's top.",

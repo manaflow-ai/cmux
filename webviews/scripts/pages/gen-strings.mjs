@@ -97,6 +97,14 @@ export function schemaKeys(schemaFile) {
 }
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
+// The app platform's keys an app scene's web renderer says (apps/scene/SceneFailure.tsx): the
+// failure row's `apps.failure.` and Reload keys, and the reload marker's "Not reloaded".
+const APP_SCENE_KEYS = new Set(["apps.mount.reload", "apps.mount.reload.help", "apps.mount.reloadFailed"]);
+const appSceneCatalog = {
+  file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+  keys: (all) => all.filter((key) => key.startsWith("apps.failure.") || APP_SCENE_KEYS.has(key)),
+};
+
 export const PAGES = {
   "import-history": {
     out: "webviews/src/pages/import-history/generated/strings.json",
@@ -512,30 +520,16 @@ export const PAGES = {
     out: "webviews/src/agent-session/acpmux/generated/strings.json",
     catalogs: [
       { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" },
-      // An app section's failure row (apps/scene/SceneFailure.tsx) says what the native
-      // AppFailureNSView says: the app platform's own `apps.failure.` and Reload keys.
-      {
-        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
-        keys: (all) =>
-          all.filter(
-            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
-          ),
-      },
+      // An app section's failure row and reload marker (apps/scene/SceneFailure.tsx) say what the
+      // native AppFailureNSView and AppSceneReloadMarkerView say: the app platform's own keys.
+      appSceneCatalog,
     ],
   },
-  // An app's pane (cmux-page://cmux.app-scene/): the scene's failure row, as the agent pane says it
-  // (the app platform's `apps.failure.` and Reload keys), installed as the pane's table.
+  // An app's pane (cmux-page://cmux.app-scene/): the scene's failure row and reload marker, as the
+  // agent pane says them, installed as the pane's table.
   "app-scene": {
     out: "webviews/src/pages/app-scene/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
-        keys: (all) =>
-          all.filter(
-            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
-          ),
-      },
-    ],
+    catalogs: [appSceneCatalog],
   },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {
