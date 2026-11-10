@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42919180727",
+  "recorded_at": "2026-11-10T23:07:06Z",
+  "reason": "cmux-tui 6a3f047fe024 changes the image's cmux-tui (pinned fe6209827800)",
+  "dry_run": false,
+  "cmux_tui": "6a3f047fe0247d6e7cb30e5bbbd6d16a5125c934",
+  "fixes": [
+    {
+      "sha": "6a3f047fe0247d6e7cb30e5bbbd6d16a5125c934",
+      "mergedAt": "2026-11-10T22:42:00Z",
+      "subject": "cmux-tui: a write pass no longer drops the request to measure the total scrollback budget (#40819)"
+    },
+    {
+      "sha": "91fd2333dbf5af960746e1d2ad00b5887641b2fa",
+      "mergedAt": "2026-11-10T22:39:30Z",
+      "subject": "perf(daemon): one workspace close reads and projects the closed workspace only (#40683)"
+    },
+    {
+      "sha": "c85381bf54b78c134befd992cef6b71d73c2f408",
+      "mergedAt": "2026-11-10T22:36:59Z",
+      "subject": "Daemon stop: a restored session ends in one commit (66 s at 826 workspaces) (#40732)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T23:07:06Z",
+    "snapshot_id": "sh-f8677ccaa46f44b4add2d724c3923b4e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42919180727): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8dc439722987f42f46ea7ffb8124b0d9691634f5",
+    "image": "cloud-native-auto-6a3f047f-42919180727-1",
+    "revision": "ci-42919180727-1",
+    "at": "2026-11-10T23:07:06Z"
+  },
+  "rolled_back": false
+}
