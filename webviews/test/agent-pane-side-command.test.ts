@@ -280,6 +280,43 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       }
     });
 
+    // https://github.com/manaflow-ai/cmux/issues/40066: a screenshot pasted with `/side <prompt>`
+    // goes to the side chat with the prompt; the composer used to refuse the send without a word.
+    test("/side <prompt> with a pasted image sends the image to the side chat", async () => {
+      const page = await openChat(MAIN);
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type(`/side ${PROMPT} `);
+      await page.evaluate(async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 64;
+        canvas.height = 48;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#e33";
+        context.fillRect(0, 0, 64, 48);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      });
+      const chip = page.locator(".acpmux-composer img[alt*='Screenshot']");
+      await chip.first().waitFor();
+      await page.keyboard.press("Enter");
+      // Before the fix the composer refused the send without a word: no prompt ever came.
+      await firstPrompt();
+      expect(prompts.map((prompt) => prompt.sessionId)).toEqual([FORK]);
+      const blocks = prompts[0]?.prompt as { type: string; text?: string; mimeType?: string; data?: string }[];
+      expect(blocks.some((block) => block.type === "text" && block.text?.includes(PROMPT))).toBe(true);
+      const image = blocks.find((block) => block.type === "image");
+      expect(image?.mimeType).toBe("image/png");
+      expect((image?.data ?? "").length).toBeGreaterThan(0);
+      expect(cancels).toEqual([]);
+      // The image went with the prompt: the composer is empty, the chip gone.
+      expect(await composerText(page)).toBe("");
+      await page.waitForFunction(() => !document.querySelector(".acpmux-composer img[alt*='Screenshot']"));
+      await page.close();
+    });
+
     test("an idle chat's /side forks through its latest turn", async () => {
       const page = await openChat(IDLE);
       await type(page, `/side ${PROMPT}`);
