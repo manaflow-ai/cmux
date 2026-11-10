@@ -305,8 +305,8 @@
        2026-11-09: "it loads the placeholder, THEN the content... every single time"), and only its
        content: no tint, blur, rim or shadow of its own, as on a native popover. Only a surface the
        reporter has not seen yet (no drawn mark) is hidden, and it marks one in the task it mounts in.
-       A surface the App does not draw (data-host-glass-drawn="0": past the deadline, an older App)
-       keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
+       A surface the App does not draw (data-host-glass-drawn="0": past the deadline, an older App, or
+       a surface closing, which fades out with its content on the page's glass) keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
        seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover
        surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
        in place (data-glass-over), so no text reads crisp through it. --host-glass-fill and

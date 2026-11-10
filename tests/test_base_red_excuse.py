@@ -24,6 +24,9 @@ spec.loader.exec_module(excuse)
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+# The fleet's compile receipt is a network read too: tests see no receipt unless they fake one; CompileReceiptRead and
+# FfiPinCompileReceipt run the real reader against a faked urlopen.
+REAL_COMPILE_RECEIPT = excuse.compile_receipt
 # HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
 os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
@@ -32,6 +35,9 @@ def setUpModule():
     patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
     patch.start()
     unittest.addModuleCleanup(patch.stop)
+    receipt = unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: None)
+    receipt.start()
+    unittest.addModuleCleanup(receipt.stop)
     # The fakes reuse run ids with other jobs from test to test: no base job list is kept on disk unless a test asks.
     env = unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_JOBS_CACHE": "off"})
     env.start()
@@ -2117,6 +2123,23 @@ jobs:
   outside: {needs: [web], runs-on: x, steps: []}
   ci-status: {needs: [web, fast-guards], runs-on: x, steps: []}
 """
+CI_WEB_YML = """
+on: {workflow_call: {inputs: {web: {type: string}}}}
+jobs:
+  scope: {runs-on: x, steps: []}
+  web-tests:
+    needs: scope
+    name: Web tests (${{ matrix.shard }})
+    strategy: {matrix: {shard: [1/2, 2/2]}}
+    runs-on: x
+    steps: []
+  react-apps-check-shard:
+    name: react-apps-check (${{ matrix.shard }})
+    strategy: {matrix: {include: [{shard: 1, shard_count: 2}, {shard: 2, shard_count: 2}]}}
+    runs-on: x
+    steps: []
+  web-status: {name: Web status, needs: [web-tests, react-apps-check-shard], runs-on: x, steps: []}
+"""
 GUARDS_YML = """
 on:
   workflow_call:
@@ -2188,6 +2211,7 @@ class StaleBasePass(unittest.TestCase):
 
 
 WEB_SHARD = "web / Web tests (1/4)"
+WEB_STATUS = "web / Web status"
 PUSHED_BASE_SHA = "e" * 40
 
 
@@ -2244,6 +2268,38 @@ class WebShardBaseVerdict(unittest.TestCase):
         text = self.judge(WebShardBaseGitHub())
         self.assertIn(f"excused '{WEB_SHARD}'", text)
         self.assertIn("run 40", text)
+
+    def red_web_status(self, gh):
+        # ci-web.yml's Web status, red only because a web job under its needs is red (cmux#39559, hq#8503).
+        gh.jobs[5] = failed_job(5, 10, HEAD, name=WEB_STATUS, step="Check routed web jobs")
+        gh.logs[5] = log(WEB_STATUS, "Check routed web jobs", "web-tests: failure")
+        return gh
+
+    def test_a_red_web_status_whose_red_shards_are_all_base_reds_is_excused(self):
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub())
+                text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks))
+                self.assertIn(f"excused '{WEB_SHARD}'", text)
+                self.assertNotIn(f"'{WEB_STATUS}'", text)
+
+    def test_a_red_web_status_with_one_shard_not_red_on_the_base_blocks(self):
+        other = WEB_SHARD.replace("(1/4)", "(2/4)")
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub())
+                gh.jobs[6] = failed_job(6, 10, HEAD, name=other)
+                gh.logs[6] = log(other, TEST_STEP, OTHER.replace("palettePages", "somethingNew"))
+                gh.jobs[7] = dict(failed_job(7, 40, PUSHED_BASE_SHA, name=other), conclusion="success",
+                                  steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+                with self.assertRaisesRegex(excuse.Refused, re.escape(other)):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+
+    def test_a_red_web_status_with_no_red_web_job_blocks(self):
+        # Its own step failed (a bad route input, say): nothing under it to compare with the base.
+        gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh, checks=[WEB_STATUS])
 
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
@@ -2781,9 +2837,9 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
-    def derive(self, ci=CI_YML, guards=GUARDS_YML):
+    def derive(self, ci=CI_YML, guards=GUARDS_YML, web=CI_WEB_YML):
         with tempfile.TemporaryDirectory() as root:
-            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards)):
+            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards), ("ci-web.yml", web)):
                 if text is not None:
                     (Path(root) / file).write_text(text)
             return excuse.derive_rollups(Path(root))
@@ -2800,6 +2856,7 @@ class RollupsFromNeeds(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             (Path(root) / "ci.yml").write_text(CI_YML)
             (Path(root) / "ci-guards.yml").write_text(GUARDS_YML)
+            (Path(root) / "ci-web.yml").write_text(CI_WEB_YML)
             probe = (
                 "import importlib.abc, importlib.machinery, importlib.util, json, sys\n"
                 "from pathlib import Path\n"
@@ -2830,6 +2887,14 @@ class RollupsFromNeeds(unittest.TestCase):
             "changes": {"exact": ["changes"], "prefixes": []},
             "fast-guards": {"exact": ["CI fast guards"], "prefixes": []},
             "web": {"exact": [], "prefixes": ["web / "]}})
+        # A called workflow's rollup is named, and its jobs matched, under its caller's name; a matrix job named by
+        # one matrix key is each of its exact names.
+        self.assertEqual(got["run"]["web / Web status"]["under"], {
+            "react-apps-check-shard": {"exact": ["web / react-apps-check (1)", "web / react-apps-check (2)"],
+                                       "prefixes": []},
+            "scope": {"exact": ["web / scope"], "prefixes": []},
+            "web-tests": {"exact": ["web / Web tests (1/2)", "web / Web tests (2/2)"], "prefixes": []}})
+        self.assertNotIn("Web status", got["run"])
         self.assertEqual(got["routed"]["Guard status"]["routes"], {
             "workflow-guard-submodule-forward-only": {
                 "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
@@ -2858,6 +2923,13 @@ class RollupsFromNeeds(unittest.TestCase):
             "a routed workflow with another trigger": (dict(
                 guards=GUARDS_YML.replace("on:\n", "on:\n  push: {}\n")), "called only"),
             "unparseable YAML": (dict(guards=GUARDS_YML + "\n  : [\n"), "unreadable"),
+            "a called rollup whose caller calls another workflow": (dict(
+                ci=CI_YML.replace("uses: ./.github/workflows/ci-web.yml", "uses: ./.github/workflows/ci-other.yml")),
+                "no job web calling"),
+            "a matrix name over a key the matrix lacks": (dict(
+                web=CI_WEB_YML.replace("matrix.shard }})\n    strategy: {matrix: {shard:",
+                                       "matrix.part }})\n    strategy: {matrix: {shard:")),
+                "not one matrix key over fixed values"),
         }
         for why, (files, said) in cases.items():
             with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
@@ -3649,13 +3721,13 @@ class CompileReceiptRead(unittest.TestCase):
 
     def test_the_receipt_answer_404_and_errors(self):
         with self.answer(self.RECEIPT):
-            self.assertEqual(excuse.compile_receipt(REPO, HEAD)["state"], "fail")
+            self.assertEqual(REAL_COMPILE_RECEIPT(REPO, HEAD)["state"], "fail")
         with self.answer(code=404):
-            self.assertIsNone(excuse.compile_receipt(REPO, HEAD))
+            self.assertIsNone(REAL_COMPILE_RECEIPT(REPO, HEAD))
         with self.answer(code=524), self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
-            excuse.compile_receipt(REPO, HEAD)
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
         with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
-            excuse.compile_receipt(REPO, HEAD)
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
 
     def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
         """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
@@ -3663,7 +3735,7 @@ class CompileReceiptRead(unittest.TestCase):
         for other in ({"recipe_version": 1}, {"configuration": "debug"}, {"recipe_version": None}, {"configuration": None}):
             with self.subTest(other=other), self.answer(dict(self.RECEIPT, **other)), \
                     self.assertRaisesRegex(excuse.Refused, "another recipe"):
-                excuse.compile_receipt(REPO, HEAD)
+                REAL_COMPILE_RECEIPT(REPO, HEAD)
 
 
 CLIPPY = "clippy (changed cmux-tui packages)"
@@ -5258,6 +5330,64 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.statuses = [{"context": "cmux-next/compile", "state": "failure"}]
         with self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
             self.judge()
+
+    # cmux#39251 at 3c886d8d (2026-11-10): Swift beside a published base pin, and every app compile check was skipped by
+    # routing, so no cmux-next/compile status was posted; the fleet's own receipt for that head read "pass". The
+    # receipt is what that status publishes (cmux-next.yml's compile-status step), read the same strict way.
+    RECEIPT = {"version": 1, "repo": REPO, "sha": HEAD, "job_id": "c257c52ddd346afa97008a22", "state": "pass",
+               "recipe_version": 2, "configuration": "release-onone",
+               "log_url": f"https://github.com/{REPO}/actions/runs/42721510171", "log_url_kind": "source_run"}
+
+    def receipt_answer(self, body):
+        """The real receipt reader, with the receipts host answering BODY for HEAD (None: 404, no receipt)."""
+        def urlopen(request, timeout):
+            self.assertTrue(request.full_url.startswith(f"{excuse.COMPILE_RECEIPTS}/{HEAD}?"), request.full_url)
+            if body is None:
+                raise urllib.error.HTTPError(request.full_url, 404, "x", {}, None)
+            return contextlib.closing(io.BytesIO(json.dumps(body).encode()))
+        stack = contextlib.ExitStack()
+        stack.enter_context(unittest.mock.patch.object(excuse, "compile_receipt", REAL_COMPILE_RECEIPT))
+        stack.enter_context(unittest.mock.patch("urllib.request.urlopen", urlopen))
+        return stack
+
+    def test_swift_against_the_base_pin_with_a_passing_fleet_receipt_at_the_head_is_excused(self):
+        self.pr_files(*self.STEP_B)
+        with self.receipt_answer(self.RECEIPT):
+            self.assertEqual(self.judge(), [
+                f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+                f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from "
+                "1f63d516ecfc, which is on feat-cmux-next, and the fleet's app compile receipt (job "
+                f"c257c52ddd346afa97008a22, recipe 2, release-onone) compiled {HEAD} against that pin and passed"])
+
+    def test_a_fleet_receipt_of_another_commit_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        with self.receipt_answer(dict(self.RECEIPT, sha=BASE_SHA)), \
+                self.assertRaisesRegex(excuse.Refused, "names another commit"):
+            self.judge()
+        with self.receipt_answer(dict(self.RECEIPT, repo="someone/cmux")), \
+                self.assertRaisesRegex(excuse.Refused, "names another commit"):
+            self.judge()
+
+    def test_a_fleet_receipt_that_did_not_pass_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        for state in ("fail", "unavailable", "running", "queued", None):
+            with self.subTest(state=state), self.receipt_answer(dict(self.RECEIPT, state=state)), \
+                    self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
+                self.judge()
+        with self.receipt_answer(None), self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
+            self.judge()
+
+    def test_a_receipt_that_is_not_the_app_compile_is_refused(self):
+        """Only the controller's own app check (`--app --release`, recipe 2: release-onone) is the receipt the
+        workflow trusts. Another recipe or configuration, or a package check's row (cmux-ci compile-check --package:
+        package, ok, no state or configuration), proves nothing about the app."""
+        self.pr_files(*self.STEP_B)
+        package_row = {"package": "CmuxNext", "repo": REPO, "sha": HEAD, "ok": True, "recipe_version": 2}
+        for body in (dict(self.RECEIPT, recipe_version=1), dict(self.RECEIPT, configuration="debug"),
+                     dict(self.RECEIPT, configuration=None), package_row):
+            with self.subTest(body=body), self.receipt_answer(body), \
+                    self.assertRaisesRegex(excuse.Refused, "another recipe"):
+                self.judge()
 
     def test_a_pin_not_on_the_base_is_refused_naming_it(self):
         self.pr_files(*self.STEP_B)

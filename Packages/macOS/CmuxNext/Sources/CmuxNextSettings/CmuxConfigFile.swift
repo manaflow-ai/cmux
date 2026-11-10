@@ -135,7 +135,8 @@ public actor CmuxConfigFile {
     }
 
     /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
-    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    /// of what it changed, so the person can see and undo it). Read back only to undo a change a
+    /// later build no longer makes (``readBeside(suffix:)``).
     @discardableResult
     public func writeBeside(suffix: String, text: String) throws -> URL {
         let url = self.url.resolvingSymlinksInPath()
@@ -151,6 +152,27 @@ public actor CmuxConfigFile {
         let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
         var isDirectory: ObjCBool = false
         return FileManager.checked.fileExists(atPath: record.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
+    /// The text of the record named `suffix` beside the file, or nil when there is none.
+    public func readBeside(suffix: String) -> String? {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        return try? String(blockingContentsOf: record, encoding: .utf8)
+    }
+
+    /// Sets each path the file leaves unset to its value, in one atomic publish; a path set since
+    /// the caller read it keeps its value. Read and write share one actor turn. Returns the paths set.
+    public func setUnset(_ values: [(path: [String], value: JSONValue)]) throws -> [[String]] {
+        guard values.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let current = try source()
+        let root = try validated(current)
+        let unset = values.filter { root.value(at: $0.path) == nil }
+        for entry in unset { try managedGuard.checkSet(entry.value, at: entry.path) }
+        var updated = current
+        for entry in unset { updated = try JSONC.setting(entry.value, at: entry.path, in: updated) }
+        if updated != current { try publish(updated) }
+        return unset.map(\.path)
     }
 
     /// The parsed document. A missing file is an empty object.

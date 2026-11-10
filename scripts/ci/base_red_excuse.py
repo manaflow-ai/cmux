@@ -397,7 +397,11 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # no YAML parser, so every host that runs this script reads the same contract; tests/test_base_red_excuse.py
 # fails when it differs from the workflows. Anything in a workflow or in the file that does not have the
 # expected shape is refused, never guessed at: a rollup red is then never excused.
-RUN_ROLLUPS = (("ci.yml", "ci-status"),)  # red when a job under it is red: the whole run's red jobs are judged
+# A run rollup is red when a job under it is red: the whole run's red jobs are judged. One in a called workflow names
+# its caller (workflow file, job id), whose name is its check's prefix: ci-web.yml's Web status is 'web / Web status',
+# red only when a web job under it is red, and was refused as "no failing test or error line to match" on every PR
+# whose web shard red the base shares (2026-11-09, cmux#39559, hq#8503).
+RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")))
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
 # Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
 # own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
@@ -620,6 +624,10 @@ COMPILE_PASS_STATUS = "cmux-next/compile"
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
 
 
+# A matrix job named '<name> (${{ matrix.<key> }})' (ci-web.yml's Web tests): its jobs are '<name> (<value>)'.
+MATRIX_NAME = re.compile(r"([^$]*[^$ ]) \(\$\{\{ *matrix\.(\w+) *\}\}\)")
+
+
 def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     """How the Actions jobs of JOB (id JOB_ID in a workflow) are named: {"exact": [...], "prefixes": [...]}. A job
     with no `name:` is named by its id; a called workflow's jobs are '<name> / <its job>'; a matrix job whose
@@ -628,6 +636,20 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     name = job.get("name", job_id)
     if not isinstance(name, str) or not name.strip() or name != name.strip():
         raise Refused(f"{where}: job {job_id} has no usable name")
+    if "${{" in name and (one := MATRIX_NAME.fullmatch(name)):
+        # 'Web tests (${{ matrix.shard }})': one name per value of that one matrix key, as Actions renders it.
+        matrix = (job.get("strategy") or {}).get("matrix")
+        key = one.group(2)
+        values = None
+        if isinstance(matrix, dict) and set(matrix) == {key} and isinstance(matrix[key], list):
+            values = matrix[key]
+        elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
+              and all(isinstance(row, dict) and key in row for row in matrix["include"])):
+            values = [row[key] for row in matrix["include"]]
+        if (not values or "uses" in job
+                or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
+            raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
+        return {"exact": [f"{one.group(1)} ({v})" for v in values], "prefixes": []}
     if "${{" in name:
         static, sep, expr = name.partition(" / ${{")
         if not sep or "${{" in static or not expr.endswith("}}") or "${{" in expr or "uses" in job:
@@ -685,19 +707,24 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
             return (workflows / file).read_text()
     out: dict = {"run": {}, "routed": {}}
     for kind, declared in (("run", run), ("routed", routed)):
-        for file, job_id in declared:
+        for file, job_id, *caller in declared:
             where = f".github/workflows/{file}"
-            try:
-                doc = yaml.safe_load(read(file))
-            except (OSError, Refused, yaml.YAMLError) as error:
-                raise Refused(f"{where}: unreadable ({error})") from None
-            jobs = doc.get("jobs") if isinstance(doc, dict) else None
-            if not isinstance(jobs, dict) or not isinstance(jobs.get(job_id), dict):
+            doc, jobs = _workflow(yaml, read, file)
+            if not isinstance(jobs.get(job_id), dict):
                 raise Refused(f"{where}: no job {job_id}")
             check = _check_matcher(job_id, jobs[job_id], where)
             if check["prefixes"] or len(check["exact"]) != 1:
                 raise Refused(f"{where}: rollup {job_id} has no fixed name")
-            name = check["exact"][0]
+            prefix = ""
+            if caller:
+                # A called workflow's jobs are '<its caller's name> / <job>' (_check_matcher of the caller job).
+                (caller_file, caller_id), = caller
+                caller_where = f".github/workflows/{caller_file}"
+                caller_job = _workflow(yaml, read, caller_file)[1].get(caller_id)
+                if not isinstance(caller_job, dict) or caller_job.get("uses") != f"./{where}":
+                    raise Refused(f"{caller_where}: no job {caller_id} calling {where}")
+                prefix = _check_matcher(caller_id, caller_job, caller_where)["prefixes"][0]
+            name = prefix + check["exact"][0]
             if name in out["run"] or name in out["routed"]:
                 raise Refused(f"{where}: two rollups are named {name!r}")
             needs = _needs(jobs, job_id, where)
@@ -708,7 +735,8 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 while todo:
                     need = todo.pop()
                     if need not in under:
-                        under[need] = _check_matcher(need, jobs[need], where)
+                        matcher = _check_matcher(need, jobs[need], where)
+                        under[need] = {kind_: [prefix + v for v in matcher[kind_]] for kind_ in ("exact", "prefixes")}
                         todo.extend(_needs(jobs, need, where))
                 out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items()))}
                 continue
@@ -730,6 +758,19 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 routes[need] = {"route": route, **_check_matcher(need, jobs[need], where)}
             out["routed"][name] = {"workflow": file, "job": job_id, "routes": routes}
     return out
+
+
+def _workflow(yaml, read, file: str) -> tuple[dict, dict]:
+    """Workflow FILE (READ gives its text) and its `jobs:`; refused when unreadable or of another shape."""
+    where = f".github/workflows/{file}"
+    try:
+        doc = yaml.safe_load(read(file))
+    except (OSError, Refused, yaml.YAMLError) as error:
+        raise Refused(f"{where}: unreadable ({error})") from None
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        raise Refused(f"{where}: no jobs")
+    return doc, jobs
 
 
 def _matcher_ok(matcher: object) -> bool:
@@ -902,7 +943,16 @@ def generated_no_verdict(log: str) -> str | None:
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
-    `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
+    `Release compile` or `Reuse that pass` step succeeded), a cmux-next/compile success, or else the fleet's compile
+    receipt for SHA reading "pass" (compile_receipt: this repository, that exact commit, recipe 2, release-onone).
+
+    The receipt is what cmux-next/compile publishes (cmux-next.yml's compile-status step maps the same fields to the
+    same verdict), and the fleet keeps one for every same-repository PR head whether or not that job runs: a PR whose
+    route skips the status job has no status, but its receipt still says whether the app compiled. The fleet compiles
+    each head as the app executable (`--app --release`, compiled and linked), resolving the binary targets the
+    head's own manifest pins (its url and checksum), so a pass compiled the app against the head's pin
+    (cmux#39251, 2026-11-10: every app compile check skipped by routing, the receipt at 3c886d8d a pass). An unread
+    receipt, or one of another commit, repository or recipe, refuses (compile_receipt)."""
     candidates = []
     # Every attempt (filter=all): one rerun into startup_failure ran no jobs and must not hide the pass before it.
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
@@ -936,6 +986,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
             if found.get("state") == "success":
                 return f"the {COMPILE_PASS_STATUS} status"
             break
+    receipt = compile_receipt(repo, sha)
+    if receipt is not None and receipt.get("state") == "pass":
+        return (f"the fleet's app compile receipt (job {receipt.get('job_id') or 'unnamed'}, recipe "
+                f"{receipt['recipe_version']}, {receipt['configuration']})")
     return None
 
 
@@ -1286,7 +1340,8 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # moves the pin, so this base classifier can judge that PR) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
-# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
+# PR's exact head (compile_pass_at: the Mac Release compile, cmux-next/compile, or the fleet's compile receipt for that
+# head, which cmux-next/compile publishes and which a PR whose route skips the status job still has). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
 # resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -1390,8 +1445,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
         return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"
     proof = compile_pass_at(repo, sha, github)
     if proof is None:
-        return None, (f"no app compile check passed at {sha} (cmux-next/compile, or the Release compile), so nothing "
-                      f"proves the app builds against {tag}")
+        return None, (f"no app compile check passed at {sha} (cmux-next/compile, the Release compile, or the fleet's "
+                      f"compile receipt), so nothing proves the app builds against {tag}")
     return (f"pins {tag}, a published release built from {pin[:12]}, which is on {base}, and {proof} compiled {sha} "
             "against that pin and passed"), ""
 
