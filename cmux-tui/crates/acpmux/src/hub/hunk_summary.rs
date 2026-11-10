@@ -2,7 +2,7 @@
 //! sentence for one diff hunk, kept by the hunk's content hash.
 //!
 //! `{path, patch, sessionId?, harness?}` answers `{text, key, cached, harness?}`; a kept sentence
-//! runs nothing. `{check: true, sessionId?, harness?}` answers `{ready, harness}` without running
+//! runs nothing. A patch of any size is taken; the prompt reads its first 4 KiB of whole lines. `{check: true, sessionId?, harness?}` answers `{ready, harness}` without running
 //! anything: whether a harness here could answer (the diff tab disables its toggle otherwise).
 //! The harness is `harness`, else the chat `sessionId`'s own, else the daemon's default; a chat
 //! whose harness has no headless mode falls back to the default.
@@ -10,9 +10,6 @@
 use super::*;
 use crate::complete::{self, CompleteError, Request};
 use crate::hunk_summary::{self as summary, Cache};
-
-/// The longest patch taken, in bytes: the prompt cuts it further (`summary::prompt`).
-const MAX_PATCH_BYTES: usize = 256 * 1024;
 
 impl Hub {
     /// `_acpmux/hunk_summary` from a connection of `origin`: the unix socket only, as
@@ -36,11 +33,9 @@ impl Hub {
             )
             .into());
         };
-        if patch.trim().is_empty() || patch.len() > MAX_PATCH_BYTES {
-            return Err(CompleteError::InvalidParams(format!(
-                "patch must be 1 to {MAX_PATCH_BYTES} bytes"
-            ))
-            .into());
+        // A patch of any size gets a sentence: the prompt reads its first part (`summary::prompt`).
+        if patch.trim().is_empty() {
+            return Err(CompleteError::InvalidParams("patch must not be empty".into()).into());
         }
         let key = summary::key(path, patch);
         let cache = Cache::for_daemon();
