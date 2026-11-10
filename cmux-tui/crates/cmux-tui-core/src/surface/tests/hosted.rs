@@ -372,6 +372,50 @@ fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
     }
 }
 
+/// Every output byte a byte viewer of `surface` receives within `within`.
+#[cfg(unix)]
+pub(super) fn attach_output_within(attach: &AttachStream, within: Duration) -> Vec<u8> {
+    let deadline = Instant::now() + within;
+    let mut received = Vec::new();
+    while Instant::now() < deadline {
+        match attach.stream.try_recv() {
+            Ok(AttachFrame::Output(bytes)) => received.extend(bytes),
+            Ok(AttachFrame::OutputWithColors { output, .. }) => received.extend(output),
+            Ok(_) => {}
+            Err(_) => std::thread::sleep(Duration::from_millis(1)),
+        }
+    }
+    received
+}
+
+/// A prompt mark split across two host Output frames still resets a killed
+/// program's mouse mode in the mirror, and a byte viewer gets each parsed
+/// byte once: the end the reader holds for the next frame is not also sent
+/// with the first.
+#[cfg(unix)]
+#[test]
+fn a_prompt_mark_split_across_host_frames_resets_modes_and_viewers_get_each_byte_once() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-split-prompt-mark", false);
+    let attach = surface.attach_stream().unwrap();
+    let stream: &[u8] = b"\x1b[?1000hkilled\r\n\x1b]133;A\x07$ ";
+    let mut reference = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    let expected = crate::prompt_mode_reset::write_output(
+        &mut reference,
+        stream,
+        &mut crate::prompt_mode_reset::ShellMarks::default(),
+    )
+    .into_owned();
+    // The first frame ends inside the mark (`ESC ] 1 3`).
+    let (first, second) = stream.split_at(20);
+    for (sequence, chunk) in [(1, first), (2, second)] {
+        let mut frame = Frame::new(MessageKind::Output, chunk.to_vec());
+        frame.sequence = sequence;
+        crate::terminal_host_protocol::write_frame(&mut host, &frame).unwrap();
+    }
+    assert_eq!(attach_output_within(&attach, Duration::from_millis(500)), expected);
+    assert_eq!(surface.try_with_terminal(|terminal| terminal.mouse_tracking()).ok(), Some(false));
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {
