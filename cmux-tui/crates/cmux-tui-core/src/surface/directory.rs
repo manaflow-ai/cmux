@@ -282,6 +282,11 @@ impl Surface {
         }
     }
 
+    /// Whether a directory report waits for `publish_pending_directory`.
+    pub(crate) fn directory_publication_pending(&self) -> bool {
+        self.as_pty().is_some_and(|pty| pty.directory_pending.load(Ordering::Acquire))
+    }
+
     pub(crate) fn publish_pending_directory(&self) {
         let Some(pty) = self.as_pty() else { return };
         if !pty.directory_pending.load(Ordering::Acquire) {
