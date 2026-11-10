@@ -1101,14 +1101,13 @@ describe("clean-room provider key probe", () => {
     linkSync(join(root, "workspace/project/.env"), join(root, "home/cmux/.claude/plugins/p/.env"));
     try {
       const { probe } = run(root);
+      // The cache's name is shipped for the key's shape only; the key's name given a value counts there too.
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/.claude/plugins/[a name]/.env:1: OPENAI_API_KEY",
         "file /workspace/project/.env:1: OPENAI_API_KEY",
         "file /workspace/project/.env:2: an OpenAI project key",
       ]);
-      expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
-        "/home/cmux/.claude/plugins/[a name]/.env:1",
-        "/home/cmux/.claude/plugins/[a name]/.env:2",
-      ]);
+      expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual(["/home/cmux/.claude/plugins/[a name]/.env:2"]);
       // Read once, reported under both names.
       expect(probe.scanned.files).toBe(1);
       expect(probe.complete).toBe(true);
@@ -1395,6 +1394,35 @@ describe("clean-room provider key probe", () => {
         "cmdline process [a process] (1 pid): OPENAI_API_KEY",
         "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
         "file /home/cmux/project/[a name].bin: an OpenAI project key",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key's name given a secret counts in a database file and in installed software's folders", () => {
+    const opaque = "Qz7mRt2Kp9Vw4Xn8Lb3Hc6Jd1Fg5Ys0";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "opt/tool/.env": `OPENAI_API_KEY=${opaque}A\n`,
+      "home/cmux/.claude/plugins/custom/.env": `OPENAI_API_KEY=${opaque}B\n`,
+    });
+    // A SQLite file: a binary page holding a settings row's JSON.
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`{"MISTRAL_API_KEY":"${opaque}C"}`).copy(page, 5000);
+    mkdirSync(join(root, "workspace/project"), { recursive: true });
+    writeFileSync(join(root, "workspace/project/settings.db"), page);
+    try {
+      const { probe, out } = run(root);
+      for (const tail of ["A", "B", "C"]) expect(out).not.toContain(opaque + tail);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/.claude/plugins/[a name]/.env:1: OPENAI_API_KEY",
+        "file /opt/[a name]/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/[a name].db: MISTRAL_API_KEY",
       ]);
       expect(probe.complete).toBe(true);
     } finally {

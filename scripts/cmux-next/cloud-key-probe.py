@@ -120,6 +120,8 @@ CHUNK = 4 << 20
 OVERLAP = 256
 # How far past a prefilter hit a binary file's shapes are checked: longer than any key the shapes need to see.
 HIT_SPAN = 512
+# How far before a prefilter hit (a name's `_KEY` ending) a key's name may start, for a binary file's name check.
+NAME_SPAN = 128
 
 # Cheap byte prefilter: a line or chunk without one of these holds no finding, so only those get the full checks.
 PREFILTER = re.compile(
@@ -375,15 +377,22 @@ def literal_secret(value):
     return bool(SECRET_TOKEN.match(value)) and len(value) >= 20 and entropy(value) >= 4.2
 
 
+def named_kinds(text):
+    """The key names `text` gives a literal secret (an assignment, or a JSON field named after a key), each value
+    recorded for redaction."""
+    seen = set()
+    for m in ASSIGN.finditer(text):
+        if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
+            found(m.group(2))
+            seen.add(m.group(1).upper())
+    return seen
+
+
 def scan_text(text):
     """Findings in a file's text: (line number, what) pairs."""
     out = []
     for n, line in enumerate(text.splitlines(), 1):
-        seen = shape_kinds(line)
-        for m in ASSIGN.finditer(line):
-            if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
-                found(m.group(2))
-                seen.add(m.group(1).upper())
+        seen = shape_kinds(line) | named_kinds(line)
         out.extend((n, what) for what in sorted(seen))
     return out
 
@@ -465,8 +474,8 @@ def read(path, limit=1 << 20):
 
 
 def scan_file(path):
-    """Findings in one whole file: (line number or None, what). A binary file is read in overlapping chunks (shapes
-    only; a binary has no lines). In a text file only the lines the prefilter hits are checked: most hold none of the
+    """Findings in one whole file: (line number or None, what). A binary file (a database, say) is read in overlapping
+    chunks, by shape and by key name; a binary has no lines. In a text file only the lines the prefilter hits are checked: most hold none of the
     prefixes, and a Python loop over every line of every file was the walk's cost."""
     out = []
     with open(path, "rb") as f:
@@ -494,9 +503,12 @@ def scan_file(path):
                         tail = window[max(0, at - 2):]
                         break
                     seen.update(shape_kinds(window[max(0, at - 2):stop].decode("latin-1")))
+                    # A key's name starts before its `_KEY` ending: the stretch reaches back a name's length for it.
+                    seen.update(named_kinds(window[max(0, at - NAME_SPAN):stop].decode("latin-1")))
             # Hits held back for the next chunk (a value still open) are checked to the file's end.
             for hit in PREFILTER.finditer(tail):
                 seen.update(shape_kinds(tail[max(0, hit.start() - 2):hit.start() + MAX_VALUE].decode("latin-1")))
+                seen.update(named_kinds(tail[max(0, hit.start() - NAME_SPAN):hit.start() + MAX_VALUE].decode("latin-1")))
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
         # hits are decoded and checked, and their numbers are counted from the newlines before them.
@@ -701,8 +713,11 @@ def scan_files(root, deadline, report):
                     if os.path.lexists(path):
                         report["scanned"]["files_unreadable"] += 1
                     continue
-                listed = report["shipped"] if is_shipped(where, path) else report["findings"]
+                # Installed software's public text is a key's shape alone (a scanner's list of public keys); a key's
+                # name given a secret (an assignment in /opt/tool/.env) is configuration, a finding anywhere.
+                shipped = is_shipped(where, path)
                 for line, what in hits:
+                    listed = report["shipped"] if shipped and what not in KEY_NAMES else report["findings"]
                     listed.append({"place": "file", "where": where, "line": line, "what": what})
 
 
