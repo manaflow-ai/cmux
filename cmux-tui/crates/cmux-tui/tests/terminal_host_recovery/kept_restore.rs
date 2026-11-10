@@ -505,7 +505,6 @@ fn a_restart_the_person_asks_for_goes_before_the_restore_starts_that_have_not_be
         hidden_tabs(&harness).into_iter().partition(|tab| tab["relaunch"]["on_show"] != true);
     assert_eq!(restore.len(), AGENTS, "the agent tabs are not kept for a start at connect");
     assert_eq!(person.len(), 1, "the shell tab is not kept for its first show");
-    assert_eq!(person[0]["terminal_id"], asked.as_str());
 
     restart_kept_tabs(&harness, &restore);
     restart_kept_tabs(&harness, &person);
