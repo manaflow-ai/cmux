@@ -98,20 +98,15 @@ extension CloudHandlers {
 extension CloudHandlers {
     /// `cloud resize-machine`'s checked `--size` and `--disk` (the rules' `resize`): what the
     /// resize call sends and the fields it answers (`size`, `disk_gib`, as given).
-    struct Resize {
-        var cpu: Int?
-        var memoryMb: Int?
-        var storageMb: Int?
-        var fields: [String: ActionResultValue]
+    typealias Resize = (cpu: Int?, memoryMb: Int?, storageMb: Int?, fields: [String: ActionResultValue])
 
-        /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
-        func appServerArgs(machine: String) -> [String: JSONValue] {
-            var size: [String: JSONValue] = [:]
-            if let cpu { size["cpu"] = .number(Double(cpu)) }
-            if let memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
-            if let storageMb { size["disk_mb"] = .number(Double(storageMb)) }
-            return ["machine": .string(machine), "size": .object(size)]
-        }
+    /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
+    static func resizeArgs(_ request: Resize, machine: String) -> [String: JSONValue] {
+        var size: [String: JSONValue] = [:]
+        if let cpu = request.cpu { size["cpu"] = .number(Double(cpu)) }
+        if let memoryMb = request.memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
+        if let storageMb = request.storageMb { size["disk_mb"] = .number(Double(storageMb)) }
+        return ["machine": .string(machine), "size": .object(size)]
     }
 
     static func resizeRequest(_ invocation: ActionInvocation) throws -> Resize {
@@ -119,7 +114,7 @@ extension CloudHandlers {
         var fields: [String: ActionResultValue] = [:]
         if let size = checked["size"] as? String { fields["size"] = .string(size) }
         if let disk = checked["diskGib"] as? Int { fields["disk_gib"] = .int(disk) }
-        return Resize(cpu: checked["cpu"] as? Int, memoryMb: checked["memoryMb"] as? Int, storageMb: checked["storageMb"] as? Int, fields: fields)
+        return (checked["cpu"] as? Int, checked["memoryMb"] as? Int, checked["storageMb"] as? Int, fields)
     }
 }
 

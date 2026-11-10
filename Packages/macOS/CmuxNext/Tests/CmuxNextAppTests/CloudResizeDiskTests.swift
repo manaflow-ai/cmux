@@ -14,7 +14,7 @@ struct CloudResizeDiskTests {
     }
 
     private func size(_ request: CloudHandlers.Resize) throws -> [String: JSONValue] {
-        let args = request.appServerArgs(machine: "vm-1")
+        let args = CloudHandlers.resizeArgs(request, machine: "vm-1")
         #expect(args["machine"]?.stringValue == "vm-1")
         guard case .object(let size)? = args["size"] else { Issue.record("no size in \(args)"); return [:] }
         return size

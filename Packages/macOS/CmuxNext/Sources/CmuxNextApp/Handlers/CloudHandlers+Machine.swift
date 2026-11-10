@@ -196,7 +196,7 @@ extension CloudHandlers {
                registry.ask("cloudResizeMachine", invocation, ActionArgumentAsk(argument: "size")) { return }
             let request = try resizeRequest(invocation), fields = machineFields(session.machineID, request.fields)
             result("resize machine", context, pendingAfter: machineAnswerWait, pending: fields) {
-                try await cloud.machineChange("cloud.machine.resize", request.appServerArgs(machine: session.machineID), allow: allows("cloudResizeMachine", invocation, registry, context))
+                try await cloud.machineChange("cloud.machine.resize", resizeArgs(request, machine: session.machineID), allow: allows("cloudResizeMachine", invocation, registry, context))
                 return fields
             }
         }
