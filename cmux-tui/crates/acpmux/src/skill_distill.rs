@@ -453,10 +453,10 @@ impl Record {
             .rev()
             .filter(|c| c.session != session && !c.claimed)
             .filter(|c| similar(&me.intent, &me.steps, &c.intent, &c.steps))
-            .take(PATTERN_SIZE - 1)
+            .take(PATTERN_SIZE.saturating_sub(1))
             .cloned()
             .collect();
-        if chats.len() + 1 < PATTERN_SIZE {
+        if chats.len().saturating_add(1) < PATTERN_SIZE {
             return None;
         }
         chats.insert(0, me);
@@ -567,7 +567,7 @@ pub fn draft_prompt(chats: &[Shape]) -> String {
     for (n, chat) in chats.iter().enumerate() {
         let mut part = format!(
             "\nChat {}, asked: \"{}\"\nIts tool runs: {}\n",
-            n + 1,
+            n.saturating_add(1),
             chat.prompt.replace('"', "'"),
             chat.steps.join(", ")
         );
@@ -579,7 +579,7 @@ pub fn draft_prompt(chats: &[Shape]) -> String {
                 part.push('\n');
             }
         }
-        if out.len() + part.len() > MAX_DRAFT_PROMPT {
+        if out.len().saturating_add(part.len()) > MAX_DRAFT_PROMPT {
             break;
         }
         out.push_str(&part);
@@ -621,7 +621,7 @@ fn one_line(text: &str, max: usize) -> String {
 fn body(steps: &[String], commands: &[String]) -> String {
     let mut out = String::from("## Steps\n\n");
     for (n, step) in steps.iter().enumerate() {
-        out.push_str(&format!("{}. {step}\n", n + 1));
+        out.push_str(&format!("{}. {step}\n", n.saturating_add(1)));
     }
     if !commands.is_empty() {
         out.push_str("\n## Commands\n\n```sh\n");
@@ -723,7 +723,8 @@ pub fn shapes_draft(chats: &[Shape]) -> Draft {
     let mut counts: HashMap<&String, usize> = HashMap::new();
     for chat in chats {
         for command in &chat.commands {
-            *counts.entry(command).or_default() += 1;
+            let count = counts.entry(command).or_default();
+            *count = count.saturating_add(1);
         }
     }
     let commands: Vec<String> = chats
