@@ -375,7 +375,10 @@ describe("property: a carry never grants more than the latest confirmed grant, o
   it(`${RUNS} random interleavings of refreshes, webhooks, ownership changes, revocations and deletes`, async () => {
     const grants = ["max", "pro", "go", "free", null] as const
     let carriedRuns = 0
+    const began = performance.now()
     for (let run = 0; run < RUNS; run++) {
+      // Fail plainly before the test's timeout, so the loop never outlives the test and slows the files after it.
+      if (performance.now() - began > 270_000) throw new Error(`only ${run} of ${RUNS} interleavings ran in 270 s`)
       const seed = 1000 + run
       const r = rng(seed)
       const pick = <T>(xs: ReadonlyArray<T>) => xs[Math.floor(r() * xs.length)]!
@@ -389,8 +392,10 @@ describe("property: a carry never grants more than the latest confirmed grant, o
         if (now - last > 1000) log.push(`[${what} took ${Math.round(now - last)}ms]`)
         last = now
       }
+      let quiet: string | null = null
       try {
         const t = await ownedTeamWithGrant("max")
+        quiet = t.team
         const alice = t.stackUser
         const bob = crypto.randomUUID()
         t.w.members.set(`${t.stackTeam}:${bob}`, "Bob")
@@ -490,6 +495,13 @@ describe("property: a carry never grants more than the latest confirmed grant, o
         if (mine.ok && mine.vm_plan !== null) expect(mine.vm_plan, context).toBe(truthGrant)
       } finally {
         clock?.mockRestore()
+        // The run's team keeps no waiting re-check and no alarm: earlier runs' teams must not keep waking
+        // (each wake reads the fake Stack) and slow every later run, or outlive the test.
+        if (quiet !== null)
+          await inDO(teamStub(quiet), async (_instance, state) => {
+            state.storage.sql.exec(`DELETE FROM stack_team_recheck`)
+            await state.storage.deleteAlarm()
+          })
       }
     }
     console.log(JSON.stringify({ msg: "grant carry property", runs: RUNS, carried: carriedRuns }))
