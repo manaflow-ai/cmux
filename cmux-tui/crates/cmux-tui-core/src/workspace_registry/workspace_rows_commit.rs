@@ -208,3 +208,7 @@ pub(super) fn commit_workspace_rows_in_transaction(
     )?;
     Ok((revision, terminal_batch, written))
 }
+
+#[cfg(test)]
+#[path = "workspace_rows_commit_tests.rs"]
+mod tests;
