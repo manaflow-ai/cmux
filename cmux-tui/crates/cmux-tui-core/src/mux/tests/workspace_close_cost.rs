@@ -22,7 +22,8 @@
 //!   still written two times (2 row changes for each later workspace).
 //! - The journal value and the public fold value of each later workspace: their decoration (the
 //!   state fields in `extra`, `state/values.rs`) is read with a fixed number of SELECT statements
-//!   for all of them ([`LATER_SELECTS`]), not with statements for each one.
+//!   for all of them ([`LATER_SELECTS`]), not with statements for each one, and it is read ONE
+//!   time for the two ([`STATE_FIELD_TABLES`]).
 //!
 //! The rows are asserted as at most `c * m`, with the `c` this test measures at 60 (a close of the
 //! first workspace against a close of the last one) and prints. It is not hidden and it is not
@@ -71,6 +72,15 @@ const BACKGROUND_SELECTS: u64 = 16;
 /// one (7 for the journal record and 7 for the public fold): 407 at 29 later workspaces, 11523 at
 /// 823 (aws-m4pro-2, 2026-11-10).
 const LATER_SELECTS: u64 = 8;
+
+/// State tables that a close reads for the workspaces after the closed one only to decorate their
+/// values (`state/workspace_extras.rs`). The close decorates the values ONE time and gives the same
+/// values to the journal record and to the public fold: the column reads of each of these tables
+/// above a close of the last workspace are those of one read of the state fields, which the test
+/// measures in the same session ([`one_read_of_the_state_fields`]). A decoration for the journal
+/// record and one more for the fold read each table two times.
+const STATE_FIELD_TABLES: [&str; 4] =
+    ["workspace_state", "workspace_kind", "workspace_agent_folder", "workspace_created_by"];
 
 /// Statements that a close with workspaces after the closed one runs more than a close of the last
 /// workspace to move their ledger positions one down: one gives each later row the negative of its
@@ -132,6 +142,8 @@ struct Arms {
     last: CloseCost,
     middle: CloseCost,
     first: CloseCost,
+    /// What one read of the state fields of workspaces runs in this session.
+    one_read: Sql,
 }
 
 fn workspace_key(index: usize) -> String {
@@ -271,6 +283,18 @@ fn close(mux: &Arc<Mux>, index: usize) -> CloseCost {
     cost
 }
 
+/// What one read of the state fields of workspaces runs (`workspace_extras`, the read that
+/// decorates the workspace values of a change batch), whatever the number of workspaces.
+fn one_read_of_the_state_fields(mux: &Arc<Mux>) -> Sql {
+    let id = mux.with_state(|state| state.workspaces[0].public_id.to_string());
+    counted(mux, || {
+        mux.read_registry_state(|connection| {
+            crate::state::workspace_extras::workspace_extras(connection, &[id.as_str()])
+        })
+        .unwrap();
+    })
+}
+
 /// The three closes in one session: the last workspace, a middle one, the first one.
 fn arms(workspaces: usize) -> Arms {
     // The session is made with the debug cross-check off: with it, each create also runs a full
@@ -283,7 +307,9 @@ fn arms(workspaces: usize) -> Arms {
     eprintln!("close cost at {workspaces} workspaces, last: {last:?}");
     eprintln!("close cost at {workspaces} workspaces, middle: {middle:?}");
     eprintln!("close cost at {workspaces} workspaces, first: {first:?}");
-    Arms { workspaces, last, middle, first }
+    let one_read = one_read_of_the_state_fields(&mux);
+    eprintln!("one read of the state fields at {workspaces} workspaces: {one_read:?}");
+    Arms { workspaces, last, middle, first, one_read }
 }
 
 /// `cost` minus the flat part `flat`, as (SELECT statements, rows written).
@@ -373,12 +399,12 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
         small.first.later
     );
     let shifted = [
-        ("middle of 60", &small.middle, &small.last),
-        ("first of 60", &small.first, &small.last),
-        ("middle of 826", &large.middle, &large.last),
-        ("first of 826", &large.first, &large.last),
+        ("middle of 60", &small.middle, &small.last, &small.one_read),
+        ("first of 60", &small.first, &small.last, &small.one_read),
+        ("middle of 826", &large.middle, &large.last, &large.one_read),
+        ("first of 826", &large.first, &large.last, &large.one_read),
     ];
-    for (name, cost, flat) in shifted {
+    for (name, cost, flat, one_read) in shifted {
         let (selects, rows) = position_part(cost, flat);
         eprintln!(
             "later workspaces, {name}: {selects} SELECTs and {rows} rows for {} later",
@@ -398,6 +424,29 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
                  each later workspace at 60",
                 cost.later
             ));
+        }
+        // The state fields of the later workspaces are read one time for the journal record and
+        // the public fold together.
+        for table in STATE_FIELD_TABLES {
+            let reads = |sql: &Sql| sql.reads.get(table).copied().unwrap_or(0);
+            let (above, one) = (reads(&cost.sql).saturating_sub(reads(&flat.sql)), reads(one_read));
+            eprintln!(
+                "state fields, {name}: {above} column reads of `{table}` above the flat part; \
+                 one read of the state fields makes {one}"
+            );
+            if one == 0 {
+                problems.push(format!(
+                    "{name}: one read of the state fields made 0 column reads of `{table}`, so \
+                     the authorizer saw nothing of it and the bound below proves nothing"
+                ));
+            }
+            if above > one {
+                problems.push(format!(
+                    "{name}: {above} column reads of `{table}` above the flat part for {} later \
+                     workspaces; one read of their state fields makes {one}",
+                    cost.later
+                ));
+            }
         }
     }
 

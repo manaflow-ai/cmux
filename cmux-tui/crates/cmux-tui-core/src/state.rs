@@ -172,6 +172,8 @@ pub(crate) mod workspace_checklist;
 pub(crate) mod workspace_checklist_store;
 #[cfg(test)]
 mod workspace_checklist_tests;
+#[cfg(test)]
+mod workspace_close_values_tests;
 pub(crate) mod workspace_extras;
 #[cfg(test)]
 mod workspace_extras_tests;
