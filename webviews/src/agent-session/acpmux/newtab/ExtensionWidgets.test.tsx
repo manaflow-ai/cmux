@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -25,6 +25,7 @@ let dom: JSDOM | undefined;
 
 afterEach(() => {
   act(() => root?.unmount());
+  jest.useRealTimers();
   root = undefined;
   dom?.window.close();
   dom = undefined;
@@ -62,7 +63,8 @@ function install(): { setHidden(hidden: boolean): void; host: HTMLElement } {
 
 // A switch away and back makes no read (shared-projections.md): the widgets stay mounted through a
 // short hide and end only once the page has been hidden for the grace (R1).
-test("a quick switch keeps the widgets mounted; a long hide ends them", async () => {
+test("a quick switch keeps the widgets mounted; a long hide ends them", () => {
+  jest.useFakeTimers();
   const page = install();
   const seen: boolean[] = [];
   function Probe() {
@@ -73,11 +75,14 @@ test("a quick switch keeps the widgets mounted; a long hide ends them", async ()
   act(() => root!.render(<Probe />));
   expect(seen.at(-1)).toBe(true);
   page.setHidden(true);
+  act(() => void jest.advanceTimersByTime(29));
   page.setHidden(false);
-  await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+  act(() => void jest.advanceTimersByTime(60));
   expect(seen.every(Boolean)).toBe(true);
   page.setHidden(true);
-  await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+  act(() => void jest.advanceTimersByTime(29));
+  expect(seen.at(-1)).toBe(true);
+  act(() => void jest.advanceTimersByTime(1));
   expect(seen.at(-1)).toBe(false);
   page.setHidden(false);
   expect(seen.at(-1)).toBe(true);
