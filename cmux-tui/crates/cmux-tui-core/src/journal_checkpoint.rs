@@ -715,6 +715,13 @@ impl RestoreReducer {
             }
             "delete" => {
                 values.remove(id);
+                // A closed terminal has no agent: the registry deletes the agent record in the
+                // tombstone's transaction, and the terminal's `delete` is the only change.
+                if resource == "terminal"
+                    && let Some(agents) = self.resources.get_mut("agents")
+                {
+                    agents.retain(|_, agent| agent["terminal_id"].as_str() != Some(id));
+                }
             }
             _ => anyhow::bail!("validated replay change kind is unsupported"),
         }
