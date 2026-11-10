@@ -4708,10 +4708,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// shortcuts configured in cmux.json.
     func refreshTabShortcutModifier() {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
-        let flags: NSEvent.ModifierFlags? = shortcut.isUnbound ? nil : shortcut.modifierFlags
-        // Hint eligibility for a bound shortcut belongs to the focus
-        // controller; an unbound one has nothing to hint.
-        let disablesHints = shortcut.isUnbound && bonsplitController.tabShortcutHintsEnabled
+        // Bonsplit hints show one modifier, so a chord would render a
+        // misleading single-stroke hint; treat it like an unbound shortcut.
+        let hasNoHint = shortcut.isUnbound || shortcut.hasChord
+        let flags: NSEvent.ModifierFlags? = hasNoHint ? nil : shortcut.modifierFlags
+        // Hint eligibility for a hintable shortcut belongs to the focus
+        // controller; otherwise there is nothing to hint.
+        let disablesHints = hasNoHint && bonsplitController.tabShortcutHintsEnabled
         guard bonsplitController.tabShortcutModifierFlags != flags || disablesHints else { return }
         bonsplitController.tabShortcutModifierFlags = flags
         if disablesHints {
