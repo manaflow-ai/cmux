@@ -5701,6 +5701,22 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
             self.judge()
 
+    def test_the_rust_bindings_are_ffi_inputs(self):
+        # cmux-app-ffi reaches cmux-tui/bindings/rust through a Cargo path dependency, so check-app-ffi-pin.sh counts
+        # it (--list-inputs). A PR that changes only bindings/rust/src was told it "changes no app FFI input"
+        # (2026-11-10, after #39027 changed cmux-tui/bindings/rust; the main copy is #40136).
+        self.pr_files("cmux-tui/bindings/rust/src/generated/types.rs")
+        self.assertIn(f"only '{self.PIN}' is red", self.judge()[0])
+
+    def test_the_other_bindings_are_not_ffi_inputs(self):
+        # No crate cmux-app-ffi reaches lives there; bindings/rust-sidebar shares the bindings/rust prefix but not its
+        # folder.
+        for path in ("cmux-tui/bindings/cpp/CMakeLists.txt", "cmux-tui/bindings/python/cmux/__init__.py",
+                     "cmux-tui/bindings/rust-sidebar/src/lib.rs"):
+            self.pr_files(path)
+            with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input", msg=path):
+                self.judge()
+
     # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
     # app compile passed at its head against that pin.
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",

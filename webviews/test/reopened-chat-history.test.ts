@@ -137,12 +137,18 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       ["mux", "turn_started", {}],
       ["in", "agent_message_chunk", say("Answer 1. On it.")],
       ["mux", "turn_result", { stopReason: "end_turn" }],
-      ...Array.from({ length: 40 }, (_, run) =>
-        [
-          ["mux", "background_turn", { id: `bg-${run}`, state: "started", trigger: "system" }],
-          ...Array.from({ length: 60 }, (_, at) => ["in", "agent_message_chunk", say(`run ${run} part ${at} ${"x".repeat(1000)} `)]),
-          ["mux", "background_turn", { id: `bg-${run}`, state: "ended", reason: "result", trigger: "system" }],
-        ] as Step[],
+      ...Array.from(
+        { length: 40 },
+        (_, run) =>
+          [
+            ["mux", "background_turn", { id: `bg-${run}`, state: "started", trigger: "system" }],
+            ...Array.from({ length: 60 }, (_, at) => [
+              "in",
+              "agent_message_chunk",
+              say(`run ${run} part ${at} ${"x".repeat(1000)} `),
+            ]),
+            ["mux", "background_turn", { id: `bg-${run}`, state: "ended", reason: "result", trigger: "system" }],
+          ] as Step[],
       ).flat(),
       ["mux", "stopped", { code: 1, hibernated: true }],
       ["mux", "resumed", { level: "exact", wake: true }],

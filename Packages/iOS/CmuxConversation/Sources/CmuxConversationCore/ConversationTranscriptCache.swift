@@ -21,14 +21,20 @@ public struct ConversationTranscriptSnapshot: Sendable, Hashable, Codable {
 /// Keeps one `ConversationTranscriptSnapshot` per conversation key on disk (Application Support,
 /// readable after first unlock) and the ones read or written this run in memory, so a store made
 /// again in the same run shows them in the same frame. Disk reads and writes run in order on one
-/// utility queue, never on the main thread. Sign-out deletes them all (`removeAll`).
+/// utility queue, never on the main thread. The files together stay under `byteLimit`: after each
+/// write the least recently written conversations go first. Sign-out deletes them all (`removeAll`).
 public final class ConversationTranscriptCache: @unchecked Sendable {
     /// Messages kept per conversation: the newest screens, not the history (older pages still
     /// come from the server when the reader scrolls up).
     public static let limit = 200
+    /// Bytes kept on disk for every conversation together: the newest conversations stay, the
+    /// ones written longest ago leave first (the user, 2026-11-09: "chats preserved on disk up to
+    /// a storage limit, latest kept").
+    public static let byteLimit = 32 * 1024 * 1024
 
     public let directory: URL
     public let limit: Int
+    public let byteLimit: Int
     let queue = DispatchQueue(label: "dev.cmux.conversation.transcript-cache", qos: .utility)
     /// How long a write waits for newer changes (a streamed reply changes the transcript many
     /// times a second): one file write per key per `writeDelay`, of the newest snapshot.
@@ -40,9 +46,11 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     /// Bumps on `removeAll`: a read that started before it never lands in memory after it.
     @MainActor private var generation = 0
 
-    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, writeDelay: DispatchTimeInterval = .seconds(1)) {
+    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, byteLimit: Int = ConversationTranscriptCache.byteLimit,
+                writeDelay: DispatchTimeInterval = .seconds(1)) {
         self.directory = directory
         self.limit = limit
+        self.byteLimit = byteLimit
         self.writeDelay = writeDelay
     }
 
@@ -100,7 +108,34 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
             values.isExcludedFromBackup = true
             try? directory.setResourceValues(values)
         }
-        try? data.write(to: file(for: key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        let written = file(for: key)
+        guard (try? data.write(to: written, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else { return }
+        Self.trim(directory, to: byteLimit, keeping: written)
+    }
+
+    /// Deletes the files of `directory` written longest ago until the rest fit in `byteLimit`
+    /// bytes, never `keeping` (the file just written). Runs on the caller's queue (a cache's
+    /// utility queue, never the main thread). Other on-disk caches with a total limit share it.
+    public static func trim(_ directory: URL, to byteLimit: Int, keeping: URL?) {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        guard let urls = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys),
+                                                                       options: [.skipsHiddenFiles]) else { return }
+        let kept = keeping?.standardizedFileURL.path(percentEncoded: false)
+        var total = 0
+        var candidates: [(url: URL, size: Int, date: Date)] = []
+        for url in urls {
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
+            let size = values.fileSize ?? 0
+            total += size
+            if url.standardizedFileURL.path(percentEncoded: false) != kept {
+                candidates.append((url, size, values.contentModificationDate ?? .distantPast))
+            }
+        }
+        guard total > byteLimit else { return }
+        for candidate in candidates.sorted(by: { $0.date < $1.date }) {
+            guard total > byteLimit else { break }
+            if (try? FileManager.default.removeItem(at: candidate.url)) != nil { total -= candidate.size }
+        }
     }
 
     /// Sign-out: every kept conversation leaves this device. Writes not yet made are dropped

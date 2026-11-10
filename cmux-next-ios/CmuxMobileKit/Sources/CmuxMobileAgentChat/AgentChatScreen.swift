@@ -499,6 +499,9 @@ public struct AgentChatTranscript: View {
                 ChatTurnBar(navigator: navigator, store: store, surface: surface)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
+            } else {
+                AgentChatUpdatingPill(store: store)
+                    .padding(.top, (topInset ?? 0) + 4)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -572,7 +575,10 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if !store.hasTurns {
+        if store.isLoadingHistory, !store.hasTurns {
+            // An existing chat whose history is on its way: never the new-chat prompt.
+            AgentChatLoadingState(store: store)
+        } else if store.isNewChat {
             VStack(spacing: 12) {
                 // The agent's own mark (the Claude or Codex logo), not a generic glyph.
                 AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
@@ -583,6 +589,50 @@ struct AgentChatEmptyState: View {
             }
             .multilineTextAlignment(.center)
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// An existing chat's history is on its way and none is kept on this phone yet: a spinner
+/// with what it waits for (the Mac's link, or its reply), in the empty state's place.
+struct AgentChatLoadingState: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        VStack(spacing: 12) {
+            CmuxSpinner()
+            Text(store.summary.status == .disconnected
+                 ? "Connecting to \(store.summary.macName)…"
+                 : "Loading chat…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agentChat.loadingHistory")
+    }
+}
+
+/// Kept rows show while the chat catches up with the Mac: a small pill under the header says so.
+struct AgentChatUpdatingPill: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        if store.isLoadingHistory, store.hasTurns {
+            HStack(spacing: 6) {
+                CmuxSpinner(tint: .secondary).controlSize(.mini)
+                Text(store.summary.status == .disconnected
+                     ? "Connecting to \(store.summary.macName)…"
+                     : "Updating…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .glassEffect(.regular, in: .capsule)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("agentChat.updatingHistory")
+            .allowsHitTesting(false)
         }
     }
 }

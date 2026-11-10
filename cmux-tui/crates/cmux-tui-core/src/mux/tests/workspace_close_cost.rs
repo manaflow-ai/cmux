@@ -14,11 +14,18 @@
 //!   statements do not grow (the flat part; see [`BACKGROUND_SELECTS`]);
 //! - the index rebuild and the decoration walk do not grow.
 //!
-//! STEP 4, NOT DONE (the stored format): a workspace's stored `position` and its public `index` are
-//! dense, so a close restates each of the `m` workspaces after the closed one (its ledger row, its
-//! journal value). That part is asserted as at most `c * m`, with the `c` this test measures at 60
-//! (a close of the first workspace against a close of the last one) and prints. It is not hidden
-//! and it is not flat: a close of the first workspace of 826 still pays 825 times `c`.
+//! THE WORKSPACES AFTER THE CLOSED ONE (step 4, the stored format, is NOT done): a workspace's
+//! stored `position` and its public `index` are dense, so a close changes each of the `m`
+//! workspaces after the closed one.
+//! - DONE, the ledger rows: a close moves the `m` stored positions with a fixed number of
+//!   statements ([`POSITION_MOVE_STATEMENTS`]), asserted with a floor. Each of the `m` rows is
+//!   still written two times (2 row changes for each later workspace).
+//! - NOT DONE, the journal value and the public fold value of each later workspace: the SELECT
+//!   statements that read their decoration, for each one.
+//!
+//! The SELECTs and the rows are asserted as at most `c * m`, with the `c` this test measures at
+//! 60 (a close of the first workspace against a close of the last one) and prints. It is not
+//! hidden and it is not flat: a close of the first workspace of 826 still pays 825 times `c`.
 //!
 //! L, NOT DONE: each committed change clones every catalog terminal to publish waiting directory
 //! reports (`publish_pending_terminal_directories`). Asserted as at most one clone per live
@@ -56,12 +63,20 @@ use crate::walk_counters::walk_counts_for_test;
 /// differ.
 const BACKGROUND_SELECTS: u64 = 16;
 
+/// Statements that a close with workspaces after the closed one runs more than a close of the last
+/// workspace to move their ledger positions one down: one gives each later row the negative of its
+/// position, one gives it its position minus one
+/// (`workspace_registry/workspace_rows_commit.rs`).
+const POSITION_MOVE_STATEMENTS: u64 = 2;
+
 /// What the registry connection ran: SELECT statements compiled (the registry prepares each
-/// statement when it runs it), rows written by table, and column reads by table (diagnostics for
-/// a difference in the SELECT count; not asserted).
+/// statement when it runs it), the statements compiled that write the ledger column
+/// `workspaces.position`, rows written by table, and column reads by table (diagnostics for a
+/// difference in the SELECT count; not asserted).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Sql {
     selects: u64,
+    position_writes: u64,
     rows: BTreeMap<String, u64>,
     reads: BTreeMap<String, u64>,
 }
@@ -169,6 +184,10 @@ fn counted(mux: &Arc<Mux>, request: impl FnOnce()) -> Sql {
                     AuthAction::Read { table_name, .. } => {
                         let mut log = selects.lock().unwrap();
                         *log.reads.entry(table_name.to_owned()).or_default() += 1;
+                    }
+                    // SQLite asks once for each column that a statement it compiles can set.
+                    AuthAction::Update { table_name: "workspaces", column_name: "position" } => {
+                        selects.lock().unwrap().position_writes += 1;
                     }
                     _ => {}
                 }
@@ -380,6 +399,41 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
                 "{name}: the decoration walk visited {} surfaces at 60 and {} at 826",
                 small.decoration_walk, large.decoration_walk
             ));
+        }
+    }
+
+    // The ledger positions of the workspaces after the closed one: a fixed number of statements
+    // moves them, whatever their number (each statement that can set `workspaces.position` is
+    // compiled when it runs).
+    for arms in [&small, &large] {
+        // The floor of the count: the statement that tombstones the closed row always sets its
+        // position, so each close compiles one such statement or more.
+        if arms.last.sql.position_writes == 0 {
+            problems.push(format!(
+                "last of {}: 0 statements write `workspaces.position`. The tombstone of the \
+                 closed row always sets it, so 0 means that the authorizer saw nothing, and the \
+                 bound on the statements of a middle and a first close proves nothing",
+                arms.workspaces
+            ));
+        }
+        for (name, cost) in [("middle", &arms.middle), ("first", &arms.first)] {
+            eprintln!(
+                "position statements, {name} of {}: {} for {} later ({} for the last one)",
+                arms.workspaces,
+                cost.sql.position_writes,
+                cost.later,
+                arms.last.sql.position_writes
+            );
+            if cost.sql.position_writes > arms.last.sql.position_writes + POSITION_MOVE_STATEMENTS {
+                problems.push(format!(
+                    "{name} of {}: {} statements write `workspaces.position` for {} later \
+                     workspaces; a close of the last one runs {}",
+                    arms.workspaces,
+                    cost.sql.position_writes,
+                    cost.later,
+                    arms.last.sql.position_writes
+                ));
+            }
         }
     }
 
