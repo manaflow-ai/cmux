@@ -26,14 +26,14 @@ const REPORTERS: usize = 20;
 /// Simulated minutes, one equal report of each reporter a minute.
 const MINUTES: usize = 5;
 
-struct Agent {
-    terminal: TerminalPublicId,
-    surface: SurfaceId,
+pub(super) struct Agent {
+    pub(super) terminal: TerminalPublicId,
+    pub(super) surface: SurfaceId,
 }
 
 /// A session of `workspaces` workspaces with `AGENTS` terminals spread over
 /// them.
-fn session_with_terminals(workspaces: usize, root: &Path) -> (Arc<Mux>, Vec<Agent>) {
+pub(super) fn session_with_terminals(workspaces: usize, root: &Path) -> (Arc<Mux>, Vec<Agent>) {
     let mux = open_persistent_test_mux("reports-at-rest", root);
     // The maintenance worker checkpoints and seals on its own clock; the
     // counters below must see only what the reports cause.
@@ -58,14 +58,16 @@ fn session_with_terminals(workspaces: usize, root: &Path) -> (Arc<Mux>, Vec<Agen
 
 /// What the registry holds and what was written to it so far.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Written {
-    journal_head: u64,
-    commits: u64,
-    wal_frame_bytes: u64,
-    database_bytes: u64,
+pub(super) struct Written {
+    pub(super) journal_head: u64,
+    pub(super) commits: u64,
+    pub(super) wal_frame_bytes: u64,
+    pub(super) database_bytes: u64,
+    /// The registry's resource revision (one per projection commit).
+    pub(super) resource_revision: u64,
 }
 
-fn written(mux: &Arc<Mux>) -> Written {
+pub(super) fn written(mux: &Arc<Mux>) -> Written {
     // The roster's owner saves its snapshot after the request answered.
     let mux = settled(mux);
     let stats = mux.write_path_stats();
@@ -82,11 +84,18 @@ fn written(mux: &Arc<Mux>) -> Written {
         // The committed size, WAL frames included: it does not depend on
         // when a checkpoint moves them into the main file.
         database_bytes: pragma("page_count") * pragma("page_size"),
+        resource_revision: reader
+            .query_row("SELECT value FROM meta WHERE key = 'resource_revision'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+            .parse()
+            .unwrap(),
     }
 }
 
 /// Journal rows after `sequence`, counted by kind.
-fn kinds_after(mux: &Mux, mut sequence: u64) -> BTreeMap<String, usize> {
+pub(super) fn kinds_after(mux: &Mux, mut sequence: u64) -> BTreeMap<String, usize> {
     let mut kinds = BTreeMap::new();
     loop {
         let page = mux.session_journal_after(sequence, 500).unwrap();
@@ -100,7 +109,7 @@ fn kinds_after(mux: &Mux, mut sequence: u64) -> BTreeMap<String, usize> {
 
 /// Let the wall clock pass the last report, as a minute does in the field:
 /// the next equal report carries a later time.
-fn tick() {
+pub(super) fn tick() {
     let start = crate::workspace_registry::unix_epoch_ms().unwrap();
     while crate::workspace_registry::unix_epoch_ms().unwrap() <= start {
         std::hint::spin_loop();
