@@ -133,7 +133,8 @@ fn every_agent_prompt_makes_no_groups_and_pushes_without_pull_requests() {
 }
 
 /// #27712: the Chief may ask only for the user's own "Chief agents" group, and the spawn tool
-/// says the host ignores any other `Group:` value and never makes a group.
+/// says the host ignores any other `Group:` value. The one group the host makes is its own
+/// collapsed "Chief's workspaces" (Lawrence 2026-11-09), for internal workspaces only.
 #[test]
 fn the_chief_asks_only_for_chief_agents() {
     for (name, text) in prompts()
@@ -149,7 +150,10 @@ fn the_chief_asks_only_for_chief_agents() {
         spawn.contains("any other `Group:` value is ignored"),
         "{spawn}"
     );
-    assert!(spawn.contains("none is made"), "{spawn}");
+    assert!(
+        spawn.contains("An internal one goes in the host's collapsed \"Chief's workspaces\" group"),
+        "{spawn}"
+    );
 }
 
 #[test]

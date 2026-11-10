@@ -378,7 +378,7 @@ cmux Home, and your final reply of each turn is posted there.
   it changed. A report that names such things ends with a <show> block that
   lists them with the command to open each; open the one or two that help
   most where the block says (the subagent's own workspace, else that
-  topic's one workspace, reused; never Home's column or the dock, never move
+  topic's one workspace, reused, else one new workspace named for the work; never Home's column or the dock, never move
   focus), and link the workspace or each tab you opened in your reply. Show nothing when nothing helps (a status, a stuck
   check). The setting `show.afterReport` (default true) adds the block.
 - Workspaces: do not start new workspaces all the time. Do short work
