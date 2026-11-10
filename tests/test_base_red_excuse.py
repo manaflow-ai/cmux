@@ -1967,6 +1967,14 @@ class StatusOnlyChecks(unittest.TestCase):
         self.assertNotIn("which tested", why)
         self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
 
+    def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
+        # same-tree-cmux-tui posts a failure when the tree is unavailable: no daemon tests ran.
+        self.gh.jobs.pop(1)
+        self.status["description"] = "same-tree cmux-tui unavailable"
+        with self.assertRaisesRegex(excuse.Refused, "no job 'cmux-next daemon tests' in run 10.*unavailable|"
+                                                    "unavailable.*no job 'cmux-next daemon tests' in run 10"):
+            self.judge()
+
     def test_a_pending_status_is_refused(self):
         self.status["state"] = "pending"
         with self.assertRaisesRegex(excuse.Refused, "still pending"):
@@ -2138,6 +2146,12 @@ class BaseRedWindow(unittest.TestCase):
         self.assertIn("run 30", text)
         self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
         self.assertIn("runs 29", text)
+
+    def test_the_newest_red_verdict_that_covers_every_test_reads_no_older_log(self):
+        self.base(30, 12, (ISSUE,))
+        self.base(29, 11, (ISSUE,))
+        self.judge()
+        self.assertEqual([read for read in self.reads if read != 1], [30])
 
     def test_a_green_verdict_ends_the_window_and_older_reds_do_not_count(self):
         # A green base run passed every test, so an older red may predate a fix.
@@ -2573,6 +2587,12 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "a crash or a cut-short run is never a base red"):
             self.judge(gh)
 
+    def test_a_test_that_passed_again_alone_on_the_head_is_no_longer_charged(self):
+        # The compare before the head re-run charged FOOTER too; the re-run passed it, and the final verdict warns.
+        gh = WebReplayGitHub()
+        gh.logs[1] = replay_log([f"{CAPSULES} > {CAPSULE_TEST}"], passed_alone=[f"{FOOTER} > rests flat"])
+        self.assertIn(f"excused '{REPLAY}'", self.judge(gh))
+
     def test_a_test_red_on_an_older_base_run_of_the_window_is_a_base_red(self):
         gh = WebReplayGitHub()
         gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, web_log((FOOTER, [("rests flat", CAPSULE_ERROR, 9)])))})
@@ -2698,6 +2718,11 @@ class CancelledWebShardPerFile(unittest.TestCase):
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
 
+    def test_a_cancelled_shard_whose_red_files_all_fail_on_the_base_is_a_base_red(self):
+        text = self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "FAIL"))))
+        self.assertIn(f"excused '{HEAD_SHARD}': cancelled mid-run", text)
+        self.assertIn(f"{CAPSULES} (feat-cmux-next run 40)", text)
+
     def test_the_file_running_at_the_cancel_counts_as_red_and_must_fail_on_the_base(self):
         # cmux#39676: the cancel came during composer-plus-geometry's retry.
         text = self.judge(self.gh(cut_short_log((FOOTER, "PASS"), running=[CAPSULES]), conclusion="timed_out"))
@@ -2705,6 +2730,16 @@ class CancelledWebShardPerFile(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, re.escape(f"1 red file(s) pass or do not run on feat-cmux-next "
                                                               f"run 40: {FOOTER}")):
             self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), running=[FOOTER])))
+
+    def test_one_red_file_the_base_does_not_fail_is_its_own(self):
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"'{HEAD_SHARD}' is cancelled; judged per file")
+                                    + ".*" + re.escape(f"pass or do not run on feat-cmux-next run 40: {FOOTER}")):
+            self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), (FOOTER, "FAIL"))))
+
+    def test_a_file_that_passed_its_retry_is_a_pass(self):
+        text = self.judge(self.gh(cut_short_log((FOOTER, "FAIL"), (CAPSULES, "FAIL"), (FOOTER, "PASS"))))
+        self.assertIn(f"excused '{HEAD_SHARD}'", text)
+        self.assertNotIn(FOOTER, text)
 
     def test_a_cancelled_shard_whose_log_names_no_red_file_still_has_no_verdict(self):
         with self.assertRaisesRegex(excuse.Refused, "is cancelled: it has no verdict to compare with the base"):
@@ -3430,6 +3465,10 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.assertIn(f"ignored '{self.FLEET}'", text)
         self.assertIn(self.RELEASE, text)
 
+    def test_a_reused_pass_for_the_same_inputs_counts(self):
+        self.release_run(6, steps=[("Reuse that pass", "success"), ("Release compile", "skipped")])
+        self.assertIn(f"ignored '{self.FLEET}'", "\n".join(self.judge()))
+
     def test_the_admission_job_of_the_same_name_is_not_a_compile(self):
         self.release_run(6, steps=[("Record the Release compile admission", "success")])
         with self.assertRaisesRegex(excuse.Refused, "never a base red"):
@@ -3848,6 +3887,15 @@ class NoVerdictCompileStatus(InheritedCompileRed):
         self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
         self.assertIn(f"'{self.MAC}' (job 77)", audit)
 
+    def test_a_no_verdict_status_with_nothing_compiled_is_refused(self):
+        for description in ("No compile result for this head in 40 minutes (last: running)",
+                            "The compile check gave no verdict (unavailable); re-run this job",
+                            "The compile result does not match this head; re-run this job"):
+            with self.subTest(description=description):
+                self.status["description"] = description
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict .* nothing else compiled .*HTTP 530"):
+                    self.judge_status()
+
     def test_a_compile_fail_is_never_ignored_for_a_pass_elsewhere(self):
         """A real fail goes to inherited_compile_red (receipts, else GitHub: ReceiptDownGitHubDecides), Mac pass or
         not."""
@@ -3956,6 +4004,10 @@ class PanicRatchet(unittest.TestCase):
         text = self.judge()
         self.assertIn(f"excused '{CLIPPY}'", text)
         self.assertIn("acpmux: clippy::indexing_slicing 692 > baseline 686", text)
+
+    def test_a_base_count_above_the_heads_still_covers_it(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 690, "baseline 686"), HEAD_ROWS[1])
+        self.assertIn(f"excused '{CLIPPY}'", self.judge())
 
     def test_a_head_count_above_the_bases_blocks(self):
         self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 693, "baseline 686"), HEAD_ROWS[1])
@@ -4196,6 +4248,11 @@ class PackageFixedOnBase(unittest.TestCase):
             with self.subTest(manifest=manifest), self.assertRaisesRegex(excuse.Refused, said):
                 self.judge(KitFixedOnBaseGitHub(files=files))
 
+    def test_a_url_package_is_read_as_one(self):
+        files = dict(KIT_FILES)
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '.package(url: "https://github.com/a/b", from: "1.0.0")'
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(KitFixedOnBaseGitHub(files=files)))
+
     def test_every_directory_of_a_shared_crate_name_is_checked(self):
         # Two path crates named cmux-wg (an aliased dependency): the undeclared one is not hidden by the declared one
         # (review of ce36494d, F2).
@@ -4347,6 +4404,11 @@ class FixedOnBase(unittest.TestCase):
                      "release-notes/next/kill-switches.json", "homebrew-cmux/cmux.rb"):
             with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
                 self.judge(FixedOnBaseGitHub(changed=(path,)))
+
+    def test_a_pr_that_touches_a_declared_read_path_is_not_excused(self):
+        # test_car_guards reads the CmuxNext target graph; the default set alone would miss it.
+        with self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext/Package.swift"):
+            self.judge(FixedOnBaseGitHub(changed=("Packages/macOS/CmuxNext/Package.swift",)))
 
     def test_an_undeclared_guard_test_is_never_fixed_on_base(self):
         # tests/test_docs_deploy_auth_guard.py reads web/vercel.docs-channel.json: an undeclared test may read anything.
@@ -5589,6 +5651,16 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.refused_unread("/* an old pin:\n" + published + "*/\n" + self.target(self.DIVERGED),
                             "line 1 has '/\\*'")
 
+    def test_a_pin_in_any_string_or_regex_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        for opening, closing, token in (('"""\n', '"""', '\'"""\''), ('#"', '"#', "'#\"'"), ("#/", "/#", "'#/'"),
+                                        ("#" * 64 + '"', '"' + "#" * 64, "'#\"'"),
+                                        ("#" * 200 + '"x"' + "#" * 63 + "\n", '"' + "#" * 200, "'#\"'")):
+            with self.subTest(opening=opening[:8]):
+                self.refused_unread(f"let s = {opening}{published}{closing}\nlet ffiName = \"CCmuxAppFFI\"\n"
+                                    + self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                                    f"has {re.escape(token)}, which no canonical pin file has")
+
     def test_an_interpolation_or_conditional_compilation_is_refused(self):
         self.refused_unread(f'let s = "\\(Target.self/* ) " */{self.inline(self.STEP_B_PIN)})"\n',
                             "has '/\\*'")
@@ -5596,6 +5668,24 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                             "line 1 is not the canonical CCmuxAppFFI pin line")
         self.refused_unread("#if false\n" + self.target(self.STEP_B_PIN) + "#endif\n" + self.target(self.DIVERGED),
                             "has '#if'")
+
+    def test_a_target_off_the_template_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
+               "CCmuxAppFFI.xcframework.zip")
+        for manifest in (
+                published.replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                published.replace('name: "CCmuxAppFFI"', 'name: "CCmux" + "AppFFI"'),
+                published.replace('name: "CCmuxAppFFI"', 'name: "\\(prefix)AppFFI"'),
+                published.replace('url: "https', 'url: "" + "https'),
+                published.replace("    checksum:", '    path: "x",\n    checksum:'),
+                published.replace("    name:", "  name:"),
+                published.replace("let appFFI: Target = ", "let other: Target = "),
+                f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n',
+                self.target(self.STEP_B_PIN, host="github.com.evil.example"),
+                self.target(self.STEP_B_PIN, repo="someone/cmux")):
+            with self.subTest(manifest=manifest[:90]):
+                self.refused_unread(manifest, self.NOT_CANONICAL)
 
     def test_a_second_target_or_declaration_is_refused(self):
         published = self.target(self.STEP_B_PIN)
