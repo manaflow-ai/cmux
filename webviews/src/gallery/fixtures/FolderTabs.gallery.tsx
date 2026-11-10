@@ -51,6 +51,10 @@ const variants: Record<string, { props: FolderTabsProps; note: string }> = {
     props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 0, panes: "floating", scene: "dark" },
     note: "Floating Panes, dark, the first tabs selected: the padding keeps a fillet on the leading side too",
   },
+  "goo-r8-square-card": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, cardRadius: 0 },
+    note: "layout.paneCornerRadius 0: a square card, the folder joins its straight top edge; the chrome stays shaded",
+  },
   "pill-before": {
     props: { shape: "pill", fillet: 0, radius: 6, join: "seamless", selected: 1 },
     note: "before: the gray pill on the strip, apart from the content (chrome.cornerFlush off)",

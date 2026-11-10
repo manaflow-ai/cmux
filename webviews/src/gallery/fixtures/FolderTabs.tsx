@@ -26,6 +26,9 @@ export type FolderTabsProps = {
   /** card: one content card (the default window); floating: Floating Panes, each pane its own card
    * with its own strip, its pane padding kept (Metrics.codePanePadding). */
   panes?: FolderPanes;
+  /** The content card's corner radius (layout.paneCornerRadius; 12 by default). 0: a square card whose
+   * straight top edge the folder joins, no wedges. */
+  cardRadius?: number;
 };
 
 export type FolderScene = "light" | "dark" | "image";
@@ -48,9 +51,14 @@ type Box = { x0: number; x1: number; top: number; bottom: number };
 
 /** The content card and its selected tab as one outline (y down), clockwise: the card's top edge
  * rises into the tab through concave fillets of `f`, or straight up its side when the tab leads. */
-export function folderOutline(card: Box, tab: { a: number; b: number; top: number }, rt: number, f: number): string {
+export function folderOutline(
+  card: Box,
+  tab: { a: number; b: number; top: number },
+  rt: number,
+  f: number,
+  R = CARD_R,
+): string {
   const { x0, x1, top: T, bottom: B } = card;
-  const R = CARD_R;
   const { a, b, top: t } = tab;
   const leads = a <= x0 + 0.5;
   const p: string[] = [`M ${x0} ${B - R}`];
@@ -74,14 +82,22 @@ export function folderOutline(card: Box, tab: { a: number; b: number; top: numbe
 }
 
 /** The card alone (the pill look, where the tab does not join it). */
-function cardOutline({ x0, x1, top: T, bottom: B }: Box): string {
-  const R = CARD_R;
+function cardOutline({ x0, x1, top: T, bottom: B }: Box, R = CARD_R): string {
   return `M ${x0} ${T + R} A ${R} ${R} 0 0 1 ${x0 + R} ${T} L ${x1 - R} ${T} A ${R} ${R} 0 0 1 ${x1} ${T + R} L ${x1} ${B - R} A ${R} ${R} 0 0 1 ${x1 - R} ${B} L ${x0 + R} ${B} A ${R} ${R} 0 0 1 ${x0} ${B - R} Z`;
 }
 
 type Pane = { card: Box; tabs: string[]; selected: number; inset: number };
 
-export function FolderTabs({ shape, fillet, radius, join, selected, scene, panes = "card" }: FolderTabsProps) {
+export function FolderTabs({
+  shape,
+  fillet,
+  radius,
+  join,
+  selected,
+  scene,
+  panes = "card",
+  cardRadius = CARD_R,
+}: FolderTabsProps) {
   const stripBottom = STRIP_TOP + 36;
   const area: Box = { x0: SIDEBAR + GAP, x1: W - GAP, top: stripBottom, bottom: H - GAP };
   const mid = (area.x0 + area.x1) / 2;
@@ -102,7 +118,9 @@ export function FolderTabs({ shape, fillet, radius, join, selected, scene, panes
   const outlines = layout.map((pane) => {
     const a = tabX(pane, pane.selected);
     const tab = { a, b: a + TAB_W, top: TAB_TOP };
-    return joined ? folderOutline(pane.card, tab, radius, shape === "goo" ? fillet : 0) : cardOutline(pane.card);
+    return joined
+      ? folderOutline(pane.card, tab, radius, shape === "goo" ? fillet : 0, cardRadius)
+      : cardOutline(pane.card, cardRadius);
   });
   const shade = `M 0 0 H ${W} V ${H} H 0 Z ${outlines.join(" ")}`;
   const body = layout[0].card;

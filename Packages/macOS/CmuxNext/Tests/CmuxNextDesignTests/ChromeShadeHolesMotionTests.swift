@@ -33,4 +33,21 @@ import Testing
         holes.set(key, path: other, animated: true, motion: FolderMotion(times: [now, now + 0.2], paths: [path, other]))
         #expect(base(holes)?.animation(forKey: ChromeShadeHoles.motionKey) == nil)
     }
+
+    /// A -> B -> A inside one fade retargets A's closing hole: no second patch opens under its fade
+    /// (Codex at 2b1e6839, F2).
+    @Test func reselectingInsideTheFadeReopensTheClosingHole() {
+        let holes = ChromeShadeHoles()
+        holes.layout(bounds: CGRect(x: 0, y: 0, width: 400, height: 100))
+        let key = ObjectIdentifier(holes)
+        let a = CGPath(rect: CGRect(x: 10, y: 0, width: 100, height: 40), transform: nil)
+        let b = CGPath(rect: CGRect(x: 120, y: 0, width: 100, height: 40), transform: nil)
+        holes.set(key, path: a, animated: false)
+        holes.set(key, path: b, animated: true)
+        #expect(holes.closingCount == 1)
+        holes.set(key, path: a, animated: true)
+        // A is open again on its own patch; only B is closing. Base + A + B.
+        #expect(holes.closingCount == 1)
+        #expect(holes.mask.sublayers?.count == 3)
+    }
 }

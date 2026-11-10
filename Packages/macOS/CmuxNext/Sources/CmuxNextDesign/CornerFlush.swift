@@ -235,7 +235,7 @@ public final class CornerFlushChrome: NSView {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
         hiddenBand = on && Metrics.floatingPanes ? alpha : 0
-        guard on, alpha > 0, radius > 0, superview === root else {
+        guard Self.drawsFrame(on: on, alpha: alpha), superview === root else {
             isHidden = true
             shade.update(card: card, radius: radius, alpha: alpha)
             for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
@@ -250,6 +250,12 @@ public final class CornerFlushChrome: NSView {
         self.shade = shade
         redraw()
     }
+
+    /// Whether the frame draws its shade and folder holes: the flush corner on, with a shade. Any card
+    /// radius does, 0 included (`layout.paneCornerRadius` 0): the card is square and the folder tab
+    /// joins its straight top edge (a square join, no wedges), so the selected tab keeps its surface
+    /// against the shaded chrome (Codex at 2b1e6839, F1).
+    static func drawsFrame(on: Bool, alpha: CGFloat) -> Bool { on && alpha > 0 }
 
     private func redraw() {
         guard let drawn, let root = superview else { return }
@@ -296,6 +302,8 @@ public final class CornerFlushChrome: NSView {
     /// sidebar side's when `squareLeading`.
     public static func wedgePath(card: CGRect, radius: CGFloat, squareLeading: Bool, sidebarOnLeft: Bool) -> CGPath {
         let r = min(radius, card.width / 2, card.height / 2)
+        // A square card (`layout.paneCornerRadius` 0) has no rounded corner to fill: no wedge.
+        guard r > 0 else { return CGMutablePath() }
         let corners = CGMutablePath()
         for (x, leading) in [(card.minX, sidebarOnLeft), (card.maxX - r, !sidebarOnLeft)] where !(leading && squareLeading) {
             corners.addRect(CGRect(x: x, y: card.maxY - r, width: r, height: r))

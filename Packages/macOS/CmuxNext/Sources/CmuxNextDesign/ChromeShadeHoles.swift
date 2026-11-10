@@ -62,6 +62,9 @@ public final class ChromeShadeHoles {
         mask.addSublayer(base)
     }
 
+    /// Holes still closing (tests).
+    var closingCount: Int { closing.count }
+
     /// No hole is open or closing: the mask can stay off the shade.
     public var isEmpty: Bool { open.isEmpty && closing.isEmpty }
 
@@ -103,7 +106,16 @@ public final class ChromeShadeHoles {
                 old.patch.removeFromSuperlayer()
             }
         }
-        if let path {
+        if let path, let index = closing.firstIndex(where: { $0.path == path }) {
+            // A -> B -> A inside one fade: the hole still closing at `path` reopens from what it shows now,
+            // instead of a second patch opening under the first one's fade (Codex at 2b1e6839, F2).
+            let patch = closing.remove(at: index).patch
+            let shown = patch.presentation()?.opacity ?? patch.opacity
+            patch.removeAnimation(forKey: "opacity")
+            patch.opacity = animated ? shown : 0
+            open[key] = (path, patch)
+            if animated { Motion.tabs.set(patch, "opacity", to: Float(0), fade: .crossfade, from: shown) }
+        } else if let path {
             let patch = CAShapeLayer()
             patch.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
             patch.frame = mask.bounds
