@@ -119,10 +119,13 @@ fn workspace(handle: *mut CloseSelection, closed: u32, old: &[u32], rows: &[u32]
     }
 }
 
+/// A pick after a close: the handle, the closed item, the strip before the close.
+type Pick = fn(&Handle, u32, &[u32]) -> u32;
+
 #[test]
 fn a_quick_look_up_returns_to_the_item_it_came_from() {
     // A B* C D, a new item N after B, closed at once: B, not C.
-    let picks: [fn(&Handle, u32, &[u32]) -> u32; 2] = [Handle::tab_plain, Handle::workspace_rows];
+    let picks: [Pick; 2] = [Handle::tab_plain, Handle::workspace_rows];
     for pick in picks {
         let handle = Handle::new();
         let strip = [A, B, N, C, D];
