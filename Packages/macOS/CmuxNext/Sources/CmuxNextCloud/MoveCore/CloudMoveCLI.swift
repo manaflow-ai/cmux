@@ -27,10 +27,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
-        /// `link start-chat plan`'s refusal the same send may pass later (a busy machine, a rate limit, an
-        /// outage; cmux-platform#1192), as Rust read it: the start card offers Retry. A rate limit's window in seconds.
-        public var retryable = false
-        public var retryAfterS: Int?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
