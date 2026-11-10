@@ -15,8 +15,9 @@
 //! of a release daemon: no request parse, no reply write, no other client.
 //!
 //! The test-only check of each tree entity against the whole tree's JSON
-//! (`server::tree_entity_json`) is off during the measured call: it costs about 14 ms at 826
-//! workspaces (1 ms at 60) in a test build and is not in a daemon.
+//! (`server::tree_entity_json`) is off on this test's thread, with the switch that #40700 added
+//! for its bench: it costs about 14 ms of each close at 826 workspaces (1 ms at 60) in a test
+//! build and is not in a daemon.
 
 use std::time::{Duration, Instant};
 
@@ -34,9 +35,7 @@ fn timed_close(mux: &Arc<Mux>, index: usize) -> Duration {
         WorkspaceMutation::daemon(format!("close-time-{key}"), "close-time-test").unwrap();
     let started = Instant::now();
     without_crosscheck(|| {
-        crate::server::without_entity_check_for_test(|| {
-            mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
-        });
+        mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
     });
     started.elapsed()
 }
@@ -62,6 +61,8 @@ fn summary(times: &[Duration]) -> String {
 #[test]
 #[ignore = "a measurement that asserts nothing: run it with `-- --ignored --nocapture`"]
 fn the_time_of_one_workspace_close_is_printed() {
+    // For this thread to its end: this test only measures, and each test runs on its own thread.
+    crate::server::skip_entity_check_on_this_thread_for_bench();
     let build = if cfg!(debug_assertions) {
         "debug assertions on (the dev profile)"
     } else {
