@@ -37,7 +37,7 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
     start: oneCloudStart(reservedCloudCall(call, reservation)),
     /// Runs the cleared-prompt grace timers now.
     expire() {
-      for (const timer of [...timers]) {
+      for (const timer of timers) {
         if (!timer.live || timer.ms !== RELEASE_AFTER_MS) continue;
         timer.live = false;
         timer.run();
