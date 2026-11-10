@@ -125,11 +125,11 @@ extension SettingsController {
         await reloadAfterWrite()
     }
 
-    /// Removes the object at `path` when it has no members. True when removed.
+    /// Removes the object at `path` when it has no members, in one read and write of the file
+    /// (`CmuxConfigFile.removeEmptyObject`): an object that gains a member meanwhile stays. True
+    /// when removed.
     @discardableResult
     func pruneEmpty(_ path: [String]) async throws -> Bool {
-        guard case .object(let members)? = try await file.value(at: path), members.isEmpty else { return false }
-        try await file.remove(path)
-        return true
+        try await file.removeEmptyObject(at: path)
     }
 }

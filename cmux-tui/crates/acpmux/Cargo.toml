@@ -165,6 +165,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# Property tests of the stores under random operations, restarts and torn writes (src/stress/).
+proptest = { version = "1", default-features = false, features = ["std"] }
 # The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.
 cmux-cloud-api.workspace = true
 # The simulated crash file system, for the journal store's crash tests.

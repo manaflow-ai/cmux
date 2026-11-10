@@ -1,3 +1,4 @@
+import { SIZE_BOUNDS, type MachineSize } from "./clients.ts"
 import { migrationIdFor, personalTeamIdFor, sharedTeamIdFor, userIdFor } from "./ids.ts"
 import type { ClassicTeam, ClassicVm, OwnerTeamFacts, Subject, SubjectRows } from "./source.ts"
 
@@ -6,17 +7,14 @@ import type { ClassicTeam, ClassicVm, OwnerTeamFacts, Subject, SubjectRows } fro
 
 export type Action = "carried" | "copy" | "link" | "not-migrated" | "needs-decision"
 
-/** Where a copied machine lands in the VM API. A personal tenant is resolved at apply time. */
-export type TenantRef = { kind: "team"; tenant_id: string } | { kind: "personal"; stack_user_id: string; user_id: string }
-
+/** One classic VM to copy. The platform resolves the team's VM API tenant itself (personal or shared). */
 export interface CopySpec {
   classic_vm_id: string
   upstream_vm_id: string
   next_team_id: string
-  tenant: TenantRef
   creator_user_id: string
   name: string
-  size: string | null
+  size: MachineSize
 }
 
 export interface PlanEntry {
@@ -28,6 +26,8 @@ export interface PlanEntry {
   reason?: string
   /** cloud_vm only: whether the VM is its creator's personal machine, and which rule said so. */
   personal_reason?: string
+  /** cloud_vm only: the provider VM id, which classic's API calls the VM's id. */
+  upstream_vm_id?: string
   copy?: CopySpec
 }
 
@@ -139,10 +139,27 @@ export const classifyVm = (vm: ClassicVm, teams: ReadonlyMap<string, OwnerTeamFa
   return { owner: "personal", reason: `owner team ${owner}'s only member is the creator and it has no team subscription` }
 }
 
-const vmName = (vm: ClassicVm) => vm.display_name ?? vm.slug ?? vm.provider_vm_id ?? vm.id
-const vmSize = (vm: ClassicVm) => {
-  const s = vm.provider_metadata?.["size"]
-  return typeof s === "string" ? s : null
+const vmName = (vm: ClassicVm) => (vm.display_name?.trim() || vm.slug?.trim() || vm.provider_vm_id || vm.id).slice(0, 80)
+
+/**
+ * The classic VM's shape as NEXT's machine size. Classic records it in provider_metadata.cmuxResourceReservation
+ * ({vcpus, memoryMb, diskMb}, web/services/vms/machineSpec.ts; reflection.ts reads it the same way). An axis that is
+ * missing, not a whole number, or outside the platform's bounds is left out, and the platform picks its default.
+ */
+export const vmSize = (vm: ClassicVm): MachineSize => {
+  const raw = vm.provider_metadata?.["cmuxResourceReservation"]
+  const r = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {}
+  const size: MachineSize = {}
+  for (const [axis, key] of [
+    ["cpu", "vcpus"],
+    ["memory_mb", "memoryMb"],
+    ["disk_mb", "diskMb"],
+  ] as const) {
+    const v = r[key]
+    const [min, max] = SIZE_BOUNDS[axis]
+    if (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max) size[axis] = v
+  }
+  return size
 }
 
 export const buildPlan = (rows: SubjectRows, stackProjectId: string, source: string): Plan => {
@@ -268,6 +285,7 @@ export const buildPlan = (rows: SubjectRows, stackProjectId: string, source: str
       classic_id: vm.id,
       summary: `${vmName(vm)} (${vm.status}, ${vm.provider})`,
       personal_reason: `${own.owner}: ${own.reason}`,
+      ...(vm.provider_vm_id ? { upstream_vm_id: vm.provider_vm_id } : {}),
     }
     const life =
       vm.status === "destroyed" || vm.destroyed_at !== null
@@ -304,27 +322,24 @@ export const buildPlan = (rows: SubjectRows, stackProjectId: string, source: str
       continue
     }
     const creator = nextUser(vm.user_id)
-    const tenant: TenantRef =
-      subject.kind === "team"
-        ? { kind: "team", tenant_id: subject.id }
-        : { kind: "personal", stack_user_id: subject.id, user_id: creator }
+    const size = vmSize(vm)
     add({
       ...base,
       action: "copy",
       next: {
         team_id: subjectTeam,
-        vm_api_tenant: tenant.kind === "team" ? tenant.tenant_id : "personal tenant (resolved at apply)",
         creator_user_id: creator,
+        size: Object.keys(size).length > 0 ? JSON.stringify(size) : "platform default",
       },
-      reason: "snapshot the upstream VM, import it under the NEXT tenant, create a machine from it; classic keeps its VM",
+      reason:
+        "the platform snapshots the upstream VM, imports it under the team's VM API tenant and creates a machine from it; classic keeps its VM",
       copy: {
         classic_vm_id: vm.id,
         upstream_vm_id: vm.provider_vm_id,
         next_team_id: subjectTeam,
-        tenant,
         creator_user_id: creator,
         name: vmName(vm),
-        size: vmSize(vm),
+        size,
       },
     })
   }
