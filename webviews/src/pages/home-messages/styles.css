@@ -97,3 +97,16 @@ body,
   outline: 2px solid var(--page-text-3);
   outline-offset: 1px;
 }
+
+/* The see-through Chief (seeThrough.ts; ChiefPanelStyle.seeThrough and .seeThroughBar): no page fill
+   (pageBase.css paints it on html) and no fill or blur on the header, so the workspace shows between the
+   bubbles and the panel's own veils behind the header and the message box are their one plate, as the
+   native transcript's clearsBackground left them. No halo on any text (94888846). */
+:root[data-home-see-through] {
+  background: transparent;
+}
+:root[data-home-see-through] .mt-header {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

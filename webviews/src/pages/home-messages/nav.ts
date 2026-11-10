@@ -9,6 +9,7 @@
 // The composer drafts and the finished files are also kept durably by the app (`keeper`,
 // `attachmentKeeper`: HomeStore's draft cache, as the native composer kept them), so a relaunch
 // finds them too.
+import type { ComposerTarget } from "./composerHandoff";
 import type { HomeConversation } from "../home-channels/types";
 import type { MessageRequest } from "./sheets/model";
 import { EMPTY_DRAFT, isDraftEmpty, type RecipientDraft } from "./sheets/recipients";
@@ -32,11 +33,6 @@ export interface FileDropTarget {
   leave(): void;
   /** The files were dropped on the list. */
   drop(files: Iterable<File>): void;
-  /** The app hands the composer files (Attach Files, `cmux home attach`, a viewer quote, a browser
-   * highlight: pageCommands.ts `home.messages.attach`), as a drop: their tray ids, none refused. */
-  take(files: Iterable<File>): string[];
-  /** The app takes back files it handed (a browser highlight removed): by their tray ids. */
-  remove(ids: readonly string[]): void;
 }
 
 /** How long typing waits before its draft goes to the keeper (one write per pause, not per key). */
@@ -102,6 +98,8 @@ export class MessagesNav {
   private composeExisting: string | undefined;
   /** What takes the keyboard now (the detail registers it): true when something took it. */
   private focuser: (() => boolean) | undefined;
+  /** The composer the app's hand-off reaches now (the detail registers it). */
+  private composerTarget: (() => ComposerTarget | null | undefined) | undefined;
   /** Where files dropped on the list go now (the detail registers it); none on New Message. */
   private dropTarget: (() => FileDropTarget | undefined) | undefined;
   private replier: (() => boolean) | undefined;
@@ -320,6 +318,19 @@ export class MessagesNav {
     return () => {
       if (this.focuser === focuser) this.focuser = undefined;
     };
+  }
+
+  /** The detail says which composer takes what the app hands over; the returned stop clears it. */
+  setComposer(target: () => ComposerTarget | null | undefined): () => void {
+    this.composerTarget = target;
+    return () => {
+      if (this.composerTarget === target) this.composerTarget = undefined;
+    };
+  }
+
+  /** The composer that shows now (New Message's box, else the conversation's), or undefined. */
+  composer(): ComposerTarget | undefined {
+    return this.composerTarget?.() ?? undefined;
   }
 
   /** The detail says where files dropped on the list go; the returned stop clears it. */
