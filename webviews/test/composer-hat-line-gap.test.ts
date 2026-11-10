@@ -7,7 +7,10 @@
 // match, so nothing of the card's line paints behind the glass; just outside the pill they must
 // differ, so the line still runs up to the pill's rim. `line-before` (the old pairing, the line
 // under the pill) must fail the inside check, so the check sees the line it guards against. While
-// the pill grows into its count, the gap in the line follows its edges every frame.
+// the pill grows into its count, the gap in the line follows its edges every frame. The part the pill
+// sits on need not span the tab's column: a narrow pane's card and queue reach 8 px past it, and
+// Codex's location strip sits 22 px inside it, so with the handle at the left or the right the gap
+// must still land under the pill there; and a queue's or strip's gap moves with the pill's width.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/composer-hat-line-gap.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -85,7 +88,8 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
       };
       return {
         pill: box(document.querySelector(".acpmux-tray-pull__hat")!),
-        card: box(document.querySelector("[data-stage-composer]")!),
+        // The part the pill sits on: a queue or strip over the card, else the card.
+        card: box(document.querySelector("[data-stage-top]") ?? document.querySelector("[data-stage-composer]")!),
       };
     });
   /** The band around the card's top edge, as device pixels. */
@@ -116,7 +120,8 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
     const drawn = await shot(page, band);
     const bare = await page.addStyleTag({
       content:
-        ".acpmux-composer-box { --acpmux-card-ring: 0 0 transparent !important; --acpmux-composer-rim: 0 0 transparent !important; }",
+        ".acpmux-composer-box { --acpmux-card-ring: 0 0 transparent !important; --acpmux-composer-rim: 0 0 transparent !important; }" +
+        " .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-composer-strip) { box-shadow: none !important; }",
     });
     const plain = await shot(page, band);
     await bare.evaluate((node) => (node as HTMLStyleElement).remove());
@@ -141,7 +146,25 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
 
   const THEMES = ["Catppuccin Mocha", "Apple System Colors Light"];
   for (const theme of THEMES) {
-    for (const variant of ["idle", "line-seven", "line-many", "waiting", "line-left", "line-right"])
+    for (const variant of [
+      "idle",
+      "line-seven",
+      "line-many",
+      "waiting",
+      "line-left",
+      "line-right",
+      // The part under the pill is offset from the tab's column, or is a queue or strip.
+      "line-narrow",
+      "line-narrow-left",
+      "line-narrow-right",
+      "line-strip",
+      "line-strip-left",
+      "line-strip-right",
+      "line-strip-narrow-left",
+      "line-queue",
+      "line-queue-many",
+      "line-queue-narrow-left",
+    ])
       test(`${theme}, ${variant}: no line behind the pill's glass, the line runs up to its rim`, async () => {
         clean(await measure(variant, theme), `${theme}, ${variant}`);
       });
@@ -157,6 +180,11 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
   for (const [from, to] of [
     ["idle", "ten"],
     ["two-digits", "idle"],
+    // A queue's or Codex strip's top line: its gap moves with the pill too, never a jump to the end.
+    ["line-queue-many", "idle"],
+    ["line-queue", "ten"],
+    ["line-strip", "idle"],
+    ["line-strip-left", "ten"],
   ] as const)
     test(`mid-transition, ${from} to ${to}: the gap follows the pill's edges`, async () => {
       const page = await open(from, "Catppuccin Mocha");
