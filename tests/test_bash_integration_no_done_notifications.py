@@ -424,6 +424,8 @@ def _run_prompt_history_session(setup: list[str], steps: list[str]) -> tuple[lis
         gh_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         gh_stub.chmod(0o755)
 
+        state_tmp = tmp_path / "state"
+        state_tmp.mkdir()
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             sock.bind(str(socket_path))
@@ -442,6 +444,7 @@ def _run_prompt_history_session(setup: list[str], steps: list[str]) -> tuple[lis
                     "HISTFILE": str(shared_history),
                     "CMUX_BASH_TEST_PROMPT_HISTORY": "1",
                     "PREEXEC_LOG": str(preexec_log),
+                    "TMPDIR": str(state_tmp),
                 }
             )
 
@@ -468,6 +471,16 @@ def _run_prompt_history_session(setup: list[str], steps: list[str]) -> tuple[lis
         finally:
             sock.close()
 
+        # The history scratch file must not keep command text (which can hold
+        # secrets) once the shell exits.
+        scratches = list(state_tmp.glob("cmux-bash-*/history-entry-*"))
+        if not scratches:
+            raise AssertionError(f"no history scratch file under {state_tmp}")
+        for scratch in scratches:
+            if scratch.read_text(encoding="utf-8", errors="replace"):
+                raise AssertionError(
+                    f"history scratch file {scratch} kept command text after the shell exited"
+                )
         sent = send_log.read_text(encoding="utf-8") if send_log.exists() else ""
         payloads = [line for line in sent.splitlines() if line.startswith("report_pr_action ")]
         preexec = preexec_log.read_text(encoding="utf-8").splitlines() if preexec_log.exists() else []
