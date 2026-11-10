@@ -121,9 +121,12 @@ public final class CornerFlushChrome: NSView {
     /// report while hidden too.
     private let strips = NSHashTable<AnyObject>.weakObjects()
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
+    /// `card` is the content's whole frame; the card below the tab row is its top less a strip.
     private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat, sidebarOnLeft: Bool)?
     /// The shade under the content, whose hole goes square with the leading wedge.
     private weak var shade: MainPaneChromeShadeView?
+    /// The content the card holds, whose top corners round again while no strip shows.
+    private weak var content: NSView?
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -176,7 +179,7 @@ public final class CornerFlushChrome: NSView {
     public func apply(content: NSView, radius: CGFloat, isDark: Bool, page: Bool, sidebarOnLeft: Bool,
                       shade: MainPaneChromeShadeView, in root: NSView) {
         let alpha = Metrics.mainPaneChromeShade(isDark: isDark)
-        var card = content.frame
+        let card = content.frame
         let on = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
         Self.roundBottomOnly(content, on)
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
@@ -187,11 +190,11 @@ public final class CornerFlushChrome: NSView {
             shade.update(card: card, radius: radius, alpha: alpha)
             return
         }
-        card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
         frame = root.bounds
         isHidden = false
         drawn = (card, radius, alpha, sidebarOnLeft)
         self.shade = shade
+        self.content = content
         redraw()
     }
 
@@ -201,13 +204,22 @@ public final class CornerFlushChrome: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         wedges.frame = bounds
-        let square = leadingTabSelected(card: drawn.card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
-        // No shown strip on the card's top (vertical tabs hide it): no tab row to round, so no wedges over the content.
-        wedges.path = hasTopStrip(card: drawn.card, in: root)
-            ? Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft) : nil
+        var card = drawn.card
+        card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
+        // No shown strip on the card's top (vertical tabs hide it): no tab row, so the card is the whole
+        // content, rounded on every corner, with no wedges and no shade band where the strip was.
+        guard hasTopStrip(card: card, in: root) else {
+            wedges.path = nil
+            if let content { Self.roundBottomOnly(content, false) }
+            shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
+            return
+        }
+        if let content { Self.roundBottomOnly(content, true) }
+        let square = leadingTabSelected(card: card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
+        wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
-        shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
     }
 
     /// Whether a shown strip of this window sits on the card's top edge. O(strips): a window's strips, not its tabs.
