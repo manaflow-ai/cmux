@@ -116,6 +116,9 @@ class KeepTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("imessage-home: loses 1 swift", lines[0])
 
+    def test_copying_a_foreign_file_into_a_swift_area_fails(self) -> None:
+        self.assertEqual(run(f"C100\twebviews/src/x.tsx\t{HOME}/x.tsx\n")[0], 1)
+
     def test_split_or_rename_within_the_area_passes(self) -> None:
         self.assertEqual(run(f"R090\t{HOME}/A.swift\t{HOME}/Sub/A.swift\n")[0], 0)
         self.assertEqual(run(f"D\t{HOME}/Big.swift\nA\t{HOME}/Big+One.swift\n")[0], 0)
@@ -182,6 +185,9 @@ class MinimalTests(unittest.TestCase):
         self.assertEqual(run(f"M\t{CLOUD}/CloudAPIClient.swift\nD\t{CLOUD}/Old.swift\n")[0], 0)
         self.assertEqual(run(f"R100\t{CLOUD}/A.swift\t{CLOUD}/Sub/A.swift\n")[0], 0)
 
+    def test_non_ascii_paths_are_matched(self) -> None:
+        self.assertEqual(run(f"D\t{HOME}/Ünïcode.swift\n")[0], 1)
+
     def test_swift_moved_or_copied_into_cloud_core_fails(self) -> None:
         self.assertEqual(run(f"R100\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift\t{CLOUD}/A.swift\n")[0], 1)
         self.assertEqual(run(f"C100\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift\t{CLOUD}/A.swift\n")[0], 1)
@@ -216,7 +222,8 @@ class ApprovalTests(unittest.TestCase):
     def test_approval_line_from_another_user_or_quoted_or_empty_fails(self) -> None:
         for note in (dict(LEO_NOTE, user="lawrencecchen"), dict(LEO_NOTE, body="> leo-approved-port: yes"),
                      dict(LEO_NOTE, body="leo-approved-port:"), dict(LEO_NOTE, app="some-app"),
-                     dict(LEO_NOTE, body=LEO_NOTE["body"] + "\n\n\U0001f916 Generated with [Claude Code](x)")):
+                     dict(LEO_NOTE, body=LEO_NOTE["body"] + "\n\n\U0001f916 Generated with [Claude Code](x)"),
+                     dict(LEO_NOTE, body=LEO_NOTE["body"] + "\n\nCo-authored-by: Claude <noreply@anthropic.com>")):
             self.assertEqual(run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], [note])[0], 1, note)
 
     def test_approval_in_a_review_passes(self) -> None:
@@ -260,6 +267,8 @@ class CliAndWorkflowTests(unittest.TestCase):
         self.assertNotIn("github.event.pull_request.head.sha }}\n          fetch-depth", text)
         # The script reads one JSON object per line; gh's --jq would print an object across many lines.
         self.assertEqual(text.count("| tojson'"), 3)
+        # The git fallback prints non-ASCII paths as they are, so area globs still match them.
+        self.assertIn("git -c core.quotePath=false diff --name-status -M", text)
 
 
 if __name__ == "__main__":

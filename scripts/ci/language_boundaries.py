@@ -40,7 +40,8 @@ DEFAULT_MANIFEST = ROOT / ".github" / "language-boundaries.toml"
 LABEL = "leo-approved-port"
 LEO = "teamleaderleo"
 APPROVAL_LINE = re.compile(rf"^{re.escape(LABEL)}:\s*\S")
-AGENT_MARKERS = ("cmux.com/deeplink/agent", "Agent session:", "Generated with [Claude Code]", "Co-Authored-By:",
+# Matched case-insensitively (a `Co-authored-by:` trailer counts too).
+AGENT_MARKERS = ("cmux.com/deeplink/agent", "agent session:", "generated with [claude code]", "co-authored-by:",
                  "\U0001f916")
 
 LANGUAGES: dict[str, frozenset[str]] = {
@@ -240,7 +241,7 @@ def leo_approval(labels: list[str], events: list[dict], notes: list[dict]) -> tu
         body = str(note.get("body") or "")
         if note.get("user") != LEO or _is_app(note):
             continue
-        if any(marker in body for marker in AGENT_MARKERS):
+        if any(marker in body.lower() for marker in AGENT_MARKERS):
             continue
         if any(APPROVAL_LINE.match(line.strip()) for line in body.splitlines()):
             return True, f"{LEO} added `{LABEL}` and wrote a `{LABEL}:` approval"

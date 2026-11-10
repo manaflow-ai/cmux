@@ -76,25 +76,28 @@ jobs:
                  origin "+refs/pull/$PR/merge:refs/guard/merge" \
                && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
                && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
-               && git diff --name-status -M refs/guard/merge^1 refs/guard/merge > "$files"; then
-              :
+               && git -c core.quotePath=false diff --name-status -M refs/guard/merge^1 refs/guard/merge > "$files"; then
+              # No GitHub listing cap applies to git, and a base that already has some of the changes lists fewer.
+              CHANGED_FILES=""
             else
               echo "::error::Could not list the changed files; re-run this check."
               exit 1
             fi
           fi
-          set -- --files "$files" --labels-json "$LABELS_JSON" --expected-files "$CHANGED_FILES"
+          set -- --files "$files" --labels-json "$LABELS_JSON"
+          if [ -n "$CHANGED_FILES" ]; then set -- "$@" --expected-files "$CHANGED_FILES"; fi
           if printf '%s' "$LABELS_JSON" | grep -q '"leo-approved-port"'; then
             # Only with the label on: who added it, and Leo's approval line (comments and reviews), one compact
             # JSON object per line (`tojson`, so a body's newlines stay escaped).
             gh api --paginate "repos/$REPOSITORY/issues/$PR/events?per_page=100" \
               --jq '.[] | {event, label: (.label.name // null), actor: (.actor.login // null), app: (.performed_via_github_app.slug // null)} | tojson' \
-              > "$RUNNER_TEMP/events.jsonl"
+              > "$RUNNER_TEMP/events.jsonl" || { echo "::error::Could not read the label's events; re-run this check."; exit 3; }
             gh api --paginate "repos/$REPOSITORY/issues/$PR/comments?per_page=100" \
               --jq '.[] | {user: (.user.login // null), body, app: (.performed_via_github_app.slug // null)} | tojson' \
-              > "$RUNNER_TEMP/notes.jsonl"
+              > "$RUNNER_TEMP/notes.jsonl" || { echo "::error::Could not read the comments; re-run this check."; exit 3; }
             gh api --paginate "repos/$REPOSITORY/pulls/$PR/reviews?per_page=100" \
-              --jq '.[] | {user: (.user.login // null), body, app: null} | tojson' >> "$RUNNER_TEMP/notes.jsonl"
+              --jq '.[] | {user: (.user.login // null), body, app: null} | tojson' >> "$RUNNER_TEMP/notes.jsonl" \
+              || { echo "::error::Could not read the reviews; re-run this check."; exit 3; }
             set -- "$@" --events "$RUNNER_TEMP/events.jsonl" --notes "$RUNNER_TEMP/notes.jsonl"
           fi
           python3 scripts/ci/language_boundaries.py "$@"
