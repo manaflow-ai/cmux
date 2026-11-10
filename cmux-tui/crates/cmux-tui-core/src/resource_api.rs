@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 mod machines;
+pub(crate) mod scoped_get;
 mod terminal_extra;
 
 pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
