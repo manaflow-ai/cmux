@@ -1750,8 +1750,11 @@ fn submit_steering_prompt(
     // The owner's and a team member's steer. A link guest never steers: its prompt waits for
     // the owner (acpmux holds it whatever the flag says; the flag is not even sent).
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
-    if steer && !guest {
-        params["_meta"]["acpmux"]["steer"] = json!(true);
+    if steer
+        && !guest
+        && let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+    {
+        meta.insert("steer".to_owned(), json!(true));
     }
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers

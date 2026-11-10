@@ -163,10 +163,10 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
             let url = format!("{}{}", common.api, route_path(*personal));
             let mut request = match verb {
                 Verb::Mode { mode, machine, .. } => {
-                    let mut body = json!({"mode": mode});
+                    let mut body = serde_json::Map::new();
+                    body.insert("mode".to_owned(), json!(mode));
                     if let Some(m) = machine {
-                        body["machine"] =
-                            m.as_ref().map_or(Value::Null, |m| Value::String(m.clone()));
+                        body.insert("machine".to_owned(), json!(m));
                     }
                     http.put(url).json(&body)
                 }

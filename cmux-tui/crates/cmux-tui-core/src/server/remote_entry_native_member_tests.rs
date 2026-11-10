@@ -101,14 +101,12 @@ fn a_team_member_attaches_and_steers_stamped_as_itself() {
     }
 
     // The owner answers asks and decides held prompts.
-    for frame in [json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
-            "option_id":"allow"})]
-    {
-        assert_eq!(
-            call(&mut stream, &mut reader, frame)["error_code"],
-            json!("agent_session.owner_only")
-        );
-    }
+    let frame = json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
+            "option_id":"allow"});
+    assert_eq!(
+        call(&mut stream, &mut reader, frame)["error_code"],
+        json!("agent_session.owner_only")
+    );
     // A member's frame never names its own author or chat.
     let forged = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"m2",
         "text":"x", "_host_author":{"id":"user_owner", "name":"Owner"}});

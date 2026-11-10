@@ -179,7 +179,9 @@ pub(super) fn ask(runner: &mut dyn Runner, machine: &str, route: &Route) -> Resu
         .find_map(|line| serde_json::from_str::<Value>(line.trim()).ok().filter(Value::is_object));
     match report {
         Some(mut report) if report.get("agents").is_some() => {
-            report["machine_id"] = json!(machine);
+            if let Some(fields) = report.as_object_mut() {
+                fields.insert("machine_id".to_owned(), json!(machine));
+            }
             Ok(report)
         }
         None if stdout.trim().is_empty() => Err(reply_error(
@@ -204,20 +206,21 @@ fn run(global: &GlobalArgs, output: OutputMode, machine: &str) -> i32 {
             let ok = report.get("ok").and_then(Value::as_bool) == Some(true);
             if output == OutputMode::Human {
                 for name in ["claude", "codex"] {
-                    let a = &report["agents"][name];
+                    let field = |key: &str| report.get("agents")?.get(name)?.get(key);
                     println!(
                         "{name}: {} (key {}, {})",
-                        a["base_url"].as_str().unwrap_or("no base URL"),
-                        a["key"].as_str().unwrap_or("?"),
-                        if a["edge_routed"] == true {
+                        field("base_url").and_then(Value::as_str).unwrap_or("no base URL"),
+                        field("key").and_then(Value::as_str).unwrap_or("?"),
+                        if field("edge_routed").and_then(Value::as_bool) == Some(true) {
                             "through the Cloud service"
                         } else {
                             "not through the Cloud service"
                         }
                     );
                 }
-                let logins = report["login_files"].as_array().map_or(0, Vec::len)
-                    + report["credential_env"].as_array().map_or(0, Vec::len);
+                let count =
+                    |key: &str| report.get(key).and_then(Value::as_array).map_or(0, Vec::len);
+                let logins = count("login_files") + count("credential_env");
                 println!("provider logins on the machine: {logins}");
                 println!("{}", if ok { "ok" } else { "not ok" });
             } else {

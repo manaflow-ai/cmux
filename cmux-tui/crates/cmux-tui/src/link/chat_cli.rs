@@ -80,8 +80,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
     let mut values: Vec<(String, String)> = Vec::new();
     let mut steer = false;
     let mut index = 0;
-    while index < rest.len() {
-        let flag = rest[index].as_str();
+    while let Some(flag) = rest.get(index).map(String::as_str) {
         match flag {
             "--steer" => steer = true,
             "--json" => {}
@@ -141,6 +140,13 @@ fn parse(args: &[String]) -> Result<Args, String> {
     Ok(Args { host, socket, name: get("--name"), verb })
 }
 
+/// Sets `key` on a JSON object; any other value is left as it is.
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = object.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
+}
+
 /// The frames a verb sends after the handshake, the last one's reply being the answer.
 fn frames(verb: &Verb) -> Vec<Value> {
     match verb {
@@ -148,10 +154,10 @@ fn frames(verb: &Verb) -> Vec<Value> {
         Verb::Read { surface, after_seq, limit } => {
             let mut attach = json!({"cmd": "agent-session-attach", "surface": surface});
             if let Some(after) = after_seq {
-                attach["after_seq"] = json!(after);
+                set(&mut attach, "after_seq", json!(after));
             }
             if let Some(limit) = limit {
-                attach["limit"] = json!(limit);
+                set(&mut attach, "limit", json!(limit));
             }
             vec![attach]
         }
@@ -159,7 +165,7 @@ fn frames(verb: &Verb) -> Vec<Value> {
             let mut prompt = json!({"cmd": "agent-session-prompt", "surface": surface,
                 "prompt_id": prompt_id, "text": text});
             if *steer {
-                prompt["steer"] = json!(true);
+                set(&mut prompt, "steer", json!(true));
             }
             vec![json!({"cmd": "agent-session-attach", "surface": surface, "limit": 1}), prompt]
         }
@@ -242,14 +248,14 @@ async fn converse(stream: tokio::net::UnixStream, args: &Args) -> Result<Value, 
     let mut info = json!({"cmd": "set-client-info", "name": "cmux link chat", "kind": "frontend",
         "capabilities": ["agent-session-presence-v1"]});
     if let Some(name) = &args.name {
-        info["person_name"] = json!(name);
+        set(&mut info, "person_name", json!(name));
     }
     let mut handshake = vec![json!({"cmd": "identify"}), info];
     handshake.extend(frames(&args.verb));
     let mut last = Value::Null;
     for (id, mut frame) in handshake.into_iter().enumerate() {
         let id = id as u64 + 1;
-        frame["id"] = json!(id);
+        set(&mut frame, "id", json!(id));
         let line = format!("{frame}\n");
         if writer.write_all(line.as_bytes()).await.is_err() {
             return Err(
@@ -269,11 +275,11 @@ async fn converse(stream: tokio::net::UnixStream, args: &Args) -> Result<Value, 
                 break value;
             }
         };
-        if reply["ok"] != json!(true) {
+        if reply.get("ok") != Some(&json!(true)) {
             let code = reply.get("error_code").cloned().unwrap_or(json!("chat.refused"));
             let message = reply.get("error").cloned().unwrap_or(code.clone());
             return Err(
-                json!({"ok": false, "error_code": code, "error": message, "step": frame["cmd"]}),
+                json!({"ok": false, "error_code": code, "error": message, "step": frame.get("cmd")}),
             );
         }
         last = reply.get("data").cloned().unwrap_or(Value::Null);

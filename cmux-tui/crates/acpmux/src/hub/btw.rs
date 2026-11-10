@@ -794,7 +794,7 @@ impl Hub {
         }
         let parent = side.meta().parent_id.clone();
         let fork = parent.as_deref() == Some(chat.id.as_str());
-        if !fork && !(own && parent.is_none()) {
+        if !(fork || own && parent.is_none()) {
             return Err(RpcError::invalid_params(
                 "side.not_fork: a side chat is a fork of its chat",
             )

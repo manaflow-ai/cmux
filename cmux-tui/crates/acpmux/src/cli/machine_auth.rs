@@ -42,10 +42,8 @@ const MANAGED: [(&str, &str); 2] = [
 pub fn safe_url(url: &str) -> String {
     let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
     let rest = rest.split(['?', '#']).next().unwrap_or_default();
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, ""),
-    };
+    let (authority, path) =
+        rest.find('/').and_then(|i| rest.split_at_checked(i)).unwrap_or((rest, ""));
     let host = authority.rsplit('@').next().unwrap_or_default();
     if scheme.is_empty() { format!("{host}{path}") } else { format!("{scheme}://{host}{path}") }
 }

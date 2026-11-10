@@ -121,7 +121,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     // `chat`: a Cloud machine's chats as the caller's role reaches them (one JSON object out).
     if args.first().map(String::as_str) == Some("chat") {
-        return chat_cli::run(&args[1..]);
+        return chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
