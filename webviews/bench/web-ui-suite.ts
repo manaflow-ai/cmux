@@ -99,15 +99,25 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
+  // main-thread ms and React commits per update. Run with `--only extension-parity`.
+  {
+    name: "extension-parity",
+    file: "extension-parity.bench.ts",
+    args: ["3", "200"],
+    timeoutMs: 180_000,
+    ownPart: true,
+  },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
   // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
-  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own.
+  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
+  // ordinary three: the six timeouts sum to 1,710 s, under that part's 1,800 s cap (about 13 minutes measured).
   {
     name: "chat-open-god",
     file: "chat-open.bench.ts",
     args: ["3", "300"],
     env: { FIXTURE: "god" },
-    timeoutMs: 600_000,
+    timeoutMs: 300_000,
     ownPart: true,
   },
   {
@@ -115,7 +125,7 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-switch.bench.ts",
     args: ["3", "300"],
     env: { FIXTURE: "god" },
-    timeoutMs: 900_000,
+    timeoutMs: 420_000,
     ownPart: true,
   },
   {
@@ -123,7 +133,7 @@ export const BENCHES: readonly Bench[] = [
     file: "transcript-replay.bench.ts",
     args: [],
     env: { FIXTURE: "god" },
-    timeoutMs: 900_000,
+    timeoutMs: 420_000,
     ownPart: true,
   },
 ];

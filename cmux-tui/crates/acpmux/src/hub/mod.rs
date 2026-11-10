@@ -495,6 +495,10 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
+    /// Whether its prompt is accepted: its sender heard `prompt_accepted`, when it was queued or
+    /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
+    /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
+    pub accepted: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -910,6 +914,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a prompt whose turn shows, before its last check and its acceptance.
+    #[cfg(test)]
+    pub(super) turn_shown_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
     #[cfg(test)]
     pub(super) first_work_seam: full_access_bound::WriteSeam,
@@ -1257,6 +1264,8 @@ impl Hub {
             queue_approval_off: AtomicBool::new(false),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            turn_shown_seam: Default::default(),
             #[cfg(test)]
             first_work_seam: Default::default(),
             #[cfg(test)]
@@ -2392,7 +2401,7 @@ impl Hub {
         text: &str,
     ) -> Result<Option<String>, RpcError> {
         if session.moving().is_some() {
-            return Err(RpcError::invalid_params(queue::moving_error().message));
+            return Err(RpcError::invalid_params(queue::moving_error(session).message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {

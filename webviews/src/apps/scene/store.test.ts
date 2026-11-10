@@ -129,6 +129,31 @@ test("depth validation follows cached subtree heights after deleting equal-heigh
   expect(store.getNode("above")?.children).toEqual(["root"]);
 });
 
+test("a contribution's limits drop nodes past them and record why", () => {
+  const capped = new SceneStore({ maxNodes: 2 });
+  capped.apply([
+    { op: "create", id: "a", type: "Text" },
+    { op: "create", id: "b", type: "Text" },
+    { op: "create", id: "c", type: "Text" },
+  ]);
+  expect(capped.getNode("c")).toBeUndefined();
+  expect(capped.violation).toEqual({ kind: "nodes", limit: 2 });
+  const typed = new SceneStore({ types: new Set(["Text"]) });
+  typed.apply([{ op: "create", id: "img", type: "Image" }]);
+  expect(typed.getNode("img")).toBeUndefined();
+  expect(typed.violation).toEqual({ kind: "type", type: "Image" });
+  typed.apply(
+    [
+      { op: "create", id: "t", type: "Text" },
+      { op: "root", id: "t" },
+    ],
+    true,
+  );
+  expect(typed.violation).toBeUndefined();
+  // No limits: the host's own cap only, and no violation.
+  expect(new SceneStore().violation).toBeUndefined();
+});
+
 describe("scene status", () => {
   const scene: SceneOp[] = [
     { op: "create", id: "root", type: "Text", props: { text: "Hi" } },

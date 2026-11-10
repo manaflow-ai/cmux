@@ -87,7 +87,9 @@ final class SidebarFooterBand {
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
         // Swift live mode's mark follows the avatar; the dots and the update button start after it.
-        let leadMaxX = placeLiveBadge(before: searchMinX)
+        // The health line leaves the bottom strip its active dot and its "+" (2 slots), so it never squeezes the switcher out.
+        let spacesRoom = host.spacesPosition == .bottom && !bar.isHidden ? 2 * Metrics.roomDotSlot : 0
+        let leadMaxX = placeHealthIndicator(after: placeLiveBadge(before: searchMinX), before: searchMinX, reserving: spacesRoom)
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
@@ -220,6 +222,35 @@ final class SidebarFooterBand {
         badge.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height),
                                                   scale: host.window?.backingScaleFactor ?? 2)
         return badge.frame.maxX
+    }
+
+    // MARK: App health
+
+    /// Places app health's line (`host.healthIndicator`) on the footer line after `after` (the live mode mark's
+    /// maxX, else the avatar's), `space2` from it, ending before Search less one button's room for the update
+    /// button and `reserving` (the bottom spaces strip's room); its text truncates to fit. With no room it steps
+    /// out of the line (zero frame; the restoring card's Details still opens the popover). Returns its maxX, else `after`.
+    @discardableResult
+    func placeHealthIndicator(after: CGFloat?, before searchMinX: CGFloat?, reserving: CGFloat = 0) -> CGFloat? {
+        guard let host, let line = host.healthIndicator, !line.isHidden else { return after }
+        let size = line.fittingSize
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = ((after ?? row.itemsMaxX) + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = (after.map { $0 + Metrics.space2 } ?? Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - Self.searchButtonSide / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1 - Self.searchButtonSide - Metrics.space1 - reserving
+        let width = min(size.width, end - x)
+        guard width >= Self.searchButtonSide * 2 else {
+            line.frame = .zero
+            return after
+        }
+        line.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: width, height: size.height),
+                                                 scale: host.window?.backingScaleFactor ?? 2)
+        return line.frame.maxX
     }
 
     // MARK: Update Available button
