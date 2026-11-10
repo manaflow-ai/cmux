@@ -178,12 +178,12 @@ fn interactive_input_keeps_fire_and_forget_semantics() {
     assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
 }
 
-struct GatedInputWriter {
-    write_started: SyncSender<()>,
-    write_release: Receiver<()>,
-    flush_started: SyncSender<()>,
-    flush_release: Receiver<()>,
-    fail_flush: bool,
+pub(super) struct GatedInputWriter {
+    pub(super) write_started: SyncSender<()>,
+    pub(super) write_release: Receiver<()>,
+    pub(super) flush_started: SyncSender<()>,
+    pub(super) flush_release: Receiver<()>,
+    pub(super) fail_flush: bool,
 }
 
 impl Write for GatedInputWriter {
