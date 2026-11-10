@@ -208,7 +208,7 @@ async fn a_registered_child_token_opens_the_delivery_instead_of_the_peer_key() {
 fn a_kept_token_is_the_live_sessions_only_while_its_process_and_inbox_are_the_same() {
     let home = scratch("token-store");
     let sock = PathBuf::from("/tmp/cc-socks/42.sock");
-    let kept = ChildToken { pid: 42, socket: sock.clone(), token: "tok".into() };
+    let kept = ChildToken { pid: 42, socket: sock.clone(), token: "tok".into(), started: Some(7) };
     save_token(&home, "chat-1", &kept).unwrap();
     #[cfg(unix)]
     {
@@ -226,16 +226,61 @@ fn a_kept_token_is_the_live_sessions_only_while_its_process_and_inbox_are_the_sa
         version: None,
         socket: Some(sock),
     };
-    assert_eq!(token_for(&home, "chat-1", &peer).as_deref(), Some("tok"));
-    assert_eq!(token_for(&home, "chat-2", &peer), None, "another chat's is not this one's");
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(7)).as_deref(), Some("tok"));
+    assert_eq!(
+        token_for(&home, "chat-2", &peer, Some(7)),
+        None,
+        "another chat's is not this one's"
+    );
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(8)), None, "a later process under the pid");
+    assert_eq!(token_for(&home, "chat-1", &peer, None), None, "no proven start, no token");
     peer.pid = 43;
-    assert_eq!(token_for(&home, "chat-1", &peer), None, "a restarted session has a new token");
+    assert_eq!(
+        token_for(&home, "chat-1", &peer, Some(7)),
+        None,
+        "a restarted session has a new token"
+    );
     peer.pid = 42;
     peer.socket = Some(PathBuf::from("/tmp/cc-socks/other.sock"));
-    assert_eq!(token_for(&home, "chat-1", &peer), None);
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(7)), None);
     forget_token(&home, "chat-1");
     peer.socket = Some(PathBuf::from("/tmp/cc-socks/42.sock"));
-    assert_eq!(token_for(&home, "chat-1", &peer), None);
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(7)), None);
     // A chat id never leaves the folder.
     assert_eq!(token_file(&home, "../x").parent(), Some(home.join("bridge-tokens").as_path()));
+}
+
+/// A registry entry is anyone's to write: it proves its conversation only when it is the only
+/// live claimant and its process wrote that conversation's transcript since it started.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn an_entry_proves_its_conversation_only_by_its_transcript_and_as_its_only_claimant() {
+    let dir = scratch("proves");
+    let me = std::process::id();
+    let sock = dir.join("me.sock");
+    std::fs::write(
+        dir.join(format!("sessions/{me}.json")),
+        entry(me, "sid-p", "cli", &sock).to_string(),
+    )
+    .unwrap();
+    let live = live(&dir);
+    let peer = live.first().cloned().expect("the entry is live");
+    let no_transcript = proves_conversation(&dir, &peer, &live).unwrap_err();
+    assert!(no_transcript.contains("no transcript"), "{no_transcript}");
+    std::fs::create_dir_all(dir.join("projects/-work")).unwrap();
+    let transcript = dir.join("projects/-work/sid-p.jsonl");
+    std::fs::write(&transcript, "{}\n").unwrap();
+    proves_conversation(&dir, &peer, &live).expect("written since it started");
+    // Another session's transcript, last written long before this process started.
+    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+    std::fs::File::options().write(true).open(&transcript).unwrap().set_modified(old).unwrap();
+    let stale = proves_conversation(&dir, &peer, &live).unwrap_err();
+    assert!(stale.contains("since it started"), "{stale}");
+    std::fs::write(&transcript, "{}\n").unwrap();
+    // A second live claimant of the same conversation proves neither.
+    let mut twin = peer.clone();
+    twin.pid = me.wrapping_add(1);
+    let claimants = [peer.clone(), twin];
+    let both = proves_conversation(&dir, &peer, &claimants).unwrap_err();
+    assert!(both.contains("also claims"), "{both}");
 }

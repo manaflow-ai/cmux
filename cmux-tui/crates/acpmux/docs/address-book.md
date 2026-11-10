@@ -14,7 +14,13 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   (`src/hub/register.rs`). That works for a Claude Code session (desktop or terminal). The daemon
   finds the session from the kernel's process tree of the caller: the nearest Claude Code process
   whose inbox is the caller's `CLAUDE_CODE_MESSAGING_SOCKET`, opened with that shell's
-  `CLAUDE_CODE_MESSAGING_TOKEN`. It never takes a session the caller names. A Codex desktop thread
+  `CLAUDE_CODE_MESSAGING_TOKEN`. It never takes a session the caller names. The registry entry
+  (`~/.claude/sessions/<pid>.json`) is anyone's to write, so register also needs what a forged one
+  cannot show (`claude_peers::proves_conversation`, `inbox_is`): the inbox's listener is that
+  process, run by this user (kernel peer credentials); no other live process claims the
+  conversation; and the process wrote the conversation's transcript since it started (the Bash
+  call running `acpmux register` is one such write). Otherwise `register.unproven`. A kept token
+  is that process's only while its pid, inbox and start time are the same. A Codex desktop thread
   does not register: a process named `codex` with `CODEX_THREAD_ID` set is anyone's to start, so
   nothing proves the caller runs in the thread. A Codex session acpmux starts already has a name. A name
   another session has is refused (`register.name_taken`). The daemon alone records which chats

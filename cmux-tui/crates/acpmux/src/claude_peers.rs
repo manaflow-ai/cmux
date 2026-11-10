@@ -218,6 +218,10 @@ pub struct ChildToken {
     pub pid: u32,
     pub socket: PathBuf,
     pub token: String,
+    /// The process's `startedAt`: a later process under a reused pid is not the one that
+    /// handed the token over.
+    #[serde(default)]
+    pub started: Option<u64>,
 }
 
 /// Where the daemon keeps the token registered for chat `chat_id` (0600, in a 0700 folder).
@@ -235,14 +239,96 @@ pub fn save_token(home: &Path, chat_id: &str, token: &ChildToken) -> anyhow::Res
 
 /// The token kept for chat `chat_id`, if it is still the live `peer`'s: a session that restarted
 /// (another pid, or another inbox) has a new one, which only another `acpmux register` hands over.
-pub fn token_for(home: &Path, chat_id: &str, peer: &Peer) -> Option<String> {
+/// `started` is the live process's `startedAt` ([`started_at`]); a token kept for an earlier
+/// process under the same pid is not its.
+pub fn token_for(home: &Path, chat_id: &str, peer: &Peer, started: Option<u64>) -> Option<String> {
     let path = token_file(home, chat_id);
     if std::fs::metadata(&path).ok()?.len() > MAX_FILE {
         return None;
     }
     let kept: ChildToken = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (kept.pid == peer.pid && peer.socket.as_deref() == Some(kept.socket.as_path()))
+    (kept.pid == peer.pid
+        && peer.socket.as_deref() == Some(kept.socket.as_path())
+        && started.is_some()
+        && kept.started == started)
         .then_some(kept.token)
+}
+
+/// The `startedAt` of the live registry entry for `pid` (checked against the kernel's start of
+/// `pid`, as [`live`] checks it).
+pub fn started_at(config: &Path, pid: u32) -> Option<u64> {
+    let path = registry(config).join(format!("{pid}.json"));
+    read_entry(&path)?;
+    let record: Value = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+    record.get("startedAt").and_then(Value::as_u64)
+}
+
+/// The transcript Claude Code writes for conversation `session_id` (`projects/<folder>/<id>.jsonl`).
+fn transcript_of(config: &Path, session_id: &str) -> Option<PathBuf> {
+    if session_id.is_empty() || !session_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return None;
+    }
+    let name = format!("{session_id}.jsonl");
+    let dir = std::fs::read_dir(config.join("projects")).ok()?;
+    dir.flatten().map(|d| d.path().join(&name)).find(|p| p.is_file())
+}
+
+/// Most a transcript's last write may come before its process's recorded start (clock skew).
+const START_SLACK_MS: u64 = 2_000;
+
+/// Whether the registry entry `peer` runs the conversation it names, by what a forged entry
+/// cannot show: no other live entry claims that conversation, and its transcript was written
+/// since this process started (a process that writes `<its pid>.json` naming another session's
+/// id never wrote that session's transcript). Err says why not.
+pub fn proves_conversation(config: &Path, peer: &Peer, live: &[Peer]) -> Result<(), String> {
+    if live.iter().any(|p| p.pid != peer.pid && p.session_id == peer.session_id) {
+        return Err(format!(
+            "another live Claude Code process also claims session {}",
+            peer.session_id
+        ));
+    }
+    let started = started_at(config, peer.pid)
+        .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))?;
+    let transcript = transcript_of(config, &peer.session_id)
+        .ok_or_else(|| format!("session {} has no transcript yet", peer.session_id))?;
+    let written = std::fs::metadata(&transcript)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|d| u64::try_from(d.as_millis()).ok())
+        .ok_or_else(|| format!("cannot read when {} was written", transcript.display()))?;
+    if written < started.saturating_sub(START_SLACK_MS) {
+        return Err(format!(
+            "process {} has not written session {}'s transcript since it started",
+            peer.pid, peer.session_id
+        ));
+    }
+    Ok(())
+}
+
+/// Whether the process listening on `socket` is `pid`, run by this daemon's user (the kernel's
+/// peer credentials of a connection to it). A symlink is never followed.
+#[cfg(unix)]
+pub async fn inbox_is(socket: &Path, pid: u32) -> bool {
+    if !std::fs::symlink_metadata(socket).is_ok_and(|m| !m.file_type().is_symlink()) {
+        return false;
+    }
+    let Ok(Ok(stream)) =
+        tokio::time::timeout(IO_TIMEOUT, tokio::net::UnixStream::connect(socket)).await
+    else {
+        return false;
+    };
+    let Ok(cred) = stream.peer_cred() else { return false };
+    // SAFETY: getuid has no preconditions.
+    let own = unsafe { libc::getuid() };
+    cred.uid() == own && cred.pid().and_then(|p| u32::try_from(p).ok()) == Some(pid)
+}
+
+/// No unix sockets here: no inbox is proven.
+#[cfg(not(unix))]
+pub async fn inbox_is(_socket: &Path, _pid: u32) -> bool {
+    false
 }
 
 /// Removes the token kept for chat `chat_id`, when it has one.

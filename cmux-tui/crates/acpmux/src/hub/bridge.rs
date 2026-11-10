@@ -263,7 +263,10 @@ impl Hub {
             let peer = crate::claude_peers::find(&homes.claude, &agent_session_id)
                 .filter(|p| registered || by_setting(p))?;
             let token = registered
-                .then(|| crate::claude_peers::token_for(&acpmux_home, &chat_id, &peer))
+                .then(|| {
+                    let started = crate::claude_peers::started_at(&homes.claude, peer.pid);
+                    crate::claude_peers::token_for(&acpmux_home, &chat_id, &peer, started)
+                })
                 .flatten();
             // A registered chat opens only with the token its session handed over. A restarted
             // session's new process has none until it registers again, so the send waits

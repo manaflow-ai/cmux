@@ -151,6 +151,27 @@ impl Hub {
                 "register.no_token: this shell has no CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN; run it in the Claude Code session's own Bash tool or hook",
             ));
         }
+        // The registry entry is anyone's to write, naming any session id: the process must also
+        // be the one listening on its inbox, run by this user, the only live claimant of that
+        // conversation, and the writer of its transcript since it started.
+        let Found::Claude(claimed) = &found;
+        let claude_home = self.harness_homes().claude;
+        let inbox = req.socket.clone().unwrap_or_default();
+        if !crate::claude_peers::inbox_is(&inbox, claimed.pid).await {
+            return Err(unproven(format!(
+                "the inbox {} is not process {}'s",
+                inbox.display(),
+                claimed.pid
+            )));
+        }
+        let (peer, home) = (claimed.clone(), claude_home.clone());
+        tokio::task::spawn_blocking(move || {
+            let live = crate::claude_peers::live(&home);
+            crate::claude_peers::proves_conversation(&home, &peer, &live)
+        })
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(unproven)?;
         let (family, agent_session_id, cwd, tags, pid) = match &found {
             Found::Claude(p) => (
                 "claude",
@@ -224,7 +245,9 @@ impl Hub {
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {
-                    let kept = crate::claude_peers::ChildToken { pid: peer.pid, socket, token };
+                    let started = crate::claude_peers::started_at(&claude_home, peer.pid);
+                    let kept =
+                        crate::claude_peers::ChildToken { pid: peer.pid, socket, token, started };
                     crate::claude_peers::save_token(&home, &session.id, &kept).map_err(|e| {
                         RpcError::internal(format!("could not keep the token: {e}"))
                     })?;
@@ -249,6 +272,15 @@ impl Hub {
             "token": if token_kept { "registered" } else { "none" },
         }))
     }
+}
+
+/// The session the caller's process tree holds could not be proven to run the conversation its
+/// registry entry names.
+fn unproven(why: String) -> RpcError {
+    RpcError::invalid_params(format!(
+        "register.unproven: {why}; run `acpmux register NAME` from the session's own Bash tool after its first turn"
+    ))
+    .with_data(json!({"reason": "register.unproven"}))
 }
 
 fn not_found() -> RpcError {
