@@ -12,7 +12,14 @@
 //!
 //! What it measures: the in-process call (`Mux::close_workspace_ending_terminals`) in a test
 //! build, with the debug cross-check off as a release daemon runs. It is not the socket reply time
-//! of a release daemon: no request parse, no reply write, no other client.
+//! of a release daemon:
+//! - no request parse, no reply write, no other client;
+//! - the registry is SQLite in memory (`Mux::new_with_test_surface_runtime`,
+//!   `WorkspaceRegistry::in_memory`): no file, no WAL, no disk write;
+//! - each terminal is a placeholder (`Surface::exited_terminal_placeholder`): the close asks no
+//!   terminal host to stop and stores no archive of a screen;
+//! - the order of the arms is fixed (last, middle, first, in each new session), so "last" also
+//!   pays what a new registry pays on its first close.
 //!
 //! The test-only check of each tree entity against the whole tree's JSON
 //! (`server::tree_entity_json`) is off on this test's thread, with the switch that #40700 added
@@ -61,7 +68,13 @@ fn summary(times: &[Duration]) -> String {
 #[test]
 #[ignore = "a measurement that asserts nothing: run it with `-- --ignored --nocapture`"]
 fn the_time_of_one_workspace_close_is_printed() {
-    // For this thread to its end: this test only measures, and each test runs on its own thread.
+    // The switch has no reset: it is set on a thread that ends with the measurement, so no other
+    // test body can run with the check off, whatever thread the test harness gives this one.
+    let measured = std::thread::spawn(print_the_close_times).join();
+    assert!(measured.is_ok(), "the measuring thread panicked");
+}
+
+fn print_the_close_times() {
     crate::server::skip_entity_check_on_this_thread_for_bench();
     let build = if cfg!(debug_assertions) {
         "debug assertions on (the dev profile)"
