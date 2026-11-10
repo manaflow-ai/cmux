@@ -1,6 +1,7 @@
 //! Bells rung by the parser, published after the terminal lock is released.
 
 use super::*;
+use std::sync::atomic::AtomicUsize;
 
 /// BEL count recorded by a parser callback.
 ///
