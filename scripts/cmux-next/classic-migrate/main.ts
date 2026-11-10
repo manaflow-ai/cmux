@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 // classic → NEXT Cloud migration CLI. Reads classic only (READ ONLY Postgres or a fixture), copies VMs into NEXT
-// through two idempotent HTTP routes, and records every step in an append-only ledger. See README.md.
+// through cmux-platform's idempotent internal migration route, and records every step in an append-only ledger.
+// See README.md.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
-import { apply, rollback, status } from "./apply.ts"
-import { httpPlatform, httpVmApi, mapTenantResolver, type PersonalTenantResolver } from "./clients.ts"
+import { apply, rollback, status, verify } from "./apply.ts"
+import { httpLegacyVmApi, httpPlatform, type PlatformImports } from "./clients.ts"
 import { Ledger } from "./ledger.ts"
 import { buildPlan, renderPlanMarkdown, renderPlanText, type Plan } from "./plan.ts"
 import {
@@ -23,13 +24,15 @@ const USAGE = `usage: bun scripts/cmux-next/classic-migrate/main.ts <command> [o
   plan      --user STACK_USER_ID | --team STACK_TEAM_ID
             [--source postgres | --source fixture FILE] [--stack-project ID] [--out DIR]
             [--allow-production-read]
-  apply     --plan plan.json --ledger FILE [--only CLASSIC_VM_ID] [--dry-run]
-            [--vm-api ORIGIN] [--platform ORIGIN] [--personal-tenants FILE]
-  rollback  --ledger FILE [--vm-api ORIGIN] [--platform ORIGIN]
+  apply     --plan plan.json --ledger FILE [--only CLASSIC_VM_ID] [--dry-run] [--fresh]
+            [--platform ORIGIN] [--json]
+  rollback  --ledger FILE [--platform ORIGIN] [--vm-api ORIGIN] [--json]
+  verify    --ledger FILE [--platform ORIGIN] [--json]
   status    --ledger FILE [--plan plan.json] [--json]
 
 env: CLASSIC_DATABASE_URL, CLASSIC_DB_HOST_ALLOW (plan --source postgres);
-     CMUX_VM_API_ORIGIN, CMUX_VM_IMPORT_KEY, CMUX_PLATFORM_ORIGIN, INTERNAL_TOKEN (apply, rollback)
+     CMUX_PLATFORM_ORIGIN, INTERNAL_TOKEN (apply, rollback, verify);
+     CMUX_VM_API_ORIGIN, CMUX_VM_IMPORT_KEY (rollback of a ledger the earlier CLI wrote, optional)
 `
 
 class UsageError extends Error {}
@@ -56,9 +59,9 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       ledger: { type: "string" },
       only: { type: "string" },
       "dry-run": { type: "boolean" },
-      "vm-api": { type: "string" },
+      fresh: { type: "boolean" },
       platform: { type: "string" },
-      "personal-tenants": { type: "string" },
+      "vm-api": { type: "string" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
@@ -69,15 +72,18 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
   }
   const log = (line: string) => process.stderr.write(`${line}\n`)
   const clients = () => ({
-    vmApi: httpVmApi(
-      need(values["vm-api"] ?? env["CMUX_VM_API_ORIGIN"], "--vm-api or CMUX_VM_API_ORIGIN"),
-      need(env["CMUX_VM_IMPORT_KEY"], "CMUX_VM_IMPORT_KEY"),
-    ),
     platform: httpPlatform(
       need(values.platform ?? env["CMUX_PLATFORM_ORIGIN"], "--platform or CMUX_PLATFORM_ORIGIN"),
       need(env["INTERNAL_TOKEN"], "INTERNAL_TOKEN"),
     ),
   })
+  // Only an earlier-CLI ledger needs it (its own VM API imports); without it those are listed for manual cleanup.
+  const legacyVmApi = () => {
+    const origin = values["vm-api"] ?? env["CMUX_VM_API_ORIGIN"]
+    const key = env["CMUX_VM_IMPORT_KEY"]
+    return origin && key ? { legacyVmApi: httpLegacyVmApi(origin, key) } : {}
+  }
+  const printJson = (v: unknown) => process.stdout.write(`${JSON.stringify(v, null, 2)}\n`)
 
   switch (cmd) {
     case "plan": {
@@ -117,41 +123,55 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       const plan = JSON.parse(readFileSync(need(values.plan, "--plan"), "utf8")) as Plan
       const dryRun = values["dry-run"] ?? false
       const ledger = new Ledger(dryRun && !values.ledger ? "/dev/null" : need(values.ledger, "--ledger"))
-      const tenantMap = values["personal-tenants"]
-        ? (JSON.parse(readFileSync(values["personal-tenants"], "utf8")) as Record<string, string>)
-        : {}
-      const resolvePersonalTenant: PersonalTenantResolver = mapTenantResolver(tenantMap)
-      const offline = {
-        vmApi: {
-          importSnapshot: () => Promise.reject(new Error("dry run")),
-          deleteSnapshot: () => Promise.reject(new Error("dry run")),
-        },
-        platform: {
-          importMachine: () => Promise.reject(new Error("dry run")),
-          deleteMachine: () => Promise.reject(new Error("dry run")),
-        },
+      const offline: PlatformImports = {
+        importMachine: () => Promise.reject(new Error("dry run")),
+        deleteMachine: () => Promise.reject(new Error("dry run")),
+        list: () => Promise.reject(new Error("dry run")),
       }
       const report = await apply(
         plan,
         ledger,
-        { ...(dryRun ? offline : clients()), resolvePersonalTenant, log },
-        { ...(values.only !== undefined ? { only: values.only } : {}), dryRun },
+        { ...(dryRun ? { platform: offline } : clients()), log },
+        { ...(values.only !== undefined ? { only: values.only } : {}), dryRun, fresh: values.fresh ?? false },
       )
-      if (dryRun) {
-        process.stdout.write(renderPlanText(plan))
-        for (const w of report.would) process.stdout.write(`would ${w.action}: ${w.classic_vm_id} ${w.step}\n`)
+      if (values.json) printJson(report)
+      else {
+        if (dryRun) {
+          process.stdout.write(renderPlanText(plan))
+          for (const w of report.would) process.stdout.write(`would ${w.action}: ${w.classic_vm_id}\n`)
+        }
+        process.stdout.write(`attempt ${report.migration_id}: ${report.sent} request(s) sent\n`)
+        for (const s of report.skipped) process.stdout.write(`skipped ${s.classic_vm_id}: ${s.why}\n`)
+        for (const d of report.done) process.stdout.write(`done ${d}\n`)
+        for (const f of report.failed) process.stdout.write(`failed ${f.classic_vm_id}: ${f.error}\n`)
       }
-      for (const s of report.skipped) process.stdout.write(`skipped ${s.classic_vm_id}: ${s.why}\n`)
-      for (const d of report.done) process.stdout.write(`done ${d}\n`)
-      for (const f of report.failed) process.stdout.write(`failed ${f.classic_vm_id} ${f.step}: ${f.error}\n`)
       return report.failed.length > 0 ? 1 : 0
     }
     case "rollback": {
-      const report = await rollback(new Ledger(need(values.ledger, "--ledger")), { ...clients(), log })
-      for (const r of report.rolled_back) process.stdout.write(`rolled back ${r.classic_vm_id} ${r.step}\n`)
-      for (const f of report.failed) process.stdout.write(`failed ${f.classic_vm_id} ${f.step}: ${f.error}\n`)
-      if (report.rolled_back.length === 0 && report.failed.length === 0) process.stdout.write("nothing to roll back\n")
-      return report.failed.length > 0 ? 1 : 0
+      const report = await rollback(new Ledger(need(values.ledger, "--ledger")), { ...clients(), ...legacyVmApi(), log })
+      if (values.json) printJson(report)
+      else {
+        for (const r of report.rolled_back) process.stdout.write(`rolled back ${r.classic_vm_id} (${r.status})\n`)
+        for (const f of report.failed) process.stdout.write(`failed ${f.classic_vm_id}: ${f.error}\n`)
+        for (const m of report.manual_cleanup)
+          process.stdout.write(
+            `MANUAL CLEANUP ${m.classic_vm_id} (${m.migration_id}) VM API snapshot ${m.vm_api_snapshot_id ?? "(id unknown)"}: ${m.why}\n`,
+          )
+        if (report.sent === 0 && report.manual_cleanup.length === 0) process.stdout.write("nothing to roll back\n")
+      }
+      return report.failed.length > 0 || report.manual_cleanup.length > 0 ? 1 : 0
+    }
+    case "verify": {
+      const report = await verify(new Ledger(need(values.ledger, "--ledger")), { ...clients(), log })
+      if (values.json) printJson(report)
+      else {
+        for (const r of report.rows)
+          process.stdout.write(
+            `${r.ok ? "ok  " : "FAIL"} ${r.attempt} ${r.classic_vm_id} expect ${r.expect}${r.found ? ` found ${r.found}` : ""}: ${r.note}\n`,
+          )
+        process.stdout.write(`${report.ok ? "verified" : "MISMATCH"}: ${report.rows.length} VM(s) in team ${report.team ?? "(none)"}\n`)
+      }
+      return report.ok ? 0 : 1
     }
     case "status": {
       const plan = values.plan ? (JSON.parse(readFileSync(values.plan, "utf8")) as Plan) : undefined
@@ -160,7 +180,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv = process.env)
       else {
         for (const r of rows)
           process.stdout.write(
-            `${r.overall.padEnd(20)} ${r.classic_vm_id}  vm_api_import=${r.vm_api_import} platform_import=${r.platform_import}${r.snapshot ? ` ${r.snapshot}` : ""}\n`,
+            `${r.overall.padEnd(20)} ${r.classic_vm_id}  ${r.attempt}${r.vm_api_import ? ` vm_api_import=${r.vm_api_import}${r.snapshot ? ` ${r.snapshot}` : ""}` : ""} platform_import=${r.platform_import}${r.machine ? ` ${r.machine}` : ""}${r.ignored_steps ? ` (ignored unknown steps: ${r.ignored_steps.join(", ")})` : ""}\n`,
           )
         const by = new Map<string, number>()
         for (const r of rows) by.set(r.overall, (by.get(r.overall) ?? 0) + 1)
