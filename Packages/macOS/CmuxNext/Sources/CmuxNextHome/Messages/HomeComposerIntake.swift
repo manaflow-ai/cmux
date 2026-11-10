@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextPages
+public import CmuxNextSettings
 
 /// The Messages page as the app's file intake reaches it (the App's `HomeMessagesPage`).
 @MainActor
