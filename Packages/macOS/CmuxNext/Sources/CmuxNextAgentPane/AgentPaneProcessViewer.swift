@@ -55,9 +55,9 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
     /// A login shell on `machine`, an ssh machine this Mac's acpmux added, in `cwd` there:
     /// `acpmux machine shell` (ssh -t) in a terminal of this Mac beside a chat that machine runs,
     /// its header's Terminal (Leo, 2026-11-06). The folder is one argument (`--cwd=`), never an option.
-    /// Nil when the name is not a plain token. `session` and `toolCall` are empty: no process.
+    /// Nil when the name could read as an option. `session` and `toolCall` are empty: no process.
     public init?(executable: URL, socket: String, shellOn machine: String, cwd: String?) {
-        guard Self.isToken(machine), !socket.isEmpty else { return nil }
+        guard Self.isMachineName(machine), !socket.isEmpty else { return nil }
         argv = [executable.path, "machine", "shell", machine] + (cwd.map { ["--cwd=" + $0] } ?? [])
         environment = ["ACPMUX_SOCKET": socket]
         title = machine
@@ -71,6 +71,12 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
     public static func isToken(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 256 && !id.hasPrefix("-")
             && id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII || "-_.:".unicodeScalars.contains($0) }
+    }
+
+    /// Whether `name` can be an added machine's name, passed as one argument (no shell): not empty,
+    /// not an option, no control characters. Spaces are fine ("eval box"); acpmux reaches only a listed peer.
+    public static func isMachineName(_ name: String) -> Bool {
+        !name.isEmpty && name.count <= 256 && !name.hasPrefix("-") && !name.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
 
     /// `chat.processTerminal`'s answer for `model`: `{opened}`, or refused for a page with no
@@ -88,10 +94,11 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
     }
 
     /// `chat.machineTerminal`'s answer for `model`: `{opened}`, or refused for a page with no chat,
-    /// a New Tab page, a chat with a daemon of its own there (a Cloud or SSH chat's Terminal is that
-    /// daemon's shell already) or without this Mac's acpmux.
+    /// a New Tab page, or one without this Mac's acpmux: a page whose connection is another machine's
+    /// (a Cloud or SSH chat, whose Terminal is that daemon's shell already) has no socket here. A peer's
+    /// chat relayed by this Mac's acpmux is `remoteChat` too, and is the one this opens for.
     @MainActor static func openShell(on machine: String, cwd: String?, in model: AgentPaneModel) -> [String: Any] {
-        guard model.sessionId != nil, model.newTab == nil, !model.remoteChat, let header = model.header,
+        guard model.sessionId != nil, model.newTab == nil, let header = model.header,
               let socket = model.transport.acpmuxSocket, let executable = model.transport.acpmuxExecutable,
               let viewer = AgentPaneProcessViewer(executable: executable, socket: socket, shellOn: machine, cwd: cwd) else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.machineTerminal")

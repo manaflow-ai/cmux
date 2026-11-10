@@ -47,8 +47,11 @@ export async function openCommand(
 /// shell`, Leo 2026-11-06: "the terminal I open on the top right button works thru that machine");
 /// undefined for a chat on this Mac, a Cloud peer's, or one whose tab is on its machine's own daemon
 /// (that daemon's shell is its Terminal already).
-export const chatShellMachine = (peer: string | undefined, kinds?: Record<string, "ssh" | "cloud">) =>
-  peer && kinds?.[peer] !== "cloud" ? peer : undefined;
+export const chatShellMachine = (
+  peer: string | undefined,
+  kinds?: Record<string, "ssh" | "cloud">,
+  hostKind?: string,
+) => (peer && hostKind !== "cloud" && kinds?.[peer] !== "cloud" ? peer : undefined);
 
 /// Opens a login shell on `machine`, in `cwd` there, in a terminal tab beside the chat. Resolves
 /// whether the host opened one: false outside the app or on a host without `chat.machineTerminal`.

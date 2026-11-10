@@ -96,7 +96,9 @@ struct AgentPaneMachineShellTests {
     @Test func theRequestNamesAPlainMachine() {
         #expect(Self.request(["machine": "box", "cwd": "/home/leo/repo"]) == .machineTerminal(machine: "box", cwd: "/home/leo/repo"))
         #expect(Self.request(["machine": "box", "cwd": ""]) == .machineTerminal(machine: "box", cwd: nil))
+        #expect(Self.request(["machine": "eval box"]) == .machineTerminal(machine: "eval box", cwd: nil), "a name with a space")
         #expect(Self.request(["machine": "-oProxyCommand=x"]) == .unsupported("chat.machineTerminal"))
+        #expect(Self.request(["machine": "box\nx"]) == .unsupported("chat.machineTerminal"))
         #expect(Self.request([:]) == .unsupported("chat.machineTerminal"))
     }
 
@@ -107,6 +109,8 @@ struct AgentPaneMachineShellTests {
                                             openProcess: { opened.append($0); return true })
         model.transport.acpmuxSocket = "/tmp/acpmux.sock"
         model.transport.acpmuxExecutable = URL(fileURLWithPath: "/opt/acpmux")
+        // New Agent Chat on a peer marks the page remote (its handshake names the peer): it still opens.
+        model.remoteChat = true
         let reply = await model.respond(to: Self.request(["machine": "box", "cwd": "-rf it's"]))
         #expect((reply["value"] as? [String: Any])?["opened"] as? Bool == true)
         let viewer = try #require(opened.first)
@@ -115,16 +119,14 @@ struct AgentPaneMachineShellTests {
         #expect(!viewer.onChatMachine, "the shell's terminal is this Mac's, beside the chat")
     }
 
-    @Test func aChatWithItsOwnMachineDaemonOrNoAcpmuxIsRefused() async {
+    @Test func aChatWithItsOwnMachineDaemonIsRefused() async {
+        // A Cloud or SSH chat's page talks to that machine's acpmux: the handshake leaves no socket here.
         let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
         var opened = 0
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openProcess: { _ in opened += 1; return true })
-        #expect(await model.respond(to: Self.request(["machine": "box"]))["ok"] as? Bool != true, "no acpmux socket")
-        model.transport.acpmuxSocket = "/tmp/acpmux.sock"
-        model.transport.acpmuxExecutable = URL(fileURLWithPath: "/opt/acpmux")
         model.remoteChat = true
-        #expect(await model.respond(to: Self.request(["machine": "box"]))["ok"] as? Bool != true, "a Cloud or SSH chat's Terminal is its daemon's")
+        #expect(await model.respond(to: Self.request(["machine": "box"]))["ok"] as? Bool != true, "no acpmux socket here")
         #expect(opened == 0)
     }
 }

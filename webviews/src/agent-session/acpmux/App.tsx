@@ -9246,6 +9246,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const shellMachine = chatShellMachine(
     summary?.peer || (summary?.sessionId ? findSession(snapshot.sessions, summary.sessionId)?.peer : undefined),
     snapshot.peerKinds,
+    summary?.hostKind,
   );
   const openTerminal = (mode: QuickActionMode) => {
     if (!shellMachine || (mode === "toggle" && litSplits.includes(HEADER_ACTIONS.terminal)))

@@ -13,6 +13,7 @@ describe("a chat's machine terminal", () => {
     expect(chatShellMachine("box", undefined)).toBe("box");
     expect(chatShellMachine("cloud-1", { "cloud-1": "cloud" })).toBeUndefined();
     expect(chatShellMachine(undefined, { box: "ssh" })).toBeUndefined();
+    expect(chatShellMachine("cloud-2", undefined, "cloud")).toBeUndefined();
   });
 
   test("asks the host for the machine's shell in the chat's folder there", async () => {
