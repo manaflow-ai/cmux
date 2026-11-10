@@ -183,6 +183,44 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
     let _ = std::fs::remove_dir_all(&outside);
 }
 
+// A host added over ssh has no webRoots until someone writes them, so a chat started there
+// could use only a scratch folder, never the person's own project on it (remote e2e walk,
+// 2026-11-10).
+#[tokio::test]
+async fn the_owners_daemon_starts_a_chat_in_a_checkout_outside_the_roots_and_no_one_else_does() {
+    let root = scratch("checkout-root");
+    let elsewhere = scratch("checkout-elsewhere");
+    let hub = hub(&root);
+    let repo = elsewhere.join("app");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::create_dir_all(repo.join("lib")).unwrap();
+    std::fs::create_dir_all(elsewhere.join("plain")).unwrap();
+
+    let mut peer = C::open(&hub, Origin::Peer);
+    for want in [repo.clone(), repo.join("lib")] {
+        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&want))).await;
+        assert_eq!(cwd_of(&hub, &r), want, "{r}");
+    }
+    // A folder that is no checkout stays outside, and the refusal says a checkout works.
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&elsewhere.join("plain")))).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    assert!(r["error"]["message"].as_str().unwrap().contains("a git checkout"), "{r}");
+    // Nor is a missing folder in a checkout made.
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&repo.join("new")))).await;
+    assert!(r["error"].is_object() && !repo.join("new").exists(), "{r}");
+
+    // A Web client, and a peer forwarding for one or for a paired device, are held to the roots.
+    let mut web = C::open(&hub, Origin::Web);
+    let r = web.call(method::SESSION_NEW, new(json!({}), Some(&repo))).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    for via in ["web", "device"] {
+        let r = peer.call(method::SESSION_NEW, new(json!({"via": via}), Some(&repo))).await;
+        assert!(r["error"].is_object(), "via {via}: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&elsewhere);
+}
+
 #[tokio::test]
 async fn a_peers_missing_folder_that_was_removed_with_an_archive_record_is_not_made_again() {
     // A cleaned-up worktree leaves `~/archive/<time>-<name>/manifest.json` naming its path; a
