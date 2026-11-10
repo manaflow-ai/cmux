@@ -523,51 +523,120 @@ fn seen_free(free: impl Fn() -> bool) -> bool {
     }
 }
 
+/// How many creates the wait test runs to get one stop of the journal writer inside a create.
+const STOP_TRIES: usize = 20;
+
+/// One try of the wait test: what was seen while the journal writer stood before a COMMIT.
+struct StopSeen {
+    /// The creating thread was still inside its create when the looks ended.
+    creator_inside: bool,
+    state_free: bool,
+    registry_free: bool,
+}
+
 #[test]
 fn the_locks_of_a_persons_request_are_free_while_the_journal_writer_commits_a_create() {
     let session = file_session(60);
     let mux = session.mux.clone();
     let pane = session.target_pane();
-    // The journal writer stops inside the transaction of the create's projection commit (it
-    // holds the registry connection there, as during a slow disk write). The stop is armed after
-    // the projection is built, so no earlier commit of the same create takes it.
-    let (entered, entered_receiver) = sync_channel(1);
-    let (release, release_receiver) = sync_channel::<()>(1);
-    let stop = Mutex::new(Some((entered, release_receiver)));
-    let arming = Arc::downgrade(&mux);
-    *mux.resource_projection_before_commit.lock().unwrap() = Some(Arc::new(move || {
-        if let (Some(mux), Some((entered, release))) =
-            (arming.upgrade(), stop.lock().unwrap().take())
-        {
-            mux.install_journal_before_commit_for_test(entered, release);
+    let mut created = Vec::new();
+    let mut failed = Vec::new();
+    let mut verdict = None;
+    let mut tries = Vec::new();
+    // Channels of the tries whose stop came late or never: they stay open, with the release
+    // sent, so a later batch of the journal writer that takes such a stop goes on at once.
+    let mut spent = Vec::new();
+    for attempt in 0..STOP_TRIES {
+        // The journal writer stops inside a batch transaction, before its COMMIT (it holds the
+        // registry connection there, as during a slow disk write). The stop is armed after the
+        // projection of the create is built, with the registry lock held by the create.
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel::<()>(1);
+        let stop = Mutex::new(Some((entered, release_receiver)));
+        let arming = Arc::downgrade(&mux);
+        *mux.resource_projection_before_commit.lock().unwrap() = Some(Arc::new(move || {
+            if let (Some(mux), Some((entered, release))) =
+                (arming.upgrade(), stop.lock().unwrap().take())
+            {
+                mux.install_journal_before_commit_for_test(entered, release);
+            }
+        }));
+        let before = mux.write_path_stats();
+        let inside = Arc::new(AtomicBool::new(true));
+        let creator = std::thread::spawn({
+            let mux = mux.clone();
+            let inside = inside.clone();
+            move || {
+                let made = without_crosscheck(|| mux.new_tab(Some(pane), None, Some((80, 24))));
+                inside.store(false, Ordering::SeqCst);
+                made
+            }
+        });
+        let give_up = Instant::now() + Duration::from_secs(30);
+        let stopped = loop {
+            if entered_receiver.recv_timeout(Duration::from_millis(5)).is_ok() {
+                break true;
+            }
+            if !inside.load(Ordering::SeqCst) || Instant::now() >= give_up {
+                break entered_receiver.try_recv().is_ok();
+            }
+        };
+        let seen = stopped.then(|| {
+            let state_free = seen_free(|| mux.state.try_lock().is_ok());
+            let registry_free = seen_free(|| mux.workspace_registry.try_lock().is_ok());
+            // Read last: a create that is still inside after both looks was inside for each.
+            StopSeen { creator_inside: inside.load(Ordering::SeqCst), state_free, registry_free }
+        });
+        release.send(()).unwrap();
+        match creator.join().expect("the creating thread panicked") {
+            Ok(surface) => created.push(surface),
+            Err(error) => failed.push(format!("try {attempt}: {error:#}")),
         }
-    }));
-    let creator = std::thread::spawn({
-        let mux = mux.clone();
-        move || without_crosscheck(|| mux.split(pane, SplitDir::Down, None))
-    });
-    entered_receiver
-        .recv_timeout(Duration::from_secs(30))
-        .expect("the journal writer did not reach the commit of the create");
-
-    let state_free = seen_free(|| mux.state.try_lock().is_ok());
-    let registry_free = seen_free(|| mux.workspace_registry.try_lock().is_ok());
-
-    release.send(()).unwrap();
-    let created = creator.join().expect("the creating thread panicked");
-    *mux.resource_projection_before_commit.lock().unwrap() = None;
+        *mux.resource_projection_before_commit.lock().unwrap() = None;
+        let after = mux.write_path_stats();
+        tries.push(format!(
+            "try {attempt}: writer stopped {stopped}, create still inside at the stop {:?}, \
+             commits through the writer {} and on the request thread {}",
+            seen.as_ref().map(|seen| seen.creator_inside),
+            after.effect_intents - before.effect_intents,
+            after.request_effect_commits - before.request_effect_commits,
+        ));
+        spent.push((entered_receiver, release));
+        if let Some(seen) = seen.filter(|seen| seen.creator_inside) {
+            verdict = Some(seen);
+            break;
+        }
+    }
     drop(mux);
-    session.end(created.as_ref().ok().cloned().into_iter().collect());
+    session.end(created);
+    drop(spent);
 
+    // A try in which the create ended before the looks says nothing about the create's wait:
+    // without one valid try the test fails, it never passes.
+    let Some(seen) = verdict else {
+        panic!(
+            "in {STOP_TRIES} creates the journal writer never stood before a COMMIT while the \
+             create was still inside its commit, so the test can not say which lock the create \
+             holds for the disk time:\n{}",
+            tries.join("\n")
+        );
+    };
     assert!(
-        state_free,
+        seen.state_free,
         "the state lock is held while the journal writer commits a create: a key to another \
-         terminal and list-workspaces wait for the disk"
+         terminal and list-workspaces wait for the disk\n{}",
+        tries.join("\n")
     );
     assert!(
-        registry_free,
-        "the registry lock is held while the journal writer commits a create: every request \
-         that takes it waits for the disk time of the create"
+        seen.registry_free,
+        "the registry lock is held while the journal writer is before its COMMIT and a create \
+         waits for its receipt: every request that takes the registry lock waits for the disk \
+         time of the create\n{}",
+        tries.join("\n")
     );
-    created.expect("the create whose commit was stopped did not pass after the release");
+    assert!(
+        failed.is_empty(),
+        "a create whose commit was stopped did not pass after the release:\n{}",
+        failed.join("\n")
+    );
 }
