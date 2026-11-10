@@ -276,6 +276,16 @@ fn a_named_key_reaches_its_terminal_without_the_session_lock() {
     mux.shutdown();
 }
 
+/// The input lane of the only connection registered on `mux` (its threads record their QoS there).
+#[cfg(target_os = "macos")]
+pub(super) fn only_connection_lane(mux: &Mux) -> Arc<input_qos::InputLane> {
+    use crate::panic_free::RecoverPoison as _;
+    let state = mux.control_clients.state.lock().recover_poison();
+    assert_eq!(state.clients.len(), 1, "the test expects one connection");
+    let record = state.clients.values().next().expect("one connection");
+    record.writer.input_lane.clone()
+}
+
 /// Reads lines from `reader` until the reply to request `id` (stream lines of an attach come in between).
 #[cfg(target_os = "macos")]
 fn reply_to(reader: &mut BufReader<Box<dyn transport::Stream>>, id: u64) -> Value {
@@ -333,9 +343,10 @@ fn a_connection_that_carries_the_persons_keys_runs_at_user_interactive_qos() {
     }
     // Each thread recorded its QoS before it read, ran or wrote request 3 (its reply came after that).
     let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
+    let lane = only_connection_lane(&mux);
     for role in ["mux-conn", "mux-control-dispatch", "mux-line-out"] {
         assert_eq!(
-            input_qos::observed_thread_qos(role),
+            lane.observed_thread_qos(role),
             Some(interactive),
             "{role} carried the person's keys at another QoS than user-interactive"
         );
@@ -372,8 +383,9 @@ fn an_unattached_senders_connection_keeps_the_default_qos() {
         reply_to(&mut reader, id);
     }
     let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
+    let lane = only_connection_lane(&mux);
     for role in ["mux-control-dispatch", "mux-line-out"] {
-        let observed = input_qos::observed_thread_qos(role);
+        let observed = lane.observed_thread_qos(role);
         assert!(observed.is_some(), "{role} recorded no QoS");
         assert_ne!(
             observed,

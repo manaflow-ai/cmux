@@ -221,6 +221,7 @@ impl ConnectionSurfaceScheduler {
         let job_mux = mux.clone();
         let job_writer = writer.clone();
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+            job_writer.input_lane.note_thread_qos("mux-terminal-work");
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));

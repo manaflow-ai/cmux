@@ -13,6 +13,7 @@ pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;
 pub mod process_resources;
+pub mod task_role;
 #[cfg(unix)]
 pub mod unix_process_scope;
 #[cfg(windows)]

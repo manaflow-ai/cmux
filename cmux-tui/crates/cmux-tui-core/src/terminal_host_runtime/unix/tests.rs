@@ -12,6 +12,7 @@ mod launch_codec;
 mod parser_failure;
 mod parser_order;
 mod smart_viewer_exit;
+mod task_role;
 mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;

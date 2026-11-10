@@ -139,6 +139,8 @@ pub use cmux_tui_platform::platform;
 #[cfg(unix)]
 use cmux_tui_platform::process_identity;
 pub use cmux_tui_platform::process_resources;
+/// The macOS task role of this process (the cmux-tui-platform crate).
+pub use cmux_tui_platform::task_role;
 pub mod server;
 pub mod session_state_import;
 pub mod terminal_host;

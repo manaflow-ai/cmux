@@ -17,6 +17,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[derive(Default)]
 pub(super) struct InputLane {
     carries_person_input: AtomicBool,
+    /// Test hook: the QoS each thread of this connection last recorded, by thread name ([`Self::note_thread_qos`]).
+    #[cfg(test)]
+    observed: std::sync::Mutex<std::collections::HashMap<&'static str, u32>>,
 }
 
 thread_local! {
@@ -66,30 +69,28 @@ pub(crate) fn raise_this_thread() {
     }
 }
 
-/// Test hook: each connection thread (`mux-conn` reader, `mux-control-dispatch`, `mux-line-out` writer) records its
-/// own QoS before each line, request or reply, so a test reads it after that reply arrives (no timing).
-#[cfg(test)]
-pub(super) fn note_thread_qos(role: &'static str) {
-    OBSERVED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(role, current_thread_qos());
+impl InputLane {
+    /// Test hook: each thread of the connection (`mux-conn` reader, `mux-control-dispatch`, `mux-line-out` writer, a
+    /// `mux-terminal-work` creation job) records its own QoS before each line, request, reply or job, so a test reads
+    /// it after that reply arrives (no timing). Kept per connection: tests that run at the same time do not mix.
+    #[cfg(test)]
+    pub(super) fn note_thread_qos(&self, role: &'static str) {
+        self.observed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(role, current_thread_qos());
+    }
+
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub(super) fn note_thread_qos(&self, _role: &'static str) {}
+
+    /// The QoS a thread of this connection last recorded (test hook; the QoS tests run on macOS).
+    #[cfg(all(test, target_os = "macos"))]
+    pub(super) fn observed_thread_qos(&self, role: &'static str) -> Option<u32> {
+        self.observed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(role).copied()
+    }
 }
-
-#[cfg(not(test))]
-#[inline(always)]
-pub(super) fn note_thread_qos(_role: &'static str) {}
-
-/// The QoS a connection thread last recorded (test hook; the QoS tests run on macOS).
-#[cfg(all(test, target_os = "macos"))]
-pub(super) fn observed_thread_qos(role: &'static str) -> Option<u32> {
-    OBSERVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(role).copied()
-}
-
-#[cfg(test)]
-static OBSERVED: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<&'static str, u32>>,
-> = std::sync::LazyLock::new(Default::default);
 
 /// This thread's QoS class (`qos_class_t` as u32); 0 off macOS.
 #[cfg(test)]

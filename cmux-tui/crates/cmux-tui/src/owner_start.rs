@@ -44,3 +44,6 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
