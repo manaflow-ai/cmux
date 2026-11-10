@@ -472,7 +472,13 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
 #[test]
 fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     for wait in [false, true] {
-        let mut fake = Fake::new(vec![signed_in(), started()]);
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started(),
+            exec_out(
+                "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
+            ),
+        ]);
         let mut words = vec!["--login", "machine"];
         if wait {
             words.push("--wait");
@@ -481,8 +487,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
             panic!("{:?}", fake.ran)
         };
         assert_eq!(
-            fake.ran,
-            vec![
+            fake.ran[..2],
+            [
                 strings(&["cloud", "list-machines", "--json"]),
                 strings(&[
                     "cloud",
@@ -497,6 +503,15 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 ]),
             ]
         );
+        // A folderless start with no prompt still says where the chat runs (review #39939 F1): one read
+        // of the machine's sessions, after the chat is ready, so `ready_ms` does not count it.
+        assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+        assert!(
+            fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd")
+        );
+        assert!(!fake.ran[2][5].contains("acp send"), "nothing is sent: {}", fake.ran[2][5]);
+        assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+        assert_eq!(answer["folder"], "fresh");
         for (key, value) in [
             ("machine_id", "vm-1"),
             ("machine_name", "chat-fresh"),
@@ -549,8 +564,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "python-dev"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 4);
-    // No prompt: new-machine and start-session only.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    // No prompt: new-machine and start-session, then the read of where the chat runs.
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--environment", "env_1", "--wait"]))
     else {
         panic!("{:?}", fake.ran)
@@ -558,7 +573,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(answer["sent"], false);
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(fake.ran[2], on_vm_1);
-    assert_eq!(fake.ran.len(), 3);
+    assert_eq!(fake.ran.len(), 4);
+    assert!(answer.get("cwd").is_none(), "an unread folder is left out: {answer}");
     // --wait with a prompt: the chat on the machine made in the environment, its turn waited on, and no
     // second machine.
     let mut fake = Fake::new(vec![
@@ -579,7 +595,7 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran.iter().filter(|step| step[1] == "new-machine").count(), 1);
     assert_eq!(fake.ran.len(), 5);
     // --name of no machine yet: that name, in the environment.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let asked = request(&["--name", "py-1", "--environment", "env_1"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(fake.ran[1], new_machine(&["--name", "py-1", "--environment", "env_1"]));
@@ -2185,4 +2201,57 @@ fn an_unreachable_read_of_the_turn_is_asked_again() {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(answer["unanswered_reads"], 1);
+}
+
+/// Leo (2026-11-09): "this no folder selected should be, like, good as well". A start with no
+/// `--cwd` and no `--from-folder` is a first-class one: the answer says the chat runs in a fresh
+/// folder of its own (`folder: fresh`), names that folder as the machine reports it (`cwd`, read in
+/// the send's own exec, so no extra round trip), and gives the way to a repository later
+/// (`follow_up.cd`). Nothing waits on a folder: the same steps as any start.
+#[test]
+fn a_folderless_start_is_fresh_and_reports_the_folder_the_machine_made() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(
+            "@@cwd\n{\"sessions\":[{\"sessionId\":\"other\",\"cwd\":\"/home/cmux/work/api\"},\
+             {\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n\
+             @@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd sess-1 DIR|--repo OWNER/NAME");
+    // start-session gets no folder, and the send reads where the chat runs in the same exec.
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "chat-fresh", "--agent", "claude", "--json"])
+    );
+    assert_eq!(fake.ran.len(), 3, "no step waits on a folder: {:?}", fake.ran);
+    assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+}
+
+#[test]
+fn the_folder_kind_and_the_session_folder_read() {
+    assert_eq!(folder_kind(None, None), "fresh");
+    assert_eq!(folder_kind(Some("/home/cmux/work/api"), None), "given");
+    assert_eq!(folder_kind(None, Some("/Users/you/src/cmux")), "copied");
+    let rows = "[{\"id\":\"s-2\",\"cwd\":\"/root/chats/s-2\"}]".to_owned();
+    assert_eq!(session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
+    assert_eq!(session_cwd(Some(&rows), "s-3"), None);
+    assert_eq!(session_cwd(Some(&"not json".to_owned()), "s-2"), None);
+    assert_eq!(session_cwd(None, "s-2"), None);
+    // A start with no read (an older machine's ls) still answers: given keeps its --cwd.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let given = request(&["--prompt", "hi", "--cwd", "/home/cmux/work/api"]);
+    let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["folder"], "given");
+    assert_eq!(answer["cwd"], "/home/cmux/work/api");
 }

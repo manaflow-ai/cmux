@@ -55,6 +55,10 @@ const GUEST_CMUX: &str = "cmux-tui";
 pub(super) const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
+/// The send's read of where the chat runs on the machine (support.rs `session_cwd`), in the same
+/// exec as the send, bounded so it never holds it: the answer's `cwd`, a folderless chat's too.
+const SESSION_CWD: &str = "echo @@cwd; timeout 5 \"$c\" acp ls --live --machine local --json --fields sessionId,cwd 2>/dev/null; ";
+
 /// The most of a prompt that goes inside the send's own command, quoted. Longer prompts go to a
 /// file on the machine first. The cmux API takes a command of at most 64 KiB, and this one has
 /// the script around it.
@@ -1157,8 +1161,12 @@ fn steps(
         "tab_id": at(&started, "tab_id"),
         "host": at(&started, "host"),
         "agent": request.agent,
+        "folder": folder_kind(request.cwd.as_deref(), request.from_folder.as_deref()),
         "follow_up": follow_ups(machine_id, session),
     });
+    if let Some(cwd) = &request.cwd {
+        answer.set("cwd", json!(cwd));
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
 
@@ -1167,6 +1175,16 @@ fn steps(
         let ready_ms = runner.now().saturating_duration_since(began).as_millis();
         answer.set("sent", json!(false));
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        // A chat with no `--cwd` (a fresh folder, or a copy of a Mac folder) runs where the machine put
+        // it: one read says where, as the send's own exec does with a prompt. Before the deadline only;
+        // a read that fails leaves the answer without `cwd`, never fails a chat that started.
+        if request.cwd.is_none()
+            && !deadline.passed(runner)
+            && let Ok(listed) = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{SESSION_CWD}"))
+            && let Some(cwd) = session_cwd(sections(&listed).get("cwd"), session)
+        {
+            answer.set("cwd", json!(cwd));
+        }
         return Outcome::Done(answer);
     };
     // start-session answered after the deadline: the chat is there, and nothing is sent to it.
@@ -1198,7 +1216,7 @@ fn send_prompt(
     let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
-            "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+            "{GUEST_PRELUDE}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
              printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
             sid = shell_quote(session),
         )
@@ -1226,7 +1244,7 @@ fn send_prompt(
         }
         uploaded = Some(file.clone());
         format!(
-            "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+            "{GUEST_PRELUDE}{file}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
              echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
              rm -f \"$f\"",
             sid = shell_quote(session),
@@ -1260,6 +1278,9 @@ fn send_prompt(
         );
     }
     answer.set("sent", json!(true));
+    if let Some(cwd) = session_cwd(reported.get("cwd"), session) {
+        answer.set("cwd", json!(cwd));
+    }
     if let Some(delivery) = reported.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
         answer.set("delivery", json!(delivery));
     }
@@ -1647,6 +1668,8 @@ pub(super) fn follow_ups(machine: &str, session: &str) -> Value {
     };
     json!({
         "send": format!("cmux chat send {session} 'PROMPT' --wait"),
+        // Another folder or a repository later, a folderless start's included (chat_cd.rs).
+        "cd": format!("cmux chat cd {session} DIR|--repo OWNER/NAME"),
         "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
         "last": on(format!("{GUEST_CMUX} acp last {session}")),
     })
@@ -1940,7 +1963,7 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, words};
+use support::{at, folder_kind, last_turn, reply, session_cwd, words};
 // `cmux chat cd` reads the same guest script sections.
 pub(in crate::cli) use support::sections;
 
