@@ -271,7 +271,9 @@ impl Cli {
             Agent::Grok => own("GROK_HOME"),
             // `cursor-agent` keeps `auth.json` here on Linux (`harness_health/agent_files.rs`).
             Agent::Cursor => Some(
-                own("XDG_CONFIG_HOME").unwrap_or_else(|| self.home().join(".config")).join("cursor"),
+                own("XDG_CONFIG_HOME")
+                    .unwrap_or_else(|| self.home().join(".config"))
+                    .join("cursor"),
             ),
         }
         .unwrap_or_else(|| self.home().join(agent.home_dir_name()))
@@ -1107,9 +1109,10 @@ pub async fn save_api_key(
                 .map_err(|e| LoginError::new(reason::FAILED, e))
         }
         // Refused above (`takes_api_key`).
-        Agent::Grok | Agent::Cursor => {
-            Err(LoginError::new(reason::UNSUPPORTED, format!("{} takes no saved key here", agent.name())))
-        }
+        Agent::Grok | Agent::Cursor => Err(LoginError::new(
+            reason::UNSUPPORTED,
+            format!("{} takes no saved key here", agent.name()),
+        )),
         Agent::Claude => merge_claude_api_key(&cli.store(agent), key)
             .map_err(|e| LoginError::new(reason::FAILED, e)),
         Agent::Codex => {
