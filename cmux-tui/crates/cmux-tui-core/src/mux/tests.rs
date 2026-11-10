@@ -16,6 +16,7 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
+mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod checkpoint_retention;

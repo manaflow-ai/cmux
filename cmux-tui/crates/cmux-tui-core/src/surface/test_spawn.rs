@@ -346,4 +346,12 @@ impl Surface {
         let start = crate::shell_history::ShellMark::CommandStart;
         pty.command_tracker.lock().unwrap().apply(start, 5_000, &mut Line(command));
     }
+
+    /// Notes output at `at_ms`, as the output reader does with the real
+    /// clock, so a test runs minutes of printing in no time.
+    #[cfg(test)]
+    pub(crate) fn note_output_at_for_test(&self, at_ms: u64) {
+        let pty = self.as_pty().expect("a PTY surface");
+        pty.terminal_metadata.lock().unwrap().activity.note_output(at_ms);
+    }
 }
