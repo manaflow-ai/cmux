@@ -165,8 +165,6 @@ enum HomeMapping {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
-            else if case .widget(let widget) = p, let widgets = HomeWidgetRowProvider.installed,
-                    let card = widgets.part(widget, key: HomeWidgetRowProvider.key(item, part: i)) { shown = [card] }
             // A failed Chief turn's "(turn failed on …: …)" tail is a card in plain words, after what it said.
             else if isChief(item.author, summary), case .text(let text, _) = p, let failure = HomeTurnFailure(text: text),
                     let card = HomeTurnFailureRowProvider.part(failure) {
@@ -456,10 +454,9 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval, .question, .widget:
+        case .work, .approval, .question:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.
-            // A widget without an installed host shows its fallback text.
             return .text(p.plainText, runs: [])
         }
     }
