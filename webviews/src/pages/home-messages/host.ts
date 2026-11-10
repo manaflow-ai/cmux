@@ -69,15 +69,16 @@ export function pageAttachmentKeeper(client: PageClient): AttachmentKeeper {
       const answer = await client.call<unknown>(MessagesOps.loadAttachments, {}).catch(() => undefined);
       return parseKeptAttachments(answer);
     },
-    // A refusal keeps nothing; the page's own trays still hold the files.
+    // Each answers once the app holds the change (false: it refused, and the page's own trays still
+    // hold the files), so the trays let nothing go, and hold a reload, until then.
     put(conversation, part, at) {
-      void client.call(MessagesOps.putAttachment, { conversation, part, at }).catch(() => undefined);
+      return answered(client.call(MessagesOps.putAttachment, { conversation, part, at }));
     },
     remove(conversation, hash) {
-      void client.call(MessagesOps.removeAttachment, { conversation, hash }).catch(() => undefined);
+      return answered(client.call(MessagesOps.removeAttachment, { conversation, hash }));
     },
     release(conversation, migrated) {
-      void client.call(MessagesOps.releaseAttachments, { conversation, migrated }).catch(() => undefined);
+      return answered(client.call(MessagesOps.releaseAttachments, { conversation, migrated }));
     },
     // One file's bytes, in order; the app refuses past its bound (nothing kept, the part still is).
     async write(hash, file) {
@@ -109,6 +110,15 @@ export function pageAttachmentKeeper(client: PageClient): AttachmentKeeper {
       }
     },
   };
+}
+
+/** A keeper call's answer: true once the app holds the change, false when it refused or the call
+ * failed (never a rejection, so a caller waits on it without a catch). */
+export function answered(call: Promise<unknown>): Promise<boolean> {
+  return call.then(
+    () => true,
+    () => false,
+  );
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -194,8 +204,9 @@ export function pageDraftKeeper(client: PageClient): DraftKeeper {
       return parseDrafts(answer?.drafts);
     },
     save(conversation, text) {
-      // An older host without the op keeps nothing; the page's own copy still holds it.
-      void client.call(MessagesOps.saveDraft, { conversation, text }).catch(() => undefined);
+      // An older host without the op keeps nothing; the page's own copy still holds it. The answer
+      // says when the app holds it (nav.ts holds a reload until then).
+      return answered(client.call(MessagesOps.saveDraft, { conversation, text }));
     },
   };
 }

@@ -93,15 +93,17 @@ export async function readHostFile(client: Pick<PageClient, "call">, file: HostF
   return new File(chunks, file.name, file.mimeType ? { type: file.mimeType } : {});
 }
 
+/** `composer`: the composer that shows at call time; it is asked again once the files are read, so
+ * they go to the one that shows then (the person may have moved on meanwhile). */
 export async function attach(
   client: Pick<PageClient, "call">,
-  composer: ComposerTarget | undefined,
+  composer: () => ComposerTarget | undefined,
   params: unknown,
 ): Promise<{ attached: boolean; reason?: string }> {
   const raw = record(params);
   const files = hostFiles(raw.files);
   if (!files) return { attached: false, reason: "noFiles" };
-  if (!composer?.takesFiles) return { attached: false, reason: "noComposer" };
+  if (!composer()?.takesFiles) return { attached: false, reason: "noComposer" };
   const group = typeof raw.group === "string" && GROUP.test(raw.group) ? raw.group : undefined;
   let read: File[];
   try {
@@ -109,7 +111,9 @@ export async function attach(
   } catch {
     return { attached: false, reason: "unreadable" };
   }
-  composer.addFiles(read, group);
+  const target = composer();
+  if (!target?.takesFiles) return { attached: false, reason: "noComposer" };
+  target.addFiles(read, group);
   return { attached: true };
 }
 

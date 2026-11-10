@@ -111,14 +111,8 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
 
     private func watch(_ home: HomeService) {
         let store = home.homeStore
-        // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
-        watches.append(Task { [weak self] in
-            for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
-                guard let self, let id = pending.0, pending.1.contains(id) else { continue }
-                home.pendingSelection = nil
-                show(HomeDockSelection(conversation: id.rawValue), focus: true)
-            }
-        })
+        watches.append(HomeMessagesSelectionWatch(pending: { home.pendingSelection }, spend: { home.pendingSelection = nil }, rows: { store.rows.map(\.id) })
+            .follow { [weak self] id in self?.show(HomeDockSelection(conversation: id.rawValue), focus: true) })
         // The page opens the preferred Chief by itself while nothing of the person's shows, on its
         // first load as later (HomeDefaultConversation.afterShown), and follows it as it changes
         // (HomeDefaultConversation.followUp); what the person opened, and New Message, stay.

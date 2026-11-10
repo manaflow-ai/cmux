@@ -73,7 +73,7 @@ extension PageFactory {
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
         let host = HomeMessagesHostProvider(services: services, widthKey: widthKey)
         let sources = Self.firstRunSources(services), firstRun = HomeMessagesFirstRunProvider(sources: sources, shown: { [weak host] in host?.shown })
-        let setup = SetupCardRoute(setup: app.onboarding.setup, agents: app.onboarding.signInHarnesses, environment: SetupCardEnvironment( // HomeHostView+SetupCard.swift's
+        let setup = SetupCardRoute(setup: app.onboarding.setup, agents: { [weak app] in app?.onboarding.signInHarnesses }, environment: SetupCardEnvironment( // HomeHostView+SetupCard.swift's
             account: { [weak app] in (app?.cloud.auth.isSignedIn ?? false, app?.cloud.auth.user?.primaryEmail) }, signInAccount: { sources.perform("palette.auth.signIn") },
             cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) }, installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
             openAgents: { [weak app] in app?.onboarding.show(step: .agents) }, historySources: { await sources.memoryOffer() != nil },

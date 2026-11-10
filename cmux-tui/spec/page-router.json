@@ -25,7 +25,7 @@
       "events": []
     },
     "home-messages": {
-      "description": "Messages (Home): the docked Home's Messages view. The same reads, writes and gestures as home-channels (it is a client of the same conversations through the same raw conversation commands of its authenticated WebSocket, the participants' pictures, the person's Chiefs and chief-work through the owner-page admission); no other page or paired device gains them.",
+      "description": "Messages (Home): the docked Home's Messages view. A client of the same conversations as home-channels through the same raw conversation commands of its authenticated WebSocket, with the participants' pictures (participant.avatar.get), the person's Chiefs (chief-profile-ws-v1, with the same gestures for create, delete and undo), workspace.open_url on the person's gesture, and chief-work through the owner-page admission. Unlike home-channels it has no Cmd-K palette, so no palette.rank. No other page or paired device gains these.",
       "read": [
         "chief.profile.avatar.get",
         "chief.profile.avatar.set",

@@ -172,7 +172,7 @@ function part(raw: Json): HomePart {
     case "widget":
       return widgetPart(raw);
     default:
-      return { type: "other", text: String(raw.type ?? "") };
+      return { type: "other", text: unknownPartText(raw) };
   }
 }
 
@@ -192,6 +192,13 @@ export function widgetPart(raw: Json): HomePart {
   };
   if (url) widget.url = url;
   return widget;
+}
+
+/** A part type this page does not draw, as native showed it (HomeCoreMapping): by its link when it
+ * carries one, else its type (ConversationPart.plainText). A widget is `widgetPart`'s. */
+export function unknownPartText(raw: Json): string {
+  if (typeof raw.url === "string" && raw.url) return raw.url;
+  return String(raw.type ?? "");
 }
 
 const HARNESSES = new Set(["claude", "codex", "acp", "chief"]);

@@ -24,7 +24,7 @@ export interface StopAllAnswer {
   note?: string;
 }
 
-/** A toast over the message box (CmuxToast): its lines, the tooltip, Restart's agents when any stopped. */
+/** A toast over the message box (CmuxToast): its row, the tooltip, Restart's agents when any stopped. */
 export interface ChiefToast {
   id: number;
   message: string;
@@ -49,25 +49,25 @@ export function parseStopAll(raw: unknown): StopAllAnswer {
   };
 }
 
-/** The toast's lines (HomeStopAllStrings.message): the subagents it stopped (else whether the
- * Chief's turn stopped), how many could not be stopped, then the brain's note. */
+/** The toast's one row (HomeStopAllStrings.message, #38690): what stopped, never "all" while some
+ * refused, then how many could not be stopped. Which and why, and the brain's note about any still
+ * starting, are only the tooltip's: as a third line it read as a contradiction (hq#6246). */
 export function stopAllMessage(answer: StopAllAnswer, words: Strings): string {
-  const lines: string[] = [];
+  const parts: string[] = [];
   if (answer.subagents.length) {
     const list = new Intl.ListFormat(words.language, { type: "conjunction" }).format(answer.subagents);
-    lines.push(words.format("home.stopAll.stopped", list));
+    parts.push(words.format(answer.errors.length ? "home.stopAll.stoppedSome" : "home.stopAll.stopped", list));
   } else if (!answer.errors.length) {
-    lines.push(words.t(answer.stopped ? "home.stopAll.chiefOnly" : "home.stopAll.none"));
+    parts.push(words.t(answer.stopped ? "home.stopAll.chiefOnly" : "home.stopAll.none"));
   } else if (answer.stopped) {
-    lines.push(words.t("home.stopAll.chiefStopped"));
+    parts.push(words.t("home.stopAll.chiefStopped"));
   }
-  if (answer.errors.length) lines.push(words.format("home.stopAll.couldNotStop", String(answer.errors.length)));
-  const note = answer.note?.trim();
-  if (note) lines.push(note);
-  return lines.join("\n");
+  if (answer.errors.length) parts.push(words.format("home.stopAll.couldNotStop", String(answer.errors.length)));
+  return parts.join(" · ");
 }
 
-/** The toast's tooltip (HomeStopAllStrings.detail): each refusal as the brain wrote it, then the note. */
+/** The toast's tooltip (HomeStopAllStrings.detail): each refusal as the brain wrote it, then the note,
+ * which only the tooltip carries. */
 export function stopAllDetail(answer: StopAllAnswer): string | undefined {
   const lines = [...answer.errors, answer.note ?? ""].map((line) => line.trim()).filter(Boolean);
   return lines.length ? lines.join("\n") : undefined;
@@ -200,6 +200,20 @@ export class ChiefTurn {
         const text = refusalText(error);
         if (text) this.showToast({ message: text });
       });
+  }
+
+  /** Start now on a queued agent's pill or card (`chief.startAgent`): true when the Chief started it.
+   * A refusal shows the Chief's words in the toast, as a refused stop does. */
+  async startAgent(agent: string): Promise<boolean> {
+    if (!this.host) return false;
+    try {
+      await this.host.call<unknown>(CHIEF_TURN_OPS.startAgent, { conversation: this.conversation, agent });
+      return true;
+    } catch (error) {
+      const text = refusalText(error);
+      if (text) this.showToast({ message: text });
+      return false;
+    }
   }
 
   dismissToast(): void {

@@ -50,8 +50,8 @@ import type { MessagesDetailProps } from "../types";
 import { useChiefTurn } from "../transcript/useChiefTurn";
 import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine";
 import type { TranscriptExtras } from "../transcript/extras";
+import { OutgoingTyping } from "../transcript/outgoingTyping";
 import { useAgents } from "../cards/pills/useAgents";
-import { CHIEF_TURN_OPS } from "../transcript/chiefTurn";
 import { hostWidgets, WidgetContext } from "../cards/widget/widgetService";
 import {
   bubbleHostActions,
@@ -179,7 +179,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
   }, [host, nav, requestsShown]);
 
   // The files the native composer staged go up into their trays once this store can upload
-  // (attachmentDrafts.ts `uploadLegacy`; the first store's service, once for the page's life).
+  // (attachmentDrafts.ts `uploadLegacy`, once for the page's life), and every upload after takes
+  // the latest store's service (a reconnect's remount replaces the store and its connection).
   const uploads = store.attachments;
   useEffect(() => {
     if (!uploads) return;
@@ -474,6 +475,10 @@ function ConversationView(
     conversation.lastSeq,
     words.transcript,
   );
+  // My typing indicator (HomeStore.composing through the host): each edit of the message box, here
+  // or in a thread; a send and leaving the conversation end it.
+  const typing = useMemo(() => new OutgoingTyping(host, conversation.id), [host, conversation.id]);
+  useEffect(() => () => typing.stop(), [typing]);
   // What the Chief works on now, under the newest message while its run streams it (HomeTurnProgress).
   // The row changes only when the line or its run does (the clock ticks inside it).
   const live = useChiefActivity(store.live, store.runs, conversation.id);
@@ -493,18 +498,10 @@ function ConversationView(
     [host],
   );
   const isChief = conversation.kind === "chief";
-  // Start now on a queued agent's pill or card: the brain starts it past its cap (chief.startAgent).
-  const startAgent = useMemo(
-    () =>
-      host && isChief
-        ? (agent: string) =>
-            host
-              .call(CHIEF_TURN_OPS.startAgent, { conversation: conversation.id, agent })
-              .then(() => true)
-              .catch(() => false)
-        : undefined,
-    [host, isChief, conversation.id],
-  );
+  // Start now on a queued agent's pill or card: the brain starts it past its cap (chief.startAgent);
+  // a refusal shows the Chief's words in the turn's toast.
+  const { startAgent: startTurnAgent, ...turnProps } = turn;
+  const startAgent = isChief ? startTurnAgent : undefined;
   const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, isChief, startAgent);
   // A Chief's Set Up cmux card while the app shows it (a first run), under Needs you.
   const setupCard = useSetupCard(host, isChief, words.cards);
@@ -538,6 +535,12 @@ function ConversationView(
   const hostCall = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
+  // A Chief's name opens its settings under the pill (the app's popover); others' open Group Info.
+  // The thread's header is the conversation's, so it does the same.
+  const onContact = (anchor: { x: number; y: number; width: number; height: number }) =>
+    isChief && host
+      ? hostCall(DetailOps.chiefSettings, { conversation: id, anchor })
+      : nav.present({ kind: "groupInfo", conversation: id });
   // A Chief chat with no message ever shows its first run where the rows will be (the list's own
   // count, so a chat whose page is still loading never flashes it).
   const firstRunShown = conversation.kind === "chief" && conversation.lastSeq === 0 && snapshot.messages.length === 0;
@@ -548,11 +551,18 @@ function ConversationView(
     const path = replying?.root === root ? replying.path : [];
     const quoteName =
       quote && conversation.participants.find((person) => person.id === known(quote.message)?.author)?.name;
+    // The thread keeps every control of the conversation it opens over (the native composer and
+    // header stayed while a thread showed): the Chief's Stop, Escape, Cmd-., Continue and its toast,
+    // the header's panel toggles and Group Info, the agents' pills and card, and the status line.
     return (
       <ThreadView
         {...props}
         me={me}
         menus={menus}
+        turn={turnProps}
+        {...(extras ? { extras } : {})}
+        card={agents.card}
+        onContact={onContact}
         root={root}
         path={path}
         onPath={(next) => setReplying({ root, path: next })}
@@ -560,7 +570,9 @@ function ConversationView(
         onReplyToSelection={onReplyToSelection}
         {...(quote ? { quote: { text: quote.text, ...(quoteName ? { name: quoteName } : {}) } } : {})}
         onRemoveQuote={() => setQuote(undefined)}
+        typing={typing}
         onSend={async (text, files) => {
+          typing.stop();
           const sent = await store.send(quote ? quotedReply(quote.text, text) : text, root, path.at(-1), files);
           if (sent) setQuote(undefined);
           return sent;
@@ -592,12 +604,7 @@ function ConversationView(
         colors={colors}
         panels={props.panelItems(conversation)}
         onPanel={props.onPanel}
-        onContact={(anchor) =>
-          // A Chief's name opens its settings under the pill (the app's popover); others' open Group Info.
-          isChief && host
-            ? hostCall(DetailOps.chiefSettings, { conversation: id, anchor })
-            : nav.present({ kind: "groupInfo", conversation: id })
-        }
+        onContact={onContact}
         {...(isChief && props.chiefFace?.conversation === id ? { face: props.chiefFace } : {})}
         {...(isChief && props.chiefPlace?.conversation === id
           ? {
@@ -623,12 +630,16 @@ function ConversationView(
         {...(props.dictation ? { dictation: props.dictation } : {})}
         toastAvoidance={props.toastAvoidance}
         initialDraft={nav.draft(id)}
-        onDraftChange={(text) => nav.keepDraft(id, text)}
+        onDraftChange={(text) => {
+          nav.keepDraft(id, text);
+          typing.changed(text);
+        }}
         composerKey={String(nav.draftVersion(id))}
         attachmentDrafts={nav.attachments}
         {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
         spellChecking={props.spellChecking}
         onSend={async (text, files) => {
+          typing.stop();
           const sent = await store.send(text, undefined, undefined, files);
           if (sent) props.afterSend?.();
           return sent;
@@ -649,7 +660,8 @@ function ConversationView(
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
         {...(props.approvals ? { approvals: props.approvals } : {})}
-        {...turn}
+        {...turnProps}
+        {...(setupCard ? { pinned: setupCard } : {})}
         {...(extras ? { extras } : {})}
         {...(firstRunShown
           ? {
@@ -697,6 +709,16 @@ function ThreadView(
     onRemoveQuote(): void;
     onSend(text: string, files?: readonly HomeAttachment[]): Promise<boolean>;
     onClose(): void;
+    /** The conversation's Chief controls (Stop, Escape, Cmd-., Continue) and their toast. */
+    turn: Pick<MessagesTranscriptProps, "chief" | "toast">;
+    /** The conversation's added rows (agent pills, the Chief's status line). */
+    extras?: TranscriptExtras;
+    /** The agent card a pill opened. */
+    card?: ReactNode;
+    /** My typing indicator: the thread's message box is the conversation's. */
+    typing: OutgoingTyping;
+    /** The header's name: the conversation's own (a Chief's settings, else Group Info). */
+    onContact: NonNullable<MessagesTranscriptProps["onContact"]>;
   },
 ) {
   const { store, snapshot, words, conversation, root, path } = props;
@@ -732,78 +754,89 @@ function ThreadView(
   }, [store, view]);
   const { look, colors } = props.appearance(conversation);
   return (
-    <MessagesTranscript
-      key={`thread:${root}`}
-      ref={props.transcript}
-      strings={words.transcript}
-      me={props.me.id}
-      conversation={conversation}
-      messages={branch.messages}
-      replyCounts={branch.counts}
-      threadMode
-      onOpenReplies={(id) => props.onPath(threadPath(id, root, messages))}
-      onReplyToSelection={props.onReplyToSelection}
-      {...(props.quote ? { quote: props.quote } : {})}
-      onRemoveQuote={props.onRemoveQuote}
-      pending={pending}
-      typing={snapshot.typing}
-      viewing={snapshot.viewing}
-      hasOlder={false}
-      loadingOlder={false}
-      connection={snapshot.connection}
-      look={look}
-      colors={colors}
-      pinned={
-        <div className="hm-thread-bar">
-          {/* Back steps out of a drilled branch one level, then closes the thread (native crumb). */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => (path.length ? props.onPath(path.slice(0, -1)) : props.onClose())}
-          >
-            {words.transcript.t("thread.back")}
-          </Button>
-          {path.length > 0 && (
-            <span className="hm-thread-crumbs">
-              {names.map((name, level) => (
-                <Button
-                  key={level}
-                  variant="ghost"
-                  size="sm"
-                  disabled={level === names.length - 1}
-                  onClick={() => props.onPath(path.slice(0, level))}
-                >
-                  {name}
-                </Button>
-              ))}
-            </span>
-          )}
-        </div>
-      }
-      {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
-      {...(props.dictation ? { dictation: props.dictation } : {})}
-      toastAvoidance={props.toastAvoidance}
-      {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
-      spellChecking={props.spellChecking}
-      // One message box, as the native one: the conversation's draft and files go on into the thread.
-      initialDraft={props.nav.draft(conversation.id)}
-      onDraftChange={(text) => props.nav.keepDraft(conversation.id, text)}
-      attachmentDrafts={props.nav.attachments}
-      composerKey={`thread:${root}:${props.nav.draftVersion(conversation.id)}`}
-      composerPlaceholder={words.transcript.t("compose.placeholder.reply")}
-      onSend={props.onSend}
-      onLoadOlder={() => {}}
-      onRetry={(key) => store.retry(key)}
-      onDiscard={(key) => store.discard(key)}
-      canCancelUpload={(key) => store.canCancel(key)}
-      onCancelUpload={(key) => store.cancel(key)}
-      onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
-      onReply={props.onReply}
-      {...props.menus}
-      {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
-      links={props.links}
-      {...(props.approvals ? { approvals: props.approvals } : {})}
-    />
+    <div className="hm-detail-split">
+      <MessagesTranscript
+        key={`thread:${root}`}
+        ref={props.transcript}
+        strings={words.transcript}
+        me={props.me.id}
+        conversation={conversation}
+        messages={branch.messages}
+        replyCounts={branch.counts}
+        threadMode
+        onOpenReplies={(id) => props.onPath(threadPath(id, root, messages))}
+        onReplyToSelection={props.onReplyToSelection}
+        {...(props.quote ? { quote: props.quote } : {})}
+        onRemoveQuote={props.onRemoveQuote}
+        pending={pending}
+        typing={snapshot.typing}
+        viewing={snapshot.viewing}
+        hasOlder={false}
+        loadingOlder={false}
+        connection={snapshot.connection}
+        look={look}
+        colors={colors}
+        panels={props.panelItems(conversation)}
+        onPanel={props.onPanel}
+        onContact={props.onContact}
+        {...props.turn}
+        {...(props.extras ? { extras: props.extras } : {})}
+        pinned={
+          <div className="hm-thread-bar">
+            {/* Back steps out of a drilled branch one level, then closes the thread (native crumb). */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => (path.length ? props.onPath(path.slice(0, -1)) : props.onClose())}
+            >
+              {words.transcript.t("thread.back")}
+            </Button>
+            {path.length > 0 && (
+              <span className="hm-thread-crumbs">
+                {names.map((name, level) => (
+                  <Button
+                    key={level}
+                    variant="ghost"
+                    size="sm"
+                    disabled={level === names.length - 1}
+                    onClick={() => props.onPath(path.slice(0, level))}
+                  >
+                    {name}
+                  </Button>
+                ))}
+              </span>
+            )}
+          </div>
+        }
+        {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
+        {...(props.dictation ? { dictation: props.dictation } : {})}
+        toastAvoidance={props.toastAvoidance}
+        {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
+        spellChecking={props.spellChecking}
+        // One message box, as the native one: the conversation's draft and files go on into the thread.
+        initialDraft={props.nav.draft(conversation.id)}
+        onDraftChange={(text) => {
+          props.nav.keepDraft(conversation.id, text);
+          props.typing.changed(text);
+        }}
+        attachmentDrafts={props.nav.attachments}
+        composerKey={`thread:${root}:${props.nav.draftVersion(conversation.id)}`}
+        composerPlaceholder={words.transcript.t("compose.placeholder.reply")}
+        onSend={props.onSend}
+        onLoadOlder={() => {}}
+        onRetry={(key) => store.retry(key)}
+        onDiscard={(key) => store.discard(key)}
+        canCancelUpload={(key) => store.canCancel(key)}
+        onCancelUpload={(key) => store.cancel(key)}
+        onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
+        onReply={props.onReply}
+        {...props.menus}
+        {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
+        links={props.links}
+        {...(props.approvals ? { approvals: props.approvals } : {})}
+      />
+      {props.card}
+    </div>
   );
 }
 

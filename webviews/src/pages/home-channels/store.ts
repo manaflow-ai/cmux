@@ -785,7 +785,8 @@ export class HomeChannelsStore {
     try {
       return await this.deliverOnce(pending, resent, controller.signal);
     } finally {
-      if (this.inFlight.get(pending.key) === controller) this.inFlight.delete(pending.key);
+      // Its key may have changed on the way (a resend after `unknown_attachment`).
+      for (const [key, going] of this.inFlight) if (going === controller) this.inFlight.delete(key);
     }
   }
 
@@ -818,8 +819,16 @@ export class HomeChannelsStore {
       if (!resent && reupload && pending.attachments?.length && unknownAttachment(error)) {
         const parts = await reupload(pending.conversation, pending.attachments, signal).catch(() => undefined);
         if (parts && this.snapshot.pending.some((entry) => entry.key === pending.key)) {
-          const again = { ...pending, attachments: parts };
+          // The owner keeps its refusal under the send's key (cloud's ledger answers a repeat from
+          // it), so the resend goes under a new key, in the same place (HomeStore
+          // `uploadAgainAfterSweep`). An uncertain outcome keeps its key, so it never goes twice.
+          const again = { ...pending, key: this.key("send"), attachments: parts };
           this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? again : entry)) });
+          const going = this.inFlight.get(pending.key);
+          if (going) {
+            this.inFlight.delete(pending.key);
+            this.inFlight.set(again.key, going);
+          }
           return this.deliverOnce(again, true, signal);
         }
         if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;

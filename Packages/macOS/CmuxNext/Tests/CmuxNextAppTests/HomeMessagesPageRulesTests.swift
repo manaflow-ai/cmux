@@ -251,6 +251,20 @@ struct HomeMessagesPageRulesTests {
         #expect(ran == ["terminal", "agent"], "a page's own call runs nothing")
     }
 
+    /// Round 9 (5): a request's Block and removing a group member need the person's own click, as a create, an
+    /// invite and a link out do; Accept, Decline and the reads do not.
+    @Test func blockingARequestAndRemovingAMemberNeedThePerson() {
+        #expect(HomeMessagesPageRoute.needsPerson("requests.answer", ["answer": "block"]))
+        #expect(HomeMessagesPageRoute.needsPerson("group.remove", ["participant": "ana"]))
+        for name in ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle"] {
+            #expect(HomeMessagesPageRoute.needsPerson(name, [:]), "\(name)")
+        }
+        #expect(!HomeMessagesPageRoute.needsPerson("requests.answer", ["answer": "accept"]))
+        #expect(!HomeMessagesPageRoute.needsPerson("requests.answer", ["answer": "decline"]))
+        #expect(!HomeMessagesPageRoute.needsPerson("group.info", [:]))
+        #expect(!HomeMessagesPageRoute.needsPerson("requests.list", [:]))
+    }
+
     static func jpegWithGPS() throws -> Data {
         let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))

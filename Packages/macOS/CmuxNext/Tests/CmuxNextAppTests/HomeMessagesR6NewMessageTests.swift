@@ -56,6 +56,23 @@ struct HomeMessagesR6NewMessageTests {
         #expect(store.cachedSend(key) == nil, "HomeStore no longer holds it for its reconnect")
     }
 
+    /// Round 11 F1: the unanswered first send is in the host's outbox before it leaves HomeStore's
+    /// queue, so the page losing the answer or reloading before it puts the row loses nothing: a
+    /// new page's `outbox.load` shows it, under its key.
+    @Test func anUnansweredFirstSendIsKeptBeforeItLeavesTheQueue() async throws {
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: try Self.directory())
+        let id = HomeChiefRosterTests.ada
+        let key = IdempotencyKey("first-send-offline-kept")
+        let send = HomeMessagesFirstSend(store: store, contacts: [Self.ada], start: { _, _ in .opened(id) },
+                                         refusal: { _, _ in .refused("unexpected") })
+        // The page never sees this answer (it reloaded while the send was out).
+        _ = await send.run(Self.fields(text: "hello"), key: key)
+        #expect(store.cachedSend(key) == nil, "it left the native queue")
+        let rows = try #require(HomeMessagesOutbox(store: store).load().value(at: ["pending", id.rawValue])?.arrayValue)
+        #expect(rows.map { $0.value(at: ["key"]) } == [.string(key.rawValue)], "the host's outbox kept it first")
+        #expect(rows.first?.value(at: ["text"]) == .string("hello"))
+    }
+
     /// F2: HomeStore's own Not Delivered sends (the native composer's, a send a host made) move into
     /// the page's outbox when the page loads it, under their keys, and stay there.
     @Test func theOutboxTakesHomeStoresNotDeliveredSends() async throws {

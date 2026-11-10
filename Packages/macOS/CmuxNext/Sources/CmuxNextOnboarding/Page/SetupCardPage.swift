@@ -202,14 +202,15 @@ public final class SetupCardPageProvider: PageProvider {
 @Observable
 public final class SetupCardRoute: PageProvider {
     @ObservationIgnored private let setup: FirstRunSetup
-    @ObservationIgnored private let agents: (any AgentSignInSource)?
+    /// Read when the card is made (the native host read it on show).
+    @ObservationIgnored private let agents: @MainActor () -> (any AgentSignInSource)?
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The card while it shows and the page listens.
     private(set) var card: SetupCardPageProvider?
     @ObservationIgnored private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     @ObservationIgnored private var watch: Task<Void, Never>?
 
-    public init(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment) {
+    public init(setup: FirstRunSetup, agents: @escaping @MainActor () -> (any AgentSignInSource)?, environment: SetupCardEnvironment) {
         self.setup = setup
         self.agents = agents
         self.environment = environment
@@ -234,7 +235,7 @@ public final class SetupCardRoute: PageProvider {
 
     private func makeCard() {
         guard card == nil, setup.shows else { return }
-        card = SetupCardPageProvider(setup: setup, agents: agents, environment: environment)
+        card = SetupCardPageProvider(setup: setup, agents: agents(), environment: environment)
     }
 
     private func dropCard() {

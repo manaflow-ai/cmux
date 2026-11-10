@@ -53,11 +53,9 @@ import MessagesLabHome
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
-    static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
+    static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "composing", "chief.", "invite.", "teamInvite.", "start",
                            "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation", HomePageToastAvoidance.op,
                            HomeMessagesBubbleOps.prefix, HomeMessagesSeeThrough.stream].map { HomeMessagesPageRoute.prefix + $0 }
-    private static let personOnly: Set<String> = ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "chief.settings",
-                                                  "chief.place", "needsYou.open", "needsYou.answer", "needsYou.showAll"]  // a click only
 
     private weak var services: AppServices?
     /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
@@ -110,7 +108,7 @@ final class HomeMessagesHostProvider: PageProvider {
         if let answer = try await kept(home).call(name, fields, context: context) { return answer }
         let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
-        if let userOnly, Self.personOnly.contains(name) { throw userOnly }
+        if let userOnly, HomeMessagesPageRoute.needsPerson(name, fields) { throw userOnly }
         let chiefAnswer = try await chiefTurn.call(name, fields, userGesture: context.userGesture)
         if let answer = try chiefAnswer ?? toastAvoidance.call(name, fields) ?? seeThrough.call(name, fields) { return answer }
         switch name {
@@ -175,8 +173,8 @@ final class HomeMessagesHostProvider: PageProvider {
             return .object(["result": .object(["kind": .string(answer.rawValue)])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1) },
-                                               refusal: { home.composer.outcome(for: $0, naming: $1) }).run(fields)
+            return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1, select: false) },
+                                               refusal: { home.composer.outcome(for: $0, naming: $1) }, select: { home.pendingSelection = $0 }).run(fields)
         case "chief.settings", "chief.place":
             let chief = chiefShown(try conversation(fields))
             let anchor = HomeChiefSettingsAnchor.box(fields["anchor"])

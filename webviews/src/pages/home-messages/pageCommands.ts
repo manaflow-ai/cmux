@@ -200,7 +200,7 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
       once((params) => selectNumber(latest(), params)),
     ),
     host.handle(MessagesPageOps.replyToSelection, () => ({ replied: latest().nav.replyToSelection() })),
-    host.handle(HandoffOps.attach, (params) => attach(host, latest().nav.composer(), params)),
+    host.handle(HandoffOps.attach, (params) => attach(host, () => latest().nav.composer(), params)),
     host.handle(HandoffOps.detach, (params) => detach(latest().nav.composer(), params)),
     host.handle(HandoffOps.quoteSelection, () => quoteSelection(document, latest().nav.composer())),
     host.handle(HandoffOps.recallHistory, (params) => ({

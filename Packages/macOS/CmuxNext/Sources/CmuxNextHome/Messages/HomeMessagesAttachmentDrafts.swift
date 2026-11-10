@@ -66,6 +66,7 @@ public struct HomeMessagesAttachmentDrafts {
             }
             if !times.isEmpty { files[id.rawValue] = .object(times) }
         }
+        named.formUnion(HomeMessagesOutbox(store: store).attachmentHashes())
         let orphans = kept.keys.filter { !named.contains($0) }
         if !orphans.isEmpty { await Self.removeFiles(orphans.map { fileURL($0) }) }
         var legacy: [String: JSONValue] = [:]
@@ -106,11 +107,13 @@ public struct HomeMessagesAttachmentDrafts {
     }
 
     /// Removes part `hash`'s kept bytes once no conversation's entry names it (``remove(_:for:)``
-    /// went first).
+    /// went first) and no unsent send of the outbox does: a sent file's bytes are the outbox's
+    /// until that send is delivered or discarded (``HomeMessagesOutbox``), so Retry after a
+    /// relaunch can upload them again.
     public func releaseBytes(_ hash: String) async {
         guard Self.isHash(hash) else { return }
         let named = store.uploadedDraftAttachmentConversations.contains { store.uploadedDraftAttachments(for: $0)[hash] != nil }
-        guard !named else { return }
+        guard !named, !HomeMessagesOutbox(store: store).attachmentHashes().contains(hash) else { return }
         await Self.removeFiles([fileURL(hash), partURL(hash)])
     }
 

@@ -347,8 +347,9 @@ import Testing
     @Test func theMessagesPageRouteStreamsTheCardWhileItShows() async throws {
         let setup = FirstRunSetup(defaults: try defaults())
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        let route = SetupCardRoute(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
+        let mac = PressLog()
+        let route = SetupCardRoute(setup: setup, agents: { nil }, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: { mac.signIns += 1 }, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
             historySources: { false }, importHistory: { false }))
         let events = EventLog()
         let page = PageCallContext(page: PageDescriptor.homeMessages.id)
@@ -357,6 +358,11 @@ import Testing
         #expect(route.card != nil, "made while the card shows and the page listens")
         await until { events.values.last?["cli"] == "missing" }
         #expect(try await route.call("cmux.setup.state", params: [:], context: page)["account"] == ["signedIn": false])
+        // A row runs only on the person's own click, as on the native card (cmux#37736 round 9 F1).
+        let signIn: JSONValue = ["action": ["kind": "signInAccount"]]
+        await #expect(throws: PageError.self) { try await route.call("cmux.setup.run", params: signIn, context: page) }
+        _ = try await route.call("cmux.setup.run", params: signIn, context: click(3))
+        #expect(mac.signIns == 1)
 
         _ = try await route.call("cmux.setup.hide", params: [:], context: click(1))
         await until { events.values.last == .null }
@@ -368,7 +374,7 @@ import Testing
     /// No card (an upgrade, or one hidden before): the page gets null, no card is made and nothing runs.
     @Test func theMessagesPageRouteMakesNoCardWhenItIsNotShown() async throws {
         let setup = FirstRunSetup(defaults: try defaults())
-        let route = SetupCardRoute(setup: setup, agents: nil, environment: SetupCardEnvironment(
+        let route = SetupCardRoute(setup: setup, agents: { nil }, environment: SetupCardEnvironment(
             account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
             historySources: { false }, importHistory: { false }))
         let events = EventLog()

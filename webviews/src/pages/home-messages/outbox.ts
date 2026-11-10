@@ -11,6 +11,8 @@
 // send that left, none on typing; the rows are small (text and the owner's parts, never file bytes).
 import { PendingCarry, type PendingSend } from "../home-channels/store";
 import type { PageClient } from "../shared/pageClient";
+import { answered } from "./host";
+import type { KeeperAck } from "./transcript/attachmentDrafts";
 
 export const OutboxOps = {
   load: "cmux.home.messages.outbox.load",
@@ -26,8 +28,8 @@ export interface OutboxKeeper {
   load(): Promise<PendingSend[]>;
   /** Keeps one send (adds or replaces it by its key); resolves false when the app refused it. */
   put(send: PendingSend): Promise<boolean>;
-  /** Lets go of one send. */
-  remove(conversation: string, key: string): void;
+  /** Lets go of one send; resolves once the app has (nothing: it has already). */
+  remove(conversation: string, key: string): KeeperAck;
 }
 
 export class KeptPendingCarry extends PendingCarry {
@@ -35,8 +37,19 @@ export class KeptPendingCarry extends PendingCarry {
   private readonly saved = new Map<string, { conversation: string; text: string }>();
   /** Nothing is saved before the kept rows are read (a remove then could drop another page's). */
   private loaded = false;
+  /** Keeper calls not answered yet: until the app answers, a send lives only in this page. */
+  private unanswered = 0;
+  /** Sends the app refused to keep, with the files each took: those files stay in their trays'
+   * kept entries until the send leaves (delivered or discarded), so they are never let go of
+   * while nothing else holds them. */
+  private readonly refused = new Map<string, readonly string[]>();
 
-  constructor(private readonly keeper: OutboxKeeper) {
+  /** `handedOver` hears the files of each send the keeper answered for (kept or refused): the
+   * staged-file trays keep those files' entries until then (attachmentDrafts.ts `handedOver`). */
+  constructor(
+    private readonly keeper: OutboxKeeper,
+    private readonly handedOver?: (hashes: readonly string[]) => void,
+  ) {
     super();
   }
 
@@ -58,14 +71,44 @@ export class KeptPendingCarry extends PendingCarry {
       const text = keptText(entry);
       if (this.saved.get(entry.key)?.text === text) continue;
       this.saved.set(entry.key, { conversation: entry.conversation, text });
-      void this.keeper.put(entry).then((kept) => this.mark(entry.key, !kept));
+      const hashes = (entry.attachments ?? []).map((part) => part.hash);
+      this.unanswered += 1;
+      void this.keeper.put(entry).then(
+        (kept) => this.answered(entry.key, kept, hashes),
+        () => this.answered(entry.key, false, hashes),
+      );
     }
     for (const [key, { conversation }] of this.saved) {
       if (now.has(key)) continue;
       this.saved.delete(key);
-      this.keeper.remove(conversation, key);
+      // A send the app never kept leaves now: its files' tray entries may go with it.
+      const files = this.refused.get(key);
+      this.refused.delete(key);
+      if (files?.length) this.handedOver?.(files);
+      const call = this.keeper.remove(conversation, key);
+      if (!call) continue;
+      this.unanswered += 1;
+      const done = () => void (this.unanswered -= 1);
+      void call.then(done, done);
     }
   }
+
+  /** The app answered a put: a kept send's files are the outbox's now (their tray entries go); a
+   * refused one says so on its row and its files stay kept by their trays until it leaves. */
+  private answered(key: string, kept: boolean, hashes: readonly string[]): void {
+    this.unanswered -= 1;
+    this.mark(key, !kept);
+    if (kept) {
+      this.refused.delete(key);
+      if (hashes.length) this.handedOver?.(hashes);
+    } else if (this.entries.some((item) => item.key === key)) this.refused.set(key, hashes);
+    else if (hashes.length) this.handedOver?.(hashes);
+  }
+
+  /** Why a web update's reload would lose a send (pages/shared/webSwap.ts), or null: a put or a
+   * remove the app has not answered, or a send it refused to keep, lives only in this page. */
+  holdReason = (): string | null =>
+    this.unanswered > 0 ? "home.sending" : this.entries.some((entry) => entry.unkept) ? "home.send-unkept" : null;
 
   /** A send the app refused (or kept after all) says so on its row. */
   private mark(key: string, unkept: boolean): void {
@@ -97,7 +140,7 @@ export function pageOutboxKeeper(client: PageClient): OutboxKeeper {
       );
     },
     remove(conversation, key) {
-      void client.call(OutboxOps.remove, { conversation, key }).catch(() => undefined);
+      return answered(client.call(OutboxOps.remove, { conversation, key }));
     },
   };
 }

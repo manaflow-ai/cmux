@@ -11,7 +11,9 @@ import Foundation
 ///   their bytes (``HomeMessagesAttachmentDrafts``);
 /// - `attachments.prepare.*`: a photo's or video's bytes before they upload (``HomeAttachmentPreparer``);
 /// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``);
-/// - `approval.decide`: a Chief's permission card, on the person's click (``HomeMessagesApprovals``).
+/// - `approval.decide`: a Chief's permission card, on the person's click (``HomeMessagesApprovals``);
+/// - `composing {conversation, typing}`: my typing indicator, through HomeStore's own throttled
+///   start and stop (``HomeStore/composing(_:in:)``, as the native composer reported it).
 @MainActor
 public final class HomeMessagesKept {
     /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
@@ -88,6 +90,12 @@ public final class HomeMessagesKept {
             let migrated = Set((fields["migrated"]?.arrayValue ?? []).compactMap(\.stringValue))
             HomeMessagesAttachmentDrafts(store: store).release(migrated, for: try Self.conversation(fields))
             return .null
+        case "composing":
+            let id = try Self.conversation(fields)
+            // HomeStore throttles it: an `on` at most every refresh interval, an `off` after its idle
+            // time, when the field empties or the conversation closes.
+            if fields["typing"]?.boolValue == true { store.composing("typing", in: id) } else { store.stopTyping(in: id) }
+            return .null
         case "outbox.load":
             return HomeMessagesOutbox(store: store).load()
         case "outbox.put":
@@ -99,7 +107,10 @@ public final class HomeMessagesKept {
             }
             return .null
         case "outbox.remove":
-            HomeMessagesOutbox(store: store).remove(fields["key"]?.stringValue ?? "", for: try Self.conversation(fields))
+            // The send's files' bytes go with it, unless a tray or another send still names them.
+            let hashes = HomeMessagesOutbox(store: store).remove(fields["key"]?.stringValue ?? "", for: try Self.conversation(fields))
+            let drafts = HomeMessagesAttachmentDrafts(store: store)
+            for hash in Set(hashes) { await drafts.releaseBytes(hash) }
             return .null
         default:
             return nil

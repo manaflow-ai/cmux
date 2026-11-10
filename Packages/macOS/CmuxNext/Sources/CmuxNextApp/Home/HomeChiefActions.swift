@@ -24,9 +24,16 @@ enum HomeChiefActions {
         frontHome().flatMap { $0.control.isHosted ? nil : $0 }
     }
 
-    /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
+    /// The Chief a Messages page in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) shows:
+    /// the docked page, a conversation tab or the Chief panel (each ``HomeChiefShowing``). The page that
+    /// holds the keyboard first, else the first one on screen.
     static func frontHome() -> HomeChiefSurface? {
-        guard let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView else { return nil }
+        guard let window = HomeChiefSettingsPopover.frontToggleTarget, let root = window.contentView else { return nil }
+        var responder = window.firstResponder as? NSView
+        while let view = responder {
+            if let home = view as? any HomeChiefShowing { return home.shownChief ?? firstChiefHome(in: root) }
+            responder = view.superview
+        }
         return firstChiefHome(in: root)
     }
 

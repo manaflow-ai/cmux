@@ -145,11 +145,8 @@ test("Stop all agents shows what stopped, and Restart starts those subagents aga
   turn.stop(true);
   await settle();
   const toast = turn.getSnapshot().toast!;
-  expect(toast.message.split("\n")).toEqual([
-    "Stopped all agents: a1 and a2",
-    "1 could not be stopped",
-    "a4 is still starting",
-  ]);
+  // One row (#38690): not "all" while one refused, and the still-starting note only in the tooltip.
+  expect(toast.message).toBe("Stopped a1 and a2 · 1 could not be stopped");
   expect(toast.detail).toBe("a3: busy\na4 is still starting");
   expect(toast.restart).toEqual(["a1", "a2"]);
   turn.restart(toast.restart!);
@@ -164,6 +161,32 @@ test("the stop-all lines when no subagent ran", () => {
     "Stopped the Chief; no subagents were running",
   );
   expect(stopAllMessage({ stopped: false, subagents: [], errors: [] }, strings)).toBe("No agents were running");
+});
+
+test("the stop-all row says all only when none refused, and keeps the note off the row (#38690)", () => {
+  expect(stopAllMessage({ stopped: false, subagents: ["a1"], errors: [], note: "a2 is still starting" }, strings)).toBe(
+    "Stopped all agents: a1",
+  );
+  expect(stopAllMessage({ stopped: false, subagents: ["a1"], errors: ["a2: busy"] }, strings)).toBe(
+    "Stopped a1 · 1 could not be stopped",
+  );
+  expect(stopAllMessage({ stopped: true, subagents: [], errors: ["a2: busy"] }, strings)).toBe(
+    "Stopped the Chief · 1 could not be stopped",
+  );
+});
+
+test("a refused Start now shows the Chief's words in the toast; a start resolves true", async () => {
+  const refusing = fakeHost({ [CHIEF_TURN_OPS.startAgent]: new Error("a2 is not queued any more") });
+  const turn = new ChiefTurn(refusing.host, "c1", strings);
+  expect(await turn.startAgent("a2")).toBe(false);
+  expect(refusing.calls).toEqual([{ op: CHIEF_TURN_OPS.startAgent, params: { conversation: "c1", agent: "a2" } }]);
+  expect(turn.getSnapshot().toast?.message).toBe("a2 is not queued any more");
+  turn.dispose();
+  const starting = fakeHost({ [CHIEF_TURN_OPS.startAgent]: { started: true } });
+  const ok = new ChiefTurn(starting.host, "c1", strings);
+  expect(await ok.startAgent("a2")).toBe(true);
+  expect(ok.getSnapshot().toast).toBeUndefined();
+  ok.dispose();
 });
 
 test("a refused stop says why in a toast", async () => {
