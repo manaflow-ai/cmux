@@ -120,7 +120,10 @@ mod apps {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(names, ["command-button", "newtab-widget", "pane", "sidebar-section", "starter", "threads"]);
+        assert_eq!(
+            names,
+            ["command-button", "newtab-widget", "pane", "sidebar-section", "starter", "threads"]
+        );
         for name in names {
             let dir = root.join(&name);
             let report = validate_package(&dir);
@@ -136,7 +139,12 @@ mod apps {
             );
             let exported = exported_names(&script);
             let implements = manifest["implements"].as_object().expect("implements");
-            assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
+            // Every template shows somewhere as written: a sidebar section, or a New Tab widget.
+            assert!(
+                implements.contains_key("cmux.section/1")
+                    || implements.contains_key("cmux.newtab.widget/1"),
+                "{name} has a sidebar section or a New Tab widget"
+            );
             for (interface, entry) in implements {
                 let export =
                     entry["export"].as_str().unwrap_or_else(|| panic!("{name}: {interface}"));
