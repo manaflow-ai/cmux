@@ -158,6 +158,13 @@ export default cloudPageEntry({
       machines,
       snapshots,
     },
+    "creating-at-limit": {
+      note: "The create sheet when every machine the plan runs at once is running: Create stays open; cmux pauses an idle machine or asks which.",
+      action: "create",
+      maxActive: 3,
+      machines,
+      snapshots,
+    },
     "creating-snapshots-failed": {
       note: "The create sheet when the snapshot list fails: Base image stays, with Retry.",
       action: "create",
@@ -236,7 +243,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "storefront-full": {
-      note: "The storefront when every active machine on the plan is in use: Get is disabled.",
+      note: "The storefront when every machine the plan runs at once is running: Get stays open and says a new one pauses one of yours.",
       hash: "#/get",
       maxActive: 3,
       machines,

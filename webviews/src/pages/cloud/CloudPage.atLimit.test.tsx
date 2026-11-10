@@ -10,7 +10,10 @@ import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudStore } from "./store";
 
-const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+});
 const globals = globalThis as Record<string, unknown>;
 const replacements = {
   window: dom.window,
@@ -19,6 +22,10 @@ const replacements = {
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
   Node: dom.window.Node,
+  DocumentFragment: dom.window.DocumentFragment,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
