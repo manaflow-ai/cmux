@@ -224,8 +224,12 @@ await requireBrowserLane("agent-pane-since-jump-dismiss.test.ts", async () => {
     const page = await openChat();
     await wheel(page, -400, 3);
     expect((await state(page)).lineInView).toBe(false);
-    await wheel(page, 4000, 4);
-    const back = await state(page);
+    // Down to the end, as far as the reader scrolls: rows measured on the way can move the end on.
+    let back = await state(page);
+    for (let tries = 0; tries < 6 && (tries === 0 || back.fromEnd > 2); tries++) {
+      await wheel(page, 4000, 4);
+      back = await state(page);
+    }
     expect(back.fromEnd).toBeLessThanOrEqual(2);
     expect(back.pill).toBe(false);
     expect(back.latest).toBe(false);
