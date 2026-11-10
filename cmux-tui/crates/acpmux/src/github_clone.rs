@@ -48,22 +48,39 @@ pub const LENT_KEY: &str = "cloneToken";
 /// How long one clone may run.
 pub const CLONE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 const DIR_MAX: usize = 100;
-/// Where clones come from: GitHub, or in a debug build a loopback stand-in a test names in
-/// [`TEST_BASE_ENV`] (`http://127.0.0.1:PORT`; any other value is ignored).
+/// Where clones come from.
 const GITHUB: &str = "https://github.com";
-/// Debug builds only: the loopback origin a test's git stand-in serves.
-pub const TEST_BASE_ENV: &str = "ACPMUX_TEST_GITHUB_CLONE_BASE";
 
-fn base() -> String {
-    #[cfg(debug_assertions)]
-    if let Ok(base) = std::env::var(TEST_BASE_ENV)
-        && let Some(port) = base.strip_prefix("http://127.0.0.1:")
-        && !port.is_empty()
-        && port.bytes().all(|b| b.is_ascii_digit())
-    {
-        return base;
+/// Where one daemon clones from and stages its clones (module docs): GitHub and `clone-staging`
+/// in the daemon's state folder. A test's hub is given another through
+/// `Hub::set_github_clone_origin`, never through anything a caller or the environment sets.
+#[derive(Debug, Clone, Default)]
+pub struct CloneOrigin {
+    /// `http://127.0.0.1:PORT`, a test's git stand-in; GitHub when `None`.
+    loopback: Option<String>,
+    /// The folder clones are staged in; `clone-staging` in `config::home()` when `None`.
+    staging: Option<PathBuf>,
+}
+
+impl CloneOrigin {
+    /// A test's origin: its loopback git stand-in at `base` (`http://127.0.0.1:PORT`, else
+    /// `None`) and its staging folder `staging` (absolute, else `None`).
+    pub fn loopback(base: &str, staging: PathBuf) -> Option<Self> {
+        let port = base.strip_prefix("http://127.0.0.1:")?;
+        if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) || !staging.is_absolute() {
+            return None;
+        }
+        Some(Self { loopback: Some(base.to_owned()), staging: Some(staging) })
     }
-    GITHUB.to_owned()
+
+    fn base(&self) -> &str {
+        self.loopback.as_deref().unwrap_or(GITHUB)
+    }
+
+    /// Where clones are staged (module docs).
+    fn staging(&self) -> PathBuf {
+        self.staging.clone().unwrap_or_else(|| crate::config::home().join("clone-staging"))
+    }
 }
 
 /// The folder a clone makes: `dir`, else the repository's name.
@@ -169,10 +186,11 @@ pub async fn run(
     r: &GithubActionParams,
     lent: Option<Zeroizing<String>>,
     source: Option<&str>,
+    origin: &CloneOrigin,
 ) -> Result<Value, RpcError> {
     let target = check_target(cwd, r)?;
     let name = dir_name(r);
-    clone_into(&target, &r.repo, lent.as_ref().map(|t| t.as_str())).await?;
+    clone_into(origin, &target, &r.repo, lent.as_ref().map(|t| t.as_str())).await?;
     Ok(json!({
         "action": GithubAction::Clone,
         "repo": r.repo,
@@ -184,7 +202,7 @@ pub async fn run(
 }
 
 #[cfg(not(unix))]
-async fn clone_into(_: &Path, _: &str, _: Option<&str>) -> Result<(), RpcError> {
+async fn clone_into(_: &CloneOrigin, _: &Path, _: &str, _: Option<&str>) -> Result<(), RpcError> {
     Err(RpcError::internal("repo clone runs on macOS and Linux only"))
 }
 
@@ -242,27 +260,11 @@ fn open_dir(path: &Path) -> std::io::Result<std::fs::File> {
         .open(path)
 }
 
-/// Debug builds only: the staging root a test names, beside its chat folder.
-pub const TEST_STAGING_ENV: &str = "ACPMUX_TEST_GITHUB_CLONE_STAGING";
-
-/// Where clones are staged: `clone-staging` in the daemon's state folder (module docs).
-#[cfg(unix)]
-fn staging_root() -> PathBuf {
-    #[cfg(debug_assertions)]
-    if let Some(root) = std::env::var_os(TEST_STAGING_ENV).map(PathBuf::from)
-        && root.is_absolute()
-    {
-        return root;
-    }
-    crate::config::home().join("clone-staging")
-}
-
 /// A new private staging folder for one clone (module docs).
 #[cfg(unix)]
-fn make_stage() -> Result<PathBuf, RpcError> {
+fn make_stage(root: &Path) -> Result<PathBuf, RpcError> {
     use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::fs::DirBuilderExt as _;
-    let root = staging_root();
     let failed = |e: &dyn std::fmt::Display| {
         RpcError::internal(format!("could not make a staging folder in {}: {e}", root.display()))
     };
@@ -282,14 +284,20 @@ fn make_stage() -> Result<PathBuf, RpcError> {
 }
 
 #[cfg(unix)]
-async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<(), RpcError> {
+async fn clone_into(
+    origin: &CloneOrigin,
+    target: &Path,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<(), RpcError> {
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let chat = target.parent().unwrap_or(Path::new("/"));
     let parent = open_dir(chat)
         .map_err(|e| RpcError::internal(format!("could not open the chat's folder: {e}")))?;
-    let stage = make_stage()?;
+    let root = origin.staging();
+    let stage = make_stage(&root)?;
     let staged = stage.join(STAGED.to_str().unwrap_or("clone"));
-    let done = clone_staged(&stage, &staged, &parent, &name, repo, token).await;
+    let done = clone_staged(origin, &stage, &staged, &parent, &name, repo, token).await;
     // The daemon's own folder: empty now, whether the clone moved out or was removed.
     if let Err(e) = std::fs::remove_dir(&stage) {
         tracing::warn!(stage = %stage.display(), "github clone: the staging folder stays: {e}");
@@ -301,6 +309,7 @@ async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<()
 /// (`parent`); what is left in `staged` is removed when either fails.
 #[cfg(unix)]
 async fn clone_staged(
+    origin: &CloneOrigin,
     stage: &Path,
     staged: &Path,
     parent: &std::fs::File,
@@ -314,13 +323,13 @@ async fn clone_staged(
     let stage_dir = open_dir(stage).map_err(opened)?;
     let chat_dev = parent.metadata().map_err(opened)?.dev();
     if stage_dir.metadata().map_err(opened)?.dev() != chat_dev {
-        return Err(other_disk());
+        return Err(other_disk(&origin.staging()));
     }
     std::fs::create_dir(staged).map_err(opened)?;
     let dir = open_dir(staged).map_err(opened)?;
-    let mut done = clone_in(&dir, repo, token).await;
+    let mut done = clone_in(origin, &dir, repo, token).await;
     if done.is_ok() {
-        done = place(&stage_dir, parent, name);
+        done = place(origin, &stage_dir, parent, name);
     }
     if done.is_err() {
         remove_failed(&dir, staged);
@@ -329,10 +338,10 @@ async fn clone_staged(
 }
 
 #[cfg(unix)]
-fn other_disk() -> RpcError {
+fn other_disk(staging: &Path) -> RpcError {
     RpcError::invalid_params(format!(
         "this chat's folder is on another file system than acpmux's state folder ({}), where a clone is made out of the agent's reach and then moved in; clone from a chat whose folder is on that file system",
-        staging_root().display()
+        staging.display()
     ))
     .with_data(json!({"reason": "github.clone_other_disk"}))
 }
@@ -340,7 +349,12 @@ fn other_disk() -> RpcError {
 /// Moves the finished clone (`STAGED` in `stage`) to `name` in `parent`, never replacing what is
 /// there (module docs).
 #[cfg(unix)]
-fn place(stage: &std::fs::File, parent: &std::fs::File, name: &str) -> Result<(), RpcError> {
+fn place(
+    origin: &CloneOrigin,
+    stage: &std::fs::File,
+    parent: &std::fs::File,
+    name: &str,
+) -> Result<(), RpcError> {
     use std::os::fd::AsRawFd as _;
     let to = std::ffi::CString::new(name).map_err(|_| exists_error(name))?;
     // SAFETY: both handles are open folders; both names are C strings.
@@ -376,7 +390,7 @@ fn place(stage: &std::fs::File, parent: &std::fs::File, name: &str) -> Result<()
     let e = std::io::Error::last_os_error();
     Err(match e.raw_os_error() {
         Some(libc::EEXIST) => exists_error(name),
-        Some(libc::EXDEV) => other_disk(),
+        Some(libc::EXDEV) => other_disk(&origin.staging()),
         _ => RpcError::internal(format!("could not move the clone to {name}: {e}")),
     })
 }
@@ -526,10 +540,15 @@ fn config_at(dir: &std::fs::File) -> Vec<u8> {
 }
 
 #[cfg(unix)]
-async fn clone_in(dir: &std::fs::File, repo: &str, token: Option<&str>) -> Result<(), RpcError> {
+async fn clone_in(
+    origin: &CloneOrigin,
+    dir: &std::fs::File,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<(), RpcError> {
     use std::io::Write as _;
     use std::os::fd::AsRawFd as _;
-    let base = base();
+    let base = origin.base().to_owned();
     let host = base.split_once("://").map_or(base.as_str(), |(_, h)| h).to_owned();
     let url = format!("{base}/{repo}.git");
     let mut git = tokio::process::Command::new("git");
@@ -539,7 +558,7 @@ async fn clone_in(dir: &std::fs::File, repo: &str, token: Option<&str>) -> Resul
         .args(["-c", "http.followRedirects=false", "-c", "protocol.allow=never"])
         .args(["-c", "protocol.https.allow=always"]);
     if base != GITHUB {
-        // The loopback stand-in of a test (`TEST_BASE_ENV`, debug builds only).
+        // A test's loopback stand-in (`CloneOrigin::loopback`).
         git.args(["-c", "protocol.http.allow=always"]);
     }
     // The token goes into a pipe only the helper reads (fd 3 in git and its children).

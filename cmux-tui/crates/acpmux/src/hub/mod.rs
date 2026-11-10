@@ -875,6 +875,8 @@ pub struct Hub {
     pub(super) linux_bwrap_probe: StdMutex<Option<PathBuf>>,
     /// Where `vm_host.rs` reads the creation marker (`/`; a folder in tests).
     pub(super) vm_marker_root: StdMutex<PathBuf>,
+    /// Where `repo clone` clones from and stages (GitHub; a loopback stand-in in tests).
+    pub(super) github_clone_origin: StdMutex<crate::github_clone::CloneOrigin>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
@@ -1238,6 +1240,7 @@ impl Hub {
             #[cfg(target_os = "linux")]
             linux_bwrap_probe: StdMutex::new(None),
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
+            github_clone_origin: StdMutex::new(Default::default()),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             session_recap: AtomicBool::new(away_recap::saved_setting()),

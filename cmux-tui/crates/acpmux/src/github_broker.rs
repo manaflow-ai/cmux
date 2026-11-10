@@ -573,7 +573,8 @@ pub async fn ask_owner(
     let source = source.as_deref();
     let reply = match reply {
         Ok(_) if request.action == GithubAction::Clone => {
-            crate::github_clone::run(&cwd, &request, lent, source).await
+            let origin = hub.github_clone_origin();
+            crate::github_clone::run(&cwd, &request, lent, source, &origin).await
         }
         other => other,
     };

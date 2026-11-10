@@ -47,6 +47,17 @@ fn register<T>(list: &mut Vec<Weak<T>>, new: &Arc<T>, open: impl Fn(&T) -> bool)
 }
 
 impl Hub {
+    /// Clone from a test's loopback git stand-in and stage in its folder
+    /// (`github_clone::CloneOrigin::loopback`), instead of GitHub and the state folder.
+    pub fn set_github_clone_origin(&self, origin: crate::github_clone::CloneOrigin) {
+        *self.github_clone_origin.lock().unwrap_or_else(|e| e.into_inner()) = origin;
+    }
+
+    /// Where `repo clone` clones from and stages.
+    pub(crate) fn github_clone_origin(&self) -> crate::github_clone::CloneOrigin {
+        self.github_clone_origin.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// `conn` lends this machine its GitHub login (module docs).
     pub(crate) fn add_github_owner(&self, conn: &Arc<Conn>) {
         let mut owners = self.github_owners.0.lock().unwrap_or_else(|e| e.into_inner());

