@@ -7,9 +7,10 @@ import Testing
 
 /// Familiar first (Lawrence 2026-10-14): the default tab strip keeps the size people know, a
 /// 28 pt strip with 24 pt tabs, the icon 8 pt in and 6 pt from the title. The tighter strip of
-/// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is shorter
-/// than a sidebar row and starts closer to its icon, and the close and + buttons keep their size
-/// and still take a click.
+/// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is 22 pt and starts closer
+/// to its icon, and the close and + buttons keep their size and still take a click. A sidebar row is a tab's height
+/// at every density, Compact tabs included (Lawrence 2026-11-09: "we need densities to have same sidebar workspace
+/// size and tabbar tab size"), so the sidebar row shrinks to 22 pt with it.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CompactTabStripTests {
     @Test func theDefaultStripKeepsItsFamiliarSize() throws {
         let (strip, window) = Self.strip()
@@ -50,8 +51,8 @@ import Testing
         let cell = try #require(strip.cells[TabID("tab1")])
         #expect(strip.bounds.height == 26 && cell.frame.height == 22, "the strip is \(strip.bounds.height) pt, a tab \(cell.frame.height) pt")
         #expect(strip.metrics.iconTitleSpacing == 4, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
-        #expect(cell.frame.height < row, "a tab (\(cell.frame.height) pt) is as tall as a sidebar row (\(row) pt)")
-        #expect(strip.bounds.height <= row + Metrics.space1, "the strip (\(strip.bounds.height) pt) is taller than a sidebar row and a grid step")
+        #expect(row == 22 && cell.frame.height == row, "a tab (\(cell.frame.height) pt) is not a sidebar row's height (\(row) pt)")
+        #expect(strip.bounds.height <= row + Metrics.space2, "the strip (\(strip.bounds.height) pt) is taller than a sidebar row and two grid steps")
         #expect(strip.metrics.contentLeadingInset < Metrics.space4, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
 
         // The close button keeps its size and closes the tab.

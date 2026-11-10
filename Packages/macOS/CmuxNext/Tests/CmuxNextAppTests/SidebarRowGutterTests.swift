@@ -20,7 +20,11 @@ import Testing
 /// so the pill sits inside the sidebar with an even gap on both sides; the content's insets inside it are unchanged.
 /// Since #27598 (Leo 2026-10-29: "We need to have the stuff aligned on grids and lines") the trailing
 /// column is `SidebarStyle.trailingCenterInset` inside the fill (Leo 2026-11-04), and a row with no
-/// mark runs its title to that column's 16 pt slot (`SidebarColumns.trailingEdge`).
+/// mark runs its title to that column's 16 pt slot (`SidebarColumns.trailingEdge`). Since Lawrence 2026-11-09 ("left/right
+/// should have same padding as top") the pill's gap to the sidebar's edges is the row gap, `SidebarStyle.rowEdgeGap`
+/// (`Metrics.space1`), on both sides; the content keeps `horizontalInset` inside the pill. With the fill 2 pt from the
+/// edge the resize band's clearance (`SidebarStyle.minTrailingCenterInset`) can sit deeper than `trailingCenterInset`,
+/// so the column is the deeper of the two (`trailingCenterFromEdge` less the row gap).
 @MainActor @Suite(.serialized) struct SidebarRowGutterTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let unreadID = WorkspaceID("ws-unread")
@@ -74,12 +78,13 @@ import Testing
         let sidebar = Self.sidebar()
         let unread = try Self.row(sidebar, Self.unreadID), selected = try Self.row(sidebar, Self.selectedID)
         #expect(selected.isSelected && !unread.isSelected)
-        let gutter = SidebarStyle.horizontalInset
-        // A status glyph centers on the trailing column (10990df76a738): `trailingCenterInset` inside the row's fill,
-        // the mark's ink ending the leading inset short of the fill's end (Leo 2026-11-04). A row with no
-        // mark (the selected row: `.working` with no agent at work shows idle) runs its title to the column's slot,
-        // one grid icon box wide around the line.
-        let centerInset = SidebarStyle.trailingCenterInset
+        let gutter = SidebarStyle.horizontalInset, edge = SidebarStyle.rowEdgeGap
+        #expect(edge == Metrics.space1, "the fill's gap to the sidebar's edges is the row gap")
+        // A status glyph centers on the trailing column (10990df76a738): `trailingCenterInset` inside the row's fill, or the
+        // resize clearance when that is deeper. A row with no mark (the selected row: `.working` with no agent at work
+        // shows idle) runs its title to the column's slot, one grid icon box wide around the line.
+        let centerInset = SidebarStyle.trailingCenterFromEdge - edge
+        #expect(centerInset == max(SidebarStyle.trailingCenterInset, SidebarStyle.minTrailingCenterInset))
         // The control slot on that line still clears the resize band (#27954, 9a79771762c4).
         #expect(centerInset - SidebarStyle.trailingSlotSide / 2 >= SidebarStyle.trailingColumnInset,
                 "the trailing control slot ends \(centerInset - SidebarStyle.trailingSlotSide / 2) pt in, inside the resize clearance")
@@ -97,13 +102,14 @@ import Testing
                 #expect(trailing == slotEnd, "\(name): title ends \(trailing) pt in, the column's slot \(slotEnd) pt in")
             }
             #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
-            // The pill's own inset from the list's edges is the same token, plus the trim on the right.
-            #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
-            #expect(row.frame.minX == gutter)
-            #expect(sidebar.list.bounds.width - row.frame.maxX == gutter + SidebarStyle.rowTrailingTrim,
+            // The content's inset inside the pill is `horizontalInset`; the pill's own gap from the list's edges is the
+            // row gap, plus the trim on the right.
+            #expect(leading == gutter, "\(name): text \(leading) pt in, content inset \(gutter)")
+            #expect(row.frame.minX == edge)
+            #expect(sidebar.list.bounds.width - row.frame.maxX == edge + SidebarStyle.rowTrailingTrim,
                     "\(name): pill ends \(sidebar.list.bounds.width - row.frame.maxX) pt in")
-            // Leo 2026-11-02: the fill stops the leading inset short of the sidebar's right edge, as on its left.
-            #expect(abs(sidebar.list.bounds.width - row.frame.maxX - gutter) < 0.01,
+            // Lawrence 2026-11-09: the fill stops the row gap short of the sidebar's right edge, as on its left.
+            #expect(abs(sidebar.list.bounds.width - row.frame.maxX - edge) < 0.01,
                     "\(name): the fill ends \(sidebar.list.bounds.width - row.frame.maxX) pt from the edge")
         }
     }

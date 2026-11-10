@@ -78,7 +78,9 @@ import Testing
         #expect(close.frame.width == size && close.frame.height == size, "close \(close.frame.size)")
         #expect(abs(close.frame.midY - row.title.frame.midY) < 1, "close centered on the title's line: \(close.frame.midY) vs \(row.title.frame.midY)")
         // The close centers on the trailing column, `trailingCenterInset` inside the fill since #34872 (Leo
-        // 2026-11-04: "too much of a gutter on the right"), so it ends 5 pt (comfortable) / 4 pt (compact) in.
+        // 2026-11-04: "too much of a gutter on the right"), or the resize clearance where that is deeper: with the fill
+        // 2 pt from the sidebar's edge (`rowEdgeGap`, Lawrence 2026-11-09) the column is 13.5 pt in and the close ends
+        // 4.5 pt in at both densities.
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
         #expect(abs(close.frame.midX - column) <= 0.5, "close centered at \(close.frame.midX), trailing column \(column)")
         #expect(close.frame.maxX <= row.bounds.width, "close ends \(row.bounds.width - close.frame.maxX) pt in, inside the fill")

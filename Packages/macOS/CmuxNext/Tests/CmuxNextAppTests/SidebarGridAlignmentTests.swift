@@ -7,10 +7,12 @@ import Testing
 /// capture is needed: the first test pins the existing layout adapters, and the second lays out each real row view.
 /// Keep the expected numbers independent of LayoutGrid so changing a token cannot bless drift.
 ///
-/// One number differs from grid.md: compact `lead` is 12, not 16. grid.md puts the highlight 8 from the edge and
-/// lead 8 inside it; the highlight keeps base's list inset (6 compact, 8 comfortable), and an iconless title starts
-/// `horizontalInset` inside its row (SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows). Compact lead is
-/// therefore 6 + 6 = 12, the nearest grid line both allow; text stays lead + icon box + 8 (36 compact, 44 comfortable).
+/// `lead` differs from grid.md: 8 compact and 10 comfortable, not 16. grid.md puts the highlight 8 from the edge and
+/// lead 8 inside it; the highlight sits the row gap (`SidebarStyle.rowEdgeGap`, `Metrics.space1`: 2) from the edge
+/// (Lawrence 2026-11-09: "left/right should have same padding as top"), and an iconless title starts
+/// `horizontalInset` (6 compact, 8 comfortable) inside its row (SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows).
+/// Lead is therefore 2 + 6 = 8 compact and 2 + 8 = 10 comfortable; text stays lead + icon box + 8 (32 compact,
+/// 38 comfortable).
 @MainActor @Suite(.serialized) struct SidebarGridAlignmentTests {
     nonisolated enum Kind: String, CaseIterable, Sendable {
         case workspace, item, app, link, sectionHeader, done, showMore, group
@@ -45,13 +47,17 @@ import Testing
     }
 
     /// grid.md `lead` from the sidebar edge, and `text` after a 16 / 20 icon box and an 8 gap.
-    nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 16 : 12 }
-    nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 44 : 36 }
-    /// Trailing column `index`'s center in a 304 pt row: half the 10 pt status glyph plus the row inset (11 compact, 13
-    /// comfortable; plus 20 a column) in from the row's end (Lawrence 2026-11-05: "padding on left/right of every
-    /// workspace needs to be even").
+    nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 10 : 8 }
+    nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 38 : 32 }
+    /// A row's x from the sidebar edge at nesting `depth`: the 2 pt row gap, plus 7 a level.
+    nonisolated static func origin(depth: Int = 0) -> CGFloat { CGFloat(2 + depth * 7) }
+    /// The trailing column's center in from a row fill's end, at both densities: the resize band's clearance
+    /// (`SidebarStyle.minTrailingCenterInset`: 1.5 + 2 - 2 + half the 24 pt Search) is 13.5, past the row inset plus
+    /// half the 10 pt status glyph (11 compact, 13 comfortable), now that the fill ends 2 pt from the sidebar's edge.
+    nonisolated static let trailingInset: CGFloat = 13.5
+    /// Trailing column `index`'s center in a 304 pt row: `trailingInset` (plus 20 a column) in from the row's end.
     static func column304(_ index: Int) -> CGFloat {
-        304 - (SidebarStyle.horizontalInset + 5) - CGFloat(index) * 20
+        304 - trailingInset - CGFloat(index) * 20
     }
 
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
@@ -59,12 +65,12 @@ import Testing
     @Test(arguments: cases)
     func columnsAndDensityFollowTheGrid(_ c: Case) {
         Self.withDensity(c.comfortable) {
-            let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
-            let width = CGFloat(320) - origin - SidebarStyle.horizontalInset
+            let origin = Self.origin(depth: c.depth)
+            let width = CGFloat(320) - origin - SidebarStyle.rowEdgeGap
             let height = Metrics.sidebarRowHeight + (c.comfortable ? Metrics.space2 : 0)
             let icon: CGFloat = c.comfortable ? 20 : 16
             #expect(abs(SidebarStyle.horizontalInset - (c.comfortable ? 8 : 6)) <= 0.5)
-            #expect(SidebarStyle.rowEdgeGap == SidebarStyle.horizontalInset)
+            #expect(SidebarStyle.rowEdgeGap == Metrics.space1 && SidebarStyle.rowEdgeGap == 2)
             #expect(abs(SidebarStyle.groupGutter - 7) <= 0.5)
             #expect(abs(SidebarStyle.columns(rowWidth: width).iconBox - icon) <= 0.5)
             #expect(abs(SidebarDensityTokens.rowHeight - height) <= 0.5)
@@ -75,12 +81,13 @@ import Testing
             let expectedText = c.kind == .sectionHeader ? Self.lead(c.comfortable) : Self.text(c.comfortable)
             #expect(abs(origin + lead - Self.lead(c.comfortable) - CGFloat(c.depth * 7)) <= 0.5)
             #expect(abs(origin + text - expectedText - CGFloat(c.depth * 7)) <= 0.5)
-            // A control's size never changes its center: 17 / 21 pt from the edge (Lawrence 2026-11-05). A second column is one 20 pt pitch in.
+            // A control's size never changes its center: 15.5 pt from the edge at both densities (the 2 pt row gap plus
+            // `trailingInset`; 17 / 21 before the row gap shrank, Lawrence 2026-11-05). A second column is one 20 pt pitch in.
             for index in 0..<c.marks {
                 let side: CGFloat = index == 0 ? 16 : 12
                 let mark = SidebarStyle.trailingColumnFrame(rowWidth: width - CGFloat(index) * 20,
                                                            centerY: height / 2, side: side)
-                #expect(abs(origin + mark.midX - (320 - (c.comfortable ? 21 : 17) - CGFloat(index) * 20)) <= 0.5)
+                #expect(abs(origin + mark.midX - (320 - 15.5 - CGFloat(index) * 20)) <= 0.5)
                 #expect(abs(mark.midY - height / 2) <= 0.5)
             }
         }
@@ -91,9 +98,9 @@ import Testing
     @Test(arguments: cases)
     func actualRowsUseTheTextAndMidLines(_ c: Case) throws {
         try Self.withDensity(c.comfortable) {
-            let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
+            let origin = Self.origin(depth: c.depth)
             let height = c.kind == .sectionHeader ? SidebarDensityTokens.headerHeight : SidebarDensityTokens.rowHeight
-            let view = Self.view(c, width: 320 - origin - SidebarStyle.horizontalInset, height: height)
+            let view = Self.view(c, width: 320 - origin - SidebarStyle.rowEdgeGap, height: height)
             view.layout()
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
@@ -107,7 +114,7 @@ import Testing
             } else {
                 let label = try #require(view.subviews.compactMap { $0 as? ChromeLabel }
                     .first { !$0.isHidden && !$0.stringValue.isEmpty })
-                let firstInk = label.frame.minX + label.alignmentRectInsets.left - (c.kind == .item ? SidebarStyle.horizontalInset : 0)
+                let firstInk = label.frame.minX + label.alignmentRectInsets.left - (c.kind == .item ? SidebarStyle.rowEdgeGap : 0)
                 #expect(abs(origin + firstInk - text - CGFloat(c.depth * 7)) <= 0.5)
                 let font = try #require(label.font)
                 let mid = label.frame.minY + label.firstBaselineOffsetFromTop - font.capHeight / 2
@@ -121,8 +128,8 @@ import Testing
     @Test(arguments: cases.filter { $0.kind == .workspace })
     func iconlessWorkspaceUsesLead(_ c: Case) throws {
         try Self.withDensity(c.comfortable) {
-            let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
-            let workspace = try #require(Self.view(c, width: 320 - origin - SidebarStyle.horizontalInset,
+            let origin = Self.origin(depth: c.depth)
+            let workspace = try #require(Self.view(c, width: 320 - origin - SidebarStyle.rowEdgeGap,
                                                   height: SidebarDensityTokens.rowHeight,
                                                   workspaceIcon: false) as? WorkspaceRowView)
             workspace.layout()
@@ -155,8 +162,8 @@ import Testing
             var info = SidebarItemInfo(title: "Grid", symbol: "square", badge: c.marks == 2 ? 2 : nil)
             info.activity = .error
             view.configure(info, style: .builtIn)
-            // Band rows own their outer inset, unlike the other row classes.
-            view.frame.size.width += SidebarStyle.horizontalInset + SidebarStyle.rowEdgeGap
+            // Band rows own their outer gap on both sides, unlike the other row classes.
+            view.frame.size.width += SidebarStyle.rowEdgeGap * 2
             return view
         case .app, .link:
             let view = SidebarItemListRowView(key: .item("grid-item"))
@@ -297,11 +304,11 @@ extension SidebarGridAlignmentTests {
                 if case .group = key { row.depth = depth } else { row.depth = depth + 1 }
                 let frame = list.frame(for: row)
                 let reach = list.railReach(for: row)
-                #expect(abs(frame.minX + reach - CGFloat((comfortable ? 8 : 6) + depth * 7)) <= 0.5)
+                #expect(abs(frame.minX + reach - Self.origin(depth: depth)) <= 0.5)
                 #expect(abs(frame.maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
                 #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
-                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.horizontalInset - 5)) <= 0.5)
+                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - Self.trailingInset)) <= 0.5)
             }
         }
     }
@@ -317,7 +324,7 @@ extension SidebarGridAlignmentTests {
             let height: CGFloat = comfortable ? 28 : 24
             #expect(SidebarDensityTokens.rowHeight == height)
             #expect(SidebarDensityTokens.headerHeight == (comfortable ? 26 : 22))
-            #expect(SidebarStyle.rowEdgeGap == (comfortable ? 8 : 6))
+            #expect(SidebarStyle.rowEdgeGap == 2, "the row gap, `Metrics.space1`, at both densities")
             #expect(SidebarStyle.controlSize == Metrics.iconSize + Metrics.space2)
             #expect(SidebarStyle.trailingSlotSide == SidebarStyle.controlSize)
             #expect(SidebarStyle.titleFont == Typography.body)
@@ -356,16 +363,17 @@ extension SidebarGridAlignmentTests {
     }
 
     /// Base rail/bar geometry is independent of text and icon columns. At default interface
-    /// density the rail reach is four points, the outer inset is 6/8, each nested step is seven, and the
-    /// bar keeps `groupEdgePadding` (the inset less the rail reach: 2/4, Lawrence 63d46f83) from the edge.
+    /// density the rail reach is four points, the outer gap is 2 (`rowEdgeGap`, Lawrence 2026-11-09), each nested step is
+    /// seven, and the bar keeps `groupEdgePadding` (the gap less the rail reach, floored at 0: 0 at both densities) from
+    /// the edge.
     @Test(arguments: [false, true], Array(0...6))
     func groupBarAndRailXStayAtBaseEveryDepth(comfortable: Bool, depth: Int) {
         Self.withDensity(comfortable) {
             let list = SidebarListView(model: SidebarModel(sections: []))
             list.frame = NSRect(x: 0, y: 0, width: 320, height: 600)
-            let inset: CGFloat = comfortable ? 8 : 6
+            let inset: CGFloat = 2
             #expect(SidebarStyle.groupGutter == 7)
-            let padding: CGFloat = comfortable ? 4 : 2
+            let padding: CGFloat = 0
             #expect(SidebarStyle.groupEdgePadding == padding)
             var row = Self.row(.group(GroupID("base-rail")), height: SidebarDensityTokens.rowHeight)
             row.depth = depth
@@ -401,9 +409,9 @@ extension SidebarGridAlignmentTests {
     func leadingIconBoxEndsOneGapBeforeTheText(comfortable: Bool) throws {
         try Self.withDensity(comfortable) {
             let box: CGFloat = comfortable ? 20 : 16
-            let origin: CGFloat = comfortable ? 8 : 6
+            let origin = Self.origin()
             let c = Case(kind: .workspace, comfortable: comfortable, depth: 0, marks: 1)
-            let workspace = try #require(Self.view(c, width: 320 - origin - SidebarStyle.horizontalInset,
+            let workspace = try #require(Self.view(c, width: 320 - origin - SidebarStyle.rowEdgeGap,
                                                   height: SidebarDensityTokens.rowHeight) as? WorkspaceRowView)
             workspace.layout()
             #expect(abs(workspace.icon.frame.width - box) <= 0.5)
@@ -417,12 +425,12 @@ extension SidebarGridAlignmentTests {
             }
 
             let itemCase = Case(kind: .item, comfortable: comfortable, depth: 0, marks: 1)
-            let item = try #require(Self.view(itemCase, width: 320 - origin - SidebarStyle.horizontalInset,
+            let item = try #require(Self.view(itemCase, width: 320 - origin - SidebarStyle.rowEdgeGap,
                                              height: SidebarDensityTokens.rowHeight) as? SidebarItemRowView)
             item.layout()
             let ink = try #require(item.glyphInkFrame)
-            // Band rows own their outer inset: the row starts at the sidebar edge less the rail inset (0 here).
-            let lead = Self.lead(comfortable) - origin + SidebarStyle.horizontalInset
+            // Band rows own their outer gap: the row starts at the sidebar edge.
+            let lead = Self.lead(comfortable) - origin + SidebarStyle.rowEdgeGap
             // A band row's glyph centers its ink in the icon column (https://github.com/manaflow-ai/cmux/issues/38061).
             #expect(abs(ink.midX - (lead + box / 2)) <= 0.5)
             #expect(abs(item.titleFrame.minX - (lead + box) - 8) <= 0.5)

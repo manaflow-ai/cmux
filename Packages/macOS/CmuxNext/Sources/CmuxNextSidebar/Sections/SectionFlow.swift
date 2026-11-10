@@ -103,7 +103,9 @@ nonisolated enum SectionFlow {
         let side = m.rowHeight
         let gap = section.arrangement.gap.map { CGFloat($0) } ?? 0
         let align = section.arrangement.align
-        let shift = align == .leading ? max(0, column - side / 2) : 0
+        // A leading line may start left of the region's inset, never past its edge: the rows' glyph column sits
+        // `SidebarStyle.rowEdgeGap` plus the content inset from the edge, nearer than half a tile past the inset.
+        let shift = align == .leading ? max(-x, column - side / 2) : 0
         let widest = section.items.map { iconWidths[$0.id] ?? side }.max() ?? side
         let perLine = max(1, Int((width - shift + gap) / (widest + gap)))
         var result = lay(chunk(section.items, perLine), kind: { .tile($0, section: section.id) }, widths: { iconWidths[$0] ?? side },

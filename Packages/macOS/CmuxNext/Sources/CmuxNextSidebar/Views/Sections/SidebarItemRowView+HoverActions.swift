@@ -34,7 +34,7 @@ extension SidebarItemRowView {
         guard shown, let hoverMore else { return }
         // The end-most control takes the trailing column, where the dot or spinner it hides sat.
         let control = SidebarStyle.controlSize
-        hoverMore.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.horizontalInset, centerY: b.midY, side: control)
+        hoverMore.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.rowEdgeGap, centerY: b.midY, side: control)
         title.frame.size.width = max(0, min(title.frame.width, hoverMore.frame.minX - Metrics.space2 - title.frame.minX))
     }
 }

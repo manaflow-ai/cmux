@@ -71,11 +71,14 @@ import Testing
         let title = try #require(labels.first { $0.stringValue == "Fix sidebar insets" })
         #expect(title.font?.pointSize == tokens.titleSize)
         #expect(title.textColor == root.performWithTheme { Palette.textPrimary })
-        // The text column starts where a workspace row's does: inset, icon column, the grid's gap.
+        // The text column starts where a workspace row's does: the row gap (a fill's gap to the sidebar's edge,
+        // `Metrics.space1` since Lawrence 2026-11-09: "left/right should have same padding as top"), the content inset,
+        // the icon column, the grid's gap; the label's frame starts its cell padding (`labelInset`) before its text.
         let iconColumn = max(tokens.isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox,
                              Metrics.smallIconSize + tokens.textSize.glyphStep + Metrics.space2)
-        let textX = title.convert(NSPoint.zero, to: one).x
-        #expect(abs(textX - (2 * tokens.horizontalInset + iconColumn + LayoutGrid.gap)) < 2.5)
+        let textX = title.convert(NSPoint.zero, to: one).x + AppSceneRowNSView.labelInset
+        let want = Metrics.space1 + tokens.horizontalInset + iconColumn + LayoutGrid.gap
+        #expect(abs(textX - want) < 0.5, "the title's text starts at \(textX), a workspace row's at \(want)")
     }
 
     @Test func tappingARowSendsTapToTheScript() throws {

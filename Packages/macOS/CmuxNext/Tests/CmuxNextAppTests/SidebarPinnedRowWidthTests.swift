@@ -11,7 +11,8 @@ import Testing
 /// also after the sidebar is resized. Since Leo 2026-10-20 (#22733) list rows end
 /// `SidebarStyle.rowTrailingTrim` short of the right inset, and the pinned rows end there too.
 /// The group header's bar starts left of the rows, at its members' rail (Lawrence 2026-10-23), so
-/// the pinned rows start at the rows' inset, not at the bar.
+/// the pinned rows start at the rows' inset, not at the bar. Since Lawrence 2026-11-09 ("left/right should have same
+/// padding as top") that inset is the row gap, `SidebarStyle.rowEdgeGap` (`Metrics.space1`).
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarPinnedRowWidthTests {
     static let home = LayoutItemID("itm_home"), store = LayoutItemID("itm_app_store")
@@ -104,13 +105,14 @@ struct SidebarPinnedRowWidthTests {
         defer { h.window.close() }
         h.resize(to: c.end)
         try #require(h.list.displayed.row(for: Self.topKey) != nil, "the list draws no top block")
-        let inset = SidebarDensityTokens.horizontalInset
+        let inset = SidebarStyle.rowEdgeGap
+        #expect(inset == Metrics.space1, "the rows' outer inset is the row gap")
         let width = h.list.bounds.width
         let (header, headerRadius) = try h.headerPill()
         // Since #22733 every list row ends `rowTrailingTrim` short of the right inset. Since ab905adeadd03 (Lawrence
         // 2026-10-23) a group header's bar starts at its members' rail, `groupRailReach` left of the rows, and since
         // b5400e7e342f4 (Lawrence 2026-10-25) it keeps `groupEdgePadding` from the list's edge; the pinned rows keep
-        // the rows' left edge, the inset.
+        // the rows' left edge, the row gap.
         let headerMinX = max(inset - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding)
         #expect(abs(header.minX - headerMinX) < 0.5 && abs(header.maxX - (width - inset - SidebarStyle.rowTrailingTrim)) < 0.5,
                 "group header \(header) does not start at its rail \(headerMinX) (and end the trim short of the inset) in \(width)")

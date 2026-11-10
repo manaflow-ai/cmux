@@ -10,7 +10,8 @@ import Testing
 ///
 /// The trailing twin of `SidebarLeadingEdgeTests` (every row's first ink starts at the row inset): every workspace
 /// row (a pinned band row, a Pinned section row, a top-level group's member, a loose row, the selected row, a hovered
-/// row showing its ×) keeps its fill as far from the list's right edge as from its left, and its last trailing glyph
+/// row showing its ×) keeps its fill as far from the list's right edge as from its left (the row gap, `rowEdgeGap`:
+/// `Metrics.space1`, Lawrence 2026-11-09: "left/right should have same padding as top"), and its last trailing glyph
 /// box ends the row inset before the fill's end, as its leading glyph box starts the row inset after the fill's start
 /// (box against box: each glyph's own padding inside its box is the same on both sides). A hovered row's ✕, a control
 /// slot wider than its glyph, centers on that same column.
@@ -76,6 +77,7 @@ import Testing
             if id == Self.selectedID { #expect(row.isSelected) }
             let left = row.frame.minX, right = list.bounds.width - row.frame.maxX
             #expect(abs(left - right) < 0.01, "\(name): the fill is \(left) pt from the list's left edge, \(right) pt from its right")
+            #expect(abs(left - SidebarStyle.rowEdgeGap) < 0.01, "\(name): the fill is \(left) pt from the list's edge, the row gap \(SidebarStyle.rowEdgeGap)")
             // The leading glyph's box (the icon slot, else the title) starts the row inset inside the fill.
             let leading = row.icon.frame.width > 0 ? row.icon.frame.minX : row.title.frame.minX
             #expect(abs(leading - inset) < 0.01, "\(name): the leading box starts \(leading) pt inside the fill, the row inset \(inset)")
@@ -108,6 +110,7 @@ import Testing
         let pill = bandRow.pill.frame
         #expect(abs(pill.minX - (bandRow.bounds.width - pill.maxX)) < 0.01,
                 "the fill is \(pill.minX) pt from the row's left edge, \(bandRow.bounds.width - pill.maxX) pt from its right")
+        #expect(abs(pill.minX - SidebarStyle.rowEdgeGap) < 0.01, "the fill is \(pill.minX) pt from the row's edge, the row gap \(SidebarStyle.rowEdgeGap)")
         #expect(!bandRow.activity.isHidden && bandRow.activity.frame.width > 0, "the row shows its status mark")
         let trailing = pill.maxX - bandRow.activity.frame.maxX
         #expect(abs(trailing - SidebarStyle.horizontalInset) <= Self.tolerance,

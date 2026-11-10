@@ -55,8 +55,12 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public var band: SidebarRowTokens {
         density == .expanded ? SidebarRowTokens(density: .comfortable, textSize: textSize, base: base) : self
     }
-    /// Rows inset from the sidebar edge, and their content from the row edge.
+    /// A row's content inset from its fill's edges.
     public var horizontalInset: CGFloat { isComfortable ? base.space4 : base.space3 }
+    /// A row fill's gap to the sidebar's leading and trailing edges: the gap between two rows (`space1`), so a
+    /// highlight has the same room on its sides as above it (Lawrence 2026-11-09). The sidebar's
+    /// `SidebarStyle.rowEdgeGap` is the same value.
+    public var edgeGap: CGFloat { base.space1 }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }
     public var captionSize: CGFloat { base.caption + textSize.textStep }

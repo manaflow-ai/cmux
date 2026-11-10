@@ -10,6 +10,11 @@
   glyph column take it, and content keeps `horizontalInset` inside the fill, so it moves out with the fill. A
   top-level group's rail has no room left of its members' fills now (`groupEdgePadding` is 0). Sidebar Comfortable
   still adds `space2` to a row. Regression: `DensityTokensTests/textAndRowsGrowWithDensity`, webviews `density.test.ts`.
+  Follow-up: band rows' hover more and edit remove buttons, app-section rows (`SidebarRowTokens.edgeGap`) and icon-only
+  band lines measure from the fill at `rowEdgeGap` too. Open: the trailing column now sits at the resize clearance
+  (15.5 pt from the edge), so a status mark ends 8.5 pt inside the fill against 6 pt at the leading side
+  (`SidebarEvenRowInsetsTests`); a top-level group's rail starts at x 0 against its members' fills
+  (`SidebarGroupRowAlignmentTests`). Both wait on Lawrence's call.
 - 2026-11-07: pinning never renames a workspace. Lawrence, verbatim: "i pinned a workspace and it's name disappeared
   and went back to workspace-936". A workspace nobody named keeps the daemon's `workspace-N`; its list row shows the
   auto name the page face gives (`AppServices.sidebarPageFace`). Pinned (layout tiles), it leaves the list for a band

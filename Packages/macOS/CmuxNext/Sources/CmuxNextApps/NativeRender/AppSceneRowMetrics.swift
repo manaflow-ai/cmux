@@ -19,7 +19,9 @@ struct AppSceneRowMetrics: Equatable {
         AppSceneRowMetrics(tokens: SidebarRowTokens.current.band, smallIconSize: Metrics.smallIconSize, cornerRadius: Metrics.tabCornerRadius)
     }
 
-    /// The row fill's inset from the section's edges, and the content's from the fill's edges.
+    /// The row fill's inset from the section's edges: the sidebar rows' edge gap.
+    var fillInset: CGFloat { tokens.edgeGap }
+    /// The content's inset from the fill's edges.
     var inset: CGFloat { tokens.horizontalInset }
     /// The leading icon column: the grid's icon box (16 compact, 20 comfortable), wider when the text size grows the glyph.
     var iconColumn: CGFloat {
@@ -28,10 +30,10 @@ struct AppSceneRowMetrics: Equatable {
     }
     /// A leading glyph's side beside the title (cap height matched to the text).
     var glyphSide: CGFloat { .iconRowSize(forLabelPointSize: tokens.titleSize) }
-    /// The x where a title's ink starts, in section coordinates: two insets (fill, content), the icon column, the gap.
-    func textX(hasIcon: Bool) -> CGFloat { 2 * inset + (hasIcon ? iconColumn + LayoutGrid.gap : 0) }
+    /// The x where a title's ink starts, in section coordinates: the fill's and the content's insets, the icon column, the gap.
+    func textX(hasIcon: Bool) -> CGFloat { fillInset + inset + (hasIcon ? iconColumn + LayoutGrid.gap : 0) }
     /// The trailing content's end, in a section `width` wide.
-    func trailingX(width: CGFloat) -> CGFloat { width - 2 * inset }
+    func trailingX(width: CGFloat) -> CGFloat { width - fillInset - inset }
 
     /// A row title, regular (medium while unread), at the sidebar text size.
     @MainActor

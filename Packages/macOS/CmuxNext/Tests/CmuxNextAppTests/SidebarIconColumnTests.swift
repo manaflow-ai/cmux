@@ -172,8 +172,8 @@ import Testing
         header.layoutSubtreeIfNeeded()
         header.layout()
         let chevronX = headerRow.frame.minX + header.chevron.frame.midX
-        // A band row's fill is inset by `horizontalInset` in its frame (`SidebarItemRowView.layoutColumnMark`).
-        let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset)
+        // A band row's fill is inset by the row gap, `rowEdgeGap`, in its frame (`SidebarItemRowView.layoutColumnMark`).
+        let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.rowEdgeGap)
         #expect(abs(chevronX - rowColumn) <= Self.tolerance, "\(look): the header chevron centers at \(chevronX), its rows' marks at \(rowColumn)")
     }
 

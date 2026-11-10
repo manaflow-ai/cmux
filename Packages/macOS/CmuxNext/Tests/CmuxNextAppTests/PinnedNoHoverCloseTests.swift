@@ -50,8 +50,9 @@ import Testing
             let more = try #require(row.hoverMore, "\(row.titleText): no more button on hover")
             #expect(!more.isHiddenOrHasHiddenAncestor, "\(row.titleText): the more button hid on hover")
             #expect(Self.visibleCloses(in: row).isEmpty, "\(row.titleText): a pinned row showed a close x on hover")
-            // The ⋮ takes the x's place, the end-most control on the trailing column: nothing else moves.
-            let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width - SidebarStyle.horizontalInset)
+            // The ⋮ takes the x's place, the end-most control on the trailing column: nothing else moves. A band row's fill
+            // is inset by the row gap, `rowEdgeGap`, in its frame (`SidebarItemRowView.bandColumns`).
+            let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width - SidebarStyle.rowEdgeGap)
             #expect(abs(more.frame.midX - column) < 0.5, "\(row.titleText): the more button left the column (\(more.frame.midX) vs \(column))")
         }
         PointerHover.setDebugPointer(nil, in: harness.window)

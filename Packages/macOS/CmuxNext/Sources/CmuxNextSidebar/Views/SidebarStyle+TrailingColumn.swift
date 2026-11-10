@@ -10,7 +10,8 @@ extension SidebarStyle {
     /// `lead` sits `horizontalInset` inside the highlight (6 compact, 8 comfortable), and the highlight
     /// sits `rowEdgeGap` from the sidebar edge, so an iconless title starts as far left as the row allows
     /// (Lawrence 2026-10-23): lead lands 8 / 10 from the sidebar edge. The trailing line is
-    /// `trailingCenterInset` inside the fill, mirroring that inset: 15 / 17 from the sidebar edge.
+    /// `trailingCenterInset` inside the fill, mirroring that inset, or the resize clearance where that is deeper
+    /// (`minTrailingCenterInset`): 15.5 from the sidebar edge at both densities with the 2 pt `rowEdgeGap`.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,

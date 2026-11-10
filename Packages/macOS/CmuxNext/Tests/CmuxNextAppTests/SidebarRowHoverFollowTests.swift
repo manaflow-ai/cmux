@@ -49,14 +49,17 @@ import Testing
         }
     }
 
-    /// Leo 2026-11-02 ("CHATGPT HAS A SLIGHT GAP"): the row's fill ends the leading inset from the sidebar's right
-    /// edge, as on its left (was 1.5 pt, #26378).
+    /// Leo 2026-11-02 ("CHATGPT HAS A SLIGHT GAP"): the row's fill ends short of the sidebar's right edge, as on its
+    /// left (was 1.5 pt, #26378). Since Lawrence 2026-11-09 ("left/right should have same padding as top") that gap is
+    /// the row gap, `rowEdgeGap` (`Metrics.space1`), not the 6 / 8 pt content inset.
     @Test func aRowEndsShortOfTheSidebarsRightEdge() throws {
         let (list, window, rows) = Self.list()
         defer { window.close() }
         let frame = list.frame(for: try #require(rows.first))
         let right = list.bounds.maxX - frame.maxX
-        #expect(abs(right - SidebarStyle.horizontalInset) < 0.01,
-                "the row ends \(right) pt from the right edge; expected \(SidebarStyle.horizontalInset) pt")
+        #expect(SidebarStyle.rowEdgeGap == Metrics.space1)
+        #expect(abs(right - SidebarStyle.rowEdgeGap) < 0.01,
+                "the row ends \(right) pt from the right edge; expected \(SidebarStyle.rowEdgeGap) pt")
+        #expect(abs(frame.minX - SidebarStyle.rowEdgeGap) < 0.01, "the row starts \(frame.minX) pt from the left edge")
     }
 }

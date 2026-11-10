@@ -85,10 +85,10 @@ final class AppSceneRowNSView: AppSceneNodeNSView {
         let metrics = AppSceneRowMetrics.current
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pill.frame = CGRect(x: rect.minX + metrics.inset, y: rect.minY, width: max(0, rect.width - 2 * metrics.inset), height: rect.height)
+        pill.frame = CGRect(x: rect.minX + metrics.fillInset, y: rect.minY, width: max(0, rect.width - 2 * metrics.fillInset), height: rect.height)
         pill.cornerRadius = metrics.cornerRadius
         let midY = rect.midY
-        let lead = rect.minX + 2 * metrics.inset
+        let lead = rect.minX + metrics.fillInset + metrics.inset
         // The glyph's box starts on the icon column's leading edge, as a workspace row's icon ink does.
         let glyph = metrics.glyphSide
         icon.frame = CGRect(x: lead + (metrics.iconColumn - glyph) / 2, y: midY - glyph / 2, width: glyph, height: glyph).integral
