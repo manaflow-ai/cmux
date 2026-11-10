@@ -6485,6 +6485,20 @@ class FailingStepLogOnly(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
+    # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
+    # copy's test pins the same fingerprint. A change here updates this value and both copies.
+    VENDORED_FINGERPRINT = "89c809744a7a542b20b0fde4cd673a2334056ca1a3484b9c88af04607c16581c"
+
+    def test_the_code_vendored_into_base_red_watch_is_pinned(self):
+        import hashlib
+        import inspect
+        parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "EXIT_LINE")]
+        parts += [inspect.getsource(getattr(excuse, name)) for name in ("lines_of", "_stamp_time", "failed_steps_log")]
+        self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
+                         "failed_steps_log changed: copy it to cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py "
+                         "and leo-workspace tools/failed_steps_log.py, and update the fingerprint in all three")
+
     def adjacent_job(self, job_id, run_id, sha):
         # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
         # stamped 12:00:12.5 is in both steps' [started_at, completed_at + 1s) windows.
