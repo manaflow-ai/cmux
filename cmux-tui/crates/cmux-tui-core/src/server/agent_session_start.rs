@@ -133,6 +133,40 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const READY_BUDGET: Duration = Duration::from_secs(20);
 /// Between connects to an acpmux that restarts (its socket gone or closed under the read).
 const READY_RETRY: Duration = Duration::from_millis(200);
+/// The whole start's time on this machine, from the worker's start to its answer: every acpmux
+/// call takes its timeout from what is left of it ([`Deadline::cap`]), so no phase, nor one added
+/// later, can push the answer past it. The app waits [`APP_START_WAIT`] for the answer; the
+/// difference is the failed start's cleanup (one `_acpmux/kill`, [`CALL_TIMEOUT`]) and the
+/// carrier both ways ([`CARRIER_MARGIN`]). Before, the phases' own timeouts summed past the app's
+/// wait (5 + 5 + 5 + 5 + 60 s and the mode settle, against 75 s), and a slow start ended in the app's
+/// "no reply within 75.0 seconds" with the machine still starting the agent (cmuxterm-hq
+/// cloud-chat-replies-production-team, 2026-11-10 15:57Z).
+pub(crate) const START_BUDGET: Duration = Duration::from_secs(62);
+/// The app's wait for an `agent-session-start` answer: `AgentTabRemoteStart.timeout`
+/// (`Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+RemoteStart.swift`). A test reads that
+/// file and fails when the two disagree.
+pub(crate) const APP_START_WAIT: Duration = Duration::from_secs(75);
+/// The carrier's share of the app's wait, both ways.
+pub(crate) const CARRIER_MARGIN: Duration = Duration::from_secs(8);
+
+/// One start's deadline: each acpmux call takes the smaller of its own cap and the time left.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Deadline(Instant);
+
+impl Deadline {
+    pub(crate) fn after(budget: Duration) -> Self {
+        Self(Instant::now() + budget)
+    }
+
+    pub(crate) fn at(self) -> Instant {
+        self.0
+    }
+
+    /// `cap`, or less when less is left (never zero: a call with nothing left times out at once).
+    pub(crate) fn cap(self, cap: Duration) -> Duration {
+        cap.min(self.0.saturating_duration_since(Instant::now())).max(Duration::from_millis(1))
+    }
+}
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
@@ -399,11 +433,12 @@ pub(super) fn start(
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let began = Instant::now();
+            let by = Deadline::after(START_BUDGET);
             let mut timings = StartTimings::default();
-            let gated = keyed_gate(&socket, &params);
+            let gated = keyed_gate(&socket, &params, by);
             timings.keyed_gate = Some(ms_since(began));
             let result = match gated {
-                Ok(()) => run(&worker_mux, client, socket, params, phone, &mut timings)
+                Ok(()) => run(&worker_mux, client, socket, params, phone, by, &mut timings)
                     .map_err(|r| (r, None)),
                 Err(refused) => Err(refused),
             };
@@ -438,6 +473,7 @@ pub(super) fn start(
 fn keyed_gate(
     socket: &std::path::Path,
     params: &StartParams,
+    by: Deadline,
 ) -> Result<(), (Refusal, Option<Value>)> {
     if !params.require_person_key {
         return Ok(());
@@ -457,7 +493,7 @@ fn keyed_gate(
         }
         Err(_) => return Err(unknown()),
         Ok(link) => {
-            let status = link.call("_acpmux/status", json!({}), CALL_TIMEOUT);
+            let status = link.call("_acpmux/status", json!({}), by.cap(CALL_TIMEOUT));
             link.close();
             Some(status.map_err(|_| unknown())?)
         }
@@ -521,6 +557,7 @@ fn run(
     socket: PathBuf,
     params: StartParams,
     phone: bool,
+    by: Deadline,
     timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
     let began = Instant::now();
@@ -528,8 +565,8 @@ fn run(
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
     let checks = Instant::now();
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, checks + READY_BUDGET)?;
-    let result = start_and_bind(mux, client, &link, &catalog, &params, phone, checks, timings);
+    let (link, catalog) = ready_catalog(&socket, link, cwd, (checks + READY_BUDGET).min(by.at()))?;
+    let result = start_and_bind(mux, client, &link, &catalog, &params, phone, checks, by, timings);
     link.close();
     result
 }
@@ -626,6 +663,7 @@ fn start_and_bind(
     params: &StartParams,
     phone: bool,
     checks: Instant,
+    by: Deadline,
     timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
@@ -637,7 +675,8 @@ fn start_and_bind(
     // A phone's start gets the phone's floor, also on the caller's own Cloud VM: an acpmux that
     // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
     // the start answers.
-    let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let table =
+        link.call("_acpmux/web_modes", json!({}), by.cap(CALL_TIMEOUT)).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking);
     }
@@ -658,8 +697,9 @@ fn start_and_bind(
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
-    let trust =
-        link.call("acp.trust.get", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let trust = link
+        .call("acp.trust.get", json!({"cwd": cwd}), by.cap(CALL_TIMEOUT))
+        .map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
@@ -686,7 +726,7 @@ fn start_and_bind(
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
-    let created = link.call("session/new", new, NEW_TIMEOUT).map_err(Refusal::of);
+    let created = link.call("session/new", new, by.cap(NEW_TIMEOUT)).map_err(Refusal::of);
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -702,11 +742,11 @@ fn start_and_bind(
         refusal
     };
     let family = if phone {
-        settle_phone_mode(link, &session).map_err(end)?
+        settle_phone_mode(link, &session, by).map_err(end)?
     } else if owner_cloud {
-        session_family(link, &session).map_err(end)?
+        session_family(link, &session, by).map_err(end)?
     } else {
-        settle_asking_mode(link, &session).map_err(end)?
+        settle_asking_mode(link, &session, by).map_err(end)?
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
@@ -781,9 +821,9 @@ fn refused_family(table: &Value, family: &str) -> bool {
 
 /// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
 /// mode rule: a start on the caller's own Cloud VM. None is refused.
-fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+fn session_family(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<String, Refusal> {
     let table = link
-        .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+        .call("_acpmux/web_modes", json!({"sessionId": session}), by.cap(CALL_TIMEOUT))
         .map_err(Refusal::of)?;
     table
         .pointer("/session/family")
@@ -796,9 +836,9 @@ fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
 /// acpmux's remote rule for a new session: its family is not refused and
 /// its mode asks (no mode counts as asking), else it moves to the family's
 /// asking default; anything else is refused. Returns the session's family.
-fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+fn settle_asking_mode(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<String, Refusal> {
     let read = || {
-        link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+        link.call("_acpmux/web_modes", json!({"sessionId": session}), by.cap(CALL_TIMEOUT))
             .map_err(Refusal::of)
     };
     let asks = |table: &Value| -> (bool, Option<String>) {
@@ -828,7 +868,7 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
             link.call(
                 "session/set_mode",
                 json!({"sessionId": session, "modeId": default}),
-                CALL_TIMEOUT,
+                by.cap(CALL_TIMEOUT),
             )
             .map_err(|_| Refusal::NotAsking)?;
             if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
@@ -850,10 +890,10 @@ fn phone_modes(family: &str) -> &'static [&'static str] {
 /// (`cloudMobileAsks`, which reads the harness profile the session actually runs), else it moves
 /// to the family's phone modes in turn until acpmux says so; anything else is refused (the caller
 /// ends the session). Returns the session's family.
-fn settle_phone_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+fn settle_phone_mode(link: &AcpmuxLink, session: &str, by: Deadline) -> Result<String, Refusal> {
     let read = || -> Result<(String, bool), Refusal> {
         let table = link
-            .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+            .call("_acpmux/web_modes", json!({"sessionId": session}), by.cap(CALL_TIMEOUT))
             .map_err(Refusal::of)?;
         let family =
             table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -871,7 +911,7 @@ fn settle_phone_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal
         let set = link.call(
             "session/set_mode",
             json!({"sessionId": session, "modeId": mode}),
-            CALL_TIMEOUT,
+            by.cap(CALL_TIMEOUT),
         );
         if set.is_ok() && read()? == (family.clone(), true) {
             return Ok(family);
@@ -989,5 +1029,44 @@ mod tests {
             assert_eq!(starts.owner_cloud(true), any_agent, "{host:?}");
             assert!(!starts.owner_cloud(false), "{host:?}");
         }
+    }
+
+    /// The app's wait for a start's answer holds the whole start here, its failed-start cleanup
+    /// and the carrier: the start's deadline fits inside it, read from the app's own source.
+    #[test]
+    fn the_start_fits_inside_the_apps_wait_for_it() {
+        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+RemoteStart.swift",
+        );
+        let source = std::fs::read_to_string(&swift).expect("the app's remote start source");
+        let line = source
+            .lines()
+            .find(|line| line.contains("static let timeout: Duration = .seconds("))
+            .expect("AgentTabRemoteStart.timeout");
+        let seconds: u64 = line
+            .split(".seconds(")
+            .nth(1)
+            .and_then(|rest| rest.split(')').next())
+            .and_then(|n| n.trim().parse().ok())
+            .expect("a whole number of seconds");
+        assert_eq!(Duration::from_secs(seconds), APP_START_WAIT, "{line}");
+        assert!(
+            START_BUDGET + CALL_TIMEOUT + CARRIER_MARGIN <= APP_START_WAIT,
+            "start {START_BUDGET:?} + cleanup {CALL_TIMEOUT:?} + carrier {CARRIER_MARGIN:?} > {APP_START_WAIT:?}"
+        );
+        // Each phase's own cap is under the start's budget: the deadline, not a sum, bounds it.
+        for cap in [CALL_TIMEOUT, NEW_TIMEOUT, READY_BUDGET] {
+            assert!(cap <= START_BUDGET, "{cap:?}");
+        }
+    }
+
+    /// Late in a start, a call gets what is left, not its own cap.
+    #[test]
+    fn a_call_late_in_the_start_gets_only_what_is_left() {
+        let by = Deadline::after(Duration::from_secs(2));
+        assert!(by.cap(NEW_TIMEOUT) <= Duration::from_secs(2));
+        assert_eq!(Deadline::after(START_BUDGET).cap(CALL_TIMEOUT), CALL_TIMEOUT);
+        let spent = Deadline::after(Duration::ZERO);
+        assert_eq!(spent.cap(NEW_TIMEOUT), Duration::from_millis(1));
     }
 }

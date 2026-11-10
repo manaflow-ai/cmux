@@ -123,7 +123,7 @@ extension AgentTabStore {
 /// The start of a new chat on another machine, as the remote pane host calls it.
 nonisolated enum AgentTabRemoteStart {
     static let registryPrefix = MachineRegistry.registryHostPrefix
-    /// acpmux has 60 s to create the session on its machine (spec), plus the carrier.
+    /// cmux-tui's START_BUDGET + cleanup + carrier; its `the_start_fits_inside_the_apps_wait_for_it` reads this.
     static let timeout: Duration = .seconds(75)
 
     /// The project list of a chat on another machine: its workspaces' folders, then the folders the
