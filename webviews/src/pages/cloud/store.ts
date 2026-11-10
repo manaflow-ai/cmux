@@ -584,7 +584,8 @@ export class CloudStore {
       this.dropIntent(key);
       if (!isGone(error)) {
         this.fail(action, error);
-        return back({ offer: undefined });
+        // A pause that failed took nothing: the limit notice and the offer stay for another try.
+        return back(offer.kind === "pause" ? { refusal: draft.refusal } : { offer: undefined });
       }
     }
     if (offer.kind === "archive" && this.state.machines.some((machine) => machine.id === offer.machine)) {
@@ -954,8 +955,9 @@ export class CloudStore {
   private madeRoom(paused: CloudMachine | undefined): void {
     if (!paused?.id) return;
     const known = this.state.machines.find((machine) => machine.id === paused.id);
-    // An event that already passed the answer wins.
-    if (known && Number(known.revision) > Number(paused.revision)) return;
+    // An event that already passed the answer wins: a newer record, or the machine's removal (a
+    // machine the mirror does not hold is never added back by an answer).
+    if (!known || Number(known.revision) > Number(paused.revision)) return;
     this.setMirror(
       applyEvent(this.state.machines, { type: "upsert", revision: this.state.revision, machine: paused }),
       this.state.revision,
