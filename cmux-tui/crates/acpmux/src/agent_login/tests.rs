@@ -333,7 +333,17 @@ fn browser_shim_saves_the_link_owner_only_and_opens_nothing() {
     let shim = folder.browser_shim().unwrap();
     assert_eq!(std::fs::metadata(&shim).unwrap().permissions().mode() & 0o777, 0o700);
     let link = "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A49152%2Fcallback&state=s";
-    let status = std::process::Command::new(&shim).arg(link).status().unwrap();
+    // A sibling test's fork can hold the just-written shim open until it execs (ETXTBSY,
+    // `crate::test_exec`); the daemon runs it only once the login asks, long after.
+    let status = (0..100)
+        .find_map(|_| match std::process::Command::new(&shim).arg(link).status() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            }
+            other => Some(other.unwrap()),
+        })
+        .expect("the shim stayed busy");
     assert!(status.success());
     let saved = folder.0.join(AUTO_URL_FILE);
     assert_eq!(std::fs::metadata(&saved).unwrap().permissions().mode() & 0o777, 0o600);
