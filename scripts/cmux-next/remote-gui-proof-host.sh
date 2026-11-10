@@ -112,6 +112,13 @@ Host $ALIAS
 EOF
   fi
   chmod 600 "$HOME/.ssh/config"
+  # The same stand-in for the runner user, so a chat on this Mac (the move step's start) answers too.
+  mkdir -p "$HOME/.local/bin"
+  cp "$(dirname "$0")/remote-gui-proof-claude.py" "$HOME/.local/bin/claude"
+  chmod 755 "$HOME/.local/bin/claude"
+  for f in .zshenv .zprofile; do
+    grep -q 'remote-gui-proof' "$HOME/$f" 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH" # remote-gui-proof' >> "$HOME/$f"
+  done
   # The check a person's terminal would make: the alias logs in and the stand-in is first on PATH.
   say "ssh check"
   ssh "$ALIAS" 'echo "whoami=$(whoami) claude=$(command -v claude) $(claude --version)"; sw_vers -productVersion; uname -m'

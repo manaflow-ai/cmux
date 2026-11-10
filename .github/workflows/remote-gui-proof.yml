@@ -8,9 +8,9 @@ run-name: ${{ format('Remote GUI proof{0}', inputs.request_id != '' && format(' 
 # The SSH host is this same Mac: scripts/cmux-next/remote-gui-proof-host.sh adds a second local account
 # (rhost) with a stand-in `claude` (no Claude login on the runner; it answers PONG) and a key-only sshd
 # on 127.0.0.1 only, and gives the runner user the ssh alias e2ehost. Nothing listens beyond loopback.
-# scripts/cmux-next/remote-gui-proof.py drives the signed NEXT DEV app of the cmux-next-dev release
-# (as cloud-chat-proof.yml build=published, but signed out: no account is needed for an SSH host)
-# through its control socket: add the host, start a chat there and read the first reply, move a chat
+# scripts/cmux-next/remote-gui-proof.py drives a tagged Debug build of the dispatched commit (built as
+# cloud-chat-proof.yml build=tagged does, but signed out: no account is needed for an SSH host) through
+# its control socket: add the host, start a chat there and read the first reply, move a chat
 # there and back, drop the network (pf on lo0) and restore it. Each step leaves a light-mode still,
 # and the evidence (evidence.json) holds the times: pick host -> first reply, drop -> working again.
 on:
@@ -38,40 +38,108 @@ jobs:
   proof:
     # GitHub-hosted: the proof adds a user, an sshd and pf rules, which only a throwaway Mac may take.
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 180
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Checkout cmux
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next
+          submodules: recursive
 
-      - name: Download the published NEXT DEV app
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
+      # and check-webviews-bun-version.sh refuses a bun older than the
+      # webviews/package.json devEngines pin, which stopped run 41798237731.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # Before the acpmux build: its libghostty-vt (ghostty-vt-sys) runs `zig build`
+      # in ghostty-next. As nightly.yml's "Install compilation dependencies": the
+      # classic ghostty Zig (CMUX_ZIG, PATH) and ghostty-next's own as CMUX_VT_ZIG.
+      # After the build, run 42730570609 stopped at "failed to run 'zig build' ...
+      # No such file or directory".
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      # As in reload-build.yml: without these, reload.sh waits for a cmux-tui
+      # artifacts run of the exact tree, which stopped run 41806140144. The
+      # app bundle starts the in-tree acpmux, and the client comes from the
+      # newest published commit with the same cmux-tui and Ghostty inputs,
+      # checked against its build-provenance attestation.
+      - name: Build in-tree acpmux
+        run: |
+          set -euo pipefail
+          ./scripts/install-rust-ci.sh
+          # ghostty-vt-sys reads ZIG first (as refresh-build-in-tree-acpmux.sh does).
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then
+            export ZIG="$CMUX_VT_ZIG"
+          fi
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
+      - name: Install the matching published cmux-tui client
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          dir="$RUNNER_TEMP/published"
-          mkdir -p "$dir"
-          row="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cmux-next-dev" \
-            --jq '[.assets[] | select(.name == "cmux-NEXT-DEV.zip")][0] | "\(.id) \(.digest // "")"')"
-          id="${row%% *}"
-          sha="${row#* }"; sha="${sha#sha256:}"
-          case "$id" in ''|null|*[!0-9]*) echo "::error::the cmux-next-dev release has no cmux-NEXT-DEV.zip"; exit 1;; esac
-          case "$sha" in *[!0-9a-f]*|'') echo "::error::the release asset has no sha256 digest"; exit 1;; esac
-          curl -fsSL --retry 3 -o "$dir/app.zip" \
-            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id"
-          echo "$sha  $dir/app.zip" | shasum -a 256 -c -
-          ditto -x -k "$dir/app.zip" "$dir"
-          app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
-          [ -n "$app" ] || { echo "::error::the release zip holds no app"; exit 1; }
-          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
-          [ "$bundle" = com.cmuxterm.app.debug.next ] || { echo "::error::the release app is $bundle"; exit 1; }
-          codesign --verify --deep --strict "$app"
-          xattr -cr "$app"
-          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist" 2>/dev/null || true)"
-          echo "App: cmux-NEXT-DEV.zip asset $id sha256:$sha build $version" | tee -a "$GITHUB_STEP_SUMMARY"
+          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
+          client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
+          mkdir -p "$client_bundle/Contents"
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
+            --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
+            --expected-commit "$client_commit" --require-capability wireguard-hub \
+            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
+          client="$client_bundle/Contents/Resources/bin/cmux"
+          probe="$("$client" remote-probe --json)"
+          version="$("$client" --version)"
+          # Packaged clients stamp the libghostty-vt source: ghostty-next where
+          # the tree has it, else ghostty (older trees).
+          ghostty_source=ghostty
+          if git rev-parse --verify -q HEAD:ghostty-next >/dev/null; then
+            ghostty_source=ghostty-next
+          fi
+          ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$client_commit" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
+          import json
+          import os
+
+          if json.loads(os.environ["PROBE"]).get("build_identity") != os.environ["EXPECTED_COMMIT"]:
+              raise SystemExit("published cmux-tui client has the wrong build identity")
+          if os.environ["EXPECTED_GHOSTTY"] not in os.environ["VERSION"]:
+              raise SystemExit("published cmux-tui client has the wrong Ghostty identity")
+          PYVERIFY
+          echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
+
+      # A tagged Debug build of this commit, as cloud-chat-proof.yml build=tagged (without its account): the
+      # proof drives the app through its debug control surface (debug.page, debug.agent_pane, debug.key,
+      # debug.window_snapshot), which the published NEXT DEV app, a Release build, does not compile in.
+      - name: Build the tagged app
+        run: |
+          set -euo pipefail
+          ./scripts/reload.sh --tag "rgp-$GITHUB_RUN_ID" --build-only --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
+          app="$(awk '/^App path:/{getline; sub(/^ +/, ""); print; exit}' "$RUNNER_TEMP/reload.out")"
+          if [ -z "$app" ] || [ ! -d "$app" ]; then
+            echo "::error::reload.sh printed no app path"
+            exit 1
+          fi
           echo "PROOF_APP=$app" >> "$GITHUB_ENV"
           echo "PROOF_DIR=$RUNNER_TEMP/remote-gui-proof" >> "$GITHUB_ENV"
 
@@ -99,7 +167,7 @@ jobs:
           name: remote-gui-proof
           path: ${{ runner.temp }}/remote-gui-proof/out/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       - name: Stop the SSH host
         if: always()

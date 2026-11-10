@@ -185,10 +185,89 @@ def dump_state(label: str) -> None:
     windows = rpc("debug.window_list")
     (OUT / f"state-{label}-windows.json").write_text(json.dumps(windows, indent=2)[:200000])
     pages = {}
-    for pid in ("cmux.serverCards", "cmux.server-cards", "cmux.agent", "cmux.newTab", "cmux.home", None):
+    for pid in ("cmux.server-cards", "cmux.machines", "cmux.onboarding", None):
         state = page(pid, "state")
         pages[str(pid)] = {k: state.get(k) for k in ("page", "id", "url", "fragment", "text", "error") if k in state}
     (OUT / f"state-{label}-pages.json").write_text(json.dumps(pages, indent=2)[:400000])
+
+
+# --- GUI helpers ----------------------------------------------------------------------------------------------
+
+def card(act: str, **params) -> dict:
+    return page("cmux.server-cards", act, **params)
+
+
+def card_shot(name: str) -> None:
+    """The Add Machine card is its own floating panel: the main window's still and the card's own."""
+    shot(name)
+    path = OUT / f"{shot_no[0]:02d}-{name}-card.png"
+    reply = card("snapshot", path=str(path))
+    if reply.get("error"):
+        snag(f"card still {name}: {reply['error']}")
+
+
+def native_press(selector: str) -> dict:
+    """A person's click on a page element: hover finds it, press posts native mouse events there (a
+    debug.page click is page script, which Add refuses: "Only a click or key in the card adds ...")."""
+    where = card("hover", selector=selector)
+    if where.get("error") or "x" not in where:
+        return {"error": f"hover {selector}: {where.get('error') or where}"}
+    return card("press", x=where["x"], y=where["y"], native=True)
+
+
+def pane(act: str, **params) -> dict:
+    reply = rpc("debug.agent_pane", {"action": act, **params}, timeout=60)
+    if isinstance(reply.get("result"), str):
+        try:
+            reply = dict(reply, result=json.loads(reply["result"]))
+        except ValueError:
+            pass
+    return reply
+
+
+def chat_state() -> dict:
+    reply = pane("chat_state")
+    value = reply.get("result") if isinstance(reply.get("result"), dict) else reply
+    return value if isinstance(value, dict) else {}
+
+
+def replied(after: int) -> dict | None:
+    """The chat's assistant turn number `after`+1 or later says PONG and is done."""
+    state = chat_state()
+    turns = [t for t in state.get("transcript") or [] if isinstance(t, dict) and t.get("kind") == "assistant"]
+    last = state.get("lastAssistant") or {}
+    if len(turns) > after and REPLY in str(turns[-1].get("text", "")) and not last.get("streaming") and not state.get("isWorking"):
+        return state
+    return None
+
+
+def assistant_count() -> int:
+    return len([t for t in chat_state().get("transcript") or [] if isinstance(t, dict) and t.get("kind") == "assistant"])
+
+
+def machine_row() -> dict | None:
+    listed = rpc("remote.machines")
+    rows = listed.get("machines") if isinstance(listed.get("machines"), list) else listed.get("value")
+    for row in rows or []:
+        if isinstance(row, dict) and args.alias in json.dumps(row):
+            return row
+    return None
+
+
+def watch_link(seconds: float, label: str) -> list:
+    """remote.machines' link and the chat's connection every 0.5 s, for the record."""
+    seen, last = [], None
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        row = machine_row() or {}
+        state = chat_state()
+        now = (row.get("status"), row.get("link"), state.get("connection"), state.get("unavailable"))
+        if now != last:
+            seen.append({"at_ms": now_ms(), "status": now[0], "link": now[1], "chat_connection": now[2], "chat_unavailable": now[3]})
+            log(label, json.dumps(seen[-1]))
+            last = now
+        time.sleep(0.5)  # harness: sampling what the app shows
+    return seen
 
 
 # --- 1. add the host ----------------------------------------------------------------------------------------
@@ -201,30 +280,204 @@ def add_host() -> bool:
     time.sleep(1.5)
     shot("add-device")
     dump_state("add-device")
-    reply = action("machine.add", {"destination": args.alias})
+    # Add Device's network way hands off to Add Machine; the field takes the host a person types.
+    reply = action("machine.add")
     if reply.get("error"):
         snag(f"action machine.add: {reply['error']}")
-    time.sleep(1.5)
-    shot("add-machine-filled")
-    dump_state("add-machine")
-    key("return")
-    time.sleep(1)
-    shot("add-machine-running")
+    waited = card("wait", selector="input.am-host", timeout_ms=30000)
+    if waited.get("error"):
+        snag(f"Add Machine card: no host field: {waited['error']}")
+        return step("add host (Add Machine card)", False, error=waited.get("error"))
+    typed = card("type", selector="input.am-host", text=args.alias)
+    if not typed.get("inserted"):
+        snag(f"typing the host into the card: {typed}")
+    ready, ms = wait_until("Add enabled", lambda: not (card("query", selector='button[data-action="add"][disabled]').get("elements")), 15, 0.2)
+    if not ready:
+        snag(f"Add stayed disabled {ms} ms after typing {args.alias!r}")
+    card_shot("add-machine-filled")
+    pressed_at = time.monotonic()
+    pressed = native_press('button[data-action="add"]')
+    if pressed.get("error"):
+        snag(f"pressing Add: {pressed['error']}")
+        key("return")
+    phases = []
 
-    def connected():
-        code, out, _ = cli("acp", "host", "ls", "--json", timeout=20)
-        if code == 0 and args.alias in out and '"connected"' in out:
-            return out
-        return None
+    def phase():
+        rows = card("query", selector=".am-card").get("elements") or []
+        ph = ((rows[0].get("data") or {}).get("phase")) if rows else None
+        steps = card("query", selector="li.am-step").get("elements") or []
+        now = (ph, tuple(((e.get("data") or {}).get("status"), (e.get("text") or "")[:80]) for e in steps))
+        if not phases or phases[-1]["v"] != now:
+            phases.append({"at_ms": round((time.monotonic() - pressed_at) * 1000), "v": now})
+            log("card", ph, [s[0] for s in now[1]])
+            if ph == "running" and len(phases) == 2:
+                card_shot("add-machine-running")
+        return ph if ph in ("ready", "failed") else None
 
-    out, ms = wait_until("host connected", connected, 300, 1)
-    shot("add-machine-done")
-    dump_state("add-machine-done")
-    code, ls_out, ls_err = cli("acp", "host", "ls", "--json", timeout=20)
-    (OUT / "acp-host-ls.json").write_text(ls_out or ls_err)
+    outcome, ms = wait_until("card done", phase, 300, 0.3)
+    card_shot(f"add-machine-{outcome or 'timeout'}")
+    title = card("query", selector="h1.am-title").get("elements") or [{}]
+    evidence["add_machine_card"] = {"outcome": outcome, "ms_from_press": ms, "title": title[0].get("text"),
+                                    "phases": [{"at_ms": p["at_ms"], "phase": p["v"][0], "steps": p["v"][1]} for p in phases]}
+    if outcome != "ready":
+        snag(f"Add Machine card: {outcome or 'no outcome in 300 s'}: {title[0].get('text')}",
+             steps=[s for s in (phases[-1]["v"][1] if phases else ())])
+    row, link_ms = wait_until("link connected", lambda: (lambda r: r if r and r.get("link") in ("connected", None) and r.get("status") not in ("offline",) else None)(machine_row()), 60, 0.5)
+    evidence["remote_machine"] = machine_row()
     total = round((time.monotonic() - start) * 1000)
     evidence["times_ms"]["add_host"] = total
-    return step("add host (Add Machine card)", bool(out), ms=total, host_ls=(ls_out or ls_err)[:1500])
+    evidence["times_ms"]["add_press_to_ready"] = ms
+    # Done closes the card, as a person would.
+    if outcome == "ready":
+        native_press('button[data-action="done"]')
+    return step("add host (Add Machine card)", outcome == "ready", ms=total, press_to_ready_ms=ms, machine=evidence["remote_machine"])
+
+
+# --- 2. a chat on the host ----------------------------------------------------------------------------------
+
+def menu(label: str) -> list:
+    reply = pane("open_menu", label=label)
+    rows = reply.get("result") if isinstance(reply.get("result"), (list, dict)) else reply
+    return rows
+
+
+def chat_on_host() -> bool:
+    reply = action("palette.newAgentChat")
+    if reply.get("error"):
+        snag(f"action palette.newAgentChat: {reply['error']}")
+    ok, ms = wait_until("composer", lambda: "error" not in pane("readiness"), 30, 0.5)
+    time.sleep(1)
+    shot("new-chat")
+    where = menu("Computer")
+    evidence["menu_computer"] = where
+    shot("picker-where")
+    remote = pane("click", text="Remote")
+    if remote.get("error"):
+        snag(f"the Where picker has no Remote row to click: {remote['error']}", rows=str(where)[:1500])
+    time.sleep(0.5)
+    machines = menu("Machine")
+    evidence["menu_machine"] = machines
+    shot("picker-machine")
+    name = (evidence.get("remote_machine") or {}).get("name") or args.alias
+    picked_at = time.monotonic()
+    picked = pane("click", text=name)
+    if picked.get("error"):
+        snag(f"the Machine picker has no row {name!r}: {picked['error']}", rows=str(machines)[:1500])
+        return step("chat on the host", False, error=picked.get("error"))
+    time.sleep(0.3)
+    shot("host-picked")
+    sent = pane("compose_send", text=PROMPT)
+    if sent.get("error"):
+        snag(f"compose_send: {sent['error']}")
+    first_seen = {}
+
+    def first():
+        state = chat_state()
+        last = state.get("lastAssistant") or {}
+        if last.get("text") and "first_text_ms" not in first_seen:
+            first_seen["first_text_ms"] = round((time.monotonic() - picked_at) * 1000)
+        if state.get("connection") and state.get("connection") not in ("connected", "ready") and "loading" not in first_seen:
+            first_seen.setdefault("states", []).append(state.get("connection"))
+        return replied(0)
+
+    state, _ = wait_until("first reply", first, 180, 0.2)
+    ms = round((time.monotonic() - picked_at) * 1000)
+    shot("first-reply" if state else "no-reply")
+    evidence["times_ms"]["pick_host_to_first_reply"] = ms if state else None
+    if not state:
+        st = chat_state()
+        snag(f"no PONG {ms} ms after picking {name}", chat={k: st.get(k) for k in ("connection", "unavailable", "missingSession", "isWorking", "lastAssistant", "prompts", "harness")})
+    return step("chat on the host: pick host -> first reply", bool(state), ms=ms, **first_seen,
+                session=(state or {}).get("sessionId"), harness=(state or {}).get("harness"))
+
+
+# --- 3. move a chat there and back --------------------------------------------------------------------------
+
+def move_there_and_back() -> bool:
+    """A chat started on this Mac moves to the host and back, through the started chat's Move to..."""
+    reply = action("palette.newAgentChat")
+    time.sleep(1.5)
+    where = menu("Computer")
+    pane("click", text="This Mac")
+    sent = pane("compose_send", text=PROMPT)
+    local, ms = wait_until("local reply", lambda: replied(0), 120, 0.3)
+    shot("local-chat")
+    if not local:
+        st = chat_state()
+        snag(f"a chat on this Mac gave no reply in {ms} ms", chat={k: st.get(k) for k in ("connection", "unavailable", "isWorking", "lastAssistant", "harness")})
+    rows = menu("Computer")
+    evidence["menu_move_from_local"] = rows
+    shot("move-menu")
+    opened = pane("click", text="Move to…")
+    targets = menu("Computer") if opened.get("error") else pane("readiness")
+    evidence["move_targets_from_local"] = {"click": opened, "after": targets}
+    shot("move-targets")
+    name = (evidence.get("remote_machine") or {}).get("name") or args.alias
+    there_at = time.monotonic()
+    there = pane("click", text=name)
+    if there.get("error"):
+        snag(f"Move to... offers no {name!r} (only Cloud machines and This Mac are move targets): {there['error']}",
+             menu=str(rows)[:1500])
+        pane("close_menus")
+        return step("move a chat there and back", False, error="no SSH machine among the Move to... targets")
+    moved, ms = wait_until("moved there", lambda: (lambda r: r if r and str(r.get("connection")) else None)(machine_row()), 120, 0.5)
+    shot("moved-there")
+    before = assistant_count()
+    pane("send_prompt", text=PROMPT)
+    ok_there, there_ms = wait_until("reply there", lambda: replied(before), 120, 0.3)
+    evidence["times_ms"]["move_there"] = round((time.monotonic() - there_at) * 1000)
+    menu("Computer")
+    back_at = time.monotonic()
+    pane("click", text="Move to…")
+    back = pane("click", text="This Mac")
+    before = assistant_count()
+    pane("send_prompt", text=PROMPT)
+    ok_back, _ = wait_until("reply back", lambda: replied(before), 120, 0.3)
+    evidence["times_ms"]["move_back"] = round((time.monotonic() - back_at) * 1000)
+    shot("moved-back")
+    return step("move a chat there and back", bool(ok_there and ok_back), there=bool(ok_there), back=bool(ok_back))
+
+
+# --- 4. drop and restore the network ------------------------------------------------------------------------
+
+def drop_and_restore() -> bool:
+    # Back to the chat on the host (step 2's): the newest chat on the machine.
+    sid = next((s.get("session") for s in evidence["steps"] if s.get("step", "").startswith("chat on the host") and s.get("session")), None)
+    if sid:
+        pane("select_session", session=sid)
+        time.sleep(1)
+    drop_at = time.monotonic()
+    host_sh("drop")
+    seen = watch_link(min(args.drop_seconds, 600), "dropped")
+    shot("network-dropped")
+    st = chat_state()
+    evidence["while_dropped"] = {"link": seen, "chat": {k: st.get(k) for k in ("connection", "unavailable", "missingSession")}}
+    host_sh("restore")
+    back_at = time.monotonic()
+    before = assistant_count()
+    sent = pane("send_prompt", text=PROMPT)
+    if sent.get("error"):
+        snag(f"send right after the network came back: {sent['error']}")
+    link_seen = {}
+
+    def working():
+        row = machine_row() or {}
+        if row.get("link") == "connected" and "link_ms" not in link_seen:
+            link_seen["link_ms"] = round((time.monotonic() - back_at) * 1000)
+        return replied(before)
+
+    state, _ = wait_until("working again", working, 300, 0.2)
+    ms = round((time.monotonic() - back_at) * 1000)
+    shot("working-again" if state else "not-working")
+    evidence["times_ms"]["restore_to_working"] = ms if state else None
+    evidence["times_ms"]["drop_to_working"] = round((time.monotonic() - drop_at) * 1000) if state else None
+    evidence["times_ms"]["restore_to_link_connected"] = link_seen.get("link_ms")
+    if not state:
+        st = chat_state()
+        snag(f"the chat did not answer {ms} ms after the network came back",
+             chat={k: st.get(k) for k in ("connection", "unavailable", "missingSession", "isWorking", "prompts", "lastAssistant")},
+             machine=machine_row())
+    return step("drop and restore the network: restore -> working", bool(state), ms=ms, drop_seconds=args.drop_seconds, **link_seen)
 
 
 def main() -> int:
@@ -232,9 +485,15 @@ def main() -> int:
     try:
         if not launch():
             return 1
-        add_host()
+        if add_host():
+            for fn in (chat_on_host, move_there_and_back, drop_and_restore):
+                try:
+                    fn()
+                except Exception as error:  # a step's crash is a finding; the next step still runs
+                    snag(f"{fn.__name__} raised {type(error).__name__}: {error}")
+                    step(fn.__name__, False, error=str(error))
         # Recon for the later steps: the CLI's surface on this build.
-        for words in (("--version",), ("acp", "--help"), ("acp", "host", "--help"), ("setup", "machine", "--help")):
+        for words in (("--version",), ("acp", "host", "ls", "--json"), ("link", "agent", "--help"), ("cloud", "move", "--help")):
             code, out, err = cli(*words, timeout=30)
             (OUT / ("cli-" + "-".join(w.strip("-") for w in words) + ".txt")).write_text(f"exit {code}\n{out}\n{err}")
     finally:
@@ -245,6 +504,10 @@ def main() -> int:
         (OUT / "summary.md").write_text("\n".join(lines) + "\n")
         save()
         rpc("action.run", {"action": "quitEndEverything"}, timeout=20)
+        try:
+            host_sh("restore")
+        except subprocess.CalledProcessError:
+            pass
     return 0 if evidence["steps"] and all(s["ok"] for s in evidence["steps"]) else 1
 
 
