@@ -5379,8 +5379,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let daemon_root = directory.path().join("daemon");
         let daemon_link = daemon_root.join("link.sock");
@@ -5427,7 +5425,7 @@ mod tests {
 
         let script = directory.path().join("ssh");
         let pid_file = directory.path().join("ssh.pid");
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec /bin/sleep 30\n",
@@ -5435,7 +5433,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let ssh = SshProviderConfig {
             ssh_binary: script.to_string_lossy().into_owned(),
             ..SshProviderConfig::default()
@@ -5988,8 +5985,6 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn reconnect_bootstraps_an_ssh_candidate_not_attempted_initially() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let log = directory.path().join("ssh.log");
@@ -6004,7 +5999,7 @@ mod tests {
             os: "test".into(),
             arch: "test".into(),
         };
-        fs::write(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nprintf '%s\\n' '{}'\n",
@@ -6013,7 +6008,6 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let ssh = SshProviderConfig {
             ssh_binary: script.to_string_lossy().into_owned(),
             ..SshProviderConfig::default()
@@ -6246,12 +6240,9 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn connection_timeout_bounds_initial_ssh_bootstrap() {
-        use std::os::unix::fs::PermissionsExt;
-
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
-        fs::write(&script, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        cmux_test_exec::write_executable(&script, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
         let ssh = SshProviderConfig {
             ssh_binary: script.to_string_lossy().into_owned(),
             ..SshProviderConfig::default()

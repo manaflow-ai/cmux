@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::net::TcpListener;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -21,8 +20,7 @@ fn bin() -> &'static str {
 
 fn write_tool(dir: &Path, name: &str, body: &str) {
     let path = dir.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    cmux_test_exec::write_executable(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
 }
 
 fn doctor(tools: &Path, args: &[&str]) -> Output {
