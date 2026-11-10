@@ -211,3 +211,6 @@ impl WorkspaceRegistry {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests;
