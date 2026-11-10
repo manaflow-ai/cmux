@@ -4,7 +4,8 @@ public import AppKit
 /// app-wide action means: the one holding the keyboard (its view or an ancestor of it) first,
 /// else the first visible one, front to back. `pick` answers for a view, or nil to look on.
 @MainActor
-public enum HomeShownView {
+public struct HomeShownView {
+    public init() {}
     public static func find<T>(in window: NSWindow?, _ pick: (NSView) -> T?) -> T? {
         guard let window else { return nil }
         var responder = window.firstResponder as? NSView
