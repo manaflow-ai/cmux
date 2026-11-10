@@ -1420,6 +1420,14 @@ jobs:
               exit 0
             fi
             status="${PIPESTATUS[0]}"
+            # xctest can wedge in teardown after the run (#13918), as in the
+            # step above: a bad exit whose selected tests all passed is not red.
+            if grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$LOG_PATH" &&
+              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$LOG_PATH"; then
+              echo "xcodebuild exited $status after the App Review journey passed; treating this as a runner cleanup failure."
+              ./scripts/ci/require_selected_test_execution.sh "$LOG_PATH" "$JOURNEY_FILTER"
+              exit 0
+            fi
             if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
               echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
               continue
