@@ -31,7 +31,9 @@ pub(super) fn handle(
                 .get("recordMaxBytes")
                 .and_then(Value::as_u64)
                 .map(|b| usize::try_from(b).unwrap_or(usize::MAX)),
-        );
+        )
+        // A watch's `match`: a stubbed reply chunk says whether its whole text held it.
+        .matching(str_param(params, "match"));
     // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
     // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
     // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.

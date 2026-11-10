@@ -4184,3 +4184,70 @@ async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
     a.shutdown_all().await;
     b.shutdown_all().await;
 }
+
+/// A durable watch with `--match` on a peer chat reads the chat's reply chunks for its text. A
+/// reply past the watch's 64 KiB page bound comes as a stub; a stub with no text read as a
+/// non-match, the watch moved past it and never woke. The serving side checks the whole text and
+/// says so, so an 80 KiB reply holding "finished" far past the stub's kept ends still wakes it.
+#[tokio::test]
+async fn a_match_watch_on_a_peer_chat_wakes_on_a_match_inside_a_large_reply() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "long", "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "watch-match").await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.start_watches();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let me = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let me = me["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..100 {
+        if a.resolve_remote("b/long").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(a.resolve_remote("b/long").is_some(), "A never listed b/long");
+    let added = ca
+        .call(
+            method::MUX_WATCH_ADD,
+            json!({"to": me, "sessions": ["b/long"], "until": ["ready"], "match": "finished"}),
+        )
+        .await
+        .unwrap();
+    let watch = added["id"].as_str().unwrap().to_owned();
+    // The fake agent echoes the prompt as one reply chunk: 80 KiB, "finished" in its middle.
+    let text = format!("{}finished{}", "a".repeat(40 * 1024), "b".repeat(40 * 1024));
+    cb.call("session/prompt", json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}))
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut resolved = false;
+    while started.elapsed() < Duration::from_secs(16) {
+        let ls = ca.call(method::MUX_WATCH_LS, json!({})).await.unwrap();
+        let watches = ls["watches"].as_array().cloned().unwrap_or_default();
+        if !watches.iter().any(|w| w["id"] == watch.as_str() && w["active"] == true) {
+            resolved = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    eprintln!("match watch on b/long: resolved={resolved} after {:?}", started.elapsed());
+    assert!(resolved, "the watch never saw \"finished\" in the 80 KiB reply");
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}

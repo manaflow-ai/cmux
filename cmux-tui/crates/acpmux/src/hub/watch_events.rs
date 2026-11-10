@@ -40,6 +40,18 @@ impl Cursor {
         let remaining = (64 * 1024usize).saturating_sub(self.reply.chars().count());
         self.reply.extend(text.chars().take(remaining));
     }
+    /// A reply chunk that came as a stub (`hub/paging.rs` `stub_msg`): the serving side said
+    /// whether its whole text held the pattern, and kept the text's ends. The head joins the
+    /// last chunk's tail, so a match across the two is still found; the tail is what the next
+    /// chunk joins.
+    fn stub_text(&mut self, omitted: &Value, pattern: Option<&str>) {
+        self.text(omitted["textHead"].as_str().unwrap_or(""), pattern);
+        self.matched |= omitted["matched"] == true;
+        if let (Some(pattern), Some(tail)) = (pattern, omitted["textTail"].as_str()) {
+            let skip = tail.chars().count().saturating_sub(pattern.chars().count());
+            self.tail = tail.chars().skip(skip).collect();
+        }
+    }
 }
 /// The record kinds `collect` reads. A watch's page from a peer asks for these alone: an
 /// unfiltered page carried a 1 MB prompt image the 250 ms read gave up on, and the watch asked
@@ -64,10 +76,11 @@ pub const WATCH_KINDS: &[&str] = &[
 pub const WATCH_PAGE_BYTES: u64 = 64 * 1024;
 
 /// A watch's `_acpmux/events` ask of a peer: after `after`, only `WATCH_KINDS`, bounded in
-/// all and per record.
-pub fn remote_page(id: &str, after: u64) -> Value {
+/// all and per record, with its `match` text: a reply chunk past the bound comes as a stub that
+/// says whether its whole text held it (`Cursor::stub_text`).
+pub fn remote_page(id: &str, after: u64, pattern: Option<&str>) -> Value {
     json!({"sessionId": id, "afterSeq": after, "limit": 256, "kinds": WATCH_KINDS,
-        "maxBytes": WATCH_PAGE_BYTES, "recordMaxBytes": WATCH_PAGE_BYTES})
+        "maxBytes": WATCH_PAGE_BYTES, "recordMaxBytes": WATCH_PAGE_BYTES, "match": pattern})
 }
 
 pub fn seed(hub: &Hub, key: &str, _pattern: Option<&str>) -> Cursor {
@@ -102,7 +115,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
         } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
             let page = tokio::time::timeout(
                 std::time::Duration::from_millis(250),
-                peer.request(method::MUX_EVENTS, remote_page(&id, c.seq)),
+                peer.request(method::MUX_EVENTS, remote_page(&id, c.seq, w.match_text.as_deref())),
             )
             .await
             .map_err(|_| RpcError::internal("peer watch page timed out"))??;
@@ -137,19 +150,24 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                     c.turn_mark.clear();
                 }
                 ("in", "agent_message_chunk")
-                    if e.msg.pointer("/params/_meta/acpmux/subagent").is_none() =>
+                    if e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
+                        && e.msg.pointer("/_meta/acpmux/omitted/subagent").is_none() =>
                 {
                     if !c.reply_open {
                         c.reply.clear();
                         c.reply_open = true;
                     }
-                    c.text(
-                        e.msg
-                            .pointer("/params/update/content/text")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        w.match_text.as_deref(),
-                    );
+                    if let Some(omitted) = e.msg.pointer("/_meta/acpmux/omitted") {
+                        c.stub_text(omitted, w.match_text.as_deref());
+                    } else {
+                        c.text(
+                            e.msg
+                                .pointer("/params/update/content/text")
+                                .and_then(Value::as_str)
+                                .unwrap_or(""),
+                            w.match_text.as_deref(),
+                        );
+                    }
                 }
                 ("in", "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan") => {
                     c.reply_open = false

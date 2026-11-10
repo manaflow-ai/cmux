@@ -148,3 +148,89 @@ fn a_page_bounded_per_record_moves_past_a_record_larger_than_the_page() {
     assert_eq!(msg(2)["turnId"], "u1");
     assert_eq!(msg(3)["pendingPermissions"], 1, "a small record goes whole");
 }
+
+/// One page of chat `c`, holding `log`, as a durable watch on a peer asks for it.
+fn watch_page(log: &[EventRecord], ask: Value) -> Value {
+    let store = MemoryStore::default();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": log.len(), "eventCount": log.len(),
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    for rec in log {
+        store.append("c", rec).unwrap();
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(config, Box::new(store));
+    let mut params = json!({"sessionId": "c", "afterSeq": 0, "limit": 256,
+        "kinds": ["agent_message_chunk", "permission_request", "turn_result"],
+        "maxBytes": 64 * 1024, "recordMaxBytes": 64 * 1024});
+    params.as_object_mut().unwrap().extend(ask.as_object().unwrap().clone());
+    handle(&hub, method::MUX_EVENTS, &params, None).unwrap()
+}
+
+/// A stub is a stub of its own size: a record of 300 short fields made an 81 KB "stub", past
+/// the page it was cut for. It keeps its ids first, then fields while they fit, and says it
+/// left some out.
+#[test]
+fn a_stub_stays_under_its_own_budget_and_keeps_its_ids() {
+    let mut msg = serde_json::Map::new();
+    for n in 0..300 {
+        msg.insert(format!("field{n:03}"), json!("f".repeat(256)));
+    }
+    msg.insert("permissionId".into(), json!("p1"));
+    msg.insert("toolCall".into(), json!({"content": "x".repeat(70 * 1024)}));
+    let rec = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "mux".into(),
+        kind: "permission_request".into(),
+        msg: Value::Object(msg),
+        host_seq: None,
+    };
+    let page = watch_page(&[rec], json!({}));
+    let stub = &page["events"][0]["msg"];
+    let bytes = stub.to_string().len();
+    assert!(bytes <= 8 * 1024, "the stub is {bytes} bytes");
+    assert_eq!(stub["permissionId"], "p1");
+    assert_eq!(stub.pointer("/_meta/acpmux/omitted/truncated"), Some(&json!(true)));
+}
+
+/// A durable watch with `--match` reads a peer's reply chunks for its text: an 80 KiB reply
+/// holding "finished" came as a stub with no text, and the watch moved past it and never woke.
+/// The serving side checks the whole text, past the stub's kept ends too.
+#[test]
+fn a_stubbed_reply_chunk_says_whether_its_whole_text_matched() {
+    let text = format!("{}finished{}", "a".repeat(40 * 1024), "b".repeat(40 * 1024));
+    let chunk = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "in".into(),
+        kind: "agent_message_chunk".into(),
+        msg: json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "c",
+            "update": {"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": text}}}}),
+        host_seq: None,
+    };
+    let done = EventRecord {
+        seq: 2,
+        at: 2,
+        dir: "mux".into(),
+        kind: "turn_result".into(),
+        msg: json!({"turnId": "u1"}),
+        host_seq: None,
+    };
+    let log = [chunk, done];
+    let page = watch_page(&log, json!({"match": "finished"}));
+    let omitted = &page["events"][0]["msg"]["_meta"]["acpmux"]["omitted"];
+    assert_eq!(omitted["matched"], true, "{omitted}");
+    assert!(omitted["textHead"].as_str().unwrap().starts_with("aaa"));
+    assert!(omitted["textTail"].as_str().unwrap().ends_with("bbb"));
+    assert!(page["events"][0]["msg"].to_string().len() <= 8 * 1024);
+    assert_eq!(page["events"][1]["msg"]["turnId"], "u1");
+    let page = watch_page(&log, json!({"match": "never said"}));
+    assert_eq!(page["events"][0]["msg"]["_meta"]["acpmux"]["omitted"]["matched"], false);
+}
