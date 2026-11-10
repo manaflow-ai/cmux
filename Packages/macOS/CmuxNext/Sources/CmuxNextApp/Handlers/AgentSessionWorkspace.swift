@@ -83,7 +83,7 @@ enum AgentSessionWorkspace {
         // A chat its tab would refuse (or, before localHost resolves, could not bind) makes no workspace: made first, its row listed and closed again (Leo, 2026-11-05).
         if let refusal = WorkspaceCreation.sessionTabRefusal(host: host, on: daemon, tabs: services.agentTabs) { throw ActionFailure(message: refusal) }
         let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
-        // The rule the daemon's create places it by too; none with an explicit slot (below its caller), as Cmd-N's `WorkspaceSpawner`.
+        // The rule the daemon's create places it by too; none with an explicit slot (below its caller), which the app's move places.
         let sent = placed.slot == nil ? placed.rule : nil
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
