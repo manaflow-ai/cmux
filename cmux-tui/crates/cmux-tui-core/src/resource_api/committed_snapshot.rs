@@ -67,13 +67,20 @@ impl CommittedSnapshots {
 
 #[cfg(test)]
 thread_local! {
-    static ROUTE_WAITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static ROUTE_WAITS: std::cell::RefCell<Vec<std::time::Duration>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// How many times a snapshot read on this thread waited for a mutator before it loaded its routes (test hook).
 #[cfg(test)]
 pub(crate) fn route_waits_on_this_thread() -> u64 {
-    ROUTE_WAITS.with(std::cell::Cell::get)
+    ROUTE_WAITS.with(|waits| waits.borrow().len() as u64)
+}
+
+/// How long each of those waits was (test hook, for the measure in `mux/tests/snapshot_read/route_wait.rs`).
+#[cfg(test)]
+pub(crate) fn route_wait_times_on_this_thread() -> Vec<std::time::Duration> {
+    ROUTE_WAITS.with(|waits| waits.borrow().clone())
 }
 
 /// Called after the rows are read and before the caller loads the published routes: when it returns, the routes
@@ -90,8 +97,10 @@ pub(crate) fn route_waits_on_this_thread() -> u64 {
 fn routes_of_committed_rows_are_published(mux: &Mux) {
     if matches!(mux.state.try_lock(), Err(std::sync::TryLockError::WouldBlock)) {
         #[cfg(test)]
-        ROUTE_WAITS.with(|waits| waits.set(waits.get() + 1));
+        let waited_from = std::time::Instant::now();
         drop(mux.state.lock());
+        #[cfg(test)]
+        ROUTE_WAITS.with(|waits| waits.borrow_mut().push(waited_from.elapsed()));
     }
 }
 

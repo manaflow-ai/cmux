@@ -36,7 +36,7 @@ use crate::{Mux, ResourceSelectors};
 
 pub(crate) use committed_snapshot::CommittedSnapshots;
 #[cfg(test)]
-pub(crate) use committed_snapshot::route_waits_on_this_thread;
+pub(crate) use committed_snapshot::{route_wait_times_on_this_thread, route_waits_on_this_thread};
 
 #[cfg(test)]
 thread_local! {

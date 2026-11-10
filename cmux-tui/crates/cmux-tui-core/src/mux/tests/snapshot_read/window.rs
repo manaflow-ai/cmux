@@ -108,13 +108,14 @@ fn shown(snapshot: &Value, terminal: &str) -> (Shown, Option<u64>) {
 }
 
 /// Runs `mutate` on a thread of its own, stopped after its COMMIT and before the drop of its state guard, and
-/// `read` on another thread beside it. Returns what the read gave and whether it answered while the mutator was
-/// stopped (a read that proves the routes of its rows waits for the mutator instead).
+/// `read` on another thread beside it. Returns what the read gave, whether it answered while the mutator was
+/// stopped (a read that proves the routes of its rows waits for the mutator instead), and how many times it
+/// waited for the state lock.
 fn read_in_the_window(
     mux: &Arc<Mux>,
     mutate: impl FnOnce(&Arc<Mux>) + Send + 'static,
     read: impl FnOnce(&Arc<Mux>) -> Value + Send + 'static,
-) -> (Value, bool) {
+) -> (Value, bool, u64) {
     let (committed, committed_receiver) = sync_channel::<()>(1);
     let (release, release_receiver) = sync_channel::<()>(1);
     let mutator = {
@@ -140,13 +141,14 @@ fn read_in_the_window(
         std::thread::spawn(move || {
             let snapshot = read(&mux);
             let _ = answered.send(());
-            snapshot
+            (snapshot, crate::resource_api::route_waits_on_this_thread())
         })
     };
     let in_window = answered_receiver.recv_timeout(Duration::from_millis(500)).is_ok();
     release.send(()).unwrap();
     mutator.join().unwrap();
-    (reader.join().unwrap(), in_window)
+    let (snapshot, waits) = reader.join().unwrap();
+    (snapshot, in_window, waits)
 }
 
 /// The real respawn. The host of a placed terminal is lost: the exit commit, the respawn decision of that commit
@@ -214,7 +216,7 @@ fn a_snapshot_read_in_the_window_of_a_terminal_respawn_shows_the_new_shell() {
         "setup: the terminal is not running before its new runtime is installed"
     );
 
-    let (snapshot, in_window) = read_in_the_window(
+    let (snapshot, in_window, waits) = read_in_the_window(
         &mux,
         {
             let surface = surface.clone();
@@ -242,6 +244,11 @@ fn a_snapshot_read_in_the_window_of_a_terminal_respawn_shows_the_new_shell() {
         stream_revision
             .is_some_and(|revision| (revision_before..=revision_after).contains(&revision)),
         "the snapshot shows the stream revision of the new runtime ({revision_before}..={revision_after}): {stream_revision:?}"
+    );
+    assert_eq!(
+        (in_window, waits),
+        (false, 1),
+        "the reader that builds beside the respawn waits for its state guard once, and no more"
     );
 }
 
@@ -281,7 +288,7 @@ fn the_first_snapshot_in_the_window_of_a_terminal_adoption_shows_the_adopted_she
     let expected = values_of_the_host(&surface, &directory);
     let revision_before = surface.terminal_stream_revision().unwrap();
 
-    let (snapshot, in_window) = read_in_the_window(
+    let (snapshot, in_window, waits) = read_in_the_window(
         &mux,
         {
             let surface = surface.clone();
@@ -305,5 +312,10 @@ fn the_first_snapshot_in_the_window_of_a_terminal_adoption_shows_the_adopted_she
         stream_revision
             .is_some_and(|revision| (revision_before..=revision_after).contains(&revision)),
         "the snapshot shows the stream revision of the adopted runtime ({revision_before}..={revision_after}): {stream_revision:?}"
+    );
+    assert_eq!(
+        (in_window, waits),
+        (false, 1),
+        "the reader that builds beside the adoption waits for its state guard once, and no more"
     );
 }

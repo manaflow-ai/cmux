@@ -720,5 +720,6 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
     );
 }
 
+mod route_wait;
 #[cfg(unix)]
 mod window;
