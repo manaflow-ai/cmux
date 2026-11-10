@@ -31,16 +31,7 @@ extension HomeHostView {
             setupCard?.close(); setupCard = nil
             return transcript.setSetupCard(nil, height: 0)
         }
-        let services = control.services, auth = control.services.cloud.auth, registry = control.services.registry
-        let environment = SetupCardEnvironment(
-            account: { (auth.isSignedIn, auth.user?.primaryEmail) },
-            signInAccount: { _ = registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
-            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
-            installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
-            openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
-            historySources: { [muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path] in
-                MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
-            importHistory: { [weak services] in services.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false })
+        let services = control.services, environment = SetupCardEnvironment.app(services)
         guard setupCard == nil, let card = SetupCardHost(setup: services.onboarding.setup, agents: services.onboarding.signInHarnesses,
                                                          environment: environment, overlayProcess: services.overlayProcess) else { return }
         setupCard = card
@@ -49,5 +40,22 @@ extension HomeHostView {
             self.transcript.setSetupCard(card.page, height: card.height)
         }
         transcript.setSetupCard(card.page, height: 0)
+    }
+}
+
+extension SetupCardEnvironment {
+    /// The App's account, `cmux` on PATH, Agents window and Bring your history, for the card in the native Home and
+    /// on the React Messages page (``SetupCardRoute``).
+    static func app(_ services: AppServices) -> SetupCardEnvironment {
+        let auth = services.cloud.auth, registry = services.registry
+        return SetupCardEnvironment(
+            account: { (auth.isSignedIn, auth.user?.primaryEmail) },
+            signInAccount: { _ = registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
+            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
+            installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
+            openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
+            historySources: { [muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path] in
+                MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
+            importHistory: { [weak services] in services.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false })
     }
 }
