@@ -67,6 +67,8 @@ struct SpaceSwitchListWorkTests {
                 + "title=\(bench.list.workspaces[id]?.title ?? "nil")")
             #expect(bench.list.displayed.row(for: .workspace(id)) != nil, "round \(round): the renamed row is not listed")
             #expect(bench.list.workspaces[id]?.title == "Agent step \(round)", "round \(round): the list draws the row's old title")
+            let drawn = (bench.list.rowViews[.workspace(id)] as? WorkspaceRowView)?.title.stringValue
+            #expect(drawn == "Agent step \(round)", "round \(round): the row's view shows \(drawn ?? "no view")")
             #expect(laidOut == 0, "round \(round): the list laid out \(laidOut) rows for one row's new title")
         }
     }
@@ -99,6 +101,45 @@ struct SpaceSwitchListWorkTests {
         print("SPACE-SWITCH-LIST-WORK closed listed=\(listed.count)")
         #expect(!listed.contains("k4"), "the closed workspace still has a row")
         #expect(Set(listed) == ["k0", "k2", "k6", "k8", "k10", "k12", "k14", "k16", "k18"], "the rows of the space after the close: \(listed)")
+    }
+
+    /// A group folded in a space, then open again when the space shows again (another window opened it, or the daemon
+    /// refused the fold, while the space was hidden): the switch back shows the group's members. A fold changes the
+    /// layout the list shows in place, so the page the list keeps must hold the same fold in its sections; with the
+    /// open group in them it took the folded layout for the layout of the open group.
+    @Test func aGroupOpenedWhileItsSpaceWasHiddenShowsItsMembersAfterTheSwitchBack() throws {
+        typealias Fixture = SidebarIncrementalMatchesRebuildTests
+        let (sidebar, window) = Fixture.fixture(Fixture.Doc())
+        defer { window.close() }
+        let list = sidebar.list, model = list.model
+        let (first, second) = (ProfileKey("space-a"), ProfileKey("space-b"))
+        model.profiles = [SidebarProfile(id: first, name: "A"), SidebarProfile(id: second, name: "B")]
+        model.activeProfileID = first
+        list.reload(animated: false, fromModel: true)
+        sidebar.renderNow()
+        let open = model.sections
+        let members = try #require(model.group(Fixture.work)?.workspaces.map(\.id), "the fixture has no group")
+        try #require(!members.isEmpty && members.allSatisfy { list.displayed.row(for: .workspace($0)) != nil }, "the open group does not list its members")
+        // This fixture reaches the kept page: a switch away and back with no change lays out no row.
+        func show(_ sections: [CmuxNextSidebar.SidebarSection], in space: ProfileKey) -> Int {
+            model.sections = sections
+            model.activeProfileID = space
+            _ = SidebarPerfCounters.report(reset: true)
+            sidebar.renderNow()
+            return SidebarPerfCounters.report(reset: true)["layout_rows"] ?? 0
+        }
+        _ = show([], in: second)
+        let plain = show(open, in: first)
+        #expect(plain == 0, "a switch back with no change laid out \(plain) rows: this fixture does not take the kept page")
+        model.setGroupCollapsed(Fixture.work, true)
+        sidebar.renderNow()
+        try #require(members.contains { list.displayed.row(for: .workspace($0)) == nil }, "the fold hides no member")
+        _ = show([], in: second)
+        // The model's sections of the first space when it shows again: the group is open.
+        let laidOut = show(open, in: first)
+        let hidden = members.filter { list.displayed.row(for: .workspace($0)) == nil }
+        print("SPACE-SWITCH-LIST-WORK fold plain_layout_rows=\(plain) layout_rows=\(laidOut) hidden_members=\(hidden.count)")
+        #expect(hidden.isEmpty, "the open group shows no row for \(hidden.map(\.rawValue)): the list shows the folded layout it kept")
     }
 
     /// The window's pending layout, display and Core Animation work, done now.
