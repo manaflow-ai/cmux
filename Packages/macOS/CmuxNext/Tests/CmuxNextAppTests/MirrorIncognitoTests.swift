@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextBrowser
 @testable import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
@@ -44,16 +45,29 @@ struct MirrorIncognitoTests {
             try #require(!services.windows.isIncognito(workspace: workspaces[0]) && services.windows.isIncognito(workspace: workspaces[1]))
         }
 
+        /// A strip controller of `pane` (no window).
+        func controller(of pane: PaneModel) throws -> PaneController {
+            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+            return PaneController(pane: pane, daemon: services.daemon, layoutPaneID: LayoutPaneID(pane.id), services: services, state: WindowState(record: record))
+        }
+
         /// The mirror items of `pane`'s strip after `holder`'s browser tab is mirrored into it.
         func mirrorItems(of pane: PaneModel, mirroring holder: PaneModel) throws -> [StripTabItem] {
             let tab = try #require(holder.tabs.first)
             try #require(PaneController.mirrorable(tab))
             services.tabMirrors.add(tab.id, to: pane.id)
-            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
-            let controller = PaneController(pane: pane, daemon: services.daemon, layoutPaneID: LayoutPaneID(pane.id), services: services,
-                                            state: WindowState(record: record))
+            let controller = try controller(of: pane)
             defer { controller.teardown() }
             return controller.mirrorItems(hiding: [])
+        }
+
+        /// Gives `holder`'s browser tab a live page (a page tab with no web view) and records its mirror in `pane`, as a
+        /// request before the workspace's incognito flag came would. Returns the tab id.
+        func recordMirrorWithLivePage(of holder: PaneModel, in pane: PaneModel) throws -> String {
+            let tab = try #require(holder.tabs.first)
+            _ = services.cache.install(HistoryPageTab(id: BrowserTabID(rawValue: tab.id), engine: .webkit, profile: .default, webPage: nil), for: tab.id)
+            services.tabMirrors.add(tab.id, to: pane.id)
+            return tab.id
         }
     }
 
@@ -77,8 +91,8 @@ struct MirrorIncognitoTests {
         #expect(items.isEmpty, "an incognito window's strip lists a normal tab: \(items.map { "\($0.title) | \($0.subtitle ?? "-")" })")
     }
 
-    /// The request itself (`browser.page.mirror`, the Home mirror of a tab an agent drives) is refused across the kinds:
-    /// it records no mirror and selects nothing in the pane.
+    /// The request itself (`browser.page.mirror`, the Home mirror of a tab an agent drives) is refused across the kinds and
+    /// records no mirror. It fails closed: a pane or a tab the app can not place records no mirror.
     @Test func aMirrorRequestAcrossTheKindsIsRefused() async throws {
         let fixture = try Fixture()
         let services = fixture.services
@@ -89,6 +103,41 @@ struct MirrorIncognitoTests {
         #expect(await services.mirror(tab: normal, into: fixture.normalOther.id, select: false))
         #expect(await services.mirror(tab: secret, into: fixture.incognitoOther.id, select: false))
         #expect(services.tabMirrors[fixture.normalOther.id] == [normal] && services.tabMirrors[fixture.incognitoOther.id] == [secret])
+        #expect(await !services.mirror(tab: normal, into: "pane:404", select: false), "a mirror into a pane the app does not have was recorded")
+        #expect(await !services.mirror(tab: "surface:404", into: fixture.normalOther.id, select: false), "a mirror of a tab the app does not have was recorded")
+        #expect(services.tabMirrors["pane:404"].isEmpty && services.tabMirrors[fixture.normalOther.id] == [normal])
+    }
+
+    /// A mirror that is recorded across the kinds (its workspace's incognito flag came after the request) presents no page,
+    /// and no reader of the recorded list names it: the control topology (`mirrored_tabs`, which `browser.page` targets read)
+    /// and the agent cursor's place.
+    @Test func aRecordedMirrorAcrossTheKindsPresentsAndNamesNothing() throws {
+        let fixture = try Fixture()
+        let services = fixture.services
+        let secret = try fixture.recordMirrorWithLivePage(of: fixture.incognitoPage, in: fixture.normalOther)
+        defer { services.cache.browsers[secret] = nil }
+        let controller = try fixture.controller(of: fixture.normalOther)
+        defer { controller.teardown() }
+        #expect(controller.mirrorItems(hiding: []).isEmpty, "a normal window's strip lists an incognito tab with a live page")
+        #expect(services.controlPageFacts.mirroredTabs(fixture.normalOther).isEmpty, "the control topology names an incognito tab in a normal window's pane")
+        let shown = try #require(services.daemon.store.workspaces.first).id
+        #expect(AgentCursorSnapshotBuilder.mirror(of: secret, inWorkspace: shown, content: nil, services) == nil, "the agent cursor of an incognito tab is placed in a normal window")
+        #expect(controller.mirroredContent(for: secret) == nil, "a normal window's pane presents an incognito page")
+    }
+
+    /// The control of the test above: inside one kind the recorded mirror presents the tab's page and its readers name it.
+    @Test func aRecordedMirrorInsideOneKindPresentsAndIsNamed() throws {
+        let fixture = try Fixture()
+        let services = fixture.services
+        let normal = try fixture.recordMirrorWithLivePage(of: fixture.normalPage, in: fixture.normalOther)
+        defer { services.cache.browsers[normal] = nil }
+        let controller = try fixture.controller(of: fixture.normalOther)
+        defer { controller.teardown() }
+        #expect(controller.mirrorItems(hiding: []).map(\.id.rawValue) == [normal])
+        #expect(services.controlPageFacts.mirroredTabs(fixture.normalOther) == [normal])
+        let shown = try #require(services.daemon.store.workspaces.first).id
+        #expect(AgentCursorSnapshotBuilder.mirror(of: normal, inWorkspace: shown, content: nil, services)?.pane == fixture.normalOther.id)
+        #expect(controller.mirroredContent(for: normal) != nil, "a mirror inside one kind presents no page")
     }
 
     /// Inside the incognito kind a mirror is allowed. It shows what the tab's own strip shows (`incognitoDisplay`:
