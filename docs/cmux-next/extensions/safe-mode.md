@@ -127,5 +127,7 @@ files are copied once per new good version.
   the app's own call.
 - Hold a key at launch (Shift) to start in safe mode: `AppDelegate` sends `safe_mode.set {on:
   true}` before the first window.
+- Views that failed with `off: safe mode` mount again on `apps-changed` with `transaction:
+  "safe-mode"` (today the client re-lists on it, and a failed view mounts again when reopened).
 - The notice that names the paused extension: read `apps-list` `safe_mode.extensions` and offer
   Roll Back (when `can_rollback`), Remove, and Leave Safe Mode.
