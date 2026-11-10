@@ -11,7 +11,8 @@ mod ported {
     use cmux_focus_core::state::{ExpectationKey, Target};
     use cmux_focus_core::topology::{Kind, Pane, Tab, Topology};
     use cmux_layout_reducer_ffi::close_focus::{
-        cmux_close_focus_live_openers, cmux_close_focus_tab, cmux_close_focus_workspace,
+        cmux_close_focus_live_openers, cmux_close_focus_tab, cmux_close_focus_tab_chrome,
+        cmux_close_focus_workspace,
     };
     use cmux_layout_reducer_ffi::focus::{
         CmuxFocusReply, CmuxFocusStr, Focus, NONE, cmux_focus_aims_at_emptied_pane,
@@ -46,6 +47,75 @@ mod ported {
         }
     }
 
+    fn chrome(
+        selected: u32,
+        old: &[u32],
+        surviving: &[u32],
+        shown: &[u32],
+        opener: &[(u32, u32)],
+        group: &[(u32, u32)],
+    ) -> u32 {
+        let children: Vec<u32> = opener.iter().map(|(c, _)| *c).collect();
+        let parents: Vec<u32> = opener.iter().map(|(_, p)| *p).collect();
+        let tabs: Vec<u32> = group.iter().map(|(t, _)| *t).collect();
+        let groups: Vec<u32> = group.iter().map(|(_, g)| *g).collect();
+        unsafe {
+            cmux_close_focus_tab_chrome(
+                selected,
+                old.as_ptr(),
+                old.len(),
+                surviving.as_ptr(),
+                surviving.len(),
+                shown.as_ptr(),
+                shown.len(),
+                children.as_ptr(),
+                parents.as_ptr(),
+                opener.len(),
+                tabs.as_ptr(),
+                groups.as_ptr(),
+                group.len(),
+            )
+        }
+    }
+
+    #[test]
+    fn tab_close_like_chrome_through_the_c_abi() {
+        // A=0 B=1 C=2: the selected B closes; the tab to its right, C.
+        assert_eq!(chrome(1, &[0, 1, 2], &[0, 2], &[0, 2], &[], &[]), 2);
+        // The last tab: the one to its left.
+        assert_eq!(chrome(2, &[0, 1, 2], &[0, 1], &[0, 1], &[], &[]), 1);
+        // A B X, B opened by A: closing B returns to A.
+        assert_eq!(chrome(1, &[0, 1, 2], &[0, 2], &[0, 2], &[(1, 0)], &[]), 0);
+        // X A Y B, B opened by A: closing A selects B.
+        assert_eq!(chrome(1, &[0, 1, 2, 3], &[0, 2, 3], &[0, 2, 3], &[(3, 1)], &[]), 3);
+        // A [B C] D: closing C stays in its group, B.
+        assert_eq!(chrome(2, &[0, 1, 2, 3], &[0, 1, 3], &[0, 1, 3], &[], &[(1, 9), (2, 9)]), 1);
+        // A surviving selection stays; none survives: none.
+        assert_eq!(chrome(0, &[0, 1], &[0], &[0], &[], &[]), 0);
+        assert_eq!(chrome(0, &[0], &[], &[], &[], &[]), NONE);
+        // A null group array with a count is refused.
+        let refused = unsafe {
+            cmux_close_focus_tab_chrome(
+                0,
+                [0u32, 1].as_ptr(),
+                2,
+                [1u32].as_ptr(),
+                1,
+                [1u32].as_ptr(),
+                1,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                2,
+            )
+        };
+        assert_eq!(refused, NONE);
+    }
+
+    /// The pinned app's symbol keeps 2026-11-08's rule until the app moves
+    /// to `cmux_close_focus_tab_chrome`.
     #[test]
     fn tab_close_selects_before_through_the_c_abi() {
         // A=0 B=1 C=2: the selected B closes; the tab before it, A.

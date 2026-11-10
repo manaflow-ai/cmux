@@ -181,14 +181,29 @@ import PackageDescription
 // b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
 // 7a372c740: both changes above in one pin (RESIZE P0 22).
 //
-// Since b3a5ebfdf..a0e665d4f (release/cmux-gi-present-cb-1, ghostty-integration
-// step 3): ghostty_surface_set_present_callback reports each frame that
-// becomes the layer's contents (pixel size, content or resize, sequence, host
-// time); it replaces cmux's setContents: swizzle on IOSurfaceLayer.
+// Since b3a5ebfdf..a0975fd8c (release/cmux-gi-pin-sync-2, GI PIN SYNC): five
+// upstream Ghostty main commits picked onto b3a5ebfdf with `cherry-pick -x`:
+// 96d379822 and 15a443234 (RenderState.endUpdate looks up a row's styles
+// once per segment and walks the pending style runs as a shrinking slice:
+// less work per scrolled row), 321a32a42 (a resize that grows rows and
+// shrinks columns keeps the scrollback it pulled down), 5ce2325ec (a shrink
+// with no scrollback no longer leaves the cursor pin garbage, so a Kitty
+// image at the cursor draws) and 1b8b3f55b (pins are remapped when the
+// column backfill stops early: no viewport on a freed page). No C API change.
 //
-// a0e665d4f..c31377f1a (release/cmux-gi-renderer-sync-1, ghostty-integration
-// step 4): RESIZE SYNC in the renderer (GHOSTTY_HOST_PRESENT_RENDERER_SYNCED
-// replaces EMBEDDER; the host-frame API is gone).
+// Since a0975fd8c..c370b103a (release/cmux-gi-land-1 merges a0975fd8c and
+// a0e665d4f, release/cmux-gi-present-cb-1; ghostty-integration step 3):
+// ghostty_surface_set_present_callback reports each frame that becomes the
+// layer's contents (pixel size, content or resize, sequence, host time); it
+// replaces cmux's setContents: swizzle on IOSurfaceLayer.
+//
+// Since c370b103a..0efdef967 (release/cmux-gi-land-2 merges c370b103a and
+// c31377f1a, release/cmux-gi-renderer-sync-1; ghostty-integration step 4):
+// RESIZE SYNC in the renderer (GHOSTTY_HOST_PRESENT_RENDERER_SYNCED replaces
+// EMBEDDER; the host-frame API is gone). On top, red 74b8bb04f and fix
+// 0efdef967: a new content scale of a host-sized surface goes to the layer
+// with the first frame drawn at it, in one transaction; cmux no longer sets
+// the layer's contentsScale.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -213,8 +228,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c31377f1a36e61b7dd0b979d3151e87e44baecf6-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "24b30d8c5044163b66d876147c2ebc03ddf3b1d827dca8efaa8873e42766b6db"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-0efdef967bd28f1f3327eaaddc306ba29e693e97-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4cc00bf88b6f42a316c5ca520bee4964cc9cfe0c5d3a9540db61606cec275807"
         ),
     ]
 )
