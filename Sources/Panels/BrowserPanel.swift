@@ -10658,6 +10658,14 @@ enum BrowserDataImporter {
                     )
                 )
                 continue
+            case .tooLarge(let url):
+                warnings.append(
+                    safariCookiesTooLargeWarning(
+                        path: reader.displayPath(for: url),
+                        limit: parser.maximumDecodedBytes
+                    )
+                )
+                continue
             case .unreadable(let url):
                 warnings.append(
                     String(
@@ -10676,14 +10684,7 @@ enum BrowserDataImporter {
                 records = try parser.parse(data)
             } catch SafariBinaryCookiesParser.ParseError.decodedSizeExceeded(let limit) {
                 warnings.append(
-                    String(
-                        format: String(
-                            localized: "browser.import.warning.safariCookiesTooLarge",
-                            defaultValue: "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
-                        ),
-                        reader.displayPath(for: storeURL),
-                        ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .binary)
-                    )
+                    safariCookiesTooLargeWarning(path: reader.displayPath(for: storeURL), limit: limit)
                 )
                 continue
             } catch {
@@ -10710,6 +10711,19 @@ enum BrowserDataImporter {
             importedCount: importedCount,
             skippedCount: expiredCount + max(0, dedupedCookies.count - importedCount),
             warnings: warnings
+        )
+    }
+
+    /// The warning for a Safari store that holds more cookie data than the
+    /// import limit of `limit` bytes, whether the reader or the parser found out.
+    private static func safariCookiesTooLargeWarning(path: String, limit: Int) -> String {
+        String(
+            format: String(
+                localized: "browser.import.warning.safariCookiesTooLarge",
+                defaultValue: "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
+            ),
+            path,
+            ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .binary)
         )
     }
 
