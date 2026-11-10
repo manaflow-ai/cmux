@@ -2,6 +2,7 @@
 //! transactions and terminal colors for `PtySurface`.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl PtySurface {
     pub(super) fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
@@ -395,7 +396,9 @@ impl PtySurface {
         for_viewers: bool,
     ) -> ghostty_vt::Result<bool> {
         let built = {
-            let mut render = self.render.lock().unwrap();
+            // A panic that held this lock left no half state a rebuild keeps:
+            // `build_frame` reads the frame again from the render state.
+            let mut render = self.render.lock().recover_poison();
             if (for_viewers && render.taps.is_empty()) || render.built_generation >= generation {
                 false
             } else {
