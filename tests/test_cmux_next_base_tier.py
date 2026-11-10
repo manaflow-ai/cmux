@@ -542,10 +542,16 @@ class RunDuringAWait(unittest.TestCase):
 
     MANUAL_AT = T0 + 300
 
-    def run_kick(self, budget: float, covering: bool = False):
+    OLDER_OPEN = "0" * 39 + "1"
+
+    def run_kick(self, budget: float, covering: bool = False, refused_read: str = "/compare/",
+                 older_open: bool = False):
         clock = Clock(T0)
         deadline = quota.Deadline(budget, clock=clock.now)
         fake = FakeApi([(OLD, T0 - 20 * 60)], TIP)  # the window is open when the kick starts
+        if older_open:
+            # An older base tier run still queued, no Mac job started: the newer run supersedes it.
+            fake.open_run(11, self.OLDER_OPEN, T0 - 25 * 60, "queued", QUEUED_MAC)
         if covering:
             fake.covering.add(MID)
         dispatched_at: list[float] = []
@@ -560,7 +566,7 @@ class RunDuringAWait(unittest.TestCase):
         def send(method, url, body=None):
             path = url.removeprefix(api.api_url + "/")
             if method == "GET":
-                if "/compare/" in path and refused["left"]:
+                if refused_read in path and refused["left"]:
                     refused["left"] -= 1
                     return 403, b'{"message": "API rate limit exceeded"}', {
                         "x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(clock.at + 600))}
@@ -602,6 +608,22 @@ class RunDuringAWait(unittest.TestCase):
         self.assertEqual(clock.slept, [601])
         self.assertEqual(fake.dispatched, [])
         self.assertEqual(dispatched_at, [])
+
+    def test_a_covering_run_during_the_first_history_reads_wait_ends_the_kick(self):
+        # Codex review of #40471 (P2): the first history read itself waits out the quota (601 s) and a
+        # run covering the push starts 300 s in. The kick sees it as the last run, not as one that started
+        # during a wait, and its window has 599 s to go. Nothing needs dispatching, so the kick ends
+        # without the deadline error and still cancels the older run no Mac has started.
+        result, clock, fake, dispatched_at = self.run_kick(
+            tier.JOB_TIMEOUT_S - tier.MARGIN_S, covering=True, refused_read="/actions/workflows/cmux-next.yml/runs?",
+            older_open=True)
+        self.assertNotIsInstance(result, tier.PastDeadline)
+        self.assertIsNone(result)
+        self.assertEqual(clock.slept, [601])
+        self.assertEqual(fake.dispatched, [])
+        self.assertEqual(dispatched_at, [])
+        self.assertIn(11, fake.cancelled)
+
 
 class QuotaRetry(unittest.TestCase):
     """Every workflow's GITHUB_TOKEN in a repository shares one REST quota (2026-11-10: the base tier
