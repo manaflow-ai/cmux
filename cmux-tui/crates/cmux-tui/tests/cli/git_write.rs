@@ -817,7 +817,7 @@ fn w6e_removing_the_last_worktree_removes_the_empty_project_folder_and_names_the
     let repo = root.join("project");
     let real = home.join(".cmux/worktrees.noindex");
     fs::create_dir_all(&real).unwrap();
-    std::os::unix::fs::symlink("worktrees.noindex", home.join(".cmux/worktrees")).unwrap();
+    symlink("worktrees.noindex", home.join(".cmux/worktrees")).unwrap();
     fs::create_dir_all(&repo).unwrap();
     let server = HeadlessServer::start_with_options(
         "w6e-worktree-tidy",
@@ -861,4 +861,124 @@ fn w6e_removing_the_last_worktree_removes_the_empty_project_folder_and_names_the
     assert!(real.is_dir(), "the worktree root itself must stay");
     assert!(home.join(".cmux/worktrees").is_dir(), "the worktree root link must stay");
     let _ = fs::remove_dir_all(root);
+}
+
+/// Bench round 6 N5 (W7-F): `--branch` names the worktree's branch instead of
+/// `cmux/<name>`; removing it deletes a branch the create made and keeps one
+/// that was there before, and a refusal for unsaved work names `--discard`.
+/// The test makes the macOS layout (`worktrees` a link to
+/// `worktrees.noindex`) itself, so the printed path holds on every unix host.
+#[test]
+fn w7f_a_worktree_on_a_named_branch_goes_with_it_and_a_refusal_names_discard() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-w7f-worktree-branch-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(home.join(".cmux/worktrees.noindex")).unwrap();
+    symlink("worktrees.noindex", home.join(".cmux/worktrees")).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "w7f-worktree-branch",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let said = |output: &Output| {
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    // A new branch, named as given.
+    let args = ["worktree", "create", "--name", "login", "--branch", "feat/login"];
+    let created = git_cli(&server, &repo, &[&args[..], &["--idempotency-key", "c1"]].concat());
+    assert_success(&created);
+    let value = json_output(&created);
+    let worktree = home.join(".cmux/worktrees/project/login");
+    assert_eq!(value["value"]["branch"], "feat/login", "{value}");
+    assert_eq!(value["value"]["new_branch"], true, "{value}");
+    assert_eq!(value["value"]["root"], worktree.to_str().unwrap(), "{value}");
+    assert_eq!(git(&worktree, &["symbolic-ref", "--short", "HEAD"]), "feat/login");
+
+    // Unsaved work keeps it, and the refusal says how to remove it anyway.
+    fs::write(worktree.join("notes.txt"), "draft\n").unwrap();
+    let refused = git_cli(&server, &worktree, &["worktree", "remove", "--idempotency-key", "r1"]);
+    assert!(!refused.status.success(), "a worktree with uncommitted work was removed");
+    assert!(said(&refused).contains("uncommitted_changes"), "{}", said(&refused));
+    assert!(said(&refused).contains("--discard"), "{}", said(&refused));
+    assert!(worktree.join("notes.txt").exists());
+
+    // --discard removes it with the branch the create made, and the empty project folder.
+    let args = ["worktree", "remove", "--discard", "--idempotency-key", "r2"];
+    let removed = git_cli(&server, &worktree, &args);
+    assert_success(&removed);
+    let value = json_output(&removed);
+    assert_eq!(value["value"]["branch"], "feat/login", "{value}");
+    assert_eq!(value["value"]["branch_deleted"], true, "{value}");
+    assert_eq!(value["value"]["root"], worktree.to_str().unwrap(), "{value}");
+    assert!(!worktree.exists());
+    assert_eq!(git(&repo, &["branch", "--list", "feat/login"]), "");
+    assert!(!home.join(".cmux/worktrees.noindex/project").exists(), "{value}");
+
+    // A branch that was there before is checked out as it is, and stays.
+    git(&repo, &["branch", "keep-me"]);
+    let args = ["worktree", "create", "--name", "kept", "--branch", "keep-me"];
+    let created = git_cli(&server, &repo, &[&args[..], &["--idempotency-key", "c2"]].concat());
+    assert_success(&created);
+    let value = json_output(&created);
+    assert_eq!(value["value"]["branch"], "keep-me", "{value}");
+    assert_eq!(value["value"]["new_branch"], false, "{value}");
+    let kept = home.join(".cmux/worktrees/project/kept");
+    let removed = git_cli(&server, &kept, &["worktree", "remove", "--idempotency-key", "r3"]);
+    assert_success(&removed);
+    let value = json_output(&removed);
+    assert_eq!(value["value"]["branch_deleted"], false, "{value}");
+    assert_eq!(git(&repo, &["branch", "--list", "keep-me"]), "keep-me");
+
+    // A name git refuses for a branch is refused before anything is made.
+    let args = ["worktree", "create", "--name", "bad", "--branch", "a..b"];
+    let refused = git_cli(&server, &repo, &[&args[..], &["--idempotency-key", "c3"]].concat());
+    assert!(!refused.status.success(), "{}", said(&refused));
+    assert!(!home.join(".cmux/worktrees/project/bad").exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+/// W7-F: the worktree parts of `cmux git --help` and `cmux workspace --help`
+/// name `--branch` and `--discard`, in English and in Japanese.
+#[test]
+fn w7f_worktree_help_names_branch_and_discard_in_english_and_japanese() {
+    let help = |scope: &str, lang: &str| {
+        let output = Command::new(bin())
+            .args([scope, "--help"])
+            .env("LC_ALL", lang)
+            .env("LC_MESSAGES", lang)
+            .env("LANG", lang)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let english = help("git", "C");
+    assert!(english.contains("--branch <branch> names the branch"), "{english}");
+    assert!(english.contains("the refusal names --discard"), "{english}");
+    let japanese = help("git", "ja_JP.UTF-8");
+    assert!(japanese.contains("--branch <branch> でブランチを指定できます"), "{japanese}");
+    assert!(japanese.contains("--discard を\n示します"), "{japanese}");
+    assert!(!japanese.contains("--branch <branch> names the branch"), "{japanese}");
+    let english = help("workspace", "C");
+    assert!(english.contains("(or on --branch\n<branch>"), "{english}");
+    let japanese = help("workspace", "ja_JP.UTF-8");
+    assert!(japanese.contains("(--branch <branch> なら"), "{japanese}");
 }
