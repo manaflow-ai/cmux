@@ -43,6 +43,8 @@ final class HomeHostView: PaneMotionFollowingView {
     /// A Chief's Set Up cmux card at first run follows ``FirstRunSetup`` (HomeHostView+SetupCard.swift).
     var setupCardWatch: Task<Void, Never>?
     var setupCard: SetupCardHost?
+    /// The Set Up cmux card shows in this Home's chat (``FirstRunSetup/shows`` on a Chief's), whether or not its page loaded.
+    var showsSetupCard = false
     private var engineWatch: Task<Void, Never>?
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?

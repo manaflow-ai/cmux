@@ -27,6 +27,7 @@ extension HomeHostView {
     }
 
     private func showSetupCard(_ shows: Bool) {
+        showsSetupCard = shows
         guard shows else {
             setupCard?.close(); setupCard = nil
             return transcript.setSetupCard(nil, height: 0)
