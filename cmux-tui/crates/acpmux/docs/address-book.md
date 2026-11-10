@@ -5,8 +5,7 @@ the `acpmux` MCP server): acpmux lanes, Codex threads, and Claude Code sessions 
 desktop app. Every message goes through the outbox, so it is queued, retried while the target is
 down, and `acpmux send --status ID` says whether it was delivered. Leo, 2026-11-09: "how
 formalized/productionized is this rn, and how much further do we need to take things?" and "we
-should offer it for codex too! ... ppl care somewhat about pi and opencode and stuff like qwen and
-deepseek and glm".
+should offer it for codex too! ..." (and for the other harnesses people use).
 
 ## Names
 
