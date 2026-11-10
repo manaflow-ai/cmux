@@ -3,7 +3,6 @@
 // Cloud classic (contract 4: "Move them" runs `cloud.migration.start` as a native action, "Later"
 // hides it for this page session), and a typed plan refusal (contract 1.5: `plan_required`, `quota_exceeded {limit, used}`, `size_locked`)
 // as a localized sentence with "See plans", which links the public plans page until billing lands.
-import { useState } from "react";
 import { Notice } from "../../ui/Notice";
 import type { Strings } from "../shared/i18n";
 import { migrationBanner } from "./account";
@@ -17,10 +16,20 @@ import { format, L } from "./strings";
  * person can dismiss it for this page session), the 15-minute warning before running machines pause, the pause,
  * or no new starts. At the cap it stays until the cap is raised or resets. Drawn as the shared notice's warning.
  */
-export function SpendCapBanner({ state, strings }: { state: CloudState; strings: Strings }) {
+export function SpendCapBanner({
+  state,
+  strings,
+  hiddenNear,
+  onHideNear,
+}: {
+  state: CloudState;
+  strings: Strings;
+  /** The person dismissed the near-cap banner in this page session (kept by the page across views). */
+  hiddenNear: boolean;
+  onHideNear: () => void;
+}) {
   const { t, language } = strings;
   const banner = capBanner(state.plan?.spend_cap);
-  const [hiddenNear, setHiddenNear] = useState(false);
   if (!banner || (banner.kind === "near" && hiddenNear)) return null;
   const { title, message } = capBannerText(banner, t, language);
   return (
@@ -30,7 +39,7 @@ export function SpendCapBanner({ state, strings }: { state: CloudState; strings:
       className={`cloud-spend-cap kind-${banner.kind}`}
       title={title}
       message={message}
-      onDismiss={banner.kind === "near" ? () => setHiddenNear(true) : undefined}
+      onDismiss={banner.kind === "near" ? onHideNear : undefined}
       dismissLabel={t(L.dismissError)}
     />
   );

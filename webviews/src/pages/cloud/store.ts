@@ -728,7 +728,23 @@ export class CloudStore {
     // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
     const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
     this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
-    if (capChanged) void this.account.readPlan(this.session);
+    if (capChanged) void this.readPlanForCap();
+  }
+
+  /** One plan read at a time for the cap's marks: a pause marks every running machine at once (N events). */
+  private capPlanRead: Promise<void> | undefined;
+  private capPlanDirty = false;
+  private async readPlanForCap(): Promise<void> {
+    if (this.capPlanRead) {
+      this.capPlanDirty = true;
+      return;
+    }
+    do {
+      this.capPlanDirty = false;
+      this.capPlanRead = this.account.readPlan(this.session);
+      await this.capPlanRead;
+      this.capPlanRead = undefined;
+    } while (this.capPlanDirty);
   }
 
   /**
