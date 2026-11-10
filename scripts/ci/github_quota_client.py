@@ -61,6 +61,11 @@ def quota_wait(status: int, headers: dict[str, str], payload: bytes, attempt: in
     return None
 
 
+# One call's longest wait for GitHub (urlopen's timeout). A caller that must finish before a deadline
+# budgets this much for each call it makes there, a write included: writes are never retried.
+REQUEST_TIMEOUT_S = 30
+
+
 class Deadline:
     """One deadline for the whole job, taken once on the monotonic clock. Every step that waits (a quota
     retry, the window, the settle) reads its time from left(), so a step nobody named still comes out of
@@ -103,7 +108,7 @@ class QuotaGitHub(GitHub):
         # Unredirected, as in tree notify's client: a redirect must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
                 return response.status, response.read(), {k.lower(): v for k, v in (response.headers or {}).items()}
         except urllib.error.HTTPError as error:
             return error.code, error.read(), {k.lower(): v for k, v in (error.headers or {}).items()}
