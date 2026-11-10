@@ -34,7 +34,7 @@ import Testing
         records.append(OSLogRecord(date: launch + 20, level: .error, subsystem: "com.cmuxterm.app", category: "acp", message: "it failed"))
         records.append(OSLogRecord(date: launch + 21, level: .fault, subsystem: "com.apple.WebKit", category: "Loading", message: "it broke"))
         let log = FakeLog(records: records)
-        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log)
+        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log, now: { launch + 30 })
 
         let harvest = try await source.collect(after: nil)
 
