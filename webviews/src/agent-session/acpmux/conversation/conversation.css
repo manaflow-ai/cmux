@@ -7527,7 +7527,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-since__tag {
   display: inline-flex;
   align-items: center;
-  height: 16px;
   padding: 0 var(--ds-space-1);
   border-radius: var(--ds-radius-control);
   background: var(--cv-since-tint);
@@ -7535,7 +7534,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   font-weight: var(--weight-emphasis);
-  line-height: 1;
+  line-height: 16px;
 }
 .cv-since__line:hover .cv-since__rule {
   border-top-color: var(--cv-since-tint);
