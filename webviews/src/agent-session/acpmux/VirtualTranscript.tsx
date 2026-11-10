@@ -2340,17 +2340,22 @@ function TranscriptView({
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
   // padding. Read when it comes and as the view resizes, never per streamed token.
+  // Jump to new over the top reads the same scroller top (`view`): the stage also holds the pane's tab
+  // row as its own band above the scroller, so the stage's top is the tab strip, not the transcript's
+  // (https://github.com/manaflow-ai/cmux/issues/40021).
   const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
   const pinned = pinnedPill !== undefined;
-  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
+  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  const [pinAt, setPinAt] = useState({ top: 0, pad: 0, view: 0 });
   useLayoutEffect(() => {
     const scroller = ref.current;
-    if (!pinned || !scroller || !thread.current) return;
+    if (!overTop || !scroller || !thread.current) return;
     const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
     const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
-    const top = scroller.offsetTop + pad;
-    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
-  }, [pinned, height]);
+    const view = scroller.offsetTop;
+    const top = view + pad;
+    setPinAt((now) => (now.top === top && now.pad === pad && now.view === view ? now : { top, pad, view }));
+  }, [overTop, height]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -5032,7 +5037,7 @@ function TranscriptView({
         {sinceKey !== undefined && onJumpToSince && (
           <div
             className="acpmux-over-top"
-            style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : 0) }}
+            style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : pinAt.view) }}
           >
             <SinceJump mark={sinceKey} onJump={onJumpToSince} />
           </div>
