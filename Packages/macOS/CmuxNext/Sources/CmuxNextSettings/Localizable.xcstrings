@@ -1,6 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.chats.coldArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compress Old Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضغط الدردشات القديمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi stare razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer gamle chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alte Chats komprimieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir chats antiguos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser les anciennes discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi le chat vecchie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いチャットを圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាប់ការជជែកចាស់ៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오래된 채팅 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer gamle chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompresuj stare czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar chats antigos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать старые чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดแชตเก่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eski sohbetleri sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати старі чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén các cuộc trò chuyện cũ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩旧聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壓縮舊聊天"
+          }
+        }
+      }
+    },
+    "settings.chats.coldArchive.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُضغط الدردشات التي لم تستخدمها منذ فترة في ملف صغير واحد لكل دردشة. تبقى في القائمة مع معاينة، وتُفتح كما كانت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovori koje neko vrijeme niste koristili sažimaju se u po jednu malu datoteku. Ostaju na listi s pregledom i otvaraju se kao i prije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, du ikke har brugt i et stykke tid, komprimeres til én lille fil hver. De bliver på listen med en forhåndsvisning og åbner som før."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, die du länger nicht genutzt hast, werden in je eine kleine Datei komprimiert. Sie bleiben mit einer Vorschau in der Liste und öffnen sich wie zuvor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats que no usas desde hace un tiempo se comprimen en un archivo pequeño cada uno. Siguen en la lista con una vista previa y se abren como antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les discussions inutilisées depuis un moment sont compressées, chacune dans un petit fichier. Elles restent dans la liste avec un aperçu et s'ouvrent comme avant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat che non usi da un po' vengono compresse in un piccolo file ciascuna. Restano nell'elenco con un'anteprima e si aprono come prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しばらく使っていないチャットは、それぞれ 1 つの小さなファイルに圧縮されます。プレビュー付きで一覧に残り、これまでどおり開けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលអ្នកមិនបានប្រើមួយរយៈ ត្រូវបានបង្ហាប់ទៅជាឯកសារតូចមួយម្នាក់ៗ។ វានៅតែក្នុងបញ្ជីជាមួយការមើលជាមុន ហើយបើកដូចមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한동안 사용하지 않은 채팅은 각각 작은 파일 하나로 압축됩니다. 미리보기와 함께 목록에 남고, 이전처럼 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter du ikke har brukt på en stund, komprimeres til én liten fil hver. De blir i listen med en forhåndsvisning og åpnes som før."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty nieużywane od jakiegoś czasu są kompresowane, każdy do jednego małego pliku. Zostają na liście z podglądem i otwierają się jak wcześniej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats que você não usa há algum tempo são compactados em um arquivo pequeno cada. Eles continuam na lista com uma prévia e abrem como antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты, которыми вы давно не пользовались, сжимаются в отдельный небольшой файл. Они остаются в списке с предпросмотром и открываются как раньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่คุณไม่ได้ใช้มาสักพักจะถูกบีบอัดเป็นไฟล์เล็กไฟล์เดียวต่อแชต แชตยังอยู่ในรายการพร้อมตัวอย่าง และเปิดได้เหมือนเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir süredir kullanmadığınız sohbetler her biri tek bir küçük dosyaya sıkıştırılır. Önizlemeyle listede kalır ve eskisi gibi açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати, якими ви давно не користувалися, стискаються в окремий невеликий файл. Вони лишаються в списку з попереднім переглядом і відкриваються як раніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các cuộc trò chuyện bạn lâu không dùng được nén thành một tệp nhỏ cho mỗi cuộc. Chúng vẫn ở trong danh sách kèm bản xem trước và mở như trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一段时间未使用的聊天会各自压缩成一个小文件。它们仍以预览形式留在列表中，并照常打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一段時間未使用的聊天會各自壓縮成一個小檔案。它們仍以預覽形式留在列表中，並照常開啟。"
+          }
+        }
+      }
+    },
+    "settings.chats.coldArchiveAfterDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compress Chats Idle For"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضغط الدردشات الخاملة لمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi razgovore neaktivne"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer chats, der har været inaktive i"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats komprimieren nach Inaktivität von"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir chats inactivos durante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser les discussions inactives depuis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi le chat inattive da"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圧縮するまでの未使用期間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាប់ការជជែកដែលអសកម្មរយៈពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "압축할 채팅 미사용 기간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer chatter som har vært inaktive i"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompresuj czaty nieaktywne przez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar chats inativos há"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать чаты, неактивные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดแชตที่ไม่ได้ใช้นาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şu kadar süredir boşta olan sohbetleri sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати чати, неактивні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén cuộc trò chuyện không dùng trong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩闲置时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壓縮閒置時長"
+          }
+        }
+      }
+    },
+    "settings.chats.coldArchiveAfterDays.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الأيام التي تبقى فيها الدردشة دون استخدام قبل ضغطها. لا تُضغط أبدًا دردشة يعمل فيها وكيل أو فيها رسالة في قائمة الانتظار أو دور مفتوح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko dana razgovor ostaje nekorišten prije nego što se sažme. Razgovor s aktivnim agentom, porukom na čekanju ili otvorenim potezom nikad se ne sažima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange dage en chat skal være ubrugt, før den komprimeres. En chat med en kørende agent, en besked i kø eller en åben tur komprimeres aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viele Tage ein Chat ungenutzt bleibt, bevor er komprimiert wird. Ein Chat mit laufendem Agenten, einer wartenden Nachricht oder einem offenen Zug wird nie komprimiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuántos días pasa un chat sin usarse antes de comprimirse. Nunca se comprime un chat con un agente en marcha, un mensaje en cola o un turno abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de jours sans utilisation avant qu'une discussion soit compressée. Une discussion avec un agent actif, un message en file d'attente ou un tour en cours n'est jamais compressée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanti giorni una chat resta inutilizzata prima di essere compressa. Una chat con un agente in esecuzione, un messaggio in coda o un turno aperto non viene mai compressa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットが圧縮されるまでの未使用日数。エージェントが実行中、キューにメッセージがある、またはターンが進行中のチャットは圧縮されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនថ្ងៃដែលការជជែកមិនត្រូវបានប្រើ មុនពេលវាត្រូវបានបង្ហាប់។ ការជជែកដែលមានភ្នាក់ងារកំពុងដំណើរការ សារក្នុងជួរ ឬវេនកំពុងបើក មិនត្រូវបានបង្ហាប់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 압축하기 전까지 사용하지 않은 일수입니다. 에이전트가 실행 중이거나, 대기 중인 메시지나 진행 중인 턴이 있는 채팅은 압축되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange dager en chat er ubrukt før den komprimeres. En chat med en agent som kjører, en melding i kø eller en åpen tur komprimeres aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczba dni bez użycia, po której czat jest kompresowany. Czat z działającym agentem, wiadomością w kolejce lub otwartą turą nigdy nie jest kompresowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantos dias um chat fica sem uso antes de ser compactado. Um chat com um agente em execução, uma mensagem na fila ou um turno aberto nunca é compactado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько дней чат не используется, прежде чем его сжать. Чат с работающим агентом, сообщением в очереди или незавершённым ходом не сжимается никогда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนวันที่แชตไม่ได้ใช้ก่อนถูกบีบอัด แชตที่มีเอเจนต์ทำงานอยู่ มีข้อความรอคิว หรือมีเทิร์นค้างอยู่จะไม่ถูกบีบอัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir sohbetin sıkıştırılmadan önce kaç gün kullanılmadan kalacağı. Çalışan bir ajanı, sıradaki bir mesajı veya açık bir turu olan sohbet asla sıkıştırılmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки днів чат не використовується, перш ніж його стиснути. Чат із запущеним агентом, повідомленням у черзі чи незавершеним ходом не стискається ніколи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số ngày một cuộc trò chuyện không được dùng trước khi bị nén. Cuộc trò chuyện có tác tử đang chạy, tin nhắn đang chờ hoặc lượt đang mở sẽ không bao giờ bị nén."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天闲置多少天后进行压缩。有智能体正在运行、有排队消息或有进行中轮次的聊天永远不会被压缩。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天閒置多少天後進行壓縮。有代理程式正在執行、有排隊訊息或有進行中回合的聊天永遠不會被壓縮。"
+          }
+        }
+      }
+    },
     "settings.category.personalization": {
       "extractionState": "manual",
       "localizations": {

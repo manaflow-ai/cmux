@@ -103,9 +103,25 @@ def rate_limited_classes() -> tuple:
     return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
 
 
+def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
+    """FOUND, GitHub's parsed answer to ROUTE, when it is a JSON object or list (a paginated read: each page is one);
+    NONE lets a None through (a test fake's empty answer). Anything else is Refused as unread, naming the first
+    SHAPE_CHARS characters of what came back, so no reader below calls `.get` on it. While the REST quota was spent
+    a read of a workflow's runs came back as a str, and list_base_runs' `listed.get("workflow_runs")` raised
+    AttributeError, a traceback merge_hold showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
+    for page in found if paginate and isinstance(found, list) else [found]:
+        if not (isinstance(page, (dict, list)) or (none and page is None)):
+            raise Refused(f"GitHub's answer to {route} could not be read: {str(page)[:SHAPE_CHARS]}")
+    return found
+
+
+SHAPE_CHARS = 200
+
+
 def rate_limit_aware(github):
-    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above). Reads are
-    looked up on each call, so a caller that replaces one (the tests' fakes) is still read."""
+    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above), and every `json` read that is not
+    a JSON object or list Refused as unread (json_shape). Reads are looked up on each call, so a caller that replaces
+    one (the tests' fakes) is still read, and checked."""
     class Aware:
         def __getattr__(self, name: str):
             attribute = getattr(github, name)
@@ -114,9 +130,12 @@ def rate_limit_aware(github):
 
             def read(*args, **kwargs):
                 try:
-                    return attribute(*args, **kwargs)
+                    found = attribute(*args, **kwargs)
                 except RateLimited as error:
                     raise RateLimitedRead(str(error)) from None
+                if name == "json" and args:
+                    return json_shape(str(args[0]), found, paginate=bool(kwargs.get("paginate")), none=True)
+                return found
 
             return read
 
@@ -194,11 +213,15 @@ class GitHub(_evidence.GitHub):
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
         jq = projection(route)
-        if jq is None:
-            return super().json(route, paginate=paginate, per_page=per_page)
 
         def fetch(url: str):
-            return json.loads(self.run(["api", url, "--jq", jq]))
+            # Each page is checked as it comes, so the pager never meets a str either (json_shape).
+            said = self.run(["api", url, *(("--jq", jq) if jq is not None else ())])
+            try:
+                found = json.loads(said)
+            except ValueError:
+                raise Refused(f"GitHub's answer to {url} could not be read: {said[:SHAPE_CHARS]}") from None
+            return json_shape(url, found)
         if not paginate:
             return fetch(route)
         try:
@@ -1043,6 +1066,16 @@ COMPILE_STATUS_FAIL = "The app did not compile"
 COMPILE_RECEIPT_DOWN = 500  # an HTTP answer at or above this (5xx, Cloudflare's 52x and 530) is the service down
 
 
+# The cmux-next/compile descriptions of compile-status that are no verdict (unavailable, no result in 40 minutes, a
+# result for another head); only "The app did not compile" (COMPILE_STATUS_FAIL) is a fail. With the controller off
+# every PR's status read "No compile result for this head in 40 minutes": no receipt and no base status can judge
+# that (github_compile_red refuses it), but a compile that passed at the head elsewhere can. A no-verdict status is
+# judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head (compile_pass_at, the Mac
+# Release compile first) ignores it, so a down controller makes landing slower, never impossible.
+COMPILE_STATUS_NO_VERDICT = re.compile(r"No compile result for this head|The compile check gave no verdict|"
+                                       r"The compile result does not match this head")
+
+
 class ReceiptUnreachable(Refused):
     """The receipts host did not answer (a connection error, a timeout, a 5xx): no verdict, and no answer about the
     receipt either, so a caller may ask GitHub instead (github_compile_red)."""
@@ -1332,6 +1365,17 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
     if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
+        description = status.get("description") or ""
+        if COMPILE_STATUS_NO_VERDICT.match(description):
+            try:
+                proof, unread = compile_pass_at(repo, sha, github), ""
+            except Refused as why:  # the receipt is read last: nothing before it passed
+                proof, unread = None, f"; {why}"
+            if proof is None:
+                raise Refused(f"'{name}' gave no compile verdict ({description[:140]}) and nothing else compiled "
+                              f"{sha}{unread}: a no-verdict compile is never a base red; re-run it once the fleet "
+                              "answers, or once the Mac Release compile passes at this head")
+            return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github)
     url = status.get("target_url") or ""
@@ -3043,8 +3087,8 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
     # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
     # pull_request_target) is never the base's.
     base_runs[workflow] = sorted(
-        (run for run in listed.get("workflow_runs") or []
-         if run.get("event") not in ("pull_request", "pull_request_target")
+        (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+         if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
          and run.get("conclusion") != "skipped"),
         key=lambda run: run.get("created_at") or "", reverse=True)
 

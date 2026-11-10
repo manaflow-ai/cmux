@@ -23,6 +23,8 @@ final class SidebarScrollBench {
         var created: Int
         /// Full list layouts in the frame (a scroll must make none).
         var reloads: Int
+        /// Rows laid out in the frame (`layout_rows`: every listed row per full layout, one per spliced row).
+        var laidOut = 0
         /// Main-thread CPU per phase, ms: the frame's row patches (ticks), the clip move
         /// (realization, hover), the window's layout pass, its display pass, the commit.
         var patchMs = 0.0, scrollMs = 0.0, layoutMs = 0.0, displayMs = 0.0, commitMs = 0.0
@@ -176,7 +178,7 @@ final class SidebarScrollBench {
         var created = 0
         for view in list.rowViews.values where seenViews.insert(ObjectIdentifier(view)).inserted { created += 1 }
         return Frame(cpuMs: (cpu1 - cpu0) * 1_000, configures: counts["row_configures"] ?? 0, created: created,
-                     reloads: counts["list_reloads"] ?? 0, patchMs: (t1 - cpu0) * 1_000, scrollMs: (t2 - t1) * 1_000,
+                     reloads: counts["list_reloads"] ?? 0, laidOut: counts["layout_rows"] ?? 0, patchMs: (t1 - cpu0) * 1_000, scrollMs: (t2 - t1) * 1_000,
                      layoutMs: (t3 - t2) * 1_000, displayMs: (t4 - t3) * 1_000, commitMs: (cpu1 - t4) * 1_000)
     }
 
@@ -199,7 +201,7 @@ final class SidebarScrollBench {
             let node = section.nodes.remove(at: last)
             let firstLoose = section.nodes.firstIndex { if case .workspace = $0 { true } else { false } } ?? section.nodes.count
             section.nodes.insert(node, at: firstLoose)
-            model.sections = [section] + model.sections.dropFirst()
+            model.setSections([section] + model.sections.dropFirst()) // as the App's daemon mapping sets them
             sidebar.renderNow()
         }
     }
