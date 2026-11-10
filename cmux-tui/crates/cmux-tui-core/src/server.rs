@@ -3216,21 +3216,22 @@ fn list_workspaces_reply_seen(
     let mut reply = list_workspaces_reply(mux)?;
     hidden.prune_reply(&mut reply);
     let mut digest = std::collections::hash_map::DefaultHasher::new();
-    reply["workspaces"].to_string().hash(&mut digest);
-    reply["groups"].to_string().hash(&mut digest);
+    let field = |key: &str| reply.get(key).unwrap_or(&Value::Null);
+    field("workspaces").to_string().hash(&mut digest);
+    field("groups").to_string().hash(&mut digest);
     let boot = daemon_revision.split_once('.').map_or(daemon_revision.as_str(), |(boot, _)| boot);
     let tree_revision = format!("{boot}.v{:016x}", digest.finish());
-    if known.registry_id.as_deref() == reply["registry_id"].as_str()
+    if known.registry_id.as_deref() == field("registry_id").as_str()
         && known.tree_revision.as_deref() == Some(tree_revision.as_str())
     {
         return Ok(json!({
             "unchanged": true,
             "workspaces": [],
-            "registry_id": reply["registry_id"],
-            "generation": reply["generation"],
-            "workspace_revision": reply["workspace_revision"],
-            "pane_revision": reply["pane_revision"],
-            "terminal_revision": reply["terminal_revision"],
+            "registry_id": field("registry_id"),
+            "generation": field("generation"),
+            "workspace_revision": field("workspace_revision"),
+            "pane_revision": field("pane_revision"),
+            "terminal_revision": field("terminal_revision"),
             "tree_revision": tree_revision,
         }));
     }
