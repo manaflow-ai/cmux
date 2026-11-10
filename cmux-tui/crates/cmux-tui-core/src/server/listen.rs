@@ -527,7 +527,9 @@ impl ServedSession {
         // `cmux` run in a pane) may hold only its share of the connections, so
         // a burst of agents cannot lock the app out of its own daemon (#27698).
         // Decided here, before the connection's thread, without waiting on the
-        // state lock (`TerminalSessions`).
+        // state lock (`TerminalSessions`). An agent hook's sending child is
+        // not one of them here (it left the terminal's process session): its
+        // first line moves it into the terminal lane (line_connection.rs).
         let key = stream.peer_process_key();
         let connections = self.mux.connection_stats();
         let permit = if let Some(terminal) =
@@ -557,6 +559,12 @@ pub(super) const REFUSED_BUSY_LINE: &str = concat!(
     r#""message":"the session is at its connection limit; retry"}"#,
     "\n"
 );
+
+/// `REFUSED_BUSY_LINE` as a message, for a connection refused after its first
+/// line (an agent hook past the terminal lane, line_connection.rs).
+pub(super) fn refused_busy_message() -> serde_json::Value {
+    serde_json::from_str(REFUSED_BUSY_LINE.trim_end()).unwrap_or_default()
+}
 
 /// Best effort: a short write timeout keeps the accept loop from waiting on a
 /// client that does not read.
@@ -628,7 +636,14 @@ mod refuse_busy_tests {
     use std::io::{BufRead, BufReader};
     use std::os::unix::net::UnixStream;
 
-    use super::{REFUSED_BUSY_LINE, refuse_busy};
+    use super::{REFUSED_BUSY_LINE, refuse_busy, refused_busy_message};
+
+    #[test]
+    fn the_busy_message_is_the_busy_line() {
+        let line: serde_json::Value = serde_json::from_str(REFUSED_BUSY_LINE).unwrap();
+        assert_eq!(refused_busy_message(), line);
+        assert_eq!(line["code"], "server.busy");
+    }
 
     #[test]
     fn a_refused_connection_reads_one_busy_line_then_end_of_stream() {

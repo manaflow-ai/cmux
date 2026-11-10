@@ -83,6 +83,9 @@ pub(super) fn serve_line_connection(
     let mut drain_accepted = true;
     #[cfg(unix)]
     let mut first_line_done = false;
+    // A local connection the accept loop took for an outside client: its
+    // first line may say that an agent hook sent it (`hook_lane_refusal`).
+    let mut lane_open = matches!(transport, ClientTransport::Unix);
     loop {
         let mut line = String::new();
         // read_line includes the trailing LF. Read one byte beyond the largest
@@ -114,6 +117,17 @@ pub(super) fn serve_line_connection(
         }
         writer.input_lane.raise_this_thread_if_marked();
         input_qos::note_thread_qos("mux-conn");
+        if std::mem::take(&mut lane_open)
+            && let Some(permit) = &connection_permit
+            && let Some(refusal) = hook_lane_refusal(&mux, permit, &line)
+        {
+            // Nothing of the line is read further or dispatched: the hook
+            // keeps its report and sends it again (`server.busy`).
+            let _ = writer.send_control(&refusal);
+            zeroize_string(&mut line);
+            drain_accepted = false;
+            break;
+        }
         let keep_open = match admission.refusal(&line) {
             Some(refusal) => {
                 // A refused line still counts as a line: the window closes.
@@ -161,4 +175,19 @@ pub(super) fn serve_line_connection(
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     drop(connection_permit);
+}
+
+/// Places a connection whose first line is an agent hook's report in the
+/// terminal lane (#27698: the terminals' processes hold at most
+/// `MAX_TERMINAL_CONNECTIONS`, the rest stay for the app). The accept loop
+/// places a terminal's processes by their process session, and the hook's
+/// sending child has left it (terminal_sessions.rs), so without this a burst
+/// of agent reports took every connection of the daemon.
+///
+/// `Some(busy line)` when the lane has no room: the connection is refused as
+/// one refused at accept is. Any other first line changes nothing.
+fn hook_lane_refusal(mux: &Mux, permit: &ConnectionPermit, line: &str) -> Option<Value> {
+    let terminal = terminal_sessions::hook_report_terminal(line)?;
+    let client = terminal.and_then(|id| terminal_sessions::session_of_terminal(mux, &id));
+    (!permit.enter_terminal_lane(client)).then(listen::refused_busy_message)
 }
