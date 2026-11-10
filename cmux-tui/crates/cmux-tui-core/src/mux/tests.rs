@@ -8,6 +8,8 @@ mod agent_hook_fences;
 mod agent_hook_retry;
 #[cfg(unix)]
 mod agent_hooks_at_rest;
+#[cfg(unix)]
+mod agent_hooks_at_rest_reopen;
 mod agent_presence;
 mod agent_reply_text;
 mod agent_reports;
