@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_tier as tier  # noqa: E402
+import github_quota_client as quota  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 KICK = ROOT / ".github/workflows/cmux-next-base-tier-kick.yml"
@@ -341,7 +342,7 @@ class CancelAfterAWait(unittest.TestCase):
             slept.append(seconds)
             clock["at"] += seconds
 
-        api = tier.QuotaGitHub("t", deadline=self.NOW + 900, now=lambda: clock["at"], sleep=sleep)
+        api = quota.QuotaGitHub("t", deadline=self.NOW + 900, now=lambda: clock["at"], sleep=sleep)
 
         def send(method, url, body=None):
             sent.append((method, url))
@@ -451,7 +452,7 @@ class QuotaRetry(unittest.TestCase):
             slept.append(seconds)
             clock["at"] += seconds
 
-        api = tier.QuotaGitHub("t", deadline=deadline, now=lambda: clock["at"], sleep=sleep)
+        api = quota.QuotaGitHub("t", deadline=deadline, now=lambda: clock["at"], sleep=sleep)
         sent = []
 
         def send(method, url, body=None):
@@ -481,7 +482,7 @@ class QuotaRetry(unittest.TestCase):
         self.assertEqual(len(message.splitlines()), 1)
         self.assertIn("GET repos/o/r/actions/workflows/cmux-next.yml/runs: HTTP 403", message)
         self.assertIn("core REST quota", message)
-        self.assertIn(f"resets at {tier.utc(self.NOW + 3000)}", message)
+        self.assertIn(f"resets at {quota.utc(self.NOW + 3000)}", message)
         self.assertRegex(message, r"resets at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
         self.assertEqual(slept, [])
         self.assertEqual(len(sent), 1)
@@ -532,17 +533,17 @@ class QuotaRetry(unittest.TestCase):
         headers["X-RateLimit-Reset"] = str(int(self.NOW + 9999))
 
         def urlopen(request, timeout):
-            raise tier.urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
+            raise quota.urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
                                                 io.BytesIO(b'{"message": "API rate limit exceeded"}'))
 
-        original = tier.urllib.request.urlopen
-        tier.urllib.request.urlopen = urlopen
+        original = quota.urllib.request.urlopen
+        quota.urllib.request.urlopen = urlopen
         try:
-            api = tier.QuotaGitHub("t", deadline=self.NOW + 60, now=lambda: self.NOW, sleep=lambda _: None)
+            api = quota.QuotaGitHub("t", deadline=self.NOW + 60, now=lambda: self.NOW, sleep=lambda _: None)
             with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
                 api.get("repos/o/r/git/ref/heads/x")
         finally:
-            tier.urllib.request.urlopen = original
+            quota.urllib.request.urlopen = original
 
 class PushPaths(unittest.TestCase):
     def test_it_reads_cmux_next_push_paths(self):
@@ -591,6 +592,7 @@ class RouteStep(unittest.TestCase):
             (root / "scripts/ci").mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/cmux_next_base_tier.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
+            shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"
@@ -677,8 +679,28 @@ class Workflows(unittest.TestCase):
         job = kick_doc["jobs"]["kick"]
         self.assertIn("CMUX_NEXT_BASE_TIER_COALESCE", job["if"])
         self.assertGreater(job["timeout-minutes"] * 60, tier.WINDOW_S + tier.SETTLE_S)
-        self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
+        self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("cmux_next_base_tier.py kick", job["steps"][-1]["run"])
+
+    def test_the_kick_calls_github_with_its_own_app_token_and_no_fallback(self):
+        # github.token's REST budget is every workflow's; a kick waiting it out is a polling loop on it
+        # (tests/test_ci_no_github_token_polling.py), and 2026-11-10 kicks crashed on its HTTP 403s.
+        steps = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["steps"]
+        mint = next(step for step in steps if step.get("id") == "cmux-bot-token")
+        self.assertEqual(mint["uses"], "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+        # The least the kick needs: runs, jobs, dispatch and cancel (actions), the ref and compare (contents).
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-actions": "write", "permission-contents": "read"})
+        # A failed mint fails the kick red: nothing lets it go on to a github.token fallback.
+        self.assertNotIn("continue-on-error", mint)
+        self.assertNotIn("if", mint)
+        kick_step = steps[-1]
+        self.assertLess(steps.index(mint), steps.index(kick_step))
+        self.assertEqual(kick_step["env"], {"GH_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}"})
+        checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
+        self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 
     def test_sleeping_dispatcher_reads_the_linux_pool(self):
         # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
