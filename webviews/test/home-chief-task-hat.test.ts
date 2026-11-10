@@ -30,7 +30,8 @@ test("a finished task expires from the hat; running ones stay; nothing is prodde
   expect(tasksOf(hatRuns, later).map((t) => t.id)).toEqual(["a3", "a5"]);
   const now = tasksOf(hatRuns);
   expect(nextExpiry(now)).toBe(HAT_NOW - 2 * 60_000 + HAT_TTL_MS);
-  expect(nextExpiry(tasksOf(hatRuns, later))).toBeUndefined();
+  // Only running ones are left: the next wake is a3's stall, never a prod of a finished one.
+  expect(nextExpiry(tasksOf(hatRuns, later))).toBe(HAT_NOW - 9 * 60_000 + TASK_STALL_MS);
 });
 
 test("a stall marks a task once and its report still ends it", () => {
