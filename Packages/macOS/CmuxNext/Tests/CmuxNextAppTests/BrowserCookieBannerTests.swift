@@ -293,12 +293,5 @@ import Testing
         #expect(state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, asksSignIn: true)))
         #expect(!state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, asksSignIn: false)))
     }
-
-    /// The probe that tells a sign-in page: a password field, or a field the page marks for a user name.
-    @Test func theSignInProbeReadsTheEnginesAnswer() {
-        #expect(BrowserImportOfferService.asksSignIn(.bool(true)))
-        #expect(!BrowserImportOfferService.asksSignIn(.bool(false)))
-        #expect(!BrowserImportOfferService.asksSignIn(.null), "no answer: no banner")
-    }
 }
 

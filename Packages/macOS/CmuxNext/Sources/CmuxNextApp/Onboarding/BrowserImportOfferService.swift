@@ -7,7 +7,8 @@ import CmuxNextSettings
 import Foundation
 
 /// The Import Cookies banner (Lawrence 2026-10-31). The first time in a launch
-/// that a person's browser tab finishes a page, a glass card at its bottom
+/// that a person's browser tab finishes a page that asks to sign in (a password
+/// or user name field; Lawrence 2026-11-09), a glass card at its bottom
 /// offers to import cookies from the most used browser on this Mac. Import
 /// opens Import from Browser with cookies checked, into the tab's profile;
 /// nothing is read before that click. Not Now closes it for this launch; Don't
@@ -65,6 +66,24 @@ final class BrowserImportOfferService {
 
     private func pageFinished(in entry: BrowserEntry) {
         guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }  // never over a terminal or chat
+        // task-owner: one bounded read of the finished page's DOM (no gesture, isolated world); then the offer or nothing
+        Task { @MainActor [weak self, weak entry] in
+            guard let entry else { return }
+            let answer = try? await entry.tab.evaluate(Self.signInProbe, world: .isolated, gesture: .cmux)
+            guard let self, answer == .bool(true) else { return }  // no sign-in form (or no answer): no banner
+            self.offerAfterSignInCheck(in: entry)
+        }
+    }
+
+    /// Whether the page shows a sign-in form: a password field, or a field the page marks for a user name
+    /// or a passkey (Lawrence 2026-11-09: the banner shows only where a sign-in would come over).
+    static let signInProbe = """
+        !!document.querySelector('input[type=password], input[autocomplete~="current-password"], \
+        input[autocomplete~="username"], input[autocomplete~="webauthn"]')
+        """
+
+    private func offerAfterSignInCheck(in entry: BrowserEntry) {
+        guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }
         finder.find { [weak self, weak entry] found in
             // Asked again: the person may have answered elsewhere, or another tab showed it, while the browsers were found.
             guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }

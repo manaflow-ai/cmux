@@ -48,64 +48,74 @@
   line-clamp: 2;
 }
 
-/* TOAST LOOK: the toast's clear-text answers (toasts.css .cmux-toast-action) and its close button.
-   Import bold in the ink, Don't Show Again quiet in the secondary ink; the hover fill only under the
-   pointer. The answers stay together at the trailing edge; in a narrow pane they wrap under the line. */
-.ci-action,
-.ci-close {
+/* TOAST LOOK (the app's): the overlay dialog's grammar (pages/overlay/dialog/dialog.css), Lawrence
+   2026-11-09. The line reads in the title's weight in the full ink; Don't Show Again is quiet text,
+   Not Now a gray button and Import the filled primary, each 28 px with the dialog buttons' radius.
+   In a narrow pane the answers wrap under the line together. */
+.ci-card[data-look="toast"] {
+  --ci-icon: var(--ds-icon-32, 32px);
+  --ci-button-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ci-button-radius: calc(9px * var(--cmux-interface-scale, 1));
+  column-gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+.ci-card[data-look="toast"] .ci-title {
+  font-weight: var(--weight-emphasis, 600);
+}
+.ci-action {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: var(--ds-control-compact);
-  margin: 0;
-  border: 0;
-  border-radius: var(--ds-radius-sm);
-  background: transparent;
-  color: var(--ci-ink);
-  font: inherit;
-  white-space: nowrap;
-}
-.ci-action {
   min-width: 0;
   max-width: 100%;
+  height: var(--ci-button-height);
+  margin: 0;
+  padding-inline: var(--ds-space-3);
   overflow: hidden;
-  padding-inline: var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ci-button-radius, var(--ds-radius-control));
+  background: var(--ds-color-hover);
+  color: var(--ci-ink);
+  font: inherit;
   text-overflow: ellipsis;
-  font-weight: var(--weight-emphasis, 600);
+  white-space: nowrap;
 }
-.ci-action[data-quiet] {
+.ci-action:hover,
+.ci-action:active {
+  background: var(--ds-color-pressed);
+}
+.ci-action[data-role="default"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+}
+.ci-action[data-role="default"]:hover,
+.ci-action[data-role="default"]:active {
+  background: color-mix(in srgb, var(--ds-color-accent) 88%, var(--ds-color-fg));
+}
+.ci-action[data-role="quiet"] {
+  padding-inline: var(--ds-space-2);
+  background: transparent;
   color: var(--ci-ink-2);
-  font-weight: inherit;
 }
-/* The three answers move as one group: in a narrow pane they wrap under the line together, and in
-   the narrowest (a 200 pt pane) the group wraps inside itself, Import and the close button together
-   at the end; a label too long for the card ends in an ellipsis, never past its edge. */
+.ci-action[data-role="quiet"]:hover {
+  background: var(--ds-color-hover);
+  color: var(--ci-ink);
+}
+.ci-action:focus-visible {
+  outline: 2px solid var(--ds-color-focus, var(--ui-ring, currentColor));
+  outline-offset: 1px;
+}
 .ci-toast-answers {
   display: flex;
   flex: 0 1 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: var(--ds-space-1);
+  gap: var(--ds-space-2);
   min-width: 0;
   max-width: 100%;
   margin-inline-start: auto;
-}
-.ci-close {
-  width: var(--ds-control-icon);
-  height: var(--ds-control-icon);
-  padding: 0;
-  color: var(--ci-ink-2);
-}
-:is(.ci-action, .ci-close):hover,
-:is(.ci-action, .ci-close):active {
-  background: var(--ds-color-hover);
-  color: var(--ci-ink);
-}
-:is(.ci-action, .ci-close):focus-visible {
-  outline: 1.5px solid var(--ui-ring, currentColor);
-  outline-offset: 1px;
 }
 
 /* BUTTONS AND STACKED LOOKS: Not Now and Import as compact buttons of one width, Don't Show Again a
