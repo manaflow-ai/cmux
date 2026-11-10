@@ -50,8 +50,7 @@ pub(super) fn request(
     // backoff until the deadline. A keyed run carries its idempotency key, so
     // the app replays or joins it.
     let mut wait = RECONNECT_FIRST_WAIT;
-    loop {
-        let Err(error) = &response else { break };
+    while let Err(error) = &response {
         if timeout.is_some_and(|timeout| *error == timeout_message(timeout))
             || !safe_to_resend(method, params)
         {

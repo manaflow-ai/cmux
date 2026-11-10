@@ -2109,11 +2109,11 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
 /// A refusal that says nothing ran and never passes is answered at the request's deadline, never held past it.
 #[test]
 fn a_not_run_refusal_that_never_passes_ends_at_the_deadline() {
-    assert_eq!(super::run::not_run_deadline(None), super::run::NOT_RUN_DEADLINE_FLOOR);
-    assert_eq!(super::run::not_run_deadline(Some(READ_TIMEOUT)), super::run::NOT_RUN_DEADLINE_FLOOR);
-    assert_eq!(super::run::not_run_deadline(Some(WAITING_RUN_TIMEOUT)), WAITING_RUN_TIMEOUT);
+    assert_eq!(run::not_run_deadline(None), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(READ_TIMEOUT)), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(WAITING_RUN_TIMEOUT)), WAITING_RUN_TIMEOUT);
     let refused = json!({ "code": "busy", "data": { "not_run": true, "retry_after_ms": 100 } });
-    let waits: Vec<u128> = (0..6).map(|n| super::run::retry_wait(&refused, n).as_millis()).collect();
+    let waits: Vec<u128> = (0..6).map(|n| run::retry_wait(&refused, n).as_millis()).collect();
     assert_eq!(waits, [100, 200, 400, 800, 1600, 2000]);
 }
 

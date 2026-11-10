@@ -43,6 +43,8 @@ pub(in crate::cli) fn insert_run_key(
     Ok(key)
 }
 
+/// The shortest wait between not-run retries, whatever `retry_after_ms` says.
+const MIN_RETRY_WAIT: Duration = Duration::from_millis(10);
 /// The longest wait before one retry.
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(2);
 
@@ -116,7 +118,8 @@ pub(in crate::cli) fn request_with_retry_until(
 /// The wait before retry number `retries` (from 0): the app's `retry_after_ms`, doubled each time, at most
 /// [`MAX_RETRY_WAIT`].
 pub(in crate::cli) fn retry_wait(error: &Value, retries: u32) -> Duration {
-    busy_retry_delay(error).saturating_mul(2u32.saturating_pow(retries.min(16))).min(MAX_RETRY_WAIT)
+    // A floor keeps an app that asks for 0 ms from turning the wait into a spin.
+    busy_retry_delay(error).max(MIN_RETRY_WAIT).saturating_mul(2u32.saturating_pow(retries.min(16))).min(MAX_RETRY_WAIT)
 }
 
 /// Whether a request may be sent again on a new connection after the app
