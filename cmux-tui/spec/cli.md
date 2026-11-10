@@ -1394,7 +1394,8 @@ claude`, `codex --model o3`). The tab runs `$SHELL -lc 'LAUNCHER "$@"'
 cmux-agent ARGS...` (`/bin/sh` when `$SHELL` is not a POSIX shell), so each
 extra argument stays one argv word, with `pane run --on-exit keep`: the exited
 terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
-the caller's pane (else the focused pane) is split to the right; `--pane SEL`
+the agent opens in the caller's space (the caller's pane, else the focused
+pane, with the agent panes it started; see below); `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
 caller's pane). The split's shell ends (`terminal <t> close`, which takes its
 tab) once the agent runs. In a session
@@ -1433,6 +1434,20 @@ an exited agent kept with `--on-exit keep`, any other lifecycle word or a
 terminal record without one keeps its width) then
 share their space equally, so the third agent of a row is not an
 eighth of it.
+
+Without `--pane` or `--split`, the caller's space is the caller's pane, the
+agent panes stacked with it, and the agent columns right after it in its row.
+A start adds a column right of the space's last pane only while every column
+of the space keeps 40 columns after an even share (the caller's width is its
+terminal's `cols` in the snapshot), and then gives the space's columns, the
+caller's too, the same width. Otherwise the agent opens below the space's last
+pane (below the caller when it has no agent yet), and the agents of that stack
+share its height. So the caller never goes under 40 columns while it had them,
+and no pane outside the space changes. From a 95-column pane: the first agent
+takes a column (48 | 47) and the next ones stack in it; beside a person's pane
+that leaves the caller 48 columns, every agent stacks below the caller. Without
+the caller's size, or in a screen of viewport columns, the caller's pane is
+split to the right.
 
 `--json` prints `{name, state, reason, dialog, options, accept_keys,
 accept_label, harness, launcher, args, cwd, placement, workspace_id, screen_id,

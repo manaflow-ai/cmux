@@ -1688,9 +1688,10 @@ USAGE
   cmux agent plugin use --builtin
 
 agent start runs the launcher (--cmd, else $CMUX_AGENT_COMMAND, else claude;
-sr2 claude and codex work) in a new tab named NAME, split right of your pane
-unless --pane or --split say otherwise, and waits until the agent can take a
-message. It prints the ids and state: ready (exit 0), blocked with the dialog
+sr2 claude and codex work) in a new tab named NAME, in a new pane beside your
+pane unless --pane or --split say otherwise (a new column while your pane and
+its agent columns keep 40 columns each, else below your last agent), and waits
+until the agent can take a message. It prints the ids and state: ready (exit 0), blocked with the dialog
 and a reason, such as Claude's folder-trust question (exit 4; cmux never
 answers it), timeout (exit 124) or exited (exit 1). NAME is a lowercase
 letter, then up to 31 lowercase letters, digits, - or _, unique among running
