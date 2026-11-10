@@ -153,7 +153,7 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "customize",
     description: "",
     descriptionKey: "composer.slashCustomize",
-    hint: "<what you want>",
+    hint: "<change>",
     source: "cmux",
     action: "customize",
   },

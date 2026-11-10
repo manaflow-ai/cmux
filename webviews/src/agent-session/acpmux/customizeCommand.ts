@@ -1,3 +1,4 @@
+// l10n-allow-file: shell commands and the prompt an agent reads, never interface text.
 /// `/customize …` in a chat: customize cmux by asking (cmuxterm-hq
 /// `plans/cmux-next/customize-by-asking/DESIGN.md`).
 ///
