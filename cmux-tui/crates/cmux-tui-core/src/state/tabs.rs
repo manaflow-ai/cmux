@@ -135,6 +135,16 @@ impl Mux {
             |transaction, state| {
                 let (tab, browser, update) =
                     self.tab_record_update(state, &selectors, update.clone())?;
+                // No stored row of this tab yet: write nothing here (an
+                // `owner` update would fail on the browser row it lacks).
+                let stored: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM resource_tabs WHERE public_id = ?1)",
+                    [tab.as_str()],
+                    |row| row.get(0),
+                )?;
+                if !stored {
+                    return Err(TabRowNotStored.into());
+                }
                 update_tab_state(transaction, &tab, &update)?;
                 let changes = fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab))?;
                 let value = upserted_value(&changes, "tab", &tab).ok_or(TabRowNotStored)?;
