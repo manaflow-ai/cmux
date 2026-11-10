@@ -126,13 +126,14 @@ export const summaryMarkdown = (ok: boolean, steps: StepRecord[], meta: Record<s
 
 /**
  * DRY RUN's check: every classic VM the setup made (by classic's API id, the provider VM id) is `copy` in its
- * subject's plan, and nothing needs a decision.
+ * subject's plan, and nothing needs a decision. It is also the proof that the database read is classic staging's:
+ * only classic staging holds the VMs SETUP made through classic staging's API moments before.
  */
 export const checkDryRun = (plan: Plan, providerVmIds: string[]): string[] => {
   const problems: string[] = []
   for (const id of providerVmIds) {
     const e = plan.entries.find((x) => x.kind === "cloud_vm" && x.upstream_vm_id === id)
-    if (!e) problems.push(`classic VM ${id} is not in the ${plan.subject.kind} plan`)
+    if (!e) problems.push(`classic VM ${id} is not in the ${plan.subject.kind} plan (a database without the VMs classic staging just made is not classic staging)`)
     else if (e.action !== "copy") problems.push(`classic VM ${id} is ${e.action} (${e.reason ?? ""}), not copy`)
   }
   if (plan.counts["needs-decision"] > 0) problems.push(`${plan.counts["needs-decision"]} object(s) need a decision`)

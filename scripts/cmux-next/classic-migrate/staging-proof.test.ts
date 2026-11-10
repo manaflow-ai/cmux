@@ -105,7 +105,7 @@ describe("checkDryRun", () => {
   test("passes when the VM is copy and nothing needs a decision; names what is wrong otherwise", async () => {
     const team = await plan("team", "bbbbbbbb-0000-4000-8000-000000000ac3")
     expect(checkDryRun(team, ["fs-acme-ci"])).toEqual([])
-    expect(checkDryRun(team, ["fs-missing"])).toEqual(["classic VM fs-missing is not in the team plan"])
+    expect(checkDryRun(team, ["fs-missing"])).toEqual(["classic VM fs-missing is not in the team plan (a database without the VMs classic staging just made is not classic staging)"])
     const user = await plan("user", "11111111-1111-4111-8111-111111111111")
     expect(checkDryRun(user, ["fs-alice-old"])[0]).toContain("is not-migrated")
     expect(checkDryRun({ ...user, counts: { ...user.counts, "needs-decision": 2 } }, ["fs-alice-dev"])).toEqual([

@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       classic_db_host_allow:
-        description: Classic staging Postgres host(s) the read-only plan may connect to (comma list); empty uses vars.CLASSIC_DB_HOST_ALLOW
+        description: Classic staging Postgres host(s) the read-only plan may connect to (comma list); empty uses vars.CLASSIC_DB_HOST_ALLOW, else the environment's DATABASE_URL host
         required: false
         default: ""
         type: string
@@ -65,6 +65,14 @@ jobs:
           NEXT_API_ORIGIN: ${{ inputs.next_api_origin }}
         run: |
           set -euo pipefail
+          # No host given: allow this environment's own DATABASE_URL host. cloud-vm-staging's DATABASE_URL is the
+          # classic staging branch (cmuxterm-hq skills/infra/cloud-vm-ops); the host alone does not prove that, so
+          # the dry run also refuses unless the database holds the VMs SETUP just made through classic staging.
+          if [ -z "${CLASSIC_DB_HOST_ALLOW}" ] && [ -n "${DATABASE_URL}" ]; then
+            CLASSIC_DB_HOST_ALLOW="$(bun -e 'console.log(new URL(process.env.DATABASE_URL).hostname)')"
+            echo "::add-mask::${CLASSIC_DB_HOST_ALLOW}"
+            export CLASSIC_DB_HOST_ALLOW
+          fi
           bun scripts/cmux-next/classic-migrate/staging-proof.ts --out "$RUNNER_TEMP/classic-migration-proof" \
             --platform "$PLATFORM_ORIGIN" --next-api "$NEXT_API_ORIGIN"
 
