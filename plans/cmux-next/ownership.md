@@ -224,7 +224,10 @@ kept under `on_exit` keep, a keep-layout tab) shows one-click Restart. The op is
 `restart-tab {surface}` (`tab-restart-v1`, Unix owners): it runs the L2 worker for the
 same terminal id, so the tab id, placement, name, pin, group and every reference to the
 terminal stay, and the new shell starts below the previous screen and the marker line.
-An explicit request has no backoff and resets the supervisor's attempt count. A tab whose terminal runs, launches or already restarts is the typed reject
+An explicit request has no backoff and resets the supervisor's attempt count. It takes a turn in
+the respawn gate, the shown workspace's terminal first, so the restarts of a restored session's
+kept tabs never all launch at once, and a failed launch is tried again
+(`terminal_respawn/retry.rs`). A tab whose terminal runs, launches or already restarts is the typed reject
 `tab-not-dead`. There is no automatic-restart setting and no reducer or FFI change; the
 superseded design (a new terminal id and a `terminal.restartLostTerminals` setting,
 orphan branch feat-cmux-next-tab-restart-4) did not land. Surfaces, one shared action
