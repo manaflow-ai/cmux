@@ -15,6 +15,11 @@
 //! the open it reads the WAL's frame count and the count of frames copied
 //! into the database from the wal-index (`-shm`, SQLite file format 4.5),
 //! on the opening thread. Counts, not times. Arms: 1, 60 and 826 workspaces.
+//!
+//! Three rules: the open copies 0 frames; its schema step (`registry.schema`,
+//! all a registry at the current schema needs) commits 0 frames; the rest of
+//! the open commits at most [`CATCH_UP_FRAMES`], whatever the session's size
+//! (the retention marks move past the rows the last run wrote).
 
 use std::cell::RefCell;
 use std::io::Read;
@@ -29,6 +34,11 @@ const LEFT_CHANGES: usize = 100;
 /// The last step of the open on the opening thread. The WAL syncer starts
 /// after it, and copies the left WAL on its own thread.
 const LAST_OPEN_STEP: &str = "registry.resource_invariants";
+/// The step that makes the schema of a registry at the current version.
+const SCHEMA_STEP: &str = "registry.schema";
+/// WAL frames the whole open may commit: a few pages of `meta`, not a count
+/// that grows with the session or with the left WAL.
+const CATCH_UP_FRAMES: u32 = 16;
 const WAL_HEADER_BYTES: u64 = 32;
 const WAL_FRAME_HEADER_BYTES: u64 = 24;
 
@@ -132,9 +142,13 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
     // The steps that changed the WAL or copied it, up to the last step of
     // the opening thread (later steps run beside the syncer's own copy).
     let mut at_end = None;
+    let mut schema_step = None;
     let mut changed = Vec::new();
     let mut last = before;
     for (step, index) in steps.borrow().iter() {
+        if *step == SCHEMA_STEP {
+            schema_step = Some((last, *index));
+        }
         if *index != last {
             changed.push(format!(
                 "{step}: frames {} -> {}, copied {} -> {}",
@@ -157,12 +171,17 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
     drop(pin);
     let _ = std::fs::remove_dir_all(&root);
     let at_end = at_end.expect("the open reached its last step");
+    let (schema_before, schema_after) = schema_step.expect("the open ran its schema step");
+    let committed = at_end.frames.checked_sub(before.frames);
     assert!(
-        at_end == before,
+        at_end.copied == before.copied
+            && schema_after == schema_before
+            && committed.is_some_and(|frames| frames <= CATCH_UP_FRAMES),
         "the open of a current registry of {workspaces} workspaces with a left WAL of \
-         {wal_bytes} bytes took {open_ms:.1} ms: it must commit 0 WAL frames and copy 0 frames \
-         on the opening thread, but the WAL went from {} to {} frames and the copied frames \
-         from {} to {}; steps that wrote: {changed:?}",
+         {wal_bytes} bytes took {open_ms:.1} ms: it must copy 0 frames on the opening thread, \
+         commit 0 frames in {SCHEMA_STEP} and at most {CATCH_UP_FRAMES} in all, but the WAL \
+         went from {} to {} frames and the copied frames from {} to {}; steps that wrote: \
+         {changed:?}",
         before.frames,
         at_end.frames,
         before.copied,

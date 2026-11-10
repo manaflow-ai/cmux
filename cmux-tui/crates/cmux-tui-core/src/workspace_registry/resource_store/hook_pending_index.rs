@@ -12,8 +12,8 @@ use rusqlite::Transaction;
 const NAME: &str = "resource_agent_hook_pending_by_terminal";
 const COLUMNS: [&str; 3] = ["terminal_id", "event_sequence", "idempotency_key"];
 
-/// Makes the index when it is missing, partial or on other columns (an
-/// older build made it on `terminal_id` alone).
+/// Makes the index when it is missing, partial or on other columns (a
+/// build before 50ec02a727a4 made it on `terminal_id, event_sequence`).
 pub(super) fn ensure(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     if is_current(transaction)? {
         return Ok(());
