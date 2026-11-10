@@ -193,7 +193,7 @@ impl HostFrames {
     /// never blocks. The surface's reader takes the Output frames queued
     /// behind the one it applies with this.
     pub(super) fn try_recv_if(&self, admit: impl FnOnce(&Frame) -> bool) -> Option<Frame> {
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.queue.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let HostFrame::Frame(front) = state.frames.front()? else { return None };
         if !admit(front) {
             return None;
@@ -207,7 +207,7 @@ impl HostFrames {
     /// Tests: how many frames are queued for the surface's reader.
     #[cfg(test)]
     pub(super) fn queued_frames_for_test(&self) -> usize {
-        self.queue.state.lock().unwrap().frames.len()
+        self.queue.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).frames.len()
     }
 
     /// The surface's reader stops reading this stream (for example at
