@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42801414079",
+  "recorded_at": "2026-11-10T10:49:43Z",
+  "reason": "cmux-tui 6a8ebff98e79 changes the image's cmux-tui (pinned 373dfe709e9b)",
+  "dry_run": false,
+  "cmux_tui": "6a8ebff98e791c51cc98e5b44687078aac7c935d",
+  "fixes": [
+    {
+      "sha": "a7abd02206fdf5a288ddf032220974d12a1140a8",
+      "mergedAt": "2026-11-10T02:24:25-08:00",
+      "subject": "acpmux: a chat's metadata save no longer rewrites its large, rarely-changing fields (#40297)"
+    },
+    {
+      "sha": "76f1064d463e06a79f44d5be2d5b9842abfc2ea6",
+      "mergedAt": "2026-11-10T02:17:02-08:00",
+      "subject": "cmux-tui: a hosted reader whose frame demultiplexer does not start ends the connection (#39805)"
+    },
+    {
+      "sha": "51b50b0c9c7e72d6076f176e5070f3487a324e9b",
+      "mergedAt": "2026-11-10T02:10:34-08:00",
+      "subject": "cmux vm new --help: a machine made with no flags pauses when idle; --persistent keeps it running (#40324)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T10:49:43Z",
+    "snapshot_id": "sh-be80fd74dc564b05bed9fd6e114ee660",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42801414079): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fb7a4da3ab1285d331b17651f80c8c5d9c3188e8",
+    "image": "cloud-native-auto-6a8ebff9-42801414079-1",
+    "revision": "ci-42801414079-1",
+    "at": "2026-11-10T10:49:43Z"
+  },
+  "rolled_back": false
+}
