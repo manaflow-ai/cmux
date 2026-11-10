@@ -60,7 +60,12 @@ export interface ClassicImportQuery {
 }
 
 export interface SnapshotStoreService {
-  /** The tenant's classic imports (rows labelled classic.migration_id), newest first. */
+  /**
+   * Binds one more Idempotency-Key label (`label`=1) to the tenant's live import `id`. False when the row is gone or
+   * already holds the label limit.
+   */
+  readonly bindClassicImportKey: (tenantId: TenantId, id: SnapshotId, label: string) => Effect.Effect<boolean, StoreError>;
+  /** The tenant's classic imports (rows labelled classic.migration_id and classic.imported_by), newest first. */
   readonly listClassicImports: (tenantId: TenantId, query: ClassicImportQuery) => Effect.Effect<ReadonlyArray<ClassicImportRow>, StoreError>;
   readonly inspect: (tenantId: TenantId, id: SnapshotId) => Effect.Effect<Option.Option<SnapshotRow & { readonly createdBy: string; readonly deleted: boolean }>, StoreError>;
   readonly record: (snapshot: SnapshotRecord) => Effect.Effect<void, StoreError>;
@@ -105,13 +110,24 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
   Effect.gen(function* () {
     const sql = yield* SqlClient;
     return {
+      bindClassicImportKey: (tenantId, id, label) =>
+        sql
+          .query(
+            "snapshots.bindClassicImportKey",
+            `UPDATE cmux_vm.resources SET labels = labels || jsonb_build_object($3::text, '1')
+              WHERE cmux_id = $1 AND tenant_id = $2 AND kind = 'snapshot' AND deleted_at IS NULL
+                AND (labels ? $3::text OR (SELECT count(*) FROM jsonb_object_keys(labels)) < 16)
+              RETURNING cmux_id`,
+            [id, tenantId, label],
+          )
+          .pipe(Effect.map((rows) => rows.length === 1)),
       listClassicImports: (tenantId, query) =>
         sql
           .query(
             "snapshots.listClassicImports",
             `SELECT cmux_id, upstream_id, labels, created_by, created_at, deleted_at IS NOT NULL AS deleted
                FROM cmux_vm.resources
-              WHERE tenant_id = $1 AND kind = 'snapshot' AND labels ? 'classic.migration_id'
+              WHERE tenant_id = $1 AND kind = 'snapshot' AND labels ? 'classic.migration_id' AND labels ? 'classic.imported_by'
                 AND labels @> $2::text::jsonb AND ($3::boolean OR deleted_at IS NULL)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $4`,

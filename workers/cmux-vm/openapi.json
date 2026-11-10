@@ -11419,7 +11419,7 @@
             "maximum": 31536000
           },
           "labels": {
-            "$ref": "#/components/schemas/Labels"
+            "$ref": "#/components/schemas/WritableLabels"
           }
         },
         "additionalProperties": false,
@@ -11540,6 +11540,16 @@
         },
         "additionalProperties": false,
         "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
+      },
+      "WritableLabels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
       },
       "CreatedVm": {
         "type": "object",
@@ -11790,14 +11800,7 @@
             "maximum": 31536000
           },
           "labels": {
-            "type": "object",
-            "required": [],
-            "properties": {},
-            "additionalProperties": {
-              "type": "string",
-              "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
-              "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
-            }
+            "$ref": "#/components/schemas/Labels"
           }
         },
         "additionalProperties": false
@@ -12450,7 +12453,7 @@
             "maxLength": 100
           },
           "labels": {
-            "$ref": "#/components/schemas/SnapshotLabels"
+            "$ref": "#/components/schemas/WritableSnapshotLabels"
           },
           "ttlSeconds": {
             "$ref": "#/components/schemas/Int",
@@ -12468,6 +12471,16 @@
           }
         },
         "additionalProperties": false
+      },
+      "WritableSnapshotLabels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
       },
       "Snapshot": {
         "type": "object",

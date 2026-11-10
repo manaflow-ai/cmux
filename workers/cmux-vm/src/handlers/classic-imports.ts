@@ -15,8 +15,10 @@ import { ClassicVmImport, ClassicVmImportList } from "../api/classic-imports.ts"
 import type { ClassicVmImportRequest } from "../api/classic-imports.ts";
 import { SnapshotStore, type ClassicImportRow } from "../db/snapshots.ts";
 import {
-  CLASSIC_IMPORT_KEY_LABEL,
+  CLASSIC_IMPORT_KEY_PREFIX,
+  CLASSIC_IMPORTER_LABEL,
   CLASSIC_MIGRATION_LABEL,
+  hasReservedLabel,
   CLASSIC_VM_LABEL,
   classicImportDigest,
   sha256Hex,
@@ -26,7 +28,7 @@ import { actorRef, carriesRequiredLabels, type Principal } from "../domain/princ
 import { badRequest, Conflict, conflict, missingScope, NotFound, snapshotNotFound, unavailable } from "../errors.ts";
 import { newSnapshotId, parseSnapshotId, type TenantId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { classicImportAllowed, classicImportedSnapshot, type ClassicImportAllowed } from "../proofs/classic-import.ts";
+import { classicImportAllowed, classicImportedSnapshot, isClassicImport, type ClassicImportAllowed } from "../proofs/classic-import.ts";
 import { tenantOwnsSnapshot } from "../proofs/tenant-owns-resource.ts";
 import type { UpstreamError } from "../upstream/client.ts";
 import { UpstreamSnapshots } from "../upstream/snapshots.ts";
@@ -81,15 +83,16 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
     const tenantId = principal.tenantId;
     const required = principal.requiredLabels ?? {};
     const identity = { [CLASSIC_VM_LABEL]: payload.classic_vm_id, [CLASSIC_MIGRATION_LABEL]: payload.migration_id };
-    if (Object.keys(identity).some((label) => label in required)) {
-      return yield* Effect.fail(conflict("This service key's labels name a classic import label; it cannot import"));
+    if (hasReservedLabel(required)) {
+      return yield* Effect.fail(conflict("This service key's labels use the reserved classic. prefix; it cannot import"));
     }
     const live = (labels: Readonly<Record<string, string>>) =>
       store
         .listClassicImports(tenantId, { labels: { ...labels, ...required }, includeDeleted: false, limit: 1 })
         .pipe(Effect.map((rows) => Option.fromNullable(rows[0])), Effect.catchAll(dependencyDown("snapshots.listClassicImports")));
 
-    const keyLabel = key === undefined ? null : (yield* Effect.promise(() => sha256Hex(["classic-import-key:v1", actorRef(principal.actor), key]))).slice(0, 40);
+    const keyDigest = key === undefined ? null : (yield* Effect.promise(() => sha256Hex(["classic-import-key:v1", actorRef(principal.actor), key]))).slice(0, 40);
+    const keyLabel = keyDigest === null ? null : `${CLASSIC_IMPORT_KEY_PREFIX}${keyDigest}`;
     const identityDigest = yield* Effect.promise(() => classicImportDigest({ tenantId, classicVmId: payload.classic_vm_id, migrationId: payload.migration_id }));
     const holder = crypto.randomUUID();
     /** Runs `effect` holding the tenant lock `name`; a request that finds it held is 409 "retry shortly". */
@@ -104,7 +107,7 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
       // An Idempotency-Key names one import: replay it, or refuse it for a different classic VM or migration.
       // The key's lock (taken before this runs) makes the check and the import that binds the key one step.
       if (keyLabel !== null) {
-        const keyed = yield* live({ [CLASSIC_IMPORT_KEY_LABEL]: keyLabel });
+        const keyed = yield* live({ [keyLabel]: "1" });
         if (Option.isSome(keyed)) {
           const row = keyed.value;
           if (row.labels[CLASSIC_VM_LABEL] !== payload.classic_vm_id || row.labels[CLASSIC_MIGRATION_LABEL] !== payload.migration_id) {
@@ -114,7 +117,15 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
         }
       }
       const existing = yield* live(identity);
-      if (Option.isSome(existing)) return toImport(tenantId, existing.value, "ready");
+      if (Option.isSome(existing)) {
+        // Replaying an import under a new Idempotency-Key binds the key to it, so the key never names another import.
+        if (keyLabel !== null) {
+          const bound = yield* store.bindClassicImportKey(tenantId, existing.value.id, keyLabel).pipe(Effect.catchAll(dependencyDown("snapshots.bindClassicImportKey")));
+          if (!bound) return yield* Effect.fail(conflict("This import cannot take another Idempotency-Key; retry without one"));
+          return toImport(tenantId, { ...existing.value, labels: { ...existing.value.labels, [keyLabel]: "1" } }, "ready");
+        }
+        return toImport(tenantId, existing.value, "ready");
+      }
       const request: ClassicImportRequest = {
         tenantId,
         classicVmId: payload.classic_vm_id,
@@ -131,7 +142,7 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
       const created = found ?? (yield* upstream.captureClassicImport(request, { allowed }).pipe(Effect.mapError(providerError)));
       const id = newSnapshotId();
       const createdAt = new Date(yield* Clock.currentTimeMillis);
-      const labels = { ...required, ...identity, ...(keyLabel === null ? {} : { [CLASSIC_IMPORT_KEY_LABEL]: keyLabel }) };
+      const labels = { ...required, ...identity, [CLASSIC_IMPORTER_LABEL]: actorRef(principal.actor), ...(keyLabel === null ? {} : { [keyLabel]: "1" }) };
       const createdBy = `user:${payload.created_by}`;
       const recorded = yield* store
         .record({ tenantId, id, upstreamId: created.upstreamId, sourceVmId: null, displayName: null, labels, createdBy, createdAt })
@@ -150,7 +161,7 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
     const byIdentity = locked(`classic-import:${identityDigest}`, "An import of this classic VM is running; retry shortly", run);
     return yield* keyLabel === null
       ? byIdentity
-      : locked(`classic-import-key:${keyLabel}`, "A request with this Idempotency-Key is still running; retry shortly", byIdentity);
+      : locked(`classic-import-key:${keyDigest}`, "A request with this Idempotency-Key is still running; retry shortly", byIdentity);
   });
 
 const rollbackOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<C>, rawId: string) =>
@@ -165,7 +176,7 @@ const rollbackOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowe
         if (owns === null) {
           // A second rollback of the same import succeeds; anything else the caller cannot see is 404.
           const row = yield* store.inspect(caller.value.tenantId, snapshot.value).pipe(Effect.catchAll(dependencyDown("snapshots.inspect")));
-          const rolledBack = Option.isSome(row) && row.value.deleted && typeof row.value.labels[CLASSIC_MIGRATION_LABEL] === "string"
+          const rolledBack = Option.isSome(row) && row.value.deleted && isClassicImport(row.value.labels)
             && carriesRequiredLabels(caller.value, row.value.labels) && caller.value.resourceAllowlist === null;
           return rolledBack ? undefined : yield* Effect.fail(snapshotNotFound());
         }

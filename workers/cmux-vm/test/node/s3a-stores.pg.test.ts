@@ -205,10 +205,12 @@ describe("API key management store", () => {
 
 describe("classic imports", () => {
   it("lists only rows labelled classic.migration_id that carry every asked label, live or also deleted", async () => {
-    const imported = await run(record(TENANT_A, 1, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform" }));
-    const other = await run(record(TENANT_A, 2, { "classic.vm_id": "cvm-2", "classic.migration_id": "mig-1", role: "platform" }));
-    await run(record(TENANT_A, 3, { "classic.vm_id": "cvm-1", role: "platform" }));
-    await run(record(TENANT_B, 4, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform" }));
+    const marker = { "classic.imported_by": "service:importer" };
+    const imported = await run(record(TENANT_A, 1, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform", ...marker }));
+    const other = await run(record(TENANT_A, 2, { "classic.vm_id": "cvm-2", "classic.migration_id": "mig-1", role: "platform", ...marker }));
+    await run(record(TENANT_A, 3, { "classic.vm_id": "cvm-1", role: "platform", ...marker }));
+    await run(record(TENANT_A, 5, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform" }));
+    await run(record(TENANT_B, 4, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform", ...marker }));
     const list = (labels: Record<string, string>, includeDeleted = false) =>
       run(Effect.flatMap(SnapshotStore, (store) => store.listClassicImports(TENANT_A, { labels, includeDeleted, limit: 10 })));
 
@@ -217,7 +219,15 @@ describe("classic imports", () => {
     expect(row).toMatchObject({ id: imported, createdBy: "key:test", deleted: false });
     expect(row?.upstreamId).toMatch(/^sc-/);
 
+    const bind = (label: string) => run(Effect.flatMap(SnapshotStore, (store) => store.bindClassicImportKey(TENANT_A, imported, label)));
+    expect(await bind("classic.import_key/abc")).toBe(true);
+    expect(await bind("classic.import_key/abc")).toBe(true);
+    expect((await list({ "classic.import_key/abc": "1" })).map((found) => found.id)).toEqual([imported]);
+    for (let n = 0; n < 11; n += 1) expect(await bind(`classic.import_key/k${n}`)).toBe(true);
+    expect(await bind("classic.import_key/over")).toBe(false);
+
     await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, imported, new Date())));
+    expect(await bind("classic.import_key/late")).toBe(false);
     expect(await list({ "classic.vm_id": "cvm-1" })).toEqual([]);
     expect(await list({ "classic.vm_id": "cvm-1" }, true)).toEqual([expect.objectContaining({ id: imported, deleted: true })]);
   });

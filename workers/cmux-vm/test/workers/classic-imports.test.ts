@@ -63,7 +63,7 @@ describe("import", () => {
       kind: "snapshot",
       upstreamId: result.upstream_snapshot_id,
       createdBy: "user:stack-user-1",
-      labels: { ...PLATFORM, "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1" },
+      labels: { ...PLATFORM, "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", "classic.imported_by": "service:classic-import" },
     });
     expect(h.audit).toContainEqual(
       expect.objectContaining({ tenantId: TENANT_A, actor: "service:classic-import", action: "snapshot.import_classic", cmuxId: result.id, outcome: "ok" }),
@@ -143,7 +143,18 @@ describe("import", () => {
     const loser = a.status === 409 ? body(vm.id) : body(other.id, { classic_vm_id: "cvm-2" });
     expect((await h.request(PATH, keyed, { method: "POST", body: loser })).status).toBe(409);
     expect(snapshotSends()).toHaveLength(1);
-    expect(h.resources.filter((row) => row.labels["classic.import_key"] !== undefined)).toHaveLength(1);
+    expect(h.resources.filter((row) => Object.keys(row.labels).some((label) => label.startsWith("classic.import_key/")))).toHaveLength(1);
+  });
+
+  it("binds an Idempotency-Key on an identity replay, so the key never names another import", async () => {
+    const key = await importer();
+    const vm = h.upstream.addVm("running");
+    const first = await (await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(vm.id) })).json<ImportBody>();
+    const keyed = asTeam(key, TENANT_A, { "idempotency-key": "late-key" });
+    expect(await (await h.request(PATH, keyed, { method: "POST", body: body(vm.id) })).json<ImportBody>()).toMatchObject({ id: first.id, state: "ready" });
+    expect((await h.request(PATH, keyed, { method: "POST", body: body(vm.id, { classic_vm_id: "cvm-2" }) })).status).toBe(409);
+    expect(snapshotSends()).toHaveLength(1);
+    expect(await (await h.request(PATH, keyed, { method: "POST", body: body(vm.id) })).json<ImportBody>()).toMatchObject({ id: first.id, state: "ready" });
   });
 
   it("replays an Idempotency-Key and refuses it for a different request", async () => {
@@ -157,7 +168,7 @@ describe("import", () => {
     expect(reused.status).toBe(409);
     expect(snapshotSends()).toHaveLength(1);
     const row = h.resources.find((resource) => resource.cmuxId === first.id);
-    expect(row?.labels["classic.import_key"]).toMatch(/^[0-9a-f]{40}$/);
+    expect(Object.keys(row?.labels ?? {}).filter((label) => label.startsWith("classic.import_key/"))).toEqual([expect.stringMatching(/^classic\.import_key\/[0-9a-f]{40}$/)]);
     expect(JSON.stringify(row?.labels)).not.toContain("import-1");
   });
 
@@ -287,6 +298,25 @@ describe("rollback", () => {
     const again = await (await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(vm.id) })).json<ImportBody>();
     expect(again).toMatchObject({ state: "created" });
     expect(again.id).not.toBe(first.id);
+  });
+
+  it("refuses classic. labels on every caller-writable path, so a user's snapshot is never listed or rolled back as an import", async () => {
+    const key = await importer();
+    const user = await h.addKey(TENANT_A, ["vm:read", "vm:write", "snapshot:read", "snapshot:write"]);
+    const { vmId } = h.addVm(TENANT_A, "running");
+    const forged = { ...PLATFORM, "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", "classic.imported_by": "service:classic-import" };
+    const snapshot = await h.request(`/v1/vms/${vmId}/snapshots`, bearer(user), { method: "POST", body: { labels: forged } });
+    expect(snapshot.status).toBe(400);
+    expect((await h.request("/v1/vms", bearer(user), { method: "POST", body: { labels: { "classic.migration_id": "mig-1" } } })).status).toBe(400);
+    expect((await h.request(`/v1/vms/${vmId}/fork`, bearer(user), { method: "POST", body: { labels: { "classic.x": "1" } } })).status).toBe(400);
+    expect(h.resources.filter((row) => row.kind === "snapshot")).toHaveLength(0);
+
+    // Even a row that somehow carries the migration label without the import marker is neither listed nor rolled back.
+    const unmarked = h.s3a.addSnapshot(TENANT_A, { labels: { ...PLATFORM, "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1" } });
+    const listed = await (await h.request(`${PATH}?tenant_id=${TENANT_A}`, asTeam(key, TENANT_A))).json<{ readonly items: ReadonlyArray<ImportBody> }>();
+    expect(listed.items).toEqual([]);
+    expect((await h.request(`${PATH}/${unmarked.snapshotId}`, asTeam(key, TENANT_A), { method: "DELETE" })).status).toBe(409);
+    expect(h.upstream.snapshots.has(unmarked.upstreamId)).toBe(true);
   });
 
   it("never deletes a snapshot that an import did not make", async () => {

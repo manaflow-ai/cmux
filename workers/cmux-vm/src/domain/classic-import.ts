@@ -6,10 +6,21 @@
  */
 import type { TenantId } from "../lib/ids.ts";
 
+/**
+ * Every label under this prefix is written by the import route only. Caller-writable label inputs (VM create and fork,
+ * snapshot create) refuse it with 400, and a service key configured with one is refused by the key parser, so a
+ * `classic.*` label on a row is import provenance, not a caller's claim.
+ */
+export const RESERVED_LABEL_PREFIX = "classic.";
+export const hasReservedLabel = (labels: Readonly<Record<string, string>>): boolean =>
+  Object.keys(labels).some((key) => key.startsWith(RESERVED_LABEL_PREFIX));
+
 export const CLASSIC_VM_LABEL = "classic.vm_id";
 export const CLASSIC_MIGRATION_LABEL = "classic.migration_id";
-/** A digest of the caller's Idempotency-Key, never the key itself. */
-export const CLASSIC_IMPORT_KEY_LABEL = "classic.import_key";
+/** The import marker: the service actor that imported the row (`service:<id>`). List and rollback require it. */
+export const CLASSIC_IMPORTER_LABEL = "classic.imported_by";
+/** One label per Idempotency-Key bound to an import: this prefix plus a digest of the key, never the key itself. */
+export const CLASSIC_IMPORT_KEY_PREFIX = "classic.import_key/";
 
 /** What one import copies: the classic VM, the migration run, and the provider VM behind the classic VM. */
 export interface ClassicImportRequest {

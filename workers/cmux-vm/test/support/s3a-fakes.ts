@@ -64,6 +64,18 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   };
 
   const snapshotStore = Layer.succeed(SnapshotStore, {
+    bindClassicImportKey: (tenantId, id, label) =>
+      Effect.sync(() => {
+        const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === "snapshot" && row.cmuxId === id && !deleted.has(id));
+        const row = resources[index];
+        if (row === undefined) return false;
+        if (!(label in row.labels) && Object.keys(row.labels).length >= 16) return false;
+        const labels = { ...row.labels, [label]: "1" };
+        resources[index] = { ...row, labels };
+        const info = meta.get(id);
+        if (info !== undefined) meta.set(id, { ...info, labels });
+        return true;
+      }),
     listClassicImports: (tenantId, query) =>
       Effect.sync(() =>
         [
@@ -75,7 +87,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
           })),
         ]
           .filter(({ row, deleted: gone }) => (query.includeDeleted || !gone) && typeof row.labels["classic.migration_id"] === "string"
-            && Object.entries(query.labels).every(([key, value]) => row.labels[key] === value))
+            && typeof row.labels["classic.imported_by"] === "string" && Object.entries(query.labels).every(([key, value]) => row.labels[key] === value))
           .sort((a, b) => b.row.createdAt.getTime() - a.row.createdAt.getTime() || (a.row.cmuxId < b.row.cmuxId ? 1 : -1))
           .slice(0, query.limit)
           .map(({ row, deleted: gone }) => ({ id: SnapshotId.make(row.cmuxId), upstreamId: row.upstreamId, labels: row.labels, createdBy: row.createdBy, createdAt: row.createdAt, deleted: gone })),

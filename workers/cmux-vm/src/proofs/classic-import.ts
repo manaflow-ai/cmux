@@ -6,12 +6,13 @@
  * an API key can never snapshot a provider VM by its provider id.
  *
  * ClassicImportedSnapshot: the snapshot the caller owns was made by a classic import (its ownership row carries
- * `classic.migration_id`), so the import rollback may delete it. A user's own snapshot never carries that label
- * from an import route, and the rollback refuses any snapshot without it.
+ * `classic.migration_id` and the import marker `classic.imported_by`), so the import rollback may delete it. Labels
+ * under `classic.` are reserved: no caller-writable label input accepts them (src/domain/classic-import.ts), so only
+ * the import route writes them and a user's own snapshot never carries them.
  */
 import { defineProof, type Named, type Proof } from "@gdp-ts/core";
 import type { Principal } from "../domain/principal.ts";
-import { CLASSIC_MIGRATION_LABEL } from "../domain/classic-import.ts";
+import { CLASSIC_IMPORTER_LABEL, CLASSIC_MIGRATION_LABEL } from "../domain/classic-import.ts";
 import type { SnapshotId } from "../lib/ids.ts";
 import type { KeyHasScope } from "./key-has-scope.ts";
 import type { TenantOwnsResource } from "./tenant-owns-resource.ts";
@@ -34,4 +35,8 @@ export const classicImportedSnapshot = <C, S>(
   owns: TenantOwnsResource<C, S>,
   _allowed: ClassicImportAllowed<C>,
 ): ClassicImportedSnapshot<C, S> | null =>
-  typeof owns.labels[CLASSIC_MIGRATION_LABEL] === "string" && owns.labels[CLASSIC_MIGRATION_LABEL] !== "" ? Imported.prove(caller, snapshot) : null;
+  isClassicImport(owns.labels) ? Imported.prove(caller, snapshot) : null;
+
+/** A row the import route wrote: the migration label and the import marker, both non-empty. */
+export const isClassicImport = (labels: Readonly<Record<string, string>>): boolean =>
+  (labels[CLASSIC_MIGRATION_LABEL] ?? "") !== "" && (labels[CLASSIC_IMPORTER_LABEL] ?? "") !== "";

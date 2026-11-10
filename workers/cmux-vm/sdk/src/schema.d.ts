@@ -1703,7 +1703,7 @@ export interface components {
              * @description Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
-            labels?: components["schemas"]["Labels"];
+            labels?: components["schemas"]["WritableLabels"];
         };
         /** @description An operator-approved service image at an exact revision. Mutually exclusive with snapshotId. */
         VmImageSelection: {
@@ -1761,6 +1761,9 @@ export interface components {
              * @description a number between 16384 and 131072
              */
             diskMib?: components["schemas"]["Int"];
+        };
+        WritableLabels: {
+            [key: string]: string;
         };
         CreatedVm: {
             /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -1843,9 +1846,7 @@ export interface components {
              * @description Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
-            labels?: {
-                [key: string]: string;
-            };
+            labels?: components["schemas"]["Labels"];
         };
         /** @description The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist. */
         ForkIncomplete: {
@@ -2030,7 +2031,7 @@ export interface components {
              * @description a string at most 100 character(s) long
              */
             displayName?: string;
-            labels?: components["schemas"]["SnapshotLabels"];
+            labels?: components["schemas"]["WritableSnapshotLabels"];
             /**
              * between(60, 31536000)
              * @description a number between 60 and 31536000
@@ -2041,6 +2042,9 @@ export interface components {
              * @description a number between 60 and 31536000
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
+        };
+        WritableSnapshotLabels: {
+            [key: string]: string;
         };
         /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
         Snapshot: {
