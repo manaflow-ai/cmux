@@ -6,7 +6,7 @@
 //! extra argument (`--resume <id>`, a session id) stays its own argv word
 //! that no shell parses again. `terminal <t> process show` keeps that argv
 //! after the agent exits (the tab runs with `--on-exit keep`), so `resume`
-//! reads the launcher and the arguments back from it.
+//! reads the launcher back from it.
 
 use super::super::agent_vocabulary::harness_name;
 

@@ -365,8 +365,6 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
     assert_eq!(closed[0]["tab"], "tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0");
 }
 
-/// An agent that quit (its hooks reported the session's end) has no agent
-/// record left; resume reads the session id the daemon kept on the terminal.
 /// W3-H review (main #39226): a resume runs the recorded launcher, not the
 /// recorded extra arguments: `agent start alpha -- 'Fix the test'` must not
 /// send the first prompt again (and `codex '<prompt>' resume <id>` would not
@@ -389,6 +387,8 @@ fn w3h_resume_does_not_send_the_first_prompt_again() {
     assert_eq!(launch.args, strings(&["--yolo", "--resume", SESSION]));
 }
 
+/// An agent that quit (its hooks reported the session's end) has no agent
+/// record left; resume reads the session id the daemon kept on the terminal.
 #[test]
 fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended() {
     let mut snapshot = snapshot();

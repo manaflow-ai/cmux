@@ -18,8 +18,9 @@
 //!   pane selector goes.
 //! - The tab is placed as placement.rs says, focused unless `--no-focus`,
 //!   and waited on as readiness.rs says, unless `--no-wait`.
-//! - `resume` reads the exited agent's argv (`terminal <t> process show`)
-//!   and harness session id (`agent list --terminal <t>`), runs the same
+//! - `resume` reads the exited agent's launcher (`terminal <t> process
+//!   show`; not its extra arguments, which may hold the first prompt) and
+//!   harness session id (`agent list --terminal <t>`), runs the same
 //!   launcher with the harness's resume arguments (`claude --resume <id>`,
 //!   `codex resume <id>`), in the old tab's pane unless `--pane`/`--split`
 //!   say otherwise, and closes the exited tab, which gives its name to the
