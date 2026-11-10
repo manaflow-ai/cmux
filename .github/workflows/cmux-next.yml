@@ -7703,11 +7703,10 @@ jobs:
   #
   # Mapping, fail closed: pass is success; fail is failure with the compile log as its link;
   # unavailable, no result by the deadline, a result for another sha, repo, configuration or
-  # recipe version, or a mint or post error is failure. The wait blocks on the endpoint
-  # (`wait=N` returns at a terminal state, else at its deadline) under one overall deadline of
+  # recipe version, or a mint or terminal post error is failure (a failed pending post only
+  # warns). The wait blocks on the endpoint (`wait=N`) under one deadline of
   # 40 min from the job's start, each read hard-bounded by `timeout` to what is left; a missing result (404) is
-  # retried by curl itself, 30 s apart, inside that bound. The terminal post comes before the
-  # App token's hour ends (it is minted just before the wait). Nothing sleeps in a loop here.
+  # retried by curl itself, 30 s apart, inside that bound. Nothing sleeps in a loop.
   #
   # Forks get no secret and no status: the job does not run, the gate is missing, and a missing
   # gate does not admit. The job checks nothing out: no pull request code runs beside the token.
@@ -7748,20 +7747,22 @@ jobs:
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           [[ -z "${PR:-}" || "$PR" =~ ^[1-9][0-9]*$ ]] || PR=""
-          # One deadline for the pending post and the wait (40 min); the terminal post comes after it
-          # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
+          # One 40 min deadline: the pending post and the wait. The terminal post (<= 240 s) follows.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
           post() {  # state, description, target url
-            local body
+            local body out="$RUNNER_TEMP/post.json" rc
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
               '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
-            # timeout bounds the whole post, retries and any Retry-After included.
-            timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
+            # 8 tries 30 s apart: GitHub refused posts for 52 s on 2026-11-09
+            rm -f "$out" "$out.err"
+            timeout 240 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 7 --retry-delay 30 --retry-all-errors \
               -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "$API/statuses/$SHA" -d "$body" > /dev/null
+              "$API/statuses/$SHA" -d "$body" -o "$out" 2>"$out.err" && return
+            rc=$?
+            echo "::warning title=Compile check::the $1 post failed ($rc): $({ jq -r '.message // empty' "$out"; tail -n1 "$out.err"; } 2>/dev/null | tr '\r\n' '  ' | cut -c-200)"
+            return 1
           }
-          post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" \
-            || { echo "::error title=Compile check::could not post the pending status"; exit 1; }
+          post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" || true
           reply="$RUNNER_TEMP/compile-check.json"
           state=""
           for attempt in 1 2 3; do
