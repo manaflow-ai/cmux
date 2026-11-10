@@ -350,8 +350,8 @@ public struct WorkspacesList: View {
             EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
                        message: offline ? "This iPhone is offline. Workspaces load when it's back online."
                            : "cmux couldn't reach the service. It tries again on its own.",
-                       // Offline, the connection banner owns Retry (one Retry on screen).
-                       retry: retryLoad == nil || offline ? nil : retry)
+                       // The offline pill is status only: Retry stays here (the one on screen).
+                       retry: retryLoad == nil ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
         case .noMacs, .content:
             if macs.isEmpty {

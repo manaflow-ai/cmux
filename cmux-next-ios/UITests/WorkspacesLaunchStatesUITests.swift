@@ -54,9 +54,9 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["workspaces.retry"].waitForExistence(timeout: 30),
                       "failed first launch\n\(app.debugDescription)")
         XCTAssertTrue(text(app, containing: "This iPhone is offline").exists, "the reason\n\(app.debugDescription)")
-        // Offline, the connection banner owns Retry: the page adds no second one.
-        XCTAssertLessThanOrEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Retry")).count, 1,
-                                 "one Retry on screen\n\(app.debugDescription)")
+        // Exactly one Retry: the offline pill is status only, the page offers the retry.
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Retry")).count, 1,
+                       "one Retry on screen\n\(app.debugDescription)")
         attach(app, "first-launch-failed")
     }
 
