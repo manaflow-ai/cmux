@@ -235,7 +235,7 @@ public final class CornerFlushChrome: NSView {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
         hiddenBand = on && Metrics.floatingPanes ? alpha : 0
-        guard Self.drawsFrame(on: on, alpha: alpha), superview === root else {
+        guard Self.drawsFrame(on: on, alpha: alpha, radius: radius, floating: Metrics.floatingPanes), superview === root else {
             isHidden = true
             shade.update(card: card, radius: radius, alpha: alpha)
             for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
@@ -254,8 +254,14 @@ public final class CornerFlushChrome: NSView {
     /// Whether the frame draws its shade and folder holes: the flush corner on, with a shade. Any card
     /// radius does, 0 included (`layout.paneCornerRadius` 0): the card is square and the folder tab
     /// joins its straight top edge (a square join, no wedges), so the selected tab keeps its surface
-    /// against the shaded chrome (Codex at 2b1e6839, F1).
-    static func drawsFrame(on: Bool, alpha: CGFloat) -> Bool { on && alpha > 0 }
+    /// against the shaded chrome (Codex at 2b1e6839, F1). Floating Panes and Blocks keep out: their main
+    /// pane is radius 0 because each pane rounds its own card, the shade already leaves those cards out
+    /// (`MainPaneChromeShadeView.paneCards`), and trimming the top strip off the card would leave shade
+    /// behind the top strips, twice over a translucent window (Codex at 0f2ac599, F2). Their strips draw
+    /// their own band (`hiddenBand`).
+    static func drawsFrame(on: Bool, alpha: CGFloat, radius: CGFloat, floating: Bool) -> Bool {
+        on && alpha > 0 && (radius > 0 || !floating)
+    }
 
     private func redraw() {
         guard let drawn, let root = superview else { return }

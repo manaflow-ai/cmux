@@ -52,9 +52,12 @@ import Testing
     /// `layout.paneCornerRadius` 0: the frame still shades the chrome and cuts the folder holes, with a
     /// square join (no wedges), so the selected tab keeps its surface (Codex at 2b1e6839, F1).
     @Test func aSquareCardStillDrawsTheFrame() {
-        #expect(CornerFlushChrome.drawsFrame(on: true, alpha: 0.28))
-        #expect(!CornerFlushChrome.drawsFrame(on: true, alpha: 0))
-        #expect(!CornerFlushChrome.drawsFrame(on: false, alpha: 0.28))
+        #expect(CornerFlushChrome.drawsFrame(on: true, alpha: 0.28, radius: 0, floating: false))
+        #expect(CornerFlushChrome.drawsFrame(on: true, alpha: 0.28, radius: 12, floating: false))
+        #expect(!CornerFlushChrome.drawsFrame(on: true, alpha: 0, radius: 0, floating: false))
+        #expect(!CornerFlushChrome.drawsFrame(on: false, alpha: 0.28, radius: 12, floating: false))
+        // Floating Panes and Blocks (radius 0, each pane its own card) keep out of the trimmed frame (Codex at 0f2ac599, F2).
+        #expect(!CornerFlushChrome.drawsFrame(on: true, alpha: 0.28, radius: 0, floating: true))
         let card = CGRect(x: 100, y: 0, width: 400, height: 300)
         #expect(CornerFlushChrome.wedgePath(card: card, radius: 0, squareLeading: false, sidebarOnLeft: true).isEmpty)
     }

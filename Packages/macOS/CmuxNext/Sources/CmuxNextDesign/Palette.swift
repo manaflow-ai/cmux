@@ -115,6 +115,12 @@ public struct Palette {
     /// (``contentSurface``), since the chrome's shade is cut away under it (`ChromeShadeHoles`). Over
     /// a see-through window it is clear, and the hole shows the window's tint, as the content does.
     public static var selectedFolderSurface: NSColor { contentSurface }
+    /// The chrome's shade in the active theme: black at this alpha over the content's surface is the
+    /// chrome (``Metrics/mainPaneChromeShade(isDark:)``). A list of tabs inside the content draws it
+    /// under its rows, as a strip inside the card does, so its selected row stands out of it.
+    public static var chromeShade: CGFloat {
+        Metrics.mainPaneChromeShade(isDark: (ThemeContext.active ?? ThemeScope.app.tokens).isDark)
+    }
     /// The folder tab reads as the selection: the content's surface stands out of the chrome around it
     /// by ``ThemeTokens/minimumSelectedContrast`` (``ThemeTokens/selectedOnChrome(_:chromeShade:)``, the
     /// rows' rule). Over a see-through window the hole shows the content's own tint, so the theme's

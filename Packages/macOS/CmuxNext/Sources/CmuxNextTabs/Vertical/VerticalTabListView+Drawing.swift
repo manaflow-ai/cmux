@@ -13,6 +13,15 @@ extension VerticalTabListView {
                 // Widened over the content: an opaque panel, as the strip's own background.
                 Palette.windowBackground.setFill()
                 bounds.fill()
+            }
+            // The list is chrome inside the card, as a strip there is (design/selected-is-foreground.md): under
+            // the folder tab it draws the chrome's shade beneath its rows, at rest and hover-expanded alike, so
+            // the selected row, in the content's surface, stands out of it (Codex at 0f2ac599, F1).
+            if chromeShade > 0 {
+                NSColor.black.withAlphaComponent(chromeShade).setFill() // colour-allow: the chrome's shade, black at its alpha
+                bounds.fill()
+            }
+            if isHoverExpanded {
                 Palette.separator.setFill()
                 CGRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
             }
@@ -71,12 +80,20 @@ extension VerticalTabListView {
 
     var scale: CGFloat { window?.backingScaleFactor ?? 2 }
 
+    /// The chrome's shade the list draws under its rows: the folder tab's (`CornerFlush`) chrome, else none.
+    /// Read inside the list's theme scope.
+    var chromeShade: CGFloat { CornerFlush.current.isOn ? Palette.chromeShade : 0 }
+
     // MARK: Tabs
 
     /// Fill behind a tab: the selection, the lighter fill of the other selected tabs, or hover.
     private func fill(for item: TabItem, hovered: Bool) -> NSColor? {
         // The selected tab is the foreground, in the content's surface (design/selected-is-foreground.md).
-        if item.id == model.selectedID { return Palette.selectedSurface }
+        // Off the folder tab the list draws no chrome of its own and sits on the content: the selection fill.
+        if item.id == model.selectedID {
+            guard chromeShade > 0 else { return Palette.selectionFill } // selected-surface-allow: no chrome under the list
+            return Palette.selectedSurface
+        }
         if model.multiSelection.isMultiple, model.multiSelection.contains(item.id) { return Palette.secondarySelectionFill }
         return hovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
     }
