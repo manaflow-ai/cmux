@@ -167,13 +167,13 @@ function working(harness = "claude", steering = true): AcpmuxSnapshot {
   });
 }
 
-async function enter(field: HTMLElement) {
+async function enter(field: HTMLElement, metaKey = false) {
   await act(async () => {
     field.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }));
   });
   await act(async () => {
     field.dispatchEvent(
-      new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", keyCode: 13 }),
+      new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", keyCode: 13, metaKey }),
     );
   });
 }
@@ -253,4 +253,16 @@ test("Codex's /diff mid-turn runs at once: the chat's changes open, nothing is s
   const run = await composer(working("codex", false), "/diff");
   await enter(run.field);
   expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["diff"] });
+});
+
+test("Cmd-Return on /mcp mid-turn runs it at once too: nothing queues", async () => {
+  const run = await composer(working("claude", true), "/mcp");
+  await enter(run.field, true);
+  expect({ sent: run.sent, local: run.local }).toEqual({ sent: [], local: ["mcp"] });
+});
+
+test("where the chat cannot show it, a local command keeps the normal send: it steers an agent that steers", async () => {
+  const run = await composer(working("codex", true), "/mcp", false);
+  await enter(run.field);
+  expect(run.sent).toEqual([{ text: "/mcp", steer: true }]);
 });

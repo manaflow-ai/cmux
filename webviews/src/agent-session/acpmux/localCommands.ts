@@ -31,8 +31,9 @@ export type LocalCommandAction =
 ///   /help the commands. /status, /context and /model are cmux's own already.
 /// Codex (codex-rs tui `SlashCommand`, those `available_during_task` that never submit a turn):
 ///   /mcp lists the configured MCP tools; /diff shows the git diff (untracked files too); /usage the
-///   account's limits; /skills the skills. /status is cmux's own already. /ps (background terminals)
-///   is left to Codex: Session Info draws no Background tasks section while nothing runs. /init, /compact, /review and /plan submit to the model and are not available during a
+///   account's limits; /skills the skills. /status is cmux's own already. /ps (background
+///   terminals) is left to Codex: Session Info draws no Background tasks section while nothing
+///   runs. /init, /compact, /review and /plan submit to the model and are not available during a
 ///   task, so they stay out.
 const LOCAL: Readonly<Record<string, Readonly<Record<string, LocalCommandAction>>>> = {
   claude: {
