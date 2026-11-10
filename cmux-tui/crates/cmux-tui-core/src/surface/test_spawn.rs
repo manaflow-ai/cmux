@@ -354,4 +354,29 @@ impl Surface {
         let pty = self.as_pty().expect("a PTY surface");
         pty.terminal_metadata.lock().unwrap().activity.note_output(at_ms);
     }
+
+    /// Applies one OSC 7501 report of `state` (the root record of app
+    /// `make`) at `at_ms`, as the terminal parser's callback does: the test
+    /// terminal has no such callback.
+    #[cfg(test)]
+    pub(crate) fn report_program_status_for_test(
+        &self,
+        state: ghostty_vt::ProgramStatusState,
+        at_ms: u64,
+    ) {
+        let pty = self.as_pty().expect("a PTY surface");
+        let report = ghostty_vt::ProgramStatusReport {
+            state,
+            kind: None,
+            progress: None,
+            id: String::new(),
+            app: "make".into(),
+            title: String::new(),
+            message: String::new(),
+        };
+        pty.program_status_records()
+            .lock()
+            .unwrap()
+            .apply(ghostty_vt::ProgramStatusEvent::Report(report), at_ms);
+    }
 }

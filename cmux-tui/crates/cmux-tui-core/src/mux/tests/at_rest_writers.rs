@@ -104,14 +104,19 @@ fn read_last_outputs(mux: &Mux) -> BTreeMap<String, String> {
 }
 
 /// One frame of a program that works: a spinner title, an OSC 9;4 progress
-/// value, a program status report that repeats `working`, and text.
+/// value and text.
 fn working_frame(tick: u64) -> Vec<u8> {
     let glyph = SPINNER[usize::try_from(tick).unwrap() % SPINNER.len()];
-    format!(
-        "\x1b]2;{glyph} build\x07\x1b]9;4;1;{}\x07\x1b]7501;state=working:app=make\x1b\\line {tick}\r\n",
-        tick % 100
-    )
-    .into_bytes()
+    format!("\x1b]2;{glyph} build\x07\x1b]9;4;1;{}\x07line {tick}\r\n", tick % 100).into_bytes()
+}
+
+/// `surface` prints one frame at `at_ms` and its program reports `working`
+/// again (OSC 7501; the test terminal has no parser callback for it, so the
+/// report goes to the records as the callback gives it).
+fn print_frame(surface: &Surface, tick: u64, at_ms: u64) {
+    surface.apply_stream_output_for_test(&working_frame(tick)).unwrap();
+    surface.report_program_status_for_test(ghostty_vt::ProgramStatusState::Working, at_ms);
+    surface.note_output_at_for_test(at_ms);
 }
 
 /// `PRINTING_TERMINALS` terminals on a session of `workspaces` workspaces
@@ -148,8 +153,7 @@ fn printing_terminals_at_rest(workspaces: usize) {
     for surface in &terminals {
         surface.publish_pending_directory();
         surface.publish_pending_progress();
-        surface.apply_stream_output_for_test(&working_frame(0)).unwrap();
-        surface.note_output_at_for_test(start_ms);
+        print_frame(surface, 0, start_ms);
         surface.publish_pending_state();
     }
     assert!(
@@ -162,8 +166,7 @@ fn printing_terminals_at_rest(workspaces: usize) {
     let ticks = SIMULATED_MINUTES * 60_000 / TICK_MS;
     for tick in 1..=ticks {
         for surface in &terminals {
-            surface.apply_stream_output_for_test(&working_frame(tick)).unwrap();
-            surface.note_output_at_for_test(start_ms + tick * TICK_MS);
+            print_frame(surface, tick, start_ms + tick * TICK_MS);
             // What the terminal publisher runs for a terminal whose reader found a publication due.
             surface.publish_pending_state();
         }
@@ -220,8 +223,10 @@ fn printing_terminals_at_rest(workspaces: usize) {
     let before_edge = written(&mux);
     let rows_before_edge = journal_rows(&mux);
     let edge = &terminals[0];
-    edge.apply_stream_output_for_test(b"\x1b]7501;state=idle:app=make\x1b\\").unwrap();
-    edge.note_output_at_for_test(start_ms + ticks * TICK_MS);
+    edge.report_program_status_for_test(
+        ghostty_vt::ProgramStatusState::Idle,
+        start_ms + ticks * TICK_MS,
+    );
     edge.publish_pending_state();
     edge.publish_pending_state();
     let after_edge = written(&mux);
