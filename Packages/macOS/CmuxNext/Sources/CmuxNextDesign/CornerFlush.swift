@@ -14,9 +14,11 @@ public import CmuxNextDesignTokens
 /// then curves away and no concave foot that ends in a point. The sidebar's `+`, the window
 /// buttons and the tabs share one center line.
 ///
-/// Compact density keeps today's look under every value. The default, `off`, changes nothing.
+/// The default is `flush-goo` (Leo, 2026-11-10: in light mode the selected tab should be white,
+/// the content's own color, not a gray highlight that reads as backgrounded; "morph it in as like,
+/// you know how folder tabs look"). It holds at every density. `off` keeps the older pill look.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's corner.
+    /// The older corner: the selected tab is a gray pill on the frame.
     case off
     /// The card sits one grid step (4 pt) inside the frame on every side.
     case flush
@@ -28,7 +30,7 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public var tunableTitle: String {
         switch self {
-        case .off: "Off (today)"
+        case .off: "Off: a gray pill on the frame"
         case .flush: "Flush: the first tab rises from the card's edge"
         case .tight: "Flush, tight: the card meets the sidebar"
         case .goo: "Flush, goo: the selected tab flows into the card"
@@ -37,14 +39,11 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps today's look. Off: today's.",
-        default: .off, code: "CornerFlush.tunable")
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. The default is goo, a folder tab. Off: the gray pill.",
+        default: .goo, code: "CornerFlush.tunable")
 
-    /// The value in effect: the Debug Settings value, except at compact density, which keeps
-    /// today's corner.
-    @MainActor public static var current: CornerFlush {
-        Metrics.density == .compact ? .off : tunable.value
-    }
+    /// The value in effect: the Debug Settings value, at every density.
+    @MainActor public static var current: CornerFlush { tunable.value }
 
     public var isOn: Bool { self != .off }
 
