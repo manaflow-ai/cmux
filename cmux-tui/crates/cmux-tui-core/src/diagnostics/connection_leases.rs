@@ -17,7 +17,7 @@
 //! pool instead of the limit. Linux reports it once both halves are closed.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use super::ConnectionStats;
 
@@ -33,8 +33,10 @@ pub struct ConnectionLease {
     peer_closed: Option<PeerClosed>,
     /// Also holds a terminal slot (`ConnectionStats::try_claim_terminal`,
     /// #27698), given back with the main slot; inside, the terminal it came
-    /// from (nil when unknown).
-    terminal: Option<Option<u32>>,
+    /// from (nil when unknown). Set at accept, or later by
+    /// `enter_terminal_lane`. A change of it and the take-back of the slots
+    /// (`reclaim_hung_up`) exclude each other under this lock.
+    terminal: Mutex<Option<Option<u32>>>,
 }
 
 impl ConnectionLease {
@@ -47,8 +49,12 @@ impl ConnectionLease {
         terminal: Option<Option<u32>>,
     ) -> Arc<Self> {
         let watched = peer_closed.is_some();
-        let lease =
-            Arc::new(Self { stats, hung_up: AtomicBool::new(false), peer_closed, terminal });
+        let lease = Arc::new(Self {
+            stats,
+            hung_up: AtomicBool::new(false),
+            peer_closed,
+            terminal: Mutex::new(terminal),
+        });
         if watched {
             let mut leases = lease.stats.leases.lock().unwrap_or_else(PoisonError::into_inner);
             leases.retain(|lease| lease.strong_count() > 0);
@@ -61,6 +67,42 @@ impl ConnectionLease {
     pub fn is_hung_up(&self) -> bool {
         self.hung_up.load(Ordering::Acquire)
     }
+
+    /// Counts this admitted connection as one from terminal `client` (nil
+    /// when unknown): it takes a terminal slot too, under `limit` and the
+    /// terminal's fair share (`ConnectionStats::try_claim_terminal`). False
+    /// when the terminal lane has no room: the caller refuses the connection,
+    /// whose main slot goes back when the lease drops. A connection that is
+    /// in the lane already, or whose slot was taken back after a hang-up,
+    /// changes nothing.
+    ///
+    /// For a connection the accept loop could not place: an agent hook's
+    /// sending child is in a process session of its own, so the accept loop
+    /// sees an outside client; its first line says what it is.
+    pub fn enter_terminal_lane(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
+        if self.is_hung_up() || self.terminal().is_some() {
+            return true;
+        }
+        // Not under the lock: at the limit the claim asks every lease,
+        // this one too, whether its client hung up.
+        if !self.stats.try_claim_terminal(limit, pool_limit, client) {
+            return false;
+        }
+        let mut terminal = self.terminal.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.is_hung_up() || terminal.is_some() {
+            // The slots went back in between; this one goes back too.
+            drop(terminal);
+            self.stats.release_terminal(client);
+        } else {
+            *terminal = Some(client);
+        }
+        true
+    }
+
+    /// `Some` while this connection holds a terminal slot.
+    fn terminal(&self) -> Option<Option<u32>> {
+        *self.terminal.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl Drop for ConnectionLease {
@@ -69,7 +111,8 @@ impl Drop for ConnectionLease {
             self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
         } else {
             self.stats.release();
-            if let Some(client) = self.terminal {
+            let terminal = *self.terminal.get_mut().unwrap_or_else(PoisonError::into_inner);
+            if let Some(client) = terminal {
                 self.stats.release_terminal(client);
             }
         }
@@ -100,15 +143,26 @@ impl ConnectionStats {
             if !pooled {
                 break;
             }
-            // Another accept loop may have taken this one back first.
-            let taken =
-                lease.hung_up.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire);
-            if taken.is_err() {
+            // Another accept loop may have taken this one back first. Under
+            // the lease's lock, so a terminal slot the connection takes at
+            // this moment (`enter_terminal_lane`) is either seen here or
+            // given back there.
+            let terminal = {
+                let terminal = lease.terminal.lock().unwrap_or_else(PoisonError::into_inner);
+                let taken = lease.hung_up.compare_exchange(
+                    false,
+                    true,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+                taken.is_ok().then_some(*terminal)
+            };
+            let Some(terminal) = terminal else {
                 self.hung_up.fetch_sub(1, Ordering::AcqRel);
                 continue;
-            }
+            };
             self.release();
-            if let Some(client) = lease.terminal {
+            if let Some(client) = terminal {
                 self.release_terminal(client);
             }
             freed += 1;

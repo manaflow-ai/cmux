@@ -79,7 +79,21 @@ pub(super) const MAX_TERMINAL_CONNECTIONS: usize = MAX_SERVER_CONNECTIONS * 3 / 
 
 #[derive(Clone)]
 pub(super) struct ConnectionPermit {
-    pub(super) _lease: Arc<crate::diagnostics::ConnectionLease>,
+    lease: Arc<crate::diagnostics::ConnectionLease>,
+}
+
+impl ConnectionPermit {
+    /// Counts this admitted connection as one from terminal `client` (its
+    /// process session, nil when unknown): it takes a slot of the terminal
+    /// lane too. False when the lane has no room; the caller refuses the
+    /// connection (`diagnostics::ConnectionLease::enter_terminal_lane`).
+    pub(super) fn enter_terminal_lane(&self, client: Option<u32>) -> bool {
+        self.lease.enter_terminal_lane(
+            MAX_TERMINAL_CONNECTIONS as u64,
+            MAX_SERVER_CONNECTIONS as u64,
+            client,
+        )
+    }
 }
 
 pub(super) fn claim_connection(
@@ -155,11 +169,7 @@ fn claim_connection_watching(
         return None;
     }
     Some(ConnectionPermit {
-        _lease: crate::diagnostics::ConnectionLease::new(
-            connections.clone(),
-            peer_closed,
-            terminal,
-        ),
+        lease: crate::diagnostics::ConnectionLease::new(connections.clone(), peer_closed, terminal),
     })
 }
 
