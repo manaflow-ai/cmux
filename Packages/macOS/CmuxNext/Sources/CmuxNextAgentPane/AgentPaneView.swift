@@ -449,7 +449,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        let frame = topBar.contentFrame(in: bounds)
+        let frame = topBar.pageFrame(in: bounds)
         let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
         if let page {
             let moved = page.frame != shown

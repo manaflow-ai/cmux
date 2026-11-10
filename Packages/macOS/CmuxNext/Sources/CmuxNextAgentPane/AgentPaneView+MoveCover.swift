@@ -74,7 +74,7 @@ extension AgentPaneView {
         let release: @MainActor () -> Void = { [weak self] in
             guard let self, holdsPageAway else { return }
             holdsPageAway = false
-            pageContent.frame = topBar.contentFrame(in: bounds)
+            pageContent.frame = topBar.pageFrame(in: bounds)
             applyNativeRects() // the tab row's holes, taken while it was away, follow it back
             pageContent.layoutSubtreeIfNeeded()
             move.moved()
