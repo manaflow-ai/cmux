@@ -390,6 +390,13 @@ import {
   trackEditableTurns,
   type EditableTurns,
 } from "./conversation/editPrompt";
+import {
+  CloudTurnCheckpoints,
+  readyPromptKey,
+  readyPromptMap,
+  readyPromptRows,
+  withCheckpoint,
+} from "./conversation/cloudTurnCheckpoints";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
@@ -1634,6 +1641,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // checkpoint taken before it ran, as the handshake's `cloudTurnRewind` names them. Undefined where
   // the host serves no rewind (every host today), so no prompt draws the button.
   const [cloudTurnRewind, setCloudTurnRewind] = useState<ReadonlySet<string>>();
+  // With `cloudTurnRewind` present, each completed turn asks the app for the checkpoint before the
+  // next one (`chat.turnCheckpoint {afterSeq}`, conversation/cloudTurnCheckpoints.ts), fed by the
+  // snapshot handlers below; its answer's row joins the ready set.
+  const cloudCheckpoints = useRef<CloudTurnCheckpoints | undefined>(undefined);
+  cloudCheckpoints.current ??= new CloudTurnCheckpoints(
+    // Straight to native, as the rewind: callNative would select a page action of the same name.
+    (afterSeq) => postNative("chat.turnCheckpoint", { afterSeq }),
+    (answer) => setCloudTurnRewind((ready) => withCheckpoint(ready, answer)),
+  );
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
   const [cloudTeamMachine, setCloudTeamMachine] = useState(false);
@@ -2014,6 +2030,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.
   const rewindInFlight = useRef(false);
+  // The prompts drawn with Back to before this turn, each with the checkpoint row it rewinds to
+  // (cloudTurnCheckpoints.ts `readyPromptRows`): a sent prompt keeps its own row id, and the
+  // checkpoint names the turn number after the one before it. Rebuilt only when they change.
+  const rewindRowsKey = readyPromptKey(readyPromptRows(snapshot.rows, cloudTurnRewind));
+  const rewindRows = useMemo(() => readyPromptMap(rewindRowsKey), [rewindRowsKey]);
+  const rewindReady = useMemo<ReadonlySet<string>>(() => new Set(rewindRows.keys()), [rewindRows]);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   // A running chat still permits editing an earlier completed prompt: editResend forks through that
   // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
@@ -3820,12 +3842,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(cloudMachineID &&
         cloudTurnRewind && {
           rewind: {
-            ready: cloudTurnRewind,
+            ready: rewindReady,
             before: async (rowId: string) => {
               if (rewindInFlight.current) throw new Error("rewind in flight"); // l10n-allow: an error the button reads as failed, never shown
               rewindInFlight.current = true;
               try {
-                const answer = await postNative<{ seconds?: unknown } | null>("chat.rewindTurn", { rowId });
+                const answer = await postNative<{ seconds?: unknown } | null>("chat.rewindTurn", {
+                  rowId: rewindRows.get(rowId) ?? rowId,
+                });
                 return { seconds: typeof answer?.seconds === "number" ? answer.seconds : Number.NaN };
               } finally {
                 rewindInFlight.current = false;
@@ -4057,6 +4081,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       loginCommand,
       cloudMachineID,
       cloudTurnRewind,
+      rewindRows,
+      rewindReady,
       cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
       cloudTeamMachine,
@@ -7125,6 +7151,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         rowsRef.current = next.rows;
         snapshotRef.current = next;
         trustRouteSnapshot.current = next;
+        cloudCheckpoints.current?.observe(next);
         const owner = directClient.current;
         trustRenderedOwner.current = {
           client: owner,
@@ -7397,11 +7424,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudTeamMachine(host.cloudTeamMachine === true);
-        setCloudTurnRewind(
+        const turnRewind =
           Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
             ? new Set(host.cloudTurnRewind as string[])
-            : undefined,
-        );
+            : undefined;
+        setCloudTurnRewind(turnRewind);
+        cloudCheckpoints.current?.setOn(turnRewind !== undefined);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
@@ -7568,6 +7596,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             rowsRef.current = next.rows;
             snapshotRef.current = next;
             trustRouteSnapshot.current = next;
+            cloudCheckpoints.current?.observe(next);
             if (connectingClient)
               trustRenderedOwner.current = {
                 client: connectingClient,
