@@ -701,11 +701,13 @@ def agent_programs(conn, tabs, rows=None):
     """{name: pid} of the agent programs that run in the agent terminals of THIS daemon, from the daemon's own record:
     `terminal-resources` gives the process of each of its terminals and the tree below it; a terminal runs its agent
     when one of those processes has the agent program with the terminal's own name as its command. Never by the
-    program's name alone over the host, so another tag's programs do not count. None when the daemon does not have
-    the command (a daemon from before 2026-10). `rows` ({pid: (ppid, start, command)}) is for tests."""
+    program's name alone over the host, so another tag's programs do not count. Only for a daemon that has the
+    command (``has_terminal_resources``); a reply that is not OK stops the command (exit 1), it is never read as
+    "0 programs" or as "not judged". `rows` ({pid: (ppid, start, command)}) is for tests."""
     reply = conn.call("terminal-resources", surfaces=[tab["surface"] for _, tab in tabs])
     if not reply.get("ok"):
-        return None
+        raise SystemExit(f"session_real: the daemon did not answer terminal-resources: {reply.get('error')!r}; "
+                         "the agent programs cannot be counted")
     rows = process_rows() if rows is None else rows
     by_surface = {terminal.get("surface"): terminal for terminal in (reply.get("data") or {}).get("terminals") or []}
     found = {}
@@ -717,6 +719,11 @@ def agent_programs(conn, tabs, rows=None):
                 found[name] = pid
                 break
     return found
+
+
+def has_terminal_resources(identity):
+    """True when the daemon says that it has `terminal-resources` (its `identify` capabilities)."""
+    return "terminal-resources-v1" in ((identity or {}).get("capabilities") or [])
 
 
 def agent_programs_by_socket(daemon_socket, rows=None, read=None):
@@ -755,7 +762,7 @@ def agents(args):
     tabs = agent_tabs(tree, mix)
     # The daemon lists an agent again for a restarted kept tab from its stored record (measured: 113 listed after
     # a restore, with no program in their shells), so "runs" is read from the processes of this daemon's terminals.
-    exact = agent_programs(conn, tabs) is not None
+    exact = has_terminal_resources(conn.must("identify"))
 
     def programs_now():
         return agent_programs(conn, tabs) if exact else agent_programs_by_socket(daemon_socket)

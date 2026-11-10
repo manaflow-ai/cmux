@@ -321,12 +321,17 @@ class Counts(unittest.TestCase):
 
         self.assertEqual(m.agent_programs(Daemon(), tabs, rows), {"real-0003": 10, "real-0008": 11})
 
-        class OldDaemon:
+        class Failing:
             def call(self, cmd, **params):
-                return {"ok": False, "error": "unknown command"}
+                return {"ok": False, "error": "bad request: no"}
 
-        self.assertIsNone(m.agent_programs(OldDaemon(), tabs, rows))
-        # A daemon that cannot say: the count is not judged, the other faults stay.
+        with self.assertRaises(SystemExit) as raised:   # an error is never "0 programs" and never "not judged"
+            m.agent_programs(Failing(), tabs, rows)
+        self.assertNotIn(raised.exception.code, (0, None))
+        self.assertTrue(m.has_terminal_resources({"capabilities": ["clear-history-v1", "terminal-resources-v1"]}))
+        self.assertFalse(m.has_terminal_resources({"capabilities": ["clear-history-v1"]}))
+        self.assertFalse(m.has_terminal_resources({}))
+        # A daemon without the command: the count is not judged, the other faults stay.
         self.assertEqual(m.agents_faults(170, None, 170, 0, []), [])
         self.assertEqual(len(m.agents_faults(170, None, 170, 3, [])), 1)
 
