@@ -15,14 +15,15 @@ public import Foundation
     let auth: CloudAuth, installIdentity: MacInstallIdentity, connection: DaemonConnection
     /// The platform origin the warm calls, and the cmux API the copy's machine routes and remote switch call.
     let platform: URL, api: URL
-    /// DEV and dogfood builds, and the person's one-time Release consent from cmux.json now (nil: never asked), which the
-    /// daemon is also told on every change, so a copy in flight reads it right before its write.
-    let dogfood: Bool, consent: @MainActor @Sendable () -> Bool?
+    /// DEV and dogfood builds, and the person's one-time Release consent from cmux.json now (nil: never asked) with whether
+    /// the daemon link is up; the daemon is told the consent on every change and every reconnect, so a copy in flight reads
+    /// it right before its write.
+    let dogfood: Bool, consent: @MainActor @Sendable () -> CloudLoginCopyConsentNow
     /// The app's one registry of claims Rust has not answered yet: a start onto a claimed machine waits on it first.
     let claims: CloudClaimedCopyRegistrations
 
     public init(auth: CloudAuth, installIdentity: MacInstallIdentity, connection: DaemonConnection, platform: URL, api: URL,
-                dogfood: Bool, consent: @escaping @MainActor @Sendable () -> Bool?, claims: CloudClaimedCopyRegistrations) {
+                dogfood: Bool, consent: @escaping @MainActor @Sendable () -> CloudLoginCopyConsentNow, claims: CloudClaimedCopyRegistrations) {
         (self.auth, self.installIdentity, self.connection, self.platform, self.api) = (auth, installIdentity, connection, platform, api)
         (self.dogfood, self.consent, self.claims) = (dogfood, consent, claims)
     }
@@ -32,15 +33,18 @@ public import Foundation
     /// pending in `claims` until the daemon's ledger answers it, so a start onto that machine never asks `wait-copy` first.
     public func start(claimed: String? = nil) {
         guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
-        let team = auth.teamID, scopes = auth.loginScopes
+        let team = auth.teamID, teams = auth.teams.map(\.id)
         let setting = CloudCredentialTransfer.passHarnessLoginSetting(.standard)
         let stored = CloudHarnessLoginChoices().load(userID: userID)?.rawValue
         claims.followConsent(on: connection, consent)
-        let (auth, installIdentity, connection, platform, api, dogfood, consent) = (auth, installIdentity, connection, platform, api, dogfood, consent())
+        let (auth, installIdentity, connection, platform, api, dogfood, consent) = (auth, installIdentity, connection, platform, api, dogfood, consent().consent)
         let send: @MainActor @Sendable () async -> Void = {
             guard let access = try? await auth.tokens().access, let install = try? await installIdentity.installToken() else { return }
+            // The consent first, on this link, so the daemon holds the latest one before it starts any copy (a reconnect
+            // the follower missed included).
+            _ = try? await connection.request(CloudSpareWarmConsentRequest(consent: consent), timeout: .seconds(5))
             let request = CloudSpareWarmRequest(platform: platform.absoluteString, api: api.absoluteString, accessToken: access,
-                                                installToken: install, account: userID, claimed: claimed, team: team, loginScopes: scopes,
+                                                installToken: install, account: userID, claimed: claimed, team: team, loginTeams: teams,
                                                 dogfood: dogfood, setting: setting, storedChoice: stored, consent: consent)
             // The ledger answers after the platform's warm call (90 s at most); the copy goes on in the daemon after it.
             _ = try? await connection.request(request, timeout: .seconds(120))

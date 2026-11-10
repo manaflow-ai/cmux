@@ -38,7 +38,7 @@ extension CloudStartChat {
     @MainActor static func warmSpare(_ services: AppServices, claimed: String? = nil) {
         let cloud = services.cloud
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let connection = services.daemon.connection, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
-        CloudSpareWarm(auth: cloud.auth, installIdentity: cloud.installIdentity, connection: connection, platform: platform, api: cloud.configuration.ownerAPIBaseURL(), dogfood: DevTools.isEnabled, consent: { [weak services] in services.flatMap(loginCopyConsent) }, claims: cloud.claimedCopies).start(claimed: claimed)
+        CloudSpareWarm(auth: cloud.auth, installIdentity: cloud.installIdentity, connection: connection, platform: platform, api: cloud.configuration.ownerAPIBaseURL(), dogfood: DevTools.isEnabled, consent: { [weak services] in .init(live: services?.daemon.isLive == true, consent: services.flatMap(loginCopyConsent)) }, claims: cloud.claimedCopies).start(claimed: claimed)
     }
 
     /// The Release copy's gate (``CloudLoginCopyGate``) over this app's switch, cmux.json and consent,

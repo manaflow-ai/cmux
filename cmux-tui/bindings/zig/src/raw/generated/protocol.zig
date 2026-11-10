@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "515f95cc6f8c72b75feedb8a858e4aec8cf50b3e319b5197ce7e8bb6d8c05b61";
+pub const ir_sha256 = "ed7aad5a27bf04ebc06b4f11e47cf8786b9171f696a11d8d0493a75b19b9fcc0";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5096,7 +5096,7 @@ pub const CloudSpareWarmRequest = struct {
     consent: wire.Field(bool) = .absent,
     dogfood: ?bool = null,
     install_token: []const u8,
-    login_scopes: ?[]const []const u8 = null,
+    login_teams: ?[]const []const u8 = null,
     platform: []const u8,
     setting: wire.Field(bool) = .absent,
     stored_choice: wire.Field([]const u8) = .absent,
@@ -5104,7 +5104,7 @@ pub const CloudSpareWarmRequest = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dogfood",
-        "login_scopes",
+        "login_teams",
     };
 };
 

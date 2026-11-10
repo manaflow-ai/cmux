@@ -27743,7 +27743,7 @@
       "presence": "optional",
       "nullable": true
      },
-     "login_scopes": {
+     "login_teams": {
       "type": {
        "kind": "array",
        "items": {

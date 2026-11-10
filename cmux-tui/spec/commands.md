@@ -8213,18 +8213,20 @@ install. The answer is the ledger's (`{ok, machine?, team?, fresh, copy?}`),
 sent once it is written; the copy goes on on its own thread and reports its end
 to the same ledger (`finished`, or `abandoned` when the copy was ended).
 
-The copy asks again, before it reads anything and right before its write,
-whether it may go on: the account is still the leased person, no sign-out
-(`cloud-session-clear`) or lease of another account came since (a daemon that
-never had a person lease keeps the app's account), and the person's consent
-has not changed (`cloud-spare-warm-consent`). The consent the write needs is
-the app's latest one, not the warm's. The Keychain scopes are read at once
+The copy asks again whether it may go on: before it reads anything, after
+the last blocking read (the remote switch), and after the write, before the
+install. It may go on only while the daemon leases this account under the same
+person epoch as when the warm came: no lease, a sign-out
+(`cloud-session-clear`) or another account's lease stops it (it fails closed).
+The person's consent must also be unchanged (`cloud-spare-warm-consent`), and
+the write needs the app's latest consent, not the warm's. A copy stopped
+after its write removes the staged file. The Keychain scopes are read at once
 under one 30 s deadline.
 
 Fields: `platform` (the warm's origin), `api` (the cmux API the copy's machine
 routes and the Release switch call), `access_token` (the Stack session), `install_token`,
 `account` (the Stack user), and optionally `claimed`, `team` (the selected Stack
-team), `login_scopes` (the person's teams then `null` for personal), `dogfood`,
+team), `login_teams` (the person's teams; the selected team's login is read first, these next, the personal login last), `dogfood`,
 `setting` (`cmux.cloud.passHarnessLogin`), `stored_choice` (the person's kept
 login choice) and `consent` (the one-time Release consent). Neither token is
 kept, logged or put in a URL.

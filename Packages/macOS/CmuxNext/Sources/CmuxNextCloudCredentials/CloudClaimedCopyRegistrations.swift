@@ -28,16 +28,18 @@ public import Foundation
         return answer
     }
 
-    /// Sends `consent` on `connection` at once and on every change (`cloud-spare-warm-consent`), so a login copy in flight
-    /// reads it right before its write and a change ends it (cmux-tui-core `server/cloud_spare_warm.rs`). One follower: a
-    /// warm on another connection (a restarted daemon) moves it there.
-    func followConsent(on connection: DaemonConnection, _ consent: @escaping @MainActor @Sendable () -> Bool?) {
+    /// Sends the consent on `connection` at once, on every change and on every reconnect (`cloud-spare-warm-consent`), so
+    /// a login copy in flight reads it right before its write and a change ends it (cmux-tui-core `server/cloud_spare_warm.rs`).
+    /// A change while the link is down is sent when it comes back. One follower: a warm on another connection moves it there.
+    func followConsent(on connection: DaemonConnection, _ consent: @escaping @MainActor @Sendable () -> CloudLoginCopyConsentNow) {
         guard consentFollower?.connection !== connection else { return }
         consentFollower?.task.cancel()
         // task-owner: `consentFollower`, cancelled when a warm comes on another connection; each send is bounded by its timeout.
         consentFollower = (connection, Task { @MainActor in
-            for await value in ObservationStream(consent) {
-                _ = try? await connection.request(CloudSpareWarmConsentRequest(consent: value), timeout: .seconds(5))
+            var push = CloudLoginCopyConsentPush()
+            for await now in ObservationStream(consent) {
+                guard let value = push.next(now) else { continue }
+                if (try? await connection.request(CloudSpareWarmConsentRequest(consent: value), timeout: .seconds(5))) == nil { push.failed() }
             }
         })
     }
@@ -49,4 +51,28 @@ public import Foundation
 
     /// How many machines have a registration pending (tests).
     var pendingCount: Int { pending.count }
+}
+
+/// The consent follower's input: the person's consent now (nil: never asked or managed) and whether the daemon link is up.
+public struct CloudLoginCopyConsentNow: Sendable, Equatable {
+    public var live: Bool, consent: Bool?
+    public init(live: Bool, consent: Bool?) { (self.live, self.consent) = (live, consent) }
+}
+
+/// What the follower sends for each state it observes: the consent whenever the link is up and the daemon was not told it
+/// on this link yet. A drop forgets what was sent, so a reconnect (and a change made while down) sends it again; a failed
+/// send is sent again with the next state.
+struct CloudLoginCopyConsentPush {
+    /// The consent the daemon holds on the current link; nil: none sent on it yet.
+    private var sent: Bool?? = nil
+
+    /// The consent to send now, or nil to send nothing.
+    mutating func next(_ now: CloudLoginCopyConsentNow) -> Bool?? {
+        guard now.live else { sent = nil; return nil }
+        guard sent != .some(now.consent) else { return nil }
+        sent = .some(now.consent)
+        return .some(now.consent)
+    }
+
+    mutating func failed() { sent = nil }
 }

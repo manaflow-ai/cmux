@@ -11,6 +11,7 @@ struct Fake {
     login: &'static str,
     cached: Result<Option<&'static [u8]>, ()>,
     switch: Option<bool>,
+    switch_reads: AtomicUsize,
     preflight: i64,
     install: i64,
     execs: Mutex<Vec<String>>,
@@ -33,6 +34,7 @@ impl Fake {
             login: "none",
             cached: Ok(Some(TOKEN)),
             switch: Some(true),
+            switch_reads: AtomicUsize::new(0),
             preflight: 0,
             install: 0,
             execs: Mutex::default(),
@@ -54,6 +56,7 @@ impl Fake {
 
 impl Effects for Fake {
     fn remote_switch(&self) -> Option<bool> {
+        self.switch_reads.fetch_add(1, Ordering::SeqCst);
         self.switch
     }
 
@@ -263,7 +266,7 @@ fn every_keychain_scope_is_read_at_once_under_one_deadline() {
     };
     let params = SpareWarmParams {
         team: Some("team_a".into()),
-        login_scopes: vec![Some("team_a".into()), Some("team_b".into()), None],
+        login_teams: vec!["team_a".into(), "team_b".into()],
         ..params(true)
     };
     let began = Instant::now();
@@ -275,4 +278,28 @@ fn every_keychain_scope_is_read_at_once_under_one_deadline() {
     let deadlines = fake.deadlines.lock().unwrap();
     assert_eq!(deadlines.len(), 3);
     assert!(deadlines.iter().all(|deadline| *deadline == deadlines[0]), "one deadline");
+}
+
+#[test]
+fn a_sign_out_during_the_remote_switch_read_stops_the_copy() {
+    let fake = Fake::new();
+    // The person signs out while the transfer reads the Release switch (its second read): every
+    // ask after it says no.
+    let still = || fake.switch_reads.load(Ordering::SeqCst) < 2;
+    let (installed, summary) = copy(&params(false), &still, &|| Some(true), &fake);
+    assert_eq!(fake.switch_reads.load(Ordering::SeqCst), 2, "{summary}");
+    assert!(!installed, "{summary}");
+    assert!(summary.contains("account or Cloud team changed"), "{summary}");
+    assert!(fake.writes.lock().unwrap().is_empty(), "the credential never left this Mac");
+}
+
+#[test]
+fn a_sign_out_during_the_write_removes_the_staged_copy() {
+    let fake = Fake::new();
+    let still = || fake.writes.lock().unwrap().is_empty();
+    let (installed, summary) = copy(&params(true), &still, &|| Some(true), &fake);
+    assert!(!installed, "{summary}");
+    let path = fake.writes.lock().unwrap()[0].0.clone();
+    assert_eq!(fake.ran("CMUX_CREDENTIAL_INSTALL"), 0, "never installed");
+    assert_eq!(fake.ran(&format!("rm -f -- '{path}'")), 1, "the staged copy is removed");
 }

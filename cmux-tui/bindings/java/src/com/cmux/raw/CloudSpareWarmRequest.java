@@ -19,7 +19,7 @@ public final class CloudSpareWarmRequest implements WireValue {
     private final Field<Boolean> consent;
     private final Field<Boolean> dogfood;
     private final String installToken;
-    private final Field<List<String>> loginScopes;
+    private final Field<List<String>> loginTeams;
     private final String platform;
     private final Field<Boolean> setting;
     private final Field<String> storedChoice;
@@ -37,7 +37,7 @@ public final class CloudSpareWarmRequest implements WireValue {
         this.dogfood = builder.dogfood;
         if (!builder.installTokenSet) throw new IllegalArgumentException("install_token is required");
         this.installToken = Wire.nonNull(builder.installToken, "install_token");
-        this.loginScopes = builder.loginScopes.map(value -> List.copyOf(value));
+        this.loginTeams = builder.loginTeams.map(value -> List.copyOf(value));
         if (!builder.platformSet) throw new IllegalArgumentException("platform is required");
         this.platform = Wire.nonNull(builder.platform, "platform");
         this.setting = builder.setting;
@@ -54,7 +54,7 @@ public final class CloudSpareWarmRequest implements WireValue {
     public Field<Boolean> consent() { return consent; }
     public Field<Boolean> dogfood() { return dogfood; }
     public String installToken() { return installToken; }
-    public Field<List<String>> loginScopes() { return loginScopes; }
+    public Field<List<String>> loginTeams() { return loginTeams; }
     public String platform() { return platform; }
     public Field<Boolean> setting() { return setting; }
     public Field<String> storedChoice() { return storedChoice; }
@@ -83,9 +83,9 @@ public final class CloudSpareWarmRequest implements WireValue {
         }
         Object rawInstallToken = Wire.required(object, "install_token");
         builder.installToken(Wire.string(rawInstallToken, "CloudSpareWarmRequest.install_token"));
-        Object rawLoginScopes = Wire.optional(object, "login_scopes");
-        if (!Wire.isMissing(rawLoginScopes)) {
-            builder.loginScopes(Wire.array(rawLoginScopes, "CloudSpareWarmRequest.login_scopes", item -> Wire.string(item, "CloudSpareWarmRequest.login_scopes item")));
+        Object rawLoginTeams = Wire.optional(object, "login_teams");
+        if (!Wire.isMissing(rawLoginTeams)) {
+            builder.loginTeams(Wire.array(rawLoginTeams, "CloudSpareWarmRequest.login_teams", item -> Wire.string(item, "CloudSpareWarmRequest.login_teams item")));
         }
         Object rawPlatform = Wire.required(object, "platform");
         builder.platform(Wire.string(rawPlatform, "CloudSpareWarmRequest.platform"));
@@ -114,7 +114,7 @@ public final class CloudSpareWarmRequest implements WireValue {
         Wire.put(object, "consent", consent);
         Wire.put(object, "dogfood", dogfood);
         Wire.put(object, "install_token", installToken);
-        Wire.put(object, "login_scopes", loginScopes);
+        Wire.put(object, "login_teams", loginTeams);
         Wire.put(object, "platform", platform);
         Wire.put(object, "setting", setting);
         Wire.put(object, "stored_choice", storedChoice);
@@ -125,11 +125,11 @@ public final class CloudSpareWarmRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudSpareWarmRequest that)) return false;
-        return Objects.equals(accessToken, that.accessToken) && Objects.equals(account, that.account) && Objects.equals(api, that.api) && Objects.equals(claimed, that.claimed) && Objects.equals(consent, that.consent) && Objects.equals(dogfood, that.dogfood) && Objects.equals(installToken, that.installToken) && Objects.equals(loginScopes, that.loginScopes) && Objects.equals(platform, that.platform) && Objects.equals(setting, that.setting) && Objects.equals(storedChoice, that.storedChoice) && Objects.equals(team, that.team);
+        return Objects.equals(accessToken, that.accessToken) && Objects.equals(account, that.account) && Objects.equals(api, that.api) && Objects.equals(claimed, that.claimed) && Objects.equals(consent, that.consent) && Objects.equals(dogfood, that.dogfood) && Objects.equals(installToken, that.installToken) && Objects.equals(loginTeams, that.loginTeams) && Objects.equals(platform, that.platform) && Objects.equals(setting, that.setting) && Objects.equals(storedChoice, that.storedChoice) && Objects.equals(team, that.team);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(accessToken, account, api, claimed, consent, dogfood, installToken, loginScopes, platform, setting, storedChoice, team); }
+    public int hashCode() { return Objects.hash(accessToken, account, api, claimed, consent, dogfood, installToken, loginTeams, platform, setting, storedChoice, team); }
 
     @Override
     public String toString() { return "CloudSpareWarmRequest" + toWire(); }
@@ -146,7 +146,7 @@ public final class CloudSpareWarmRequest implements WireValue {
         private Field<Boolean> dogfood = Field.omitted();
         private String installToken;
         private boolean installTokenSet;
-        private Field<List<String>> loginScopes = Field.omitted();
+        private Field<List<String>> loginTeams = Field.omitted();
         private String platform;
         private boolean platformSet;
         private Field<Boolean> setting = Field.omitted();
@@ -185,8 +185,8 @@ public final class CloudSpareWarmRequest implements WireValue {
             this.installTokenSet = true;
             return this;
         }
-        public Builder loginScopes(List<String> value) {
-            this.loginScopes = Field.of(value);
+        public Builder loginTeams(List<String> value) {
+            this.loginTeams = Field.of(value);
             return this;
         }
         public Builder platform(String value) {

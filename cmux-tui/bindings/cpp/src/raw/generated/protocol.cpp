@@ -20222,10 +20222,10 @@ Result<Json> Codec<CloudSpareWarmRequest>::encode(const CloudSpareWarmRequest& v
     auto encoded_install_token = encode_value(value.install_token);
     if (!encoded_install_token) return std::move(encoded_install_token).error();
     object.emplace("install_token", std::move(encoded_install_token).value());
-    if (value.login_scopes) {
-        auto encoded = encode_value(*value.login_scopes);
+    if (value.login_teams) {
+        auto encoded = encode_value(*value.login_teams);
         if (!encoded) return std::move(encoded).error();
-        object.emplace("login_scopes", std::move(encoded).value());
+        object.emplace("login_teams", std::move(encoded).value());
     }
     auto encoded_platform = encode_value(value.platform);
     if (!encoded_platform) return std::move(encoded_platform).error();
@@ -20314,11 +20314,11 @@ Result<CloudSpareWarmRequest> Codec<CloudSpareWarmRequest>::decode(const Json& v
         if (!decoded) return std::move(decoded).error();
         result.install_token = std::move(decoded).value();
     }
-    const Json* field_login_scopes = value.find("login_scopes");
-    if (field_login_scopes) {
-        auto decoded = decode_value<std::vector<std::string>>(*field_login_scopes);
+    const Json* field_login_teams = value.find("login_teams");
+    if (field_login_teams) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_login_teams);
         if (!decoded) return std::move(decoded).error();
-        result.login_scopes = std::move(decoded).value();
+        result.login_teams = std::move(decoded).value();
     }
     const Json* field_platform = value.find("platform");
     if (!field_platform) {

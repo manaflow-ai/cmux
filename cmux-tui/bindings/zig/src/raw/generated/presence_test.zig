@@ -36,7 +36,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloudSessionSetRequest, "access_token");
     try expectExplicitNullRejected(protocol.CloudSessionSetRequest, "expires_at");
     try expectExplicitNullRejected(protocol.CloudSpareWarmRequest, "dogfood");
-    try expectExplicitNullRejected(protocol.CloudSpareWarmRequest, "login_scopes");
+    try expectExplicitNullRejected(protocol.CloudSpareWarmRequest, "login_teams");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationInboxOpResult, "pin_position");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "message");

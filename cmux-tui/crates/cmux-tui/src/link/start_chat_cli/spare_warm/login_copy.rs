@@ -159,12 +159,7 @@ fn cached_login(
     params: &SpareWarmParams,
     effects: &dyn Effects,
 ) -> Result<Option<Zeroizing<Vec<u8>>>, ()> {
-    let mut scopes = vec![params.team.clone()];
-    for scope in &params.login_scopes {
-        if !scopes.contains(scope) {
-            scopes.push(scope.clone());
-        }
-    }
+    let scopes = params.login_scopes();
     let deadline = effects.now() + KEYCHAIN_TIMEOUT;
     let reads: Vec<_> = std::thread::scope(|threads| {
         let reading: Vec<_> = scopes
@@ -237,23 +232,31 @@ fn transfer(
     if !valid(token) {
         return Err("invalid credential");
     }
-    if !still() {
-        return Err("the signed-in account or Cloud team changed");
-    }
     // The consent is read now, not the warm's: a person who took it back since gets no copy.
     if !(params.dogfood || (effects.remote_switch() == Some(true) && consent() == Some(true))) {
         return Err("copying the login is off");
     }
+    // After every blocking read above (the guest check, the remote switch): a sign-out or a
+    // switch during any of them stops the copy before the credential leaves this Mac.
+    if !still() {
+        return Err("the signed-in account or Cloud team changed");
+    }
     let path = format!("/home/cmux/.cmux/credential-transfer/{}.json", uuid::Uuid::new_v4());
-    let installed = effects.write(&path, token)
+    let written = effects.write(&path, token);
+    // A sign-out during the write: the staged copy is removed, never installed.
+    let installed = written
+        && still()
         && effects
             .exec(&scripts::install_command(&path), EXEC_MS)
             .is_some_and(|(code, _)| code == 0);
     if installed {
         return Ok(());
     }
-    // A failed delivery must not leave a second readable copy on the machine.
+    // A failed or stopped delivery must not leave a second readable copy on the machine.
     let _ = effects.exec(&format!("rm -f -- {}", scripts::quote(&path)), EXEC_MS);
+    if written && !still() {
+        return Err("the signed-in account or Cloud team changed");
+    }
     Err("the credential was not installed on the machine")
 }
 

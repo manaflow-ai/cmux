@@ -3048,7 +3048,7 @@ class CloudSpareWarmRequest:
     claimed: Union[str, None, MissingType] = field(default=MISSING)
     consent: Union[bool, None, MissingType] = field(default=MISSING)
     dogfood: Union[bool, MissingType] = field(default=MISSING)
-    login_scopes: Union[List[str], MissingType] = field(default=MISSING)
+    login_teams: Union[List[str], MissingType] = field(default=MISSING)
     setting: Union[bool, None, MissingType] = field(default=MISSING)
     stored_choice: Union[str, None, MissingType] = field(default=MISSING)
     team: Union[str, None, MissingType] = field(default=MISSING)

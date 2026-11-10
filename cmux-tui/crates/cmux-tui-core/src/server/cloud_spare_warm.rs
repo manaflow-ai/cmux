@@ -47,9 +47,10 @@ pub struct SpareWarmParams {
     /// The selected Stack team (nil: personal), whose cached login is read first.
     #[serde(default)]
     pub team: Option<String>,
-    /// Every scope the person's cached login may sit under: their teams, then personal (null).
+    /// The person's teams, whose cached logins are read after the selected team's; their personal
+    /// login is always read last ([`SpareWarmParams::login_scopes`]).
     #[serde(default)]
-    pub login_scopes: Vec<Option<String>>,
+    pub login_teams: Vec<String>,
     /// DEV and dogfood builds (`DevTools.isEnabled`).
     #[serde(default)]
     pub dogfood: bool,
@@ -62,6 +63,20 @@ pub struct SpareWarmParams {
     /// The person's one-time Release consent from cmux.json, when asked.
     #[serde(default)]
     pub consent: Option<bool>,
+}
+
+impl SpareWarmParams {
+    /// Every scope the person's cached login may sit under, in order: the selected team (None:
+    /// personal), their other teams, then personal.
+    pub fn login_scopes(&self) -> Vec<Option<String>> {
+        let mut scopes = vec![self.team.clone()];
+        for scope in self.login_teams.iter().cloned().map(Some).chain([None]) {
+            if !scopes.contains(&scope) {
+                scopes.push(scope);
+            }
+        }
+        scopes
+    }
 }
 
 impl std::fmt::Debug for SpareWarmParams {
@@ -150,7 +165,7 @@ pub trait CopyGuard: Send + Sync {
 /// The daemon's guard: the lease and the control as they were when the warm came.
 struct LiveGuard {
     account: String,
-    /// The lease and its person epoch then; no conversations service: no lease to follow.
+    /// The lease and its person epoch then; no conversations service: no person, so no copy.
     lease: Option<(CloudConversations, u64)>,
     control: Arc<SpareWarmControl>,
     epoch: u64,
@@ -177,11 +192,12 @@ impl CopyGuard for LiveGuard {
         if copy_account != self.account || self.control.now().epoch != self.epoch {
             return false;
         }
-        // A daemon that never had a person lease keeps the app's own account; one whose lease was
-        // cleared or given to another account since has moved its epoch.
-        self.lease.as_ref().is_none_or(|(lease, epoch)| {
+        // Fails closed: only the account the daemon leases now, under the same person epoch as when
+        // the warm came, goes on. No lease (never sent, cleared, an agent's or a tailnet's) is no
+        // person, so a warm that reached the daemon after a sign-out copies nothing.
+        self.lease.as_ref().is_some_and(|(lease, epoch)| {
             lease.lease_person_epoch() == *epoch
-                && lease.lease_person().is_none_or(|(sub, _)| sub == copy_account)
+                && lease.lease_person().is_some_and(|(sub, _)| sub == copy_account)
         })
     }
 
