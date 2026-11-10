@@ -75,18 +75,23 @@ pin_reader="$code/scripts/ci/app_ffi_pin.py"
 # sources, headers, and the files a non-test source or build script names). A test, script or README, or a file only
 # they read, is not built into the archive: #39027 changed bindings/rust/.cmux-resource-api.json, which only a test
 # reads, and staled the pin on 2026-11-09.
-if ! listed="$(python3 -I "$pin_reader" inputs "$root" "${crates[@]}" 2>&1)"; then
-  echo "error: the app FFI inputs cannot be listed: ${listed#error: }" >&2
+listed_err="$(mktemp)"
+if ! listed="$(python3 -I "$pin_reader" inputs "$root" "${crates[@]}" 2>"$listed_err")"; then
+  echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$listed_err")" >&2
+  rm -f "$listed_err"
   exit 1
 fi
+rm -f "$listed_err"
 paths=()
 while IFS= read -r input; do [[ -n "$input" ]] && paths+=("$input"); done <<<"$listed"
-# Not an input: plans/cmux-next/spec-proposals/visuals/design-tokens.json,
-# which cmux-motion's build.rs reads for its token table. A theme edit there
-# must not mark the pin stale; the app passes its own token values to the
-# motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
-# compares them with the spec's.
-paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
+# plans/cmux-next/spec-proposals/visuals/design-tokens.json is an input (app_ffi_pin.py BUILD_READS): cmux-motion's
+# build.rs compiles its token values in, and cmux_motion_spring_base / cmux_motion_tween_base return them to the app.
+# Above the crates: the cmux-tui workspace manifest the crates inherit `workspace = true` keys from, and the cargo
+# configs and toolchain files cargo and rustup read in and above cmux-tui/crates/cmux-app-ffi, where
+# build-app-ffi.sh builds.
+paths+=(cmux-tui/Cargo.toml cmux-tui/.cargo cmux-tui/rust-toolchain cmux-tui/rust-toolchain.toml
+  cmux-tui/crates/.cargo cmux-tui/crates/rust-toolchain cmux-tui/crates/rust-toolchain.toml
+  .cargo rust-toolchain rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
 # --list-inputs prints them (tests/app-ffi-release-paths.test.sh keeps the
 # release workflow's push paths in step with this list).
 if [[ "$list_inputs" -eq 1 ]]; then

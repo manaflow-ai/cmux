@@ -15,7 +15,7 @@ want="$(
   while IFS= read -r input; do
     # A directory input is a prefix (src, build-support, include), whether or not it exists yet.
     case "${input##*/}" in
-      src|build-support|include) echo "\"$input/**\"" ;;
+      src|build-support|include|.cargo) echo "\"$input/**\"" ;;
       *) [[ -d "$root/$input" ]] && echo "\"$input/**\"" || echo "\"$input\"" ;;
     esac
   done < <(bash "$root/scripts/cmux-next/check-app-ffi-pin.sh" --list-inputs)
