@@ -162,6 +162,15 @@ impl JournalWriterCommitScope {
     }
 }
 
+impl Drop for RegistryConnectionPin {
+    fn drop(&mut self) {
+        // A commit of this flow took the WAL past its limit while the flow
+        // held the mux state lock: the wait it put off runs here, after the
+        // state lock and before the connection's release (`wal_durability`).
+        super::wal_durability::run_owed_restart();
+    }
+}
+
 impl Drop for JournalWriterCommitScope {
     fn drop(&mut self) {
         IN_JOURNAL_WRITER_COMMIT.with(|flag| flag.set(self.previous));

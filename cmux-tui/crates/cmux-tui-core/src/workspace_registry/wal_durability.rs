@@ -67,10 +67,14 @@
 //!   once per 64 MiB ([`next_restart_step`]): each try that timed out
 //!   doubles the step from 4 MiB up to the limit, and a try that ended sets
 //!   it back to 4 MiB. The file grows until one try ends.
-//! - A commit of a thread that holds the mux state lock never waits (every
-//!   reader of the state would wait behind it): it makes no try, and the
-//!   next commit of a thread without that lock makes it. The journal writer
-//!   makes most commits and never holds the state lock.
+//! - A commit of a thread that holds the mux state lock never waits under
+//!   that lock (every reader of the state would wait behind it). Its try is
+//!   put off to the moment the thread releases its pin of the registry
+//!   connection, which is after the state lock ([`run_owed_restart`]); a
+//!   commit of another thread without that lock makes the try if it comes
+//!   first. A session build commits each workspace under the state lock, so
+//!   without the put-off try its WAL had no bound. The file grows by what
+//!   one hold of the state lock commits.
 //!
 //! The thread that waits holds its connection lock (and a request thread
 //! the registry lock) for the wait: other writers of that database wait
@@ -212,6 +216,10 @@ thread_local! {
     /// The syncer of the commit in progress on this thread: the commit hook
     /// sets it before SQLite writes the frames, the WAL hook takes it after.
     static COMMITTING: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
+    /// The database whose restart try this thread put off: its commit took
+    /// the WAL past the limit while the thread held the mux state lock
+    /// ([`run_owed_restart`]).
+    static RESTART_OWED: RefCell<Option<std::sync::Weak<Shared>>> = const { RefCell::new(None) };
 }
 
 /// A view of one database's syncer (see the module docs): its commit
@@ -430,7 +438,7 @@ fn journal_size_limit_pragma() -> String {
 }
 
 /// One commit; `frames` is the WAL's frame count after it (the WAL hook's argument).
-fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
+fn note_commit(shared: &Arc<Shared>, frames: std::ffi::c_int) {
     let mut state = shared.state.lock().recover_poison();
     state.committed += 1;
     let frames = u64::try_from(frames).unwrap_or(0);
@@ -459,18 +467,28 @@ fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
 /// [`RESTART_WAIT`]. This thread owns the writing connection, so the
 /// checkpoint sees no new commit and the next commit restarts the WAL.
 ///
-/// A thread that holds the mux state lock makes no try: its wait would hold
-/// every reader of the state behind the disk (`registry_intent`: "No request
-/// waits for the disk while it holds the mux state lock"). The point of the
-/// next try stays, so the next commit of a thread without that lock makes it.
-fn wait_for_restart_checkpoint(shared: &Shared, state: MutexGuard<'_, SyncState>, frames: u64) {
+/// A thread that holds the mux state lock makes no try under it: its wait
+/// would hold every reader of the state behind the disk (`registry_intent`:
+/// "No request waits for the disk while it holds the mux state lock"). The
+/// point of the next try stays, and the thread makes the try when it
+/// releases its pin of the connection ([`run_owed_restart`]), or the next
+/// commit of a thread without that lock does.
+fn wait_for_restart_checkpoint(
+    shared: &Arc<Shared>,
+    state: MutexGuard<'_, SyncState>,
+    frames: u64,
+) {
     if frames.saturating_mul(shared.frame_bytes) <= WAL_SIZE_LIMIT_BYTES
         || frames < state.restart_try_frames
         || state.leftover_owed
         || state.leftover_running
         || state.stopping
-        || super::registry_connection::current_thread_holds_state()
     {
+        return;
+    }
+    if super::registry_connection::current_thread_holds_state() {
+        drop(state);
+        let _ = RESTART_OWED.try_with(|owed| *owed.borrow_mut() = Some(Arc::downgrade(shared)));
         return;
     }
     #[cfg(test)]
@@ -487,6 +505,22 @@ fn wait_for_restart_checkpoint(shared: &Shared, state: MutexGuard<'_, SyncState>
         state.restart_wait_longest = state.restart_wait_longest.max(started.elapsed());
         state.restart_timeouts += u64::from(!ended);
     }
+}
+
+/// The restart try that a commit of this thread put off while the thread
+/// held the mux state lock ([`wait_for_restart_checkpoint`]). The registry
+/// connection's pin calls it at its release: the flow released the state
+/// lock before, and still holds the connection, so no commit lands beside
+/// the checkpoint. A pin released under the state lock leaves the try owed.
+pub(crate) fn run_owed_restart() {
+    if super::registry_connection::current_thread_holds_state() {
+        return;
+    }
+    let owed = RESTART_OWED.try_with(|owed| owed.borrow_mut().take()).ok().flatten();
+    let Some(shared) = owed.and_then(|shared| shared.upgrade()) else { return };
+    let state = shared.state.lock().recover_poison();
+    let frames = state.wal_frames;
+    wait_for_restart_checkpoint(&shared, state, frames);
 }
 
 /// Ask the syncer for one PASSIVE checkpoint, whatever the WAL's size, and

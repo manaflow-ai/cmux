@@ -43,9 +43,9 @@ grows by what commits write until that read ends. A checkpoint slower than
 250 ms (a slow disk) lets the commit go on; the next tries come 4, 12, 28, 60
 and 124 MiB past the limit, then once per 64 MiB, and the file grows until
 one try ends. A commit of a thread that holds the mux state lock makes no try
-(every reader of the state would wait behind it); the next commit of a thread
-without that lock makes it, and the journal writer, which makes most commits,
-never holds that lock. The thread that waits holds its connection lock (a
+under that lock (every reader of the state would wait behind it); the thread
+makes it when it releases its hold of the registry connection, after the
+state lock, so the file grows by what one hold of the state lock commits. The thread that waits holds its connection lock (a
 request thread also the registry lock) for the wait. A WAL that a previous
 run left over 4 MiB is checkpointed by the syncer when the registry opens,
 and a clean stop ends with one PASSIVE checkpoint; cmux never deletes the WAL

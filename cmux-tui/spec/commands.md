@@ -726,8 +726,8 @@ the whole WAL, and the next commit restarts the WAL and cuts the file to
 the whole WAL. A reader that pins an old snapshot keeps every later commit in
 the WAL until its read ends (the commit does not wait for it, and the cut is
 tried again after each further 4 MiB); a checkpoint slower than 250 ms, or
-commits of a thread that holds the mux state lock (they never wait), let the
-file grow until a later try ends; an idle registry keeps its size.
+commits of a thread that holds the mux state lock (their wait comes after
+that lock's release), let the file grow until a later try ends; an idle registry keeps its size.
 Daemons
 older than each field omit it.
 
