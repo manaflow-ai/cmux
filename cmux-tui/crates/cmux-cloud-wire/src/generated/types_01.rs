@@ -423,6 +423,8 @@ pub struct CloudMachine {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub hourly_rate_usd: Option<Option<WireNumber>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub paused_hourly_rate_usd: Option<Option<WireNumber>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub running_since: Option<Option<i64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop: Option<bool>,

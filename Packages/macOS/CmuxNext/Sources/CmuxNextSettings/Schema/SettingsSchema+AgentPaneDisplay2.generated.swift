@@ -72,6 +72,20 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "tray", "hat", "tuck", "handle", "grabber", "pull", "tab", "side", "left", "middle", "center", "right", "composer"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.unreadBannerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.unreadBanner", "Unread Banner"),
+                help: SettingsText.keyed("settings.agentPane.display.unreadBanner.help", "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."),
+                kind: .choice([
+                    SettingChoice("expanded", SettingsText.keyed("settings.choice.expanded", "Expanded")),
+                    SettingChoice("collapsed", SettingsText.keyed("settings.choice.collapsed", "Collapsed")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.unreadBannerDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "unread", "new", "banner", "since", "jump", "mark", "read", "collapse", "expand", "hide"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.senderIconLeadPath,
                 section: .appearance,
                 group: group,
