@@ -70,6 +70,8 @@ nonisolated enum SidebarPerfCounters {
         case rowsWalked = "rows_walked"
         /// Rows the list's scroll rule read (the anchor, the settle): the rows in view, at any list length.
         case viewportRows = "viewport_rows"
+        /// One-row changes the model took as its input (`SidebarModel.apply(_:)`), with no set of the sections.
+        case rowChanges = "row_changes"
         /// Rows mapped from their stores, with or without a feed (`SidebarRowFeed.Make.rows`).
         case rowsMade = "rows_made"
         /// Rows the slot rule's placeholder filter walked (`SidebarSection.withoutPlaceholders`).
