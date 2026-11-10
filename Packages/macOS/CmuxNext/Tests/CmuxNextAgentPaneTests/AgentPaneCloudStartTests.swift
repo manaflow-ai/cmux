@@ -379,6 +379,13 @@ struct AgentPaneCloudStartTests {
         #expect(seed.promptBy == .person)
         #expect(seed.harness == "codex")
         #expect(seed.model == "gpt-6-astra")
+        // The start's key goes with the seed, so the opened chat's page takes what its first tab
+        // kept under it (webviews cloudStartCarry.ts), and the handshake hands it out as is.
+        #expect(seed.cloudStartKey == start.key)
+        var handshake = AgentPaneHandshake(transport: .acpmuxBridge)
+        handshake.cloudStartKey = seed.cloudStartKey
+        let coded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(handshake)) as? [String: Any]
+        #expect(coded?["cloudStartKey"] as? String == start.key)
         // No model from the page: the harness's default on the machine.
         let unnamed = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         #expect(unnamed.seed(cwd: "/w").model == nil)
