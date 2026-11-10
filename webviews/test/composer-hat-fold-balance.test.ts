@@ -67,7 +67,7 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
     const box = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + 40);
     for (let turn = 0; turn < 4; turn++) await page.mouse.wheel(0, -240);
-    await page.waitForSelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
+    await page.waitForSelector(".acpmux-jump-latest[data-shown]");
     await page.mouse.move(0, 0);
     await settle(page);
     return page;
@@ -151,7 +151,7 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
           parts[key] = { ...b, opacity };
         }
         const tuck = hat.querySelector(".acpmux-running-tray__tuck");
-        const jump = document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
+        const jump = document.querySelector(".acpmux-jump-latest[data-shown]");
         w.__frames.push({
           at: performance.now(),
           clicked: w.__clicked,

@@ -60,7 +60,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       return {
         button: center(".acpmux-jump-latest"),
         composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-        shown: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
+        shown: document.querySelector(".acpmux-jump-latest")?.hasAttribute("data-shown") ?? false,
       };
     });
 
@@ -115,7 +115,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
     });
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor({ timeout: 10_000 });
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor({ timeout: 10_000 });
     await settle(page);
     return page;
   };

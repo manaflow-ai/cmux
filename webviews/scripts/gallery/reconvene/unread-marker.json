@@ -1,7 +1,13 @@
 {
   "envs": [
-    ["light", "none"],
-    ["dark", "none"]
+    [
+      "light",
+      "none"
+    ],
+    [
+      "dark",
+      "none"
+    ]
   ],
   "shots": [
     {
@@ -45,33 +51,41 @@
       "deviceScaleFactor": 2
     },
     {
-      "name": "unread-marker-banner-expanded",
+      "name": "unread-marker-unread-above",
       "entry": "agent-pane.unread-marker",
-      "variant": "banner-expanded",
+      "variant": "unread-above",
       "width": 900,
       "height": 640,
       "deviceScaleFactor": 2
     },
     {
-      "name": "unread-marker-banner-collapsed",
+      "name": "unread-marker-unread-off",
       "entry": "agent-pane.unread-marker",
-      "variant": "banner-collapsed",
+      "variant": "unread-off",
       "width": 900,
       "height": 640,
       "deviceScaleFactor": 2
     },
     {
-      "name": "unread-marker-banner-off",
-      "entry": "agent-pane.unread-marker",
-      "variant": "banner-off",
+      "name": "jump-control-double-control-regression",
+      "entry": "agent-pane.jump-control",
+      "variant": "double-control-regression",
       "width": 900,
       "height": 640,
       "deviceScaleFactor": 2
     },
     {
-      "name": "unread-marker-jump-pair",
-      "entry": "agent-pane.unread-marker",
-      "variant": "jump-pair",
+      "name": "jump-control-latest-only",
+      "entry": "agent-pane.jump-control",
+      "variant": "latest-only",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "jump-control-needs-you",
+      "entry": "agent-pane.jump-control",
+      "variant": "needs-you",
       "width": 900,
       "height": 640,
       "deviceScaleFactor": 2

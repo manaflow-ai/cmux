@@ -102,12 +102,10 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
 export type TrayHandleSide = "left" | "middle" | "right";
-/// Settings > Agent Chat > Unread Banner, expanded by default: the floating "3 new turns since 3:42"
-/// banner at the transcript's top start while the "New" line is off screen
-/// (conversation/SinceDivider.tsx UnreadBanner; Leo, 2026-11-10: "you can have the collapsed view.
-/// You can have the expanded view. You can have, like, right click to just hide it completely").
-/// The banner's chevron and both right-click menus write it. Not part of ChatDisplay: switching it
-/// measures no transcript row again.
+/// Settings > Agent Chat > Unread Banner, expanded by default. The way to unread turns is now the
+/// transcript's one jump control (jumpControl.ts; Leo, 2026-11-10: "There's also no point doubling up
+/// on this"): off keeps it from pointing up to them; expanded and collapsed both let it. The New
+/// line's right-click writes it. Not part of ChatDisplay: switching it measures no transcript row again.
 export const UNREAD_BANNER_KEY = "agentPane.display.unreadBanner";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";

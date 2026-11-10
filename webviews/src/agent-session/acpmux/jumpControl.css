@@ -1,0 +1,35 @@
+/* The transcript's one jump control (VirtualTranscript.tsx JumpToLatest, jumpControl.ts;
+   design/transcript-overlays.md). Jump to latest's own disc (conversation.css .acpmux-jump-latest:
+   the same fisheye glass, size, rim, hover, focus, place and fade) does every jump, so there is never
+   a second disc or a pill beside it. While unread turns lie above the view the arrow turns up, in
+   place, and the disc carries their count: a small accent badge on its top end, as chat apps count
+   unread messages, in the unread line's own accent (unread.css .cv-since__tag).
+   Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
+.acpmux-jump-latest[data-jump="unread"] .acpmux-jump-latest__arrow {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-jump-latest .acpmux-jump-latest__arrow {
+    transition: transform var(--agent-motion-move) var(--agent-ease-out);
+  }
+}
+.acpmux-jump-latest__count {
+  position: absolute;
+  top: calc(var(--ds-space-1) * -1);
+  inset-inline-end: calc(var(--ds-space-1) * -1);
+  min-width: var(--ds-space-4);
+  height: var(--ds-space-4);
+  padding-inline: var(--ds-space-1);
+  /* Half its 16 px height: a round badge that grows into a capsule for two digits. */
+  border-radius: var(--ds-radius-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cmux-app-accent, var(--agent-text));
+  color: var(--cmux-app-on-accent, var(--agent-page-bg));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+}

@@ -1,9 +1,9 @@
 // l10n-allow-file: sample transcript and comparison notes, not shipped UI.
-// The unread marker and the jump pair in the whole pane (design/transcript-overlays.md): the "New"
-// line, the unread banner in the top-start zone, and Jump up stacked on Jump to latest in the
-// bottom-center zone, beside Session Info. Leo, 2026-11-10: "make it look integrated ... don't
-// introduce any random stuff"; "you get jump to bottom, but then jump to, like, the last thread".
-// The component looks (line, banner, light, dark and image) are agent-pane.since-divider.
+// The unread marker in the whole pane (design/transcript-overlays.md): the "New" line, and the one
+// jump control in the bottom-center zone pointing up to it with the count, beside Session Info.
+// Leo, 2026-11-10: "make it look integrated ... don't introduce any random stuff"; "There's also no
+// point doubling up on this." The line's looks are agent-pane.since-divider; the control's states
+// are agent-pane.jump-control.
 // View every variant at each width, and in light and dark (?colorScheme=light / dark).
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -55,35 +55,21 @@ const display = async (values: Record<string, unknown>) => {
   setChatDisplay(values);
 };
 
-/// Opens at the latest message, as a returning person does: the banner over the top, Jump up over
-/// the composer (the line is far above), Jump to latest hidden (at the latest message).
+/// Opens at the latest message, as a returning person does: the one jump control over the composer
+/// points up to the line (far above) with the count.
 const atLatest =
   (values: Record<string, unknown> = {}): Play =>
   async (ctx) => {
     await display(values);
     await settle(ctx);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-since-jump"));
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-latest[data-jump="unread"][data-shown]'));
   };
 
-/// Scrolled to the middle by hand: the stop is the reader's place, so Jump up waits for the line.
-const midChat: Play = async (ctx) => {
-  await settle(ctx);
-  await ctx.scroll({ selector: ".acpmux-scroll" }, 1_400);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
-};
-
-const jumpedUp: Play = async (ctx) => {
-  await settle(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
-  await ctx.click({ selector: ".acpmux-jump-up" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-back]"));
-};
-
-/// The banner pressed: the transcript brings the line in, and the banner has done its job.
+/// The control pressed: the transcript brings the line in, and the control turns to Jump to latest.
 const lineInView: Play = async (ctx) => {
   await settle(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-since-jump[data-shown]"));
-  await ctx.click({ selector: ".acpmux-since-jump__body" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-latest[data-jump="unread"][data-shown]'));
+  await ctx.click({ selector: ".acpmux-jump-latest" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-since"));
 };
 
@@ -108,58 +94,40 @@ const imageBackground: Play = async (ctx) => {
 
 export default agentPaneEntry({
   id: "agent-pane.unread-marker",
-  title: "Unread marker and the jump pair",
+  title: "Unread marker and the jump control",
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
-  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
-  keywords: ["unread", "new since", "jump up", "jump to bottom", "banner"],
+  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx"],
+  keywords: ["unread", "new since", "jump up", "jump to bottom"],
   variants: {
-    "banner-expanded": {
-      note: "Chosen: back in a chat that kept working, the banner at the top left reads 9 new turns since the time, with Mark read; Jump up waits over the composer.",
+    "unread-above": {
+      note: "Back in a chat that kept working: the one control over the composer points up to the New line with 9 new turns.",
       snapshot,
       play: atLatest(),
     },
-    "banner-collapsed": {
-      note: "Collapsed (the chevron, kept as the setting): a small pill with the arrow and the count; still jumps.",
+    "unread-off": {
+      note: "The unread setting off (the line's right-click): the control stays hidden at the latest message; the line is still in the rhythm.",
       snapshot,
-      play: atLatest({ "agentPane.display.unreadBanner": "collapsed" }),
-    },
-    "banner-off": {
-      note: "Off (right-click > Hide unread banner): only the line and Jump up; the line's right-click brings it back.",
-      snapshot,
-      // Off draws no banner (SinceDivider.tsx returns none), so this waits for Jump up instead and
-      // holds the banner to being gone.
       play: async (ctx) => {
         await display({ "agentPane.display.unreadBanner": "off" });
         await settle(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
-        if (ctx.document.querySelector(".acpmux-since-jump"))
-          throw new Error("with the banner off, the unread banner must not draw");
+        if (ctx.document.querySelector('.acpmux-jump-latest[data-jump="unread"][data-shown]'))
+          throw new Error("with the unread setting off, the control must not point up");
       },
     },
-    "jump-pair": {
-      note: "Mid-chat: Jump up (to the New line) stacked on Jump to latest, one column on the composer's center line.",
-      snapshot,
-      play: midChat,
-    },
-    "jump-back": {
-      note: "After Jump up: the view is at the line and the button points down; a second press or Esc goes back.",
-      snapshot,
-      play: jumpedUp,
-    },
     "line-in-view": {
-      note: "The banner pressed: the New line in the message rhythm (one control row, its recap under it), the banner gone.",
+      note: "The control pressed: the New line in the message rhythm (one control row, its recap under it); the control now points down.",
       snapshot,
       play: lineInView,
     },
     "with-session-info": {
-      note: "Session Info pushes at the end edge; the banner keeps to the column's start, the pair to its center: no overlap.",
+      note: "Session Info pushes at the end edge; the control keeps to the composer's center: no overlap.",
       snapshot,
       play: sessionInfo,
     },
     "image-background": {
-      note: "Over a background image: the glass banner and pair, the accent line, all from the theme's tokens.",
+      note: "Over a background image: the glass control and its count, the accent line, all from the theme's tokens.",
       snapshot,
       play: imageBackground,
     },

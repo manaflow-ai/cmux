@@ -201,7 +201,7 @@ test("scrolled up, a static button above the composer jumps to the latest messag
     const latest = scrollerEnd(scroller);
     expect(latest).toBeGreaterThan(VIEWPORT);
     const button = () =>
-      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
+      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
     // It opens at the latest message: no button to show.
     expect(scroller.scrollTop).toBe(latest);
     expect(button()?.dataset.shown).toBeUndefined();
@@ -273,7 +273,7 @@ test("once shown, the button stays shown back inside its distance and hides only
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
     const button = () =>
-      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
+      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
       await act(async () => {
@@ -325,7 +325,7 @@ test("the transcript tells its pane when Jump to latest shows and hides, so the 
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
     const button = () =>
-      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
+      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
       await act(async () => {
@@ -369,7 +369,7 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
       ),
     );
     const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!;
+    const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!;
     scroller.scrollTop = 0;
     await act(async () => {
       scroller.dispatchEvent(new dom.window.Event("scroll"));
