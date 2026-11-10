@@ -427,6 +427,29 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     expect((await teamMode({ stack_team: v1Team, actor: "ops" })).body).toMatchObject({ requested: "per_team", in_force_now: "per_team" })
   })
 
+  it("records the first paid renewal from the subscription list (the raise lock), never the sign-up invoice", async () => {
+    const lockTeam = "f1e2d3c4-b5a6-4978-8a6b-5c4d3e2f1a0b"
+    const teamId = stackTeamIdFor(testEnv.STACK_PROJECT_ID, lockTeam)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const sub: any = stripe.addSub("sub_lockteam1", "cus_lockteam1", { plan: "team", stackTeamId: lockTeam }, "cmux-team-monthly-20")
+    sub.latest_invoice = { id: "in_signup", status: "paid", billing_reason: "subscription_create", amount_paid: 2500, status_transitions: { paid_at: nowS() - 3600 } }
+    fakeBoundaries(stripe, 0)
+    await spendOn(teamId, 1)
+    const paid = async () => {
+      let rows: unknown[] = []
+      await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamId)), async (m: any) => {
+        rows = m.ctx.storage.sql.exec(`SELECT invoice, subscription, amount_paid FROM usage_paid_invoice`).toArray()
+      })
+      return rows
+    }
+    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, failed: 0 })
+    expect(await paid()).toEqual([])
+    sub.latest_invoice = { id: "in_renewal", status: "paid", billing_reason: "subscription_cycle", amount_paid: 2500, status_transitions: { paid_at: nowS() } }
+    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, failed: 0 })
+    expect((await sync(v2Env, JSON.stringify({ subscription: "sub_lockteam1" }))).body).toMatchObject({ checked: 1, failed: 0 })
+    expect(await paid()).toEqual([{ invoice: "in_renewal", subscription: "sub_lockteam1", amount_paid: 2500 }])
+  })
+
   it("keeps a pushed per-seat period's included amount when the price set changes inside the period", async () => {
     const pinTeam = "8e9d0c1b-2f3a-4b4c-9d5e-7f8091021324"
     const teamId = stackTeamIdFor(testEnv.STACK_PROJECT_ID, pinTeam)

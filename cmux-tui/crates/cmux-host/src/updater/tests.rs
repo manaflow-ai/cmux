@@ -1665,23 +1665,33 @@ fn adopt_relinks_a_work_link_the_app_replaced_and_keeps_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let paths = image(dir.path());
     // Already the store link: nothing changes.
-    assert!(!relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Unchanged);
     let link = paths.at(WORK_CMUX_TUI_LINK);
     // The Mac app's in-place update left a file of its own (cmuxterm-hq#7086).
     fs::remove_file(&link).unwrap();
     fs::write(&link, b"the app's build").unwrap();
     assert!(off_reason(&paths).is_some());
-    assert!(relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
     assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
     assert_eq!(fs::read(paths.at(WORK_CMUX_TUI_KEPT)).unwrap(), b"the app's build");
     assert!(off_reason(&paths).is_none());
     // A link elsewhere is pointed back too.
     fs::remove_file(&link).unwrap();
     std::os::unix::fs::symlink("/tmp/elsewhere", &link).unwrap();
-    assert!(relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Linked);
     assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
     // No link at all: made.
     fs::remove_file(&link).unwrap();
-    assert!(relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Linked);
     assert!(off_reason(&paths).is_none());
+    // Restoring after a run that kept no file leaves an earlier `.pre-adopt` alone.
+    restore_work_link(&paths, Relinked::Linked);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
+    assert!(paths.at(WORK_CMUX_TUI_KEPT).exists());
+    // After a run that kept one, it goes back.
+    fs::remove_file(&link).unwrap();
+    fs::write(&link, b"a newer app build").unwrap();
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
+    restore_work_link(&paths, Relinked::KeptFile);
+    assert_eq!(fs::read(&link).unwrap(), b"a newer app build");
 }

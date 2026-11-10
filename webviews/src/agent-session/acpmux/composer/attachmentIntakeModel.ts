@@ -955,13 +955,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// `chat.upload.begin` spent the Enter that a send bound only once the chip was ready (Leo,
 /// 2026-11-06, "Not sent: it needs your own key press or click."). `hold(send, kept)`: a send that
 /// already has its gesture (one an earlier hold bound) keeps it and binds none. A later hold keeps
-/// the gesture the held one bound: one send, one gesture.
+/// the gesture the held one bound: one send, one gesture. `hold(send, kept, bindOwn)`: a send whose
+/// gesture binds otherwise (`/side`'s, bound to no chat yet) binds with `bindOwn` instead.
 export function useSendWhenAttached<G = unknown>(
   pending: number,
   scope?: string,
   unsettled: number = pending,
   bind?: () => G | undefined,
-): ((send: (gesture?: G) => void, kept?: G) => boolean) & { cancel(): void } {
+): ((send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean) & { cancel(): void } {
   const held = useRef<{ send: (gesture?: G) => void; gesture: G | undefined } | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -978,9 +979,9 @@ export function useSendWhenAttached<G = unknown>(
   }, [unsettled]);
   const [hold] = useState(() =>
     Object.assign(
-      (send: (gesture?: G) => void, kept?: G) => {
+      (send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
         if (count.current === 0 && !held.current) return false;
-        held.current = { send, gesture: kept ?? held.current?.gesture ?? binder.current?.() };
+        held.current = { send, gesture: kept ?? held.current?.gesture ?? (bindOwn ?? binder.current)?.() };
         return true;
       },
       {
@@ -997,19 +998,21 @@ export function useSendWhenAttached<G = unknown>(
 /// (`uploading` of them), then goes once, with them as links (promptBudget.ts `awaitsOriginals`).
 /// `hold(awaits, send, kept)`: when `awaits`, holds `send` (true; a later hold replaces it);
 /// otherwise the send goes now (false) and any held one is dropped, so it never goes later on its
-/// own with whatever draft the composer has then. A new `scope` drops it too. `bind` and `kept`: the
-/// held send's gesture, as useSendWhenAttached binds it.
+/// own with whatever draft the composer has then. A new `scope` drops it too. `bind`, `kept` and
+/// `bindOwn`: the held send's gesture, as useSendWhenAttached binds it.
 export function useSendWhenOriginals<G = unknown>(
   uploading: number,
   scope?: string,
   bind?: () => G | undefined,
-): (awaits: boolean, send: (gesture?: G) => void, kept?: G) => boolean {
+): (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => boolean {
   const wait = useSendWhenAttached<G>(uploading, scope, uploading, bind);
-  const [hold] = useState(() => (awaits: boolean, send: (gesture?: G) => void, kept?: G) => {
-    if (awaits && wait(send, kept)) return true;
-    wait.cancel();
-    return false;
-  });
+  const [hold] = useState(
+    () => (awaits: boolean, send: (gesture?: G) => void, kept?: G, bindOwn?: () => G | undefined) => {
+      if (awaits && wait(send, kept, bindOwn)) return true;
+      wait.cancel();
+      return false;
+    },
+  );
   return hold;
 }
 
