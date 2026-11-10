@@ -65,7 +65,13 @@ pub fn all() -> Vec<CgWindow> {
     list(LIST_EXCLUDE_DESKTOP, 0)
 }
 
-/// One window by id.
+/// One window by id. The window server answers a one-window query only for
+/// a window on screen now; a window on another Space, behind a full-screen
+/// app or of a hidden app comes back empty there, so it is found in the full
+/// list instead (the list `list_windows` reads).
 pub fn by_id(id: u32) -> Option<CgWindow> {
-    list(LIST_INCLUDING_WINDOW, id).into_iter().find(|w| w.id == id)
+    list(LIST_INCLUDING_WINDOW, id)
+        .into_iter()
+        .find(|w| w.id == id)
+        .or_else(|| all().into_iter().find(|w| w.id == id))
 }
