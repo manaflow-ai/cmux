@@ -1,5 +1,5 @@
 // The turn-end fold's clock grows when a later pass finds a move too long for it (turnEndFold.ts
-// `turnEndFoldMs`: a long move runs longer so no frame moves more than 0.6 of a line). When it grows
+// `turnEndFoldTiming`: a long move runs longer so no frame moves more than 0.6 of a line). When it grows
 // after a frame has painted, every row and copy goes on from where it was drawn, never from the
 // swap's places: a row the growth did not move keeps going one way, and a copy that has started to
 // fade never comes back up (review of #40350: a restart from the swap's places drew an unchanged row
