@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead as _, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow, bail};
@@ -28,6 +28,33 @@ pub(super) const IO_DEADLINE: Duration = Duration::from_secs(60);
 /// crossed: a part of [`PART_BYTES`] (about 11 MB of base64) needs about
 /// 6 minutes at this rate before [`IO_DEADLINE`] of silence counts.
 const MIN_LINK_BYTES_PER_SECOND: u64 = 32 * 1024;
+/// How long a request whose answer is late may go on waiting while the machine still answers
+/// `ping` on a connection of its own ([`Remote::alive`]): the copy's own bound (the app's
+/// `CloudMoveCLI` gives a copy 30 minutes). A busy machine or link makes a copy slower, never
+/// makes it fail.
+const ANSWER_CEILING: Duration = Duration::from_secs(30 * 60);
+/// How long the machine has to answer that `ping`.
+const PROBE_DEADLINE: Duration = IO_DEADLINE;
+/// How long a dropped connection is dialed again before the request fails
+/// ([`Remote::reconnect`]): a machine link that redials comes back within it.
+const RECONNECT_WINDOW: Duration = Duration::from_secs(3 * 60);
+/// How many times one request is sent again on a new connection after its own dropped.
+const MAX_REPLAYS: usize = 4;
+/// The requests sent again after a dropped connection ([`replayable`]): each reads, or writes
+/// what it wrote before (an overwrite, an append guarded by the revision it expects, a folder
+/// that `mkdir_all` checks for), so a second copy of one that landed changes nothing.
+const REPLAYABLE: [&str; 9] = [
+    "identify",
+    "ping",
+    "fs.stat",
+    "fs.read",
+    "fs.readlink",
+    "fs.list",
+    "fs.write",
+    "git.seed.status",
+    "blob.fetch.status",
+];
+
 /// Bytes per `fs.read` answer asked for.
 const READ_BYTES: u64 = 8 * 1024 * 1024;
 /// Entries per `fs.list` page (the daemon's maximum).
@@ -87,9 +114,51 @@ impl std::fmt::Display for FsRefusal {
 
 impl std::error::Error for FsRefusal {}
 
+/// The connection to the machine dropped (it closed, or a read or write
+/// failed other than by timing out): a request that reads, or writes what it
+/// wrote before, is sent again on a new one ([`Remote::reconnect`]).
+#[derive(Debug)]
+struct Dropped(String);
+
+impl std::fmt::Display for Dropped {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Dropped {}
+
+/// Whether `cmd` with `params` may be sent again after its connection dropped: one of
+/// [`REPLAYABLE`], and a listing's first page only (a later page names a listing of the
+/// connection that dropped).
+fn replayable(cmd: &str, params: &Value) -> bool {
+    REPLAYABLE.contains(&cmd) && !(cmd == "fs.list" && params.get("cursor").is_some())
+}
+
+/// How a connection waits on a late answer and a dropped connection. Tests compress it.
+#[derive(Clone, Copy, Debug)]
+struct Patience {
+    ceiling: Duration,
+    probe: Duration,
+    reconnect: Duration,
+    replays: usize,
+}
+
+const PATIENCE: Patience = Patience {
+    ceiling: ANSWER_CEILING,
+    probe: PROBE_DEADLINE,
+    reconnect: RECONNECT_WINDOW,
+    replays: MAX_REPLAYS,
+};
+
 /// One connection to the machine daemon.
 pub(super) struct Remote {
     reader: BufReader<UnixStream>,
+    /// The socket it was dialed on: a late answer asks the machine there whether it still
+    /// answers, and a dropped connection is dialed again there. None (a test's socket pair):
+    /// neither, as before.
+    socket: Option<PathBuf>,
+    patience: Patience,
     next_id: u64,
     /// The machine takes deflate write bytes (`fs-write-deflate-v1`,
     /// [`Remote::negotiate`]); otherwise every write is plain base64.
@@ -102,13 +171,68 @@ pub(super) struct Remote {
 
 impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
-        let stream = UnixStream::connect(socket)
-            .with_context(|| format!("cannot connect to {}", socket.display()))?;
-        stream.set_read_timeout(Some(IO_DEADLINE))?;
-        // A machine that stops reading must not hold a write (and a
-        // caller's lock) forever either.
-        stream.set_write_timeout(Some(IO_DEADLINE))?;
-        Ok(Self { reader: BufReader::new(stream), next_id: 1, deflate: false, no_follow: false })
+        let stream = dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))?;
+        let mut remote = Self::on(stream);
+        remote.socket = Some(socket.to_path_buf());
+        Ok(remote)
+    }
+
+    /// A connection over `stream`, with no socket to ask or dial again.
+    fn on(stream: UnixStream) -> Self {
+        Self {
+            reader: BufReader::new(stream),
+            socket: None,
+            patience: PATIENCE,
+            next_id: 1,
+            deflate: false,
+            no_follow: false,
+        }
+    }
+
+    /// Whether the machine still answers: a `ping` on a connection of its own, answered within
+    /// the patience's probe. A machine busy with this connection's request answers it beside.
+    fn alive(&self) -> bool {
+        let Some(socket) = &self.socket else { return false };
+        let probe = Some(self.patience.probe);
+        let Ok(mut stream) = dial(socket, probe, probe) else { return false };
+        if stream.write_all(b"{\"id\":1,\"cmd\":\"ping\"}\n").is_err() {
+            return false;
+        }
+        let mut answer = Vec::new();
+        let read =
+            Read::take(&mut BufReader::new(&mut stream), 64 * 1024).read_until(b'\n', &mut answer);
+        read.is_ok_and(|read| read > 0)
+            && serde_json::from_slice::<Value>(&answer).is_ok_and(|answer| answer.is_object())
+    }
+
+    /// Dials the socket again after the connection dropped, until it connects or the patience's
+    /// reconnect window passes (a machine link that redials). The new connection keeps the
+    /// socket timeouts and what the machine said it takes.
+    fn reconnect(&mut self, progress: &mut dyn FnMut()) -> anyhow::Result<()> {
+        let Some(socket) = self.socket.clone() else {
+            bail!("the machine daemon closed the connection")
+        };
+        let (read, write) = (self.read_timeout(), self.write_timeout());
+        let started = Instant::now();
+        let mut pause = Duration::from_millis(100);
+        loop {
+            match dial(&socket, read, write) {
+                Ok(stream) => {
+                    self.reader = BufReader::new(stream);
+                    return Ok(());
+                }
+                Err(error) if started.elapsed() >= self.patience.reconnect => {
+                    return Err(error.context(format!(
+                        "the connection to the machine dropped and did not come back within {} s",
+                        self.patience.reconnect.as_secs()
+                    )));
+                }
+                Err(_) => {}
+            }
+            progress();
+            std::thread::sleep(pause.min(self.patience.reconnect));
+            pause = (pause * 2).min(Duration::from_secs(5));
+        }
     }
 
     /// [`Remote::connect`], then asks the machine which write encodings it
@@ -166,6 +290,12 @@ impl Remote {
     /// request could still be crossing the link ([`answer_budget`]), not
     /// one socket timeout: a timed-out read (EAGAIN, os error 35 on macOS)
     /// within that budget is read again, never the call's failure.
+    ///
+    /// Past that budget the machine is asked whether it still answers
+    /// ([`Remote::alive`]); while it does the answer is waited for, up to the
+    /// patience's ceiling. A dropped connection is dialed again and the
+    /// request sent again on it when it is [`replayable`]. Only a machine
+    /// that stopped answering, or the ceiling, fails the call.
     fn call_with_progress(
         &mut self,
         cmd: &str,
@@ -176,6 +306,32 @@ impl Remote {
         if let Some(job) = super::fence::hold_for(cmd) {
             params.set("hold", json!(job));
         }
+        let started = Instant::now();
+        let mut replays = 0;
+        loop {
+            match self.exchange(cmd, params.clone(), started, progress) {
+                Err(error)
+                    if error.is::<Dropped>()
+                        && self.socket.is_some()
+                        && replays < self.patience.replays
+                        && replayable(cmd, &params) =>
+                {
+                    replays += 1;
+                    self.reconnect(progress).map_err(|again| again.context(error.to_string()))?;
+                }
+                other => return other,
+            }
+        }
+    }
+
+    /// One send of the request and the wait for its answer ([`Remote::call_with_progress`]).
+    fn exchange(
+        &mut self,
+        cmd: &str,
+        mut params: Value,
+        started: Instant,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         params.set("id", json!(id));
@@ -184,13 +340,17 @@ impl Remote {
         line.push('\n');
         for slice in line.as_bytes().chunks(SEND_SLICE_BYTES) {
             self.reader.get_mut().write_all(slice).map_err(|error| {
-                stalled(error, "the machine took no bytes of the request", self.write_timeout())
+                if timed_out(&error) {
+                    stalled(error, "the machine took no bytes of the request", self.write_timeout())
+                } else {
+                    Dropped(format!("the connection to the machine dropped: {error}")).into()
+                }
             })?;
             progress();
         }
         let silence = self.read_timeout();
         let budget = answer_budget(silence, line.len());
-        let answer_by = Instant::now().checked_add(budget);
+        let mut answer_by = Instant::now().checked_add(budget);
         // The machine is not trusted: an answer line has a size limit, and
         // only so many answers for other requests are skipped.
         for _ in 0..=MAX_OTHER_ANSWERS {
@@ -209,21 +369,46 @@ impl Remote {
                     {
                         progress();
                     }
-                    Err(error) => {
-                        let what =
-                            format!("the machine did not answer within {} s", budget.as_secs());
+                    // Late, but the machine still answers beside it: wait one more silence.
+                    Err(error)
+                        if timed_out(&error)
+                            && started.elapsed() < self.patience.ceiling
+                            && self.alive() =>
+                    {
+                        progress();
+                        answer_by = Instant::now().checked_add(silence.unwrap_or(IO_DEADLINE));
+                    }
+                    Err(error) if timed_out(&error) => {
+                        let waited = started.elapsed().as_secs();
+                        let what = if self.socket.is_none() {
+                            format!("the machine did not answer within {} s", budget.as_secs())
+                        } else if started.elapsed() >= self.patience.ceiling {
+                            format!(
+                                "the machine did not answer within {waited} s, though it still answers"
+                            )
+                        } else {
+                            format!(
+                                "the machine stopped answering: no answer in {waited} s, and none to a ping"
+                            )
+                        };
                         return Err(stalled(error, &what, None));
+                    }
+                    Err(error) => {
+                        return Err(Dropped(format!(
+                            "the connection to the machine dropped: {error}"
+                        ))
+                        .into());
                     }
                 }
             };
             if read == 0 {
-                bail!("the machine daemon closed the connection");
+                return Err(Dropped("the machine daemon closed the connection".into()).into());
             }
             if answer.last() != Some(&b'\n') {
                 if u64::try_from(read).unwrap_or(u64::MAX) > MAX_ANSWER_BYTES {
                     bail!("the machine daemon's answer is too long");
                 }
-                bail!("the machine daemon closed the connection");
+                return Err(Dropped("the machine daemon closed the connection".into()).into());
             }
             let answer: Value =
                 serde_json::from_slice(&answer).context("the answer is not JSON")?;
@@ -520,6 +705,21 @@ pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
     error.downcast_ref::<FsRefusal>().map(|refusal| refusal.code.as_str())
 }
 
+/// A connection to `socket` with these read and write timeouts.
+fn dial(
+    socket: &Path,
+    read: Option<Duration>,
+    write: Option<Duration>,
+) -> anyhow::Result<UnixStream> {
+    let stream = UnixStream::connect(socket)
+        .with_context(|| format!("cannot connect to {}", socket.display()))?;
+    stream.set_read_timeout(read)?;
+    // A machine that stops reading must not hold a write (and a
+    // caller's lock) forever either.
+    stream.set_write_timeout(write)?;
+    Ok(stream)
+}
+
 /// How long a request of `request_bytes` may wait for its answer: one
 /// `silence` (the socket's read timeout) plus the time the request takes to
 /// cross a link at [`MIN_LINK_BYTES_PER_SECOND`].
@@ -640,8 +840,7 @@ mod tests {
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
             heard
         });
-        let mut remote =
-            Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
+        let mut remote = Remote::on(client);
         let data = vec![7u8; PART_BYTES];
         let mut progress = || {
             let _ = tick.send(());
@@ -674,8 +873,7 @@ mod tests {
                 json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
         });
-        let mut remote =
-            Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
+        let mut remote = Remote::on(client);
         let data = vec![7u8; 256 * 1024];
         let revision = remote.write("/work/cmux-tui", &mut data.as_slice(), 0o755).unwrap();
         assert_eq!(revision, "r1");
@@ -697,6 +895,169 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(5), "waited {:?}", started.elapsed());
     }
 
+    /// What a fake machine does with one request ([`machine`]).
+    enum Reply {
+        /// Answers it `ok` after this long.
+        After(Duration),
+        /// Never answers it, and keeps the connection open.
+        Never,
+        /// Closes the connection under it, unanswered.
+        Drop,
+    }
+
+    /// A fake machine daemon on a real socket: each connection on its own thread, each request
+    /// handed to `reply` with the connection's number (from 0) and the request. Returns the
+    /// socket's folder (kept for the test) and its path.
+    fn machine(
+        reply: impl Fn(usize, &Value) -> Reply + Send + Sync + 'static,
+    ) -> (cmux_unix_socket::TestDir, std::path::PathBuf) {
+        let dir = cmux_unix_socket::short_test_dir("syncpat");
+        let socket = dir.path().join("machine.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let reply = std::sync::Arc::new(reply);
+        std::thread::spawn(move || {
+            for (number, stream) in listener.incoming().enumerate() {
+                let Ok(mut stream) = stream else { return };
+                let reply = reply.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stream.try_clone().unwrap());
+                    for line in reader.lines().map_while(Result::ok) {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        match reply(number, &request) {
+                            Reply::After(wait) => {
+                                std::thread::sleep(wait);
+                                let answer = json!({"id": request["id"], "ok": true,
+                                                    "data": {"entry": {"revision": "r1"}, "kind": "dir"}});
+                                if stream.write_all(format!("{answer}\n").as_bytes()).is_err() {
+                                    return;
+                                }
+                            }
+                            Reply::Never => std::thread::sleep(Duration::from_secs(60)),
+                            Reply::Drop => {
+                                let _ = stream.shutdown(std::net::Shutdown::Both);
+                                return;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        (dir, socket)
+    }
+
+    /// A [`Remote`] to `socket` with the copy's patience compressed: a 50 ms read timeout stands
+    /// for the 60 s one (a factor of 1,200).
+    fn patient(socket: &std::path::Path) -> Remote {
+        let mut remote = Remote::connect(socket).unwrap();
+        remote.reader.get_ref().set_read_timeout(Some(Duration::from_millis(50))).unwrap();
+        remote.patience = super::Patience {
+            ceiling: Duration::from_secs(10),
+            probe: Duration::from_millis(200),
+            reconnect: Duration::from_millis(400),
+            replays: 4,
+        };
+        remote
+    }
+
+    /// A machine that answers a small request after 225 s at full scale (about 190 ms here, the
+    /// matrix's 5-file folder failed after 224 s on "did not answer within 60 s") while it
+    /// answers `ping` beside it: the request waits and gets its answer.
+    #[test]
+    fn a_late_answer_from_a_machine_that_still_answers_is_waited_for() {
+        let (_dir, socket) = machine(|_, request| match request["cmd"].as_str() {
+            Some("ping") => Reply::After(Duration::ZERO),
+            _ => Reply::After(Duration::from_millis(190)),
+        });
+        let mut remote = patient(&socket);
+        assert_eq!(remote.kind("/work").unwrap().as_deref(), Some("dir"));
+    }
+
+    /// A machine that stopped answering (no answer, and none to a ping) fails the request
+    /// within one silence and one probe, long before the ceiling.
+    #[test]
+    fn a_machine_that_stopped_answering_fails_fast() {
+        let (_dir, socket) = machine(|_, _| Reply::Never);
+        let mut remote = patient(&socket);
+        let started = std::time::Instant::now();
+        let error = format!("{:#}", remote.stat("/work").unwrap_err());
+        assert!(error.contains("stopped answering"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(3), "waited {:?}", started.elapsed());
+    }
+
+    /// However alive the machine stays, one request ends at the ceiling.
+    #[test]
+    fn a_live_machine_that_never_answers_the_request_ends_at_the_ceiling() {
+        let (_dir, socket) = machine(|_, request| match request["cmd"].as_str() {
+            Some("ping") => Reply::After(Duration::ZERO),
+            _ => Reply::Never,
+        });
+        let mut remote = patient(&socket);
+        remote.patience.ceiling = Duration::from_millis(400);
+        let error = format!("{:#}", remote.stat("/work").unwrap_err());
+        assert!(error.contains("though it still answers"), "{error}");
+    }
+
+    /// The machine drops the connection under a copy's writes (the matrix's 20,000-file
+    /// folder: "the machine daemon closed the connection" after 390 s): the copy dials again
+    /// and sends each dropped write again on the new connection, and every file lands.
+    #[test]
+    fn a_connection_dropped_mid_copy_is_dialed_again_and_the_copy_goes_on() {
+        let writes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = writes.clone();
+        let (_dir, socket) = machine(move |connection, request| {
+            if request["cmd"] == "fs.write" {
+                let seen = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                // The first connection drops on its third write, the second on its first.
+                if (connection == 0 && seen == 2) || (connection == 1 && seen == 3) {
+                    return Reply::Drop;
+                }
+            }
+            Reply::After(Duration::ZERO)
+        });
+        let mut remote = patient(&socket);
+        for file in 0..6 {
+            let data = vec![file as u8; 1024];
+            let revision =
+                remote.write(&format!("/work/f{file}"), &mut data.as_slice(), 0o644).unwrap();
+            assert_eq!(revision, "r1");
+        }
+        // Six files, two of them sent twice.
+        assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 8);
+    }
+
+    /// A machine whose socket is gone for good fails the copy once the reconnect window passes,
+    /// saying the connection dropped and did not come back.
+    #[test]
+    fn a_connection_that_never_comes_back_fails_after_the_window() {
+        let (dir, socket) = machine(|_, request| match request["cmd"].as_str() {
+            Some("fs.stat") => Reply::Drop,
+            _ => Reply::After(Duration::ZERO),
+        });
+        let mut remote = patient(&socket);
+        std::fs::remove_file(&socket).unwrap();
+        let started = std::time::Instant::now();
+        let error = format!("{:#}", remote.stat("/work").unwrap_err());
+        assert!(error.contains("did not come back"), "{error}");
+        assert!(error.contains("closed the connection"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(3), "waited {:?}", started.elapsed());
+        drop(dir);
+    }
+
+    /// A request that is not safe to send twice (a rename) is not sent again after a drop.
+    #[test]
+    fn a_rename_is_not_sent_again_after_a_drop() {
+        let (_dir, socket) = machine(|_, request| match request["cmd"].as_str() {
+            Some("fs.rename") => Reply::Drop,
+            _ => Reply::After(Duration::ZERO),
+        });
+        let mut remote = patient(&socket);
+        let error = format!(
+            "{:#}",
+            remote.call("fs.rename", json!({"path": "/a", "name": "b"})).unwrap_err()
+        );
+        assert!(error.contains("closed the connection"), "{error}");
+    }
+
     /// A [`Remote`] whose machine is `serve`: it gets each request and the
     /// connection to answer on, then the connection stays open (a machine
     /// that hangs) until the test ends.
@@ -714,7 +1075,7 @@ mod tests {
             serve(&mut requests, &mut server);
             std::thread::sleep(Duration::from_secs(30));
         });
-        Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false }
+        Remote::on(client)
     }
 
     /// An answer line that never ends is refused, not held in memory.
