@@ -24,7 +24,6 @@ extension ProviderTabSource {
     /// A source whose list is exact: the tab is in it.
     public func isDrivable(_ targetID: String) -> Bool { providerTabs.contains { $0.targetID == targetID } }
 }
-}
 
 /// The extension access of a CEF tab, read inside Observation tracking
 /// (the profile's extension store and the page URL are observable).
