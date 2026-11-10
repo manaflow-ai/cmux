@@ -2272,6 +2272,22 @@ jobs:
           started=$SECONDS
           retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          # One runner can have the builder and the signing label, so the signer or a deltas job may
+          # have left this clone sparse; checkout and reset then keep its files out of the tree (run
+          # 42833135477: "Select Xcode", .xcode-version missing). Take the setting out of both config
+          # files (a full actions/checkout leaves .git/config's `true` in force) and the skip-worktree
+          # bits out of the index. Not `git sparse-checkout disable`: it first writes the old tree.
+          git_dir="${GITHUB_WORKSPACE:?}/.git"
+          for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
+            git config --local --unset-all "$key" || true
+            if [ -f "$git_dir/config.worktree" ]; then git config --file "$git_dir/config.worktree" --unset-all "$key" || true; fi
+          done
+          rm -f "${git_dir:?}/info/sparse-checkout"
+          hidden=$(git ls-files -t | grep -c '^S ' || true)
+          if [ "$hidden" -gt 0 ]; then
+            echo "the kept clone was sparse ($hidden files out of the tree): checking out the whole tree"
+            git ls-files -z | git update-index -z --no-skip-worktree --stdin
+          fi
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/

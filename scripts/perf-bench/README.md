@@ -241,6 +241,10 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
   pages, so the row sends Ctrl-Shift-Tab and Ctrl-Tab in turn: each of the 20 switches is page to page between the 2
   colour pages, as `Target.activateTarget` in the Chrome arm. Ctrl-Tab alone went round 3 or 4 tabs and mixed 3 switch
   classes in one row (page to page, page to terminal, terminal to page).
+- Key, text field: the cmux arm first calls CuaDriver `bring_to_front` for the bench app one time. A bench app started
+  from ssh gives no key to a Chromium page with no such call (0 of 40 keys typed; 40 of 40 after it). The call runs
+  with the account's home, not the bench's. A host with no CuaDriver, or a call that fails, gives `not run` for this
+  row. The run's `front_step` field says that the step ran. The bench shell gets no right of its own.
 - The report labels each run: method, display (id, size, rate), the refresh interval measured in that run, screen
   locked or not, load. A run on a locked screen, on a sleeping display or with a measured refresh that is not the
   `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
@@ -248,6 +252,41 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
   interactive, split resize, the 2 hover rows, the 2 drag rows, the 2 launch rows. They need the HID method.
 - `chrome_parity.py selfcheck` proves the judge on made-up frames (a frozen arm is FAIL, an input that was not
   delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`.
+
+## Load arm `oversub` (`busy_holder.py`)
+
+A developer's Mac can run all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads
+per core (agents, node, cargo), all at the default priority. A bench "load" arm with a host load under 15 is a
+quiet machine next to that. `busy_holder.py` is the one busy loop of the bench owners: N CPU-bound threads at the
+default priority and QoS beside the app under test, for a short time.
+
+```
+BH="/usr/bin/python3 scripts/perf-bench/busy_holder.py"
+PID=$($BH start --owner <task> --watch-pid $$ --threads 250 --procs 250 --max-seconds 120)   # prints the PID
+$BH status $PID      # threads, running, priority, CPU, load
+$BH stop $PID        # the summary: threads, processes, cores, threads per core, load at start and end
+$BH cooldown --below 8 --max-seconds 300 && $BH status    # inside the same hold; must print `live 0`
+$BH probe --label quiet    # the scheduling delay one thread of each QoS class gets (run quiet and under start)
+$BH selftest               # the safety rules with 4 threads for at most 10 s each
+```
+
+- `--procs 1` is one process with N threads; `--procs N` is N processes. macOS shares the cores between
+  processes' thread groups first, so the two are different loads; a real Mac has many processes. Write the shape
+  next to each number: threads, processes, cores, threads per core, the 1-minute load at the start and the end.
+- It is run-queue pressure only: no disk I/O, no memory pressure, no process churn, no GPU work.
+- Safety, enforced by the tool: it ends itself after `--max-seconds` (default 240, hard limit 600); it ends when
+  the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
+  the first word of `~/perf-lead/gui.lock/owner` is `--owner` (a bench host inside the caller's own GUI lock hold; never a
+  build host, never a laptop), and it ends when that lock is gone; `stop` signals only a PID it can prove is its
+  own; it refuses to start at a changed nice value.
+- Priority trap: a process that ssh started has a QoS ceiling of utility (each thread at scheduler priority 20 for
+  every QoS class), and a zsh login shell gives a `&` job nice 5. A person's Mac has the app's main thread at 46 or
+  47 and a default thread at 31. Start the load, the app and the driver through LaunchServices: `open -W -n -g
+  <Runner.app> --args job.sh`, where Runner.app is a background-only bundle whose executable is a copy of
+  `/bin/bash`; the app itself with `open -n -W --env ...` so that it has an app role. `start` prints `sched_pri`
+  (31 is right, 20 is the ssh ceiling). Write the main-thread priority of each arm (`ps -M`) next to each number.
+- The row order is quiet, oversub, oversub, quiet in one hold. A row's driver runs at user-interactive QoS so that
+  its own wait for a core is not in the number; the app's clocks are the result.
 
 ## Files
 
@@ -257,4 +296,54 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
+- `busy_holder.py`: the load arm `oversub` (N busy threads at the default priority, with hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.
+
+## The shared `real` session (`session_real.py`)
+
+One bench session of the size of the person who uses the app (read from his session daemon on
+2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents, 13 clients. Every
+bench that has a session-size arm uses this script; the count tests use the same mix rule
+(`SessionFixtureSize.real`, the test fixture size of #40488). Fleet minis only.
+
+```sh
+S=scripts/perf-bench/session_real.py
+# The saved session of one bench app, made by the bundle's own daemon with no app (1 to 3 minutes):
+python3 $S build --app "/path/cmux DEV <tag>.app" --to /path/saved/<tag>
+# One launch on it: restore time, read-back counts, agents and clients as his, then your steps:
+python3 $S launch --app "/path/cmux DEV <tag>.app" --saved /path/saved/<tag> --out /path/out \
+  --steps "counts,agents,clients:13,measure:--seconds 30,map"
+# Or with your own bench driver: install, launch with BENCH_LAUNCH_KEEP_STATE=1, uninstall.
+python3 $S install --saved /path/saved/<tag> --tag <tag>
+python3 $S agents --app-socket /tmp/cmux-debug-<tag>.sock      # after every restore
+python3 $S clients --app-socket /tmp/cmux-debug-<tag>.sock --total 13 &
+python3 $S uninstall --tag <tag>
+# Or make it live in a running bench app, through its daemon:
+python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
+```
+
+- A saved session is tied to its tag: the registry names its session `cmux-app-<tag>` and the
+  daemon refuses another one's. A clone of a bench app that keeps the bundle name uses the same one.
+- PTY limit: macOS has `kern.tty.ptmx_max` PTYs for the whole machine (511). The script keeps a
+  shell in the 170 agent terminals and in 30 plain ones and parks the other 598 (`park-tabs`: the
+  tab stays, its shell starts when its workspace shows). It says so and never makes fewer silently.
+- An agent is not a model session: `session_real_agent.zsh` draws like an agent TUI and reports
+  through the hook helper (`$CMUX_TUI_HOOK claude <event>`), so the daemon lists 170 agents.
+- `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
+- Only a tagged DEV build: each command refuses a daemon whose session is not `cmux-app-<tag>`
+  (the release session, a shipped build's (`nightly`, `rc`, `staging`, `cmux-next`), an untagged build's, a person's own session).
+- `launch` ends with exit 1 when the model did not load, a step failed or the `clients` step
+  ended early; it quits the app and takes the installed session away first.
+- `clients --total 13` reads the daemon's client list and holds what is missing. The list moves
+  (a hook call is a client for a moment, the app's own connections come and go), so it prints
+  the count it reached and `SESSION-REAL-CLIENTS-DIFFER` when that is not the count asked for.
+  A held client reads its events at once: the daemon closes a subscriber that does not read.
+- The daemon serves 64 connections. A start of 170 agents (about 500 hook calls) fills them for about
+  2.5 s; in that time a new connection gets one `server.busy` line. The script's own connections
+  try again for 20 s; a bench driver of your own must do the same.
+- `map` gives, per action (20 runs): `commit_ms` (the action's start to its committed frame, from
+  `debug.action_budget`), the longest frame and the main-thread gap, and the longest stall the
+  watchdog recorded with its frames. `--sample-rows <row>` runs a row beside a `sample` of the app:
+  those times are then not for a table. For the same map at another size, give `build` and `agents`
+  the same counts in proportion, for example 60 workspaces:
+  `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.

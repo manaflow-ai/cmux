@@ -2401,7 +2401,7 @@ impl Hub {
         text: &str,
     ) -> Result<Option<String>, RpcError> {
         if session.moving().is_some() {
-            return Err(RpcError::invalid_params(queue::moving_error().message));
+            return Err(RpcError::invalid_params(queue::moving_error(session).message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
