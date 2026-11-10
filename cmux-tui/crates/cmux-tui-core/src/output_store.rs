@@ -77,9 +77,16 @@ pub(crate) const TAIL_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 /// Snapshot mode: a tail file written since is fsynced at most this often
 /// (the most an OS crash adds to [`TAIL_FLUSH_INTERVAL`]).
 pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(1);
-/// Snapshot mode: tail bytes past which the next pass writes a snapshot
-/// (the compaction), so a restore replays about this much over it.
+/// Snapshot mode: tail bytes past which a snapshot is written (the
+/// compaction), so a restore replays about this much over it; at most once
+/// per [`TAIL_COMPACT_SPACING`], so a flood captures its screen under the
+/// parser lock once a second, not at every pass.
 const TAIL_MAX_BYTES: u64 = 1024 * 1024;
+/// Snapshot mode: the least time between two tail-cap compactions.
+const TAIL_COMPACT_SPACING: Duration = Duration::from_secs(1);
+/// Snapshot mode: tail bytes past which the compaction does not wait for
+/// its spacing (what a restore replays over the snapshot during a flood).
+const TAIL_FLOOD_MAX_BYTES: u64 = 16 * 1024 * 1024;
 /// Snapshot mode: the most raw bytes one tail file takes while snapshots
 /// fail; past it the bytes wait in memory (capped) for a snapshot. Below
 /// what a restore reads (`tail.rs` MAX_TAIL_FILE_BYTES, compressed).
@@ -367,22 +374,34 @@ impl LogState {
     }
 
     /// Snapshot mode: when the next pass must try the snapshot this log still
-    /// needs (a drop asked for it, a new generation, a resize), at the earliest
-    /// time one may be written: after a write backoff and after the size has
-    /// settled, never sooner than the flush interval. `None` when it needs
-    /// none.
+    /// needs (a drop asked for it, a new generation, a resize, a tail past
+    /// its cap), at the earliest time one may be written: after a write
+    /// backoff, after the size has settled and after the compaction spacing,
+    /// never sooner than the flush interval. `None` when it needs none.
     fn snapshot_retry_in(&self) -> Option<Duration> {
         let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
         let resized = !new_generation
             && self.size_seen.is_some_and(|(size, _)| self.snapshot_size != Some(size));
         if !(self.force_snapshot || new_generation || resized) {
-            return None;
+            // A tail past its cap that waits out the compaction spacing: the
+            // pass after it compacts, whether or not the terminal prints.
+            return (self.tail_bytes >= TAIL_MAX_BYTES).then(|| {
+                TAIL_FLUSH_INTERVAL
+                    .max(self.retry_wait().unwrap_or_default())
+                    .max(self.compaction_wait())
+            });
         }
         let settle = self
             .size_seen
             .filter(|_| resized)
             .map_or(Duration::ZERO, |(_, since)| RESIZE_SETTLE.saturating_sub(since.elapsed()));
         Some(TAIL_FLUSH_INTERVAL.max(self.retry_wait().unwrap_or_default()).max(settle))
+    }
+
+    /// The time left before a tail-cap compaction may be written.
+    fn compaction_wait(&self) -> Duration {
+        self.snapshot_at
+            .map_or(Duration::ZERO, |at| TAIL_COMPACT_SPACING.saturating_sub(at.elapsed()))
     }
 
     /// Record the size a capture saw; whether it has held for
