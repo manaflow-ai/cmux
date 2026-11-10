@@ -345,7 +345,9 @@ fn unknown_remote_action(args: &[String]) -> Option<i32> {
             "retryable":false,
         }),
         global.output,
-        1,
+        // A word the command does not have is a usage error: exit 2, like
+        // every scope (docs/cli-conventions.md in cmuxterm-hq).
+        2,
     ))
 }
 
@@ -498,6 +500,90 @@ fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
     }
     let own_help = if scope == "device" { "help" } else { "--help" };
     *args = vec![scope.clone(), own_help.to_string()];
+}
+
+/// A scope's usage error when the scope prints its usage block as the
+/// refusal: the `--json` envelope (the usage in `details.usage`) under
+/// `--json`; else the usage, then one last line with what was wrong and the
+/// help to run, so `| tail -1` names the fix. Exit 2.
+pub(super) fn scope_usage_failure(output: OutputMode, scope: &str, what: &str, usage: &str) -> i32 {
+    let message = format!("{what}; run `cmux {scope} --help` for its usage");
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => wire::print_local_error(
+            &serde_json::json!({
+                "code": "usage.invalid",
+                "message": message,
+                "details": {"usage": usage.trim_end()},
+                "retryable": false,
+            }),
+            output,
+            2,
+        ),
+        OutputMode::Human | OutputMode::Quiet => {
+            eprintln!("{}\n\n{BIN}: {message}", usage.trim_end());
+            2
+        }
+    }
+}
+
+/// What a scope's refusal says about the words it was given: the first
+/// word it does not take, or that it needs one.
+pub(super) fn unknown_words(scope: &str, words: &[String]) -> String {
+    match words.iter().find(|word| !word.is_empty()) {
+        Some(word) if word.starts_with('-') => format!("{scope} does not take {word:?}"),
+        Some(word) => format!("unknown {scope} command {word:?}"),
+        None => format!("{scope} needs a command"),
+    }
+}
+
+/// A usage error of a command `main` refuses before the cmux global options
+/// are parsed: the `--json` envelope when `--json` or `--jsonl` is among the
+/// words before `--`, else `cmux: <message>`; exit 2.
+pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
+    let json = args
+        .iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "--json" | "--jsonl"));
+    let (output, message) = if json {
+        (OutputMode::Json, message.to_owned())
+    } else {
+        (OutputMode::Human, format!("{BIN}: {message}"))
+    };
+    wire::print_local_error(
+        &serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        2,
+    )
+}
+
+/// Scopes `main` routes by their first word, before the cmux global options
+/// are read, whose own parser takes `--json` after the scope word: acpmux's
+/// (`--json` is a global clap option there) and the machine supervisor's.
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "host"];
+
+/// `cmux --json <scope> …` for a scope `main` routes by its first word: the
+/// leading `--json` moves to just after the scope word, where that scope's
+/// own parser reads it, so `cmux --json chats list` is `cmux chats --json
+/// list` (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
+/// `link` prints JSON only, so a leading `--json` or `--jsonl` there is
+/// dropped. Any other leading option stays where it is, and the parser's
+/// refusal names the right form. `device` keeps its own handling
+/// (devices::device_args).
+pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
+    let lead = args.iter().take_while(|word| matches!(word.as_str(), "--json" | "--jsonl")).count();
+    let Some(scope) = args.get(lead).cloned() else {
+        return;
+    };
+    if lead == 0 {
+        return;
+    }
+    if scope == "link" {
+        args.drain(..lead);
+    } else if JSON_AFTER_SCOPE.contains(&scope.as_str()) && args[..lead].iter().all(|w| w == "--json")
+    {
+        args.drain(..lead);
+        args.insert(1, "--json".to_owned());
+    }
 }
 
 /// The acpmux argv of `cmux acp …` (the words after `acp`) and of its

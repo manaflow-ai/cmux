@@ -252,7 +252,13 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
+            let scope = if super::Surface::current() == super::Surface::Cmux {
+                "daemon"
+            } else {
+                "server"
+            };
             return Err(UsageError::new(messages.unknown_server_action(
+                scope,
                 action,
                 super::suggestion(
                     action,
