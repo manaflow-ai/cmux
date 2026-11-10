@@ -329,6 +329,8 @@ if Path(sys.argv[0]).name == "git":
 elif args[:2] == ["pr", "list"]: print("1")  # deliberately stale
 elif args[:2] == ["pr", "edit"]:
     if state["close_on_edit"]: state["prs"][args[2]] = "closed"; save()
+elif args[:2] == ["pr", "close"]:
+    state["prs"][args[2]] = "closed"; save()
 elif args[:2] == ["pr", "create"]:
     state["prs"]["2"] = "open"; save()
     print("https://github.com/manaflow-ai/cmux/pull/2")
@@ -437,6 +439,8 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
                 self.assertIn("no re-pin pull request", result.stdout)
+                # The open re-pin pull request pins an older release now: it is closed.
+                self.assertEqual(state["prs"]["1"], "closed")
 
     def test_the_pin_on_the_base_gets_the_picked_release_and_the_switch(self):
         result, state = self.run_repin(base_result="pinned")

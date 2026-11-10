@@ -52,7 +52,16 @@ fi
 echo "$base_out"
 git checkout --quiet --force "$start"
 case "$base_result" in
-  pinned|already) echo "feat-cmux-next pins $TAG ($base_result); no re-pin pull request"; exit 0 ;;
+  pinned|already)
+    echo "feat-cmux-next pins $TAG ($base_result); no re-pin pull request"
+    # An open re-pin pull request now pins an older release (its diff conflicts
+    # with the base's pin, so it cannot land): close it, best effort.
+    if [[ -n "${GH_TOKEN:-}" ]] && stale="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty' 2>/dev/null)" \
+        && [[ "$stale" =~ ^[0-9]+$ ]]; then
+      gh pr close "$stale" --comment "feat-cmux-next now pins $TAG directly (scripts/cmux-next/pin-app-ffi-on-base.sh), so this re-pin is no longer needed." \
+        || echo "::warning::could not close the stale re-pin pull request #$stale"
+    fi
+    exit 0 ;;
 esac
 echo "app FFI pin on feat-cmux-next: ${base_result:-failed}; the re-pin pull request carries it"
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
