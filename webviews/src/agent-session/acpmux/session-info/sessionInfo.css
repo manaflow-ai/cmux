@@ -131,8 +131,8 @@
 .acpmux-shell > .acpmux-main {
   --acpmux-session-info-shift: 0px;
   /* The panel's own durations and curves ([data-placement="push"] below). */
-  --acpmux-session-info-shift-in: calc(var(--agent-motion-in, 120ms) * 2);
-  --acpmux-session-info-shift-out: calc(var(--agent-motion-out, 80ms) * 2.5);
+  --acpmux-session-info-shift-in: var(--agent-motion-move, 180ms);
+  --acpmux-session-info-shift-out: var(--agent-motion-in, 120ms);
   --acpmux-session-info-shift-in-ease: cubic-bezier(0.23, 1, 0.32, 1);
   --acpmux-session-info-shift-out-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -243,9 +243,12 @@
   --ui-enter-distance: calc(100% + var(--acpmux-session-info-inset));
   /* The chat slides aside with it, as Codex's does (Lucas, 2026-11-06: "we should have a nice animation
      for the screen shifting too"): a longer travel than a popover's, on a strong ease-out in and a
-     drawer's curve out, still on the host's motion tokens (0 with this area's animations off). */
-  --ui-enter-duration: calc(var(--agent-motion-in, 120ms) * 2);
-  --ui-exit-duration: calc(var(--agent-motion-out, 80ms) * 2.5);
+     drawer's curve out, still on the host's motion tokens (0 with this area's animations off): in on the move
+     step (standard, 180 ms) and out on the fade-in step (micro, 120 ms), not twice the fade-in
+     (240 ms) and two and a half times the fade-out (200 ms), so the panel and the chat it pushes
+     land together by the move step, under 200 ms (Leo 2026-11-10: "the slow animations"). */
+  --ui-enter-duration: var(--agent-motion-move, 180ms);
+  --ui-exit-duration: var(--agent-motion-in, 120ms);
   --ui-enter-ease: cubic-bezier(0.23, 1, 0.32, 1);
   --ui-exit-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
