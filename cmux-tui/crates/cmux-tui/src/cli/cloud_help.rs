@@ -416,8 +416,7 @@ USAGE
 These actions run through the cmux app, signed in (`cmux login`).
 The everyday verbs take the VM's name or id, or nothing when you have one VM:
   cmux cloud ls | status | pause | resume | rm | resize | fork | rename [NAME|ID]
-  cmux cloud exec [NAME|ID] -- COMMAND...   (its output and exit code)
-  cmux cloud ssh | move [NAME|ID]
+  cmux cloud ssh | move [NAME|ID]  and  cmux cloud exec [NAME|ID] -- COMMAND...
 The others take --target vm:VM_ID: `cmux cloud ls` prints each VM's
 target. Without the app (CI, a headless agent), the VM API verbs below
 (`cmux vm run`, `cmux vm new`, ...) talk to the cmux VM API directly.
@@ -440,7 +439,8 @@ QUICK START
   cmux cloud status dev
   cmux cloud pause dev
   cmux cloud resume dev
-  cmux cloud rm dev            (asks first; --yes in a script)
+  cmux cloud rm dev
+  (rm asks first at a terminal; --yes skips the question)
 ";
 
 const INTRO_JA: &str = "\
@@ -451,8 +451,7 @@ const INTRO_JA: &str = "\
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
   cmux cloud ls | status | pause | resume | rm | resize | fork | rename [名前|ID]
-  cmux cloud exec [名前|ID] -- コマンド...   （出力と終了コードをそのまま返す）
-  cmux cloud ssh | move [名前|ID]
+  cmux cloud ssh | move [名前|ID]  と  cmux cloud exec [名前|ID] -- コマンド...
 ほかのアクションは --target vm:VM_ID を取ります。各 VM の target は
 `cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
 下の VM API の動詞（`cmux vm run`、`cmux vm new` など）で cmux VM API を直接使えます。
@@ -475,7 +474,8 @@ const INTRO_JA: &str = "\
   cmux cloud status dev
   cmux cloud pause dev
   cmux cloud resume dev
-  cmux cloud rm dev            (asks first; --yes in a script)
+  cmux cloud rm dev
+  （rm はターミナルで確認します。--yes で確認を省略）
 ";
 
 const OUTRO_EN: &str = "\
