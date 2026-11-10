@@ -13,7 +13,7 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let before = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None },
+        Command::ListWorkspaces { known: None, limit: None },
         &test_writer(),
     )
     .unwrap();
@@ -32,7 +32,7 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let after_exact = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None },
+        Command::ListWorkspaces { known: None, limit: None },
         &test_writer(),
     )
     .unwrap();
@@ -54,7 +54,7 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let after_legacy = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None },
+        Command::ListWorkspaces { known: None, limit: None },
         &test_writer(),
     )
     .unwrap();
@@ -90,7 +90,7 @@ fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() 
     let tree = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None },
+        Command::ListWorkspaces { known: None, limit: None },
         &test_writer(),
     )
     .unwrap();
@@ -118,7 +118,7 @@ fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
     let split = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None },
+        Command::ListWorkspaces { known: None, limit: None },
         &test_writer(),
     )
     .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]

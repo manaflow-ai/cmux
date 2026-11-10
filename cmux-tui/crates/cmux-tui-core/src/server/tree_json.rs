@@ -296,6 +296,27 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
     })
 }
 
+/// [`workspaces_json`] with only the workspaces at `indices` of `state.workspaces`, in that
+/// order, and `total`, how many there are (`list-workspaces` `limit`). Builds only those rows.
+pub(crate) fn workspaces_json_at(
+    state: &State,
+    notifications: &TreeDecorations,
+    indices: &[usize],
+) -> Value {
+    let short_ids = ShortIds::of(state);
+    json!({
+        "workspace_revision": state.workspace_revision,
+        "pane_revision": state.pane_revision,
+        "groups": workspace_groups_json(&notifications.presentation),
+        "workspaces": indices.iter().filter_map(|index| {
+            state.workspaces.get(*index).map(|workspace| {
+                workspace_json(state, workspace, *index, &short_ids, notifications)
+            })
+        }).collect::<Vec<_>>(),
+        "total": state.workspaces.len(),
+    })
+}
+
 pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces

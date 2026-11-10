@@ -623,6 +623,9 @@ pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
 /// `known` on `list-workspaces`: `{"unchanged": true}` in O(1) when the
 /// client's tree is current, and `tree_revision` on the whole reply.
 pub const LIST_WORKSPACES_KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
+/// `limit` on `list-workspaces`: the first N workspaces in sidebar order and
+/// `total`, so a client draws its first screen before it reads the rest.
+pub const LIST_WORKSPACES_LIMIT_CAPABILITY: &str = "list-workspaces-limit-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
@@ -1081,6 +1084,10 @@ enum Command {
         /// the client holds; `{"unchanged": true, ...}` when it is current.
         #[serde(default)]
         known: Option<cmd_workspaces::KnownTree>,
+        /// `list-workspaces-limit-v1`: only the first `limit` workspaces in
+        /// sidebar order, with `total` (the first screen before the rest).
+        #[serde(default)]
+        limit: Option<usize>,
     },
     GetFrontendProjection {
         frontend: String,
@@ -3050,6 +3057,7 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
 fn list_workspaces_reply_since(
     mux: &Mux,
     known: &cmd_workspaces::KnownTree,
+    limit: Option<usize>,
 ) -> anyhow::Result<Value> {
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();
@@ -3077,9 +3085,89 @@ fn list_workspaces_reply_since(
             "tree_revision": tree_revision,
         }));
     }
+    if let Some(limit) = limit {
+        let (mut reply, whole) = list_workspaces_reply_first(mux, limit)?;
+        // A part of the tree is not a tree to hold: only a whole one gets the revision
+        // a later `known` sends back.
+        if whole {
+            reply.set("tree_revision", json!(tree_revision));
+        }
+        return Ok(reply);
+    }
     let mut reply = list_workspaces_reply(mux)?;
     reply.set("tree_revision", json!(tree_revision));
     Ok(reply)
+}
+
+/// `list-workspaces` with `limit` (`list-workspaces-limit-v1`): the first `limit`
+/// workspaces in sidebar order (the sidebar document's order, else the personal order, then
+/// the workspaces neither places, as `workspace.list {order: "personal"}` sorts them), with
+/// `total`, the number of workspaces. Only those rows are serialized. True with it when the
+/// reply holds every workspace.
+fn list_workspaces_reply_first(mux: &Mux, limit: usize) -> anyhow::Result<(Value, bool)> {
+    let order = crate::resource_api::read_committed_registry(mux, |connection, _| {
+        Ok(match crate::state::sidebar_doc_order::document_order(connection)? {
+            Some(order) => SidebarOrder::Document(order),
+            None => SidebarOrder::Personal(crate::state::sidebar_doc_legacy::workspace_order(
+                connection,
+            )?),
+        })
+    })?;
+    let notifications = mux.tree_decorations();
+    let (mut reply, whole) = mux.with_state(|state| {
+        let first = order.first(state, limit);
+        let whole = first.len() == state.workspaces.len();
+        (tree_json::workspaces_json_at(state, &notifications, &first), whole)
+    });
+    let (registry_id, generation) = mux.registry_identity();
+    reply.set("registry_id", json!(registry_id));
+    reply.set("generation", json!(generation));
+    reply.set("terminal_revision", json!(mux.terminal_registry_revision()?));
+    Ok((reply, whole))
+}
+
+/// The sidebar order `limit` reads (`list_workspaces_reply_first`).
+enum SidebarOrder {
+    Document(crate::state::sidebar_doc_order::DocumentOrder),
+    Personal(Vec<String>),
+}
+
+impl SidebarOrder {
+    /// The indices in `state.workspaces` of the first `limit` workspaces in this order.
+    fn first(&self, state: &State, limit: usize) -> Vec<usize> {
+        let mut rows = state
+            .workspaces
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| {
+                json!({"id": workspace.public_id, "active": index == state.active_workspace,
+                       "index": index})
+            })
+            .collect::<Vec<_>>();
+        match self {
+            Self::Document(order) => crate::state::sidebar_doc_order::sort_workspaces(
+                &mut rows,
+                "id",
+                order,
+                crate::user_settings::NewWorkspacePlacement::current(),
+            ),
+            Self::Personal(order) => {
+                let rank = order
+                    .iter()
+                    .enumerate()
+                    .map(|(rank, id)| (id.as_str(), rank))
+                    .collect::<HashMap<_, _>>();
+                rows.sort_by_key(|row| {
+                    row["id"].as_str().and_then(|id| rank.get(id).copied()).unwrap_or(usize::MAX)
+                });
+            }
+        }
+        rows.iter()
+            .take(limit)
+            .filter_map(|row| row["index"].as_u64())
+            .map(|i| i as usize)
+            .collect()
+    }
 }
 
 /// Remove the socket file (call on clean shutdown).
@@ -3172,6 +3260,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/list_workspaces_known_tests.rs"]
 mod list_workspaces_known_tests;
+
+#[cfg(test)]
+#[path = "server/list_workspaces_limit_tests.rs"]
+mod list_workspaces_limit_tests;
 
 #[cfg(test)]
 #[path = "server/list_workspaces_bench_tests.rs"]
