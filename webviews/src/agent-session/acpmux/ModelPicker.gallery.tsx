@@ -138,7 +138,7 @@ const fallbackRecommendationCatalog = familyRecommendationCatalog.map(({ top: _t
 /// cmux's catalog knew it, so it has no catalog family. It leads the Fable line; Fable 5.1 folds.
 const liveFable52Rows: [id: string, name: string, family?: string][] = [
   ["claude-opus-5-5", "Opus 5.5", "Opus"],
-  ["claude-fable-5-2", "Claude Fable 5.2"],
+  ["claude-fable-5-2", "Fable 5.2"],
   ["claude-fable-5-1", "Fable 5.1", "Fable"],
   ["claude-fable-5", "Fable 5", "Fable"],
   ["claude-sonnet-5-5", "Sonnet 5.5", "Sonnet"],
