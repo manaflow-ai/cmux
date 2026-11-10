@@ -3590,17 +3590,17 @@ jobs:
           VERDICT: ${{ needs.fast-tier-fleet.outputs.verdict }}
           RESULT: ${{ needs.fast-tier-fleet.result }}
         run: |
-          if [[ "$VERDICT" == pass && "$RESULT" == success ]]; then
+          if [[ $VERDICT == pass && $RESULT == success ]]; then
             echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
             printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [[ "$VERDICT" == fail ]]; then
-            echo "::error title=cmux-next fast tier::a Swift suite failed on the build fleet; its log is in cmux-next fast tier (build fleet)."
+          if [[ $VERDICT == fail || $RESULT == failure ]]; then
+            echo "::error title=cmux-next fast tier::fleet $RESULT, verdict ${VERDICT:-none}; its log is in cmux-next fast tier (build fleet)"
             exit 1
           fi
-          echo "::error title=cmux-next fast tier: no verdict::the build fleet gave no verdict (fast-tier-fleet $RESULT, verdict '${VERDICT:-none}'), and no verdict is never a pass. Re-run the run once a Mac or the fleet is free."
-          exit 1
+          echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
+          exit 3
 
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -7011,6 +7011,7 @@ jobs:
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
+              [[ $COMPILE == failure ]] || { echo "::error::no verdict: crash gate: compile ${COMPILE:-none}"; exit 3; }
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
 

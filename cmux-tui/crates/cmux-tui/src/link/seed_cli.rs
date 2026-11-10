@@ -27,7 +27,8 @@
 //! the machine refuses with `seed.filling` (another seed of the folder still
 //! fills its checkout) is tried again on the same beat until that fill ends.
 //!
-//! A start-chat copy ([`push`] with the chat's subpath) asks for the head first
+//! A start-chat copy ([`push`] with the chat's subpath; `--head-first SUBPATH` on the
+//! command line, `""` for the folder itself) asks for the head first
 //! (`head_first`, a whole seed without this Mac's sparse patterns or LFS): the machine
 //! checks out the root's files, the harness folders and the chat's folder, marks
 //! them on its sync barrier and says `head_ready: true`, then fills the rest
@@ -39,6 +40,12 @@
 //! sends a delta, since the machine refuses a delta into a checkout that is not
 //! whole yet; a job the machine forgot counts as done only when the folder's sync
 //! barrier says ready and no fill marker is left.
+//!
+//! A start-chat copy of a folder the machine has nothing of opens at its head too, when
+//! the machine serves `git-seed-hold-v2` ([`held`]): the machine holds the folder's sync
+//! barrier, this Mac sends the head, the machine marks it, and a detached `cmux link seed
+//! copy-rest` sends the rest and ends the hold. Its record keeps the hold's job as
+//! `filling` the same way.
 //!
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
@@ -64,6 +71,7 @@
 //! exits 64.
 
 mod hop;
+mod held;
 mod pull;
 mod record;
 
@@ -82,7 +90,7 @@ use record::{Kept, Record};
 use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--since-last]
+[--since-last | --head-first SUBPATH]
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--or-copy | --base-head SHA --base-index SHA --base-work SHA]";
@@ -200,6 +208,12 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return if args.is_empty() { 64 } else { 0 };
     }
+    // The held copy's own child ([`held::copy_rest`]), never typed by a person.
+    if let ["copy-rest", "--socket", socket, "--job", job, local, remote] =
+        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
+    {
+        return held::copy_rest(Path::new(socket), job, Path::new(local), remote);
+    }
     let Some(command) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
@@ -210,11 +224,11 @@ pub(super) fn run(args: &[String]) -> i32 {
             println!("{line}");
             return code;
         }
-        Command::Push { socket, local, remote, since_last } => {
+        Command::Push { socket, local, remote, since_last, head_first } => {
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
             } else {
-                push(&socket, &local, &remote, None)
+                push(&socket, &local, &remote, head_first.as_deref())
             };
             pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
         }
@@ -235,15 +249,32 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 enum Command {
-    Pull { socket: PathBuf, local: PathBuf, remote: String, base: pull::Base },
-    Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool },
-    Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
+    Pull {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        base: pull::Base,
+    },
+    /// `head_first`: the chat's folder below LOCAL (`""` for LOCAL), as a start-chat copy.
+    Push {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        since_last: bool,
+        head_first: Option<String>,
+    },
+    Clone {
+        socket: PathBuf,
+        repo: String,
+        git_ref: Option<String>,
+        remote: String,
+    },
 }
 
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
-    let mut or_copy = false;
+    let (mut or_copy, mut head_first) = (false, None);
     let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
     let mut rest = rest.iter();
@@ -254,6 +285,7 @@ fn parse(args: &[String]) -> Option<Command> {
             "--ref" => git_ref = Some(rest.next()?.clone()),
             "--since-last" => since_last = true,
             "--or-copy" => or_copy = true,
+            "--head-first" => head_first = Some(rest.next()?.clone()),
             "--base-head" => head = Some(rest.next()?.clone()),
             "--base-index" => index = Some(rest.next()?.clone()),
             "--base-work" => work = Some(rest.next()?.clone()),
@@ -275,6 +307,9 @@ fn parse(args: &[String]) -> Option<Command> {
         _ => return None,
     };
     let plain = repo.is_none() && git_ref.is_none();
+    if head_first.is_some() && (action != "push" || since_last) {
+        return None;
+    }
     match (action.as_str(), positional.as_slice()) {
         ("pull", [local, remote]) if plain && !since_last => Some(Command::Pull {
             socket: socket?,
@@ -293,6 +328,7 @@ fn parse(args: &[String]) -> Option<Command> {
             local: PathBuf::from(local),
             remote: absolute(remote)?,
             since_last,
+            head_first,
         }),
         ("clone", [remote]) if !since_last => {
             let repo = repo.filter(|repo| repo.split('/').count() == 2)?;
@@ -309,6 +345,8 @@ struct Machine<'a> {
     id: Option<String>,
     /// False when it is another build without `git-seed-v1`.
     seeds: bool,
+    /// It serves `git-seed-hold-v2` ([`held`]).
+    holds: bool,
 }
 
 impl<'a> Machine<'a> {
@@ -333,11 +371,12 @@ impl<'a> Machine<'a> {
             return Err(SeedError::new(outdated.code(), outdated.message()));
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
+        let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
         let id = identity
             .as_ref()
             .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
             .map(str::to_owned);
-        Ok(Self { socket, id, seeds })
+        Ok(Self { socket, id, seeds, holds })
     }
 
     fn outdated() -> SeedError {
@@ -404,6 +443,11 @@ pub(super) fn push(
         announce.set("install_url", json!(url));
     }
     eprintln!("{}", json!({ "progress": announce }));
+    if let Some(subpath) = head_first
+        && let Some(hold) = held::take(&machine, &local, remote, subpath)?
+    {
+        return held::copy(&machine, &local, remote, subpath, hold, Some(fallback));
+    }
     copy(&machine, &local, remote, Some(fallback))
 }
 
@@ -424,6 +468,12 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
         return Err(no_previous("the last push of this folder went to another machine").into());
     }
     if record.mode == Kept::Copy {
+        // A held copy that answered at its head: its rest must be in before this one
+        // writes over the folder.
+        if record.filling.is_some() {
+            settle(&machine, remote, &mut record)?;
+            let _ = record::save(&local, remote, &record);
+        }
         return copy(&machine, &local, remote, None);
     }
     if !record.stash_known {
@@ -438,14 +488,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     // The full seed answered at its head: its fill must be done before a delta builds on it.
     if record.filling.is_some() {
         // Read before any shortcut: an unchanged delta never reaches the machine's own check.
-        let mut whole = || checkout_whole(machine.socket, remote);
-        settle_fill(
-            &mut machine_calls(machine.socket),
-            &mut pause,
-            &mut whole,
-            &mut record,
-            deadline(),
-        )?;
+        settle(&machine, remote, &mut record)?;
         let _ = record::save(&local, remote, &record);
     }
     let (Some(head), Some(index), Some(work)) = (record.head, record.index, record.work) else {
@@ -522,6 +565,12 @@ fn seed_full(
     }
 }
 
+/// [`settle_fill`] over the machine's own calls.
+fn settle(machine: &Machine<'_>, remote: &str, record: &mut Record) -> Result<(), SeedError> {
+    let mut whole = || checkout_whole(machine.socket, remote);
+    settle_fill(&mut machine_calls(machine.socket), &mut pause, &mut whole, record, deadline())
+}
+
 /// The streamed copy, kept as this folder's last push.
 fn copy(
     machine: &Machine<'_>,
@@ -530,6 +579,19 @@ fn copy(
     fallback: Option<SeedError>,
 ) -> anyhow::Result<Pushed> {
     let summary = sync_cli::push(machine.socket, local, remote)?;
+    Ok(copied(machine, local, remote, &summary, fallback, None))
+}
+
+/// A copy's answer, kept as this folder's last push; `filling` is the held copy's job
+/// still sending the rest past its head ([`held`]).
+fn copied(
+    machine: &Machine<'_>,
+    local: &Path,
+    remote: &str,
+    summary: &sync_cli::Summary,
+    fallback: Option<SeedError>,
+    filling: Option<&str>,
+) -> Pushed {
     let record = Record {
         mode: Kept::Copy,
         machine: machine.id.clone(),
@@ -539,13 +601,13 @@ fn copy(
         work: None,
         stash: None,
         stash_known: false,
-        filling: None,
+        filling: filling.map(str::to_owned),
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
     let _ = record::save(local, remote, &record);
     let line = summary.json();
-    Ok(Pushed {
+    Pushed {
         mode: "copy",
         unchanged: summary.written == 0 && summary.deleted == 0,
         bundle_bytes: 0,
@@ -554,8 +616,8 @@ fn copy(
         skipped_files: line.get("skipped_files").cloned().unwrap_or_default(),
         copy: Some(line),
         fallback,
-        filling: false,
-    })
+        filling: filling.is_some(),
+    }
 }
 
 fn keep_seed(

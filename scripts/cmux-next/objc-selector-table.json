@@ -1226,6 +1226,10 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSWindow call:constrainFrameRect/2:to": {
+   "27.0": true,
+   "26.5.2": true
+  },
   "NSWindow call:endEditing/1": {
    "26.5.2": true,
    "26.7": true,
