@@ -68,6 +68,9 @@ nonisolated enum PaletteStrings {
     }
     static var submit: String { String(localized: "palette.command.submit", defaultValue: "Submit", bundle: .module) }
     static var current: String { String(localized: "palette.accessory.current", defaultValue: "Current", bundle: .module) }
+    /// The mark on a choice list's value in effect (a team, a theme, a setting's option): a
+    /// checkmark, as a menu marks its chosen row. A glyph, not a word, so it needs no translation.
+    static let chosenMark = "\u{2713}"
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
     static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .module) }

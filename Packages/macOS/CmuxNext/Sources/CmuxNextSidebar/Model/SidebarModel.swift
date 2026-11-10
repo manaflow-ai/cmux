@@ -474,13 +474,58 @@ public final class SidebarModel {
         // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
         let from = sectionsRevision
         let added = filterText.isEmpty ? SidebarSection.looseInsertion(from: storedSections, to: next) : nil
+        // A set that only closes or moves one loose workspace row: the list takes it out (and puts it back) the same way.
+        let removal = splicesRemovals && filterText.isEmpty && added == nil ? looseRemoval(to: next) : nil
         sections = next // the setter skips an unchanged list
         rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
+        rowRemoval = removal.map { removal in
+            let insertion = removal.insertion.map {
+                SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: $0.section, node: $0.node)
+            }
+            return SidebarRowRemoval(from: from, to: sectionsRevision, content: contentRevision, section: removal.section,
+                                     node: removal.node, workspace: removal.workspace, insertion: insertion)
+        }
+    }
+
+    /// Whether `sections` list workspace `id` once (a scan that stops at a second listing; no index is built).
+    private static func listsOnce(_ id: WorkspaceID, in sections: [SidebarSection]) -> Bool {
+        var seen = 0
+        for section in sections {
+            for node in section.nodes {
+                switch node {
+                case let .workspace(ws): if ws.id == id { seen += 1 }
+                case let .group(group): seen += group.workspaces.lazy.filter { $0.id == id }.count
+                case .item: break
+                }
+                if seen > 1 { return false }
+            }
+        }
+        return seen == 1
+    }
+
+    /// The one loose workspace row `next` takes out of the stored sections, or moves, with nothing else changed: the
+    /// section the removal leaves, the row's old node index, its workspace, and for a move its section and node in
+    /// `next`. Nil for any other change, or for a workspace listed more than once (another listing would take its row).
+    private func looseRemoval(to next: [SidebarSection])
+        -> (section: SidebarSection, node: Int, workspace: SidebarWorkspace, insertion: (section: SidebarSection, node: Int)?)? {
+        let old = storedSections
+        if let gone = SidebarSection.looseRemoval(from: old, to: next), case let .workspace(ws) = old[gone.section].nodes[gone.node],
+           Self.listsOnce(ws.id, in: old) {
+            return (next[gone.section], gone.node, ws, nil)
+        }
+        guard let move = SidebarSection.looseMove(from: old, to: next),
+              case let .workspace(ws) = old[move.removal.section].nodes[move.removal.node],
+              Self.listsOnce(ws.id, in: old) else { return nil }
+        return (move.middle[move.removal.section], move.removal.node, ws, (next[move.insertion.section], move.insertion.node))
     }
 
     /// The last structural set when it only added one loose workspace row (`setSections`); the list reads it at the
     /// reload that shows that set (its `to` is the current `sectionsRevision`).
     @ObservationIgnored public private(set) var rowInsertion: SidebarRowInsertion?
+    /// The last structural set when it only closed or moved one loose workspace row (`setSections`), read as `rowInsertion`.
+    @ObservationIgnored public private(set) var rowRemoval: SidebarRowRemoval?
+    /// Off, a close or a move lays the list out in full as before the removal splice (a bench's before numbers).
+    @ObservationIgnored var splicesRemovals = true
 
     /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
     /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,

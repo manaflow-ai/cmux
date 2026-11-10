@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR feb213a2b2b4ab79d9462b1d3721516281e4a74b0bca245e564fa6df076d6e80.
+// cmux-tui mux protocol 12, IR 2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -396,6 +396,19 @@ pub struct DetachedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedReportsChangedEvent {
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedViewChangedEvent {
+    pub changed: Vec<String>,
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -1048,6 +1061,8 @@ pub enum Event {
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
+    FeedReportsChanged(FeedReportsChangedEvent),
+    FeedViewChanged(FeedViewChangedEvent),
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
@@ -1146,6 +1161,8 @@ impl Event {
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
+            Self::FeedReportsChanged(_) => Some("feed-reports-changed"),
+            Self::FeedViewChanged(_) => Some("feed-view-changed"),
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
@@ -1243,6 +1260,8 @@ impl Event {
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
+            Self::FeedReportsChanged(_) => Some(&FEED_REPORTS_CHANGED_EVENT_METADATA),
+            Self::FeedViewChanged(_) => Some(&FEED_VIEW_CHANGED_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
@@ -1596,6 +1615,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("empty") => match serde_json::from_value::<EmptyEvent>(raw.clone()) {
             Ok(event) => Event::Empty(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("feed-reports-changed") => match serde_json::from_value::<FeedReportsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::FeedReportsChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("feed-view-changed") => match serde_json::from_value::<FeedViewChangedEvent>(raw.clone()) {
+            Ok(event) => Event::FeedViewChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

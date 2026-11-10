@@ -95,10 +95,10 @@ const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.
 const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their ids";
-const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
+const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat [--on TARGET] [--environment ENV] [--agent AGENT] [--model MODEL]
+usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
                  [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
                  [--timeout SECONDS] [--json] [[--prompt] TEXT]
 
@@ -108,7 +108,7 @@ Starts an agent chat, right here unless --on names another target:
   --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
   --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
-  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
+  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm ls`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
   CMUX_ON=TARGET names the target when --on is absent.
@@ -119,7 +119,7 @@ Starts an agent chat, right here unless --on names another target:
                      new machine boots in, with --on cloud or --on vm:new; without
                      it, Auto, as in the app's composer
 
-  --agent AGENT      claude (default), codex, ...
+  --harness HARNESS  claude (default), codex, ... (--agent is its old name)
   --attach FILE      A file the first prompt carries; repeat for more (a chat here).
                      Any type and size: small files go inline, larger ones are uploaded
                      to the chat first. A missing or unreadable file starts nothing
@@ -378,19 +378,28 @@ fn setting_target(global: &GlobalArgs) -> Result<Option<String>, Value> {
 }
 
 /// Reads `chat.on` from the app at `stream`. Each ask waits while the app answers its liveness
-/// ping (`window` is how often it is asked), the way every app request does ([`super::app::request`]);
-/// an app that stops answering it, or closes, is no setting. An ask the app refuses before it
-/// ran (`busy`, `timeout`, `unavailable`) is asked again while less than `total` has passed; past
-/// it the answer is `app.setting_unanswered`, retryable.
+/// ping (`window` is how often it is asked), the way every app request does
+/// ([`super::app::request`]), but never past `total` in all; an app that stops answering it, or
+/// closes, is no setting. An ask the app refuses before it ran (`busy`, `timeout`,
+/// `unavailable`) is asked again while less than `total` has passed; past it, or a pending ask
+/// past it, the answer is `app.setting_unanswered`, retryable.
 pub(super) fn read_setting(
     stream: &mut UnixStream,
     window: Duration,
     total: Duration,
 ) -> Result<Option<String>, Value> {
     let began = std::time::Instant::now();
+    // The whole wait, a pending ask included: an app that answers pings but never this ask
+    // would otherwise hold the read forever.
+    let deadline = began + total;
     loop {
-        let answer =
-            super::app::request(stream, "settings.get", json!({ "path": TARGET_SETTING }), window);
+        let answer = super::app::request_by(
+            stream,
+            "settings.get",
+            json!({ "path": TARGET_SETTING }),
+            window,
+            Some(deadline),
+        );
         let refusal = match answer {
             Ok(Ok(answer)) => {
                 return Ok(answer.get("value").and_then(Value::as_str).map(str::to_owned));
@@ -481,7 +490,7 @@ where
         if vm == "new" {
             return Ok(Route::Cloud(Machine::New));
         }
-        let vm = vm.strip_prefix("machine:").unwrap_or(vm);
+        let vm = super::vm_words::bare_id(vm);
         let listed = (reads.cloud_machines)()?;
         // Signed out, the app lists no VMs: say to sign in, not that the VM is unknown.
         if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
@@ -590,7 +599,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
             return Err(retryable(refusal(
                 "chat_target.vm_starting",
                 "your Cloud VM is still being made".to_owned(),
-                "run this command again once `cmux vm list-machines` lists it",
+                "run this command again once `cmux vm ls` lists it",
                 json!({}),
             )));
         }
@@ -608,7 +617,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     Err(refusal(
         "chat_target.which_vm",
         format!("you have {} Cloud VMs: {}", usable.len(), names.join(", ")),
-        "name one with --on vm:NAME (`cmux vm list-machines`), or use --on vm:new",
+        "name one with --on vm:NAME (`cmux vm ls`), or use --on vm:new",
         json!({"names": names}),
     ))
 }

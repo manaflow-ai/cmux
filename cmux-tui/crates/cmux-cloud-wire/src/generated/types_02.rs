@@ -4,6 +4,33 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPoster {
+    pub kind: FeedPosterKind,
+    pub scope: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+}
+
+wire_enum! {
+    FeedPosterKind {
+        Agent = "agent",
+        Harness = "harness",
+        App = "app",
+        Server = "server",
+        Vm = "vm",
+        Automation = "automation",
+        Integration = "integration",
+        System = "system",
+        User = "user",
+    }
+}
+
 /// Per-user push rules, synced by the feed owner.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedPrefs {
@@ -873,31 +900,3 @@ pub type NativeDeviceId = String;
 pub type NativeMeshId = String;
 
 pub type NativeTenantId = String;
-
-wire_enum! {
-    OpClass {
-        Read = "read",
-        MutateOwn = "mutate-own",
-        MutateShared = "mutate-shared",
-        Execute = "execute",
-        SendExternal = "send-external",
-        Money = "money",
-        Destructive = "destructive",
-        CloudLink = "cloud-link",
-        VmSelf = "vm-self",
-    }
-}
-
-/// A normalized pairing code: 8 Crockford base32 symbols, no hyphen.
-pub type PairingCode = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingInfo {
-    pub name: String,
-    pub platform: Platform,
-    pub os_version: String,
-    pub arch: PairingInfoArch,
-    pub cmux_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<ServerCapability>>,
-}

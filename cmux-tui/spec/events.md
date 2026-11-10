@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -42,6 +42,8 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
+| `feed-view-changed` | subscribe (owner clients) | none | capability `feed-client-v1` |
+| `feed-reports-changed` | subscribe (owner clients) | none | capability `feed-client-v1` |
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
@@ -434,6 +436,36 @@ through the v2 page router, so it is no apps client: it hears this event on
 `subscribe` when its page lists it in page-router.json (the App Store page
 does), and no other `subscribe` stream carries it. Interested frontends
 re-read `cmux.apps.installed.list` or the catalog.
+
+### feed-view-changed
+
+| Field | Value |
+| --- | --- |
+| event | `feed-view-changed` |
+| status | implemented |
+| since | capability `feed-client-v1` |
+
+Published by the daemon's feed client (plans/cmux-next/feed-page.md) once
+per commit that changes anything `feed.view.read` shows: an owner snapshot
+or event, an intent logged or settled, a connection change, a snooze that
+ended. The payload is `{event:"feed-view-changed", revision:uint64,
+changed:[string]}`, where `changed` names the items whose value moved
+(empty for a connection change alone); readers re-read `feed.view.read` or
+the changed items with `feed.item.get`. Only owner clients (Unix and
+authenticated WebSocket connections) hear it, and a page relay when its page
+lists it in page-router.json (the `feed` page does).
+
+### feed-reports-changed
+
+| Field | Value |
+| --- | --- |
+| event | `feed-reports-changed` |
+| status | implemented |
+| since | capability `feed-client-v1` |
+
+Published when the Reports basket (the acpmux mailbox `reports:<user>`)
+changed: `{event:"feed-reports-changed", revision:uint64}`; readers re-read
+`feed.reports.read`. Delivered like `feed-view-changed`.
 
 ### stash-changed
 
