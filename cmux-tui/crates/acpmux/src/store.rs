@@ -1503,7 +1503,7 @@ impl LocalStore {
             None => (1, dir.join("000001.ndjson")),
         };
         let file = open_private_append(&path)?;
-        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let written = cut_torn_tail(&file, &path)?;
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
@@ -1580,9 +1580,80 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        w.file.write_all(line)?;
+        #[cfg(test)]
+        let wrote = match test_write_fault::take() {
+            Some(kept) => w
+                .file
+                .write_all(&line[..kept.min(line.len())])
+                .and(Err(std::io::Error::from_raw_os_error(libc::ENOSPC))),
+            None => w.file.write_all(line),
+        };
+        #[cfg(not(test))]
+        let wrote = w.file.write_all(line);
+        if let Err(e) = wrote {
+            // A full disk (or a signal) can write part of the line before the error. Cut it back
+            // to the last whole record, or the next append is glued onto the torn bytes: the
+            // merged line reads as no record, so that record is lost and a strict read fails.
+            // If the cut fails too, the writer is dropped, and the next open cuts the tail.
+            if w.file.set_len(w.written).is_err() {
+                writers.open.remove(id);
+            }
+            return Err(e.into());
+        }
         w.written += line.len() as u64;
         Ok(())
+    }
+}
+
+/// Cuts a segment opened for appending back to its last whole line and returns its length
+/// after. Every record is written with its newline, so bytes after the last one are a torn
+/// append (a process killed mid-write, a full disk): left there, the next record would be glued
+/// onto them and lost. They never were a record, so nothing kept is cut.
+fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(0);
+    }
+    let mut reader = crate::config::private_state_file(path)?;
+    let mut end = len;
+    let mut chunk = vec![0u8; 64 * 1024];
+    while end > 0 {
+        let start = end.saturating_sub(chunk.len() as u64);
+        let part = &mut chunk[..(end - start) as usize];
+        reader.seek(SeekFrom::Start(start))?;
+        reader.read_exact(part)?;
+        if let Some(at) = part.iter().rposition(|b| *b == b'\n') {
+            end = start + at as u64 + 1;
+            break;
+        }
+        end = start;
+    }
+    if end < len {
+        tracing::warn!(
+            path = %path.display(),
+            torn = len - end,
+            "cutting a torn append from the end of an event log"
+        );
+        file.set_len(end)?;
+    }
+    Ok(end)
+}
+
+/// The next log append on this thread writes only its first `kept` bytes and then fails as a
+/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
+#[cfg(test)]
+pub(crate) mod test_write_fault {
+    use std::cell::Cell;
+
+    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
+
+    pub(crate) fn partial(kept: usize) {
+        NEXT.with(|n| n.set(Some(kept)));
+    }
+
+    pub(super) fn take() -> Option<usize> {
+        NEXT.with(Cell::take)
     }
 }
 
@@ -2093,6 +2164,9 @@ mod journal_store_tests;
 mod journal_sync_tests;
 #[cfg(all(test, unix))]
 mod journal_write_back_tests;
+
+#[cfg(all(test, unix))]
+mod torn_append_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.
