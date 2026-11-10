@@ -1,13 +1,7 @@
 {
   "envs": [
-    [
-      "light",
-      "none"
-    ],
-    [
-      "dark",
-      "none"
-    ]
+    ["light", "none"],
+    ["dark", "none"]
   ],
   "shots": [
     {
@@ -30,6 +24,14 @@
       "name": "unread-marker-line-labelled",
       "entry": "agent-pane.since-divider",
       "variant": "line-labelled",
+      "width": 640,
+      "height": 340,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-line-light",
+      "entry": "agent-pane.since-divider",
+      "variant": "line-light",
       "width": 640,
       "height": 340,
       "deviceScaleFactor": 2
