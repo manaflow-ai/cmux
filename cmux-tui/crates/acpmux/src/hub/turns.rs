@@ -853,6 +853,14 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        #[cfg(test)]
+        {
+            let seam = self.turn_shown_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Claim only after every dispatch fence that can refuse the prompt has passed. The
         // capability is one-use; every successful claim is finished below or on each early exit.
         if let Some((cloud, scope)) = cloud_exec.as_ref()
