@@ -1121,8 +1121,13 @@ COMPILE_RECEIPT_DOWN = 500  # an HTTP answer at or above this (5xx, Cloudflare's
 # that (github_compile_red refuses it), but a compile that passed at the head elsewhere can. A no-verdict status is
 # judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head (compile_pass_at, the Mac
 # Release compile first) ignores it, so a down controller makes landing slower, never impossible.
-COMPILE_STATUS_NO_VERDICT = re.compile(r"No compile result for this head|The compile check gave no verdict|"
-                                       r"The compile result does not match this head")
+# cmux-next.yml starts every no-verdict description with COMPILE_STATUS_NO_VERDICT_MARKER (its note-84), and this keys
+# on it; the prose stays matched too, for statuses posted before the marker (and the results service down, cmux#40667:
+# "No compile verdict: ...", whose description says it on its own), so either change may land first.
+COMPILE_STATUS_NO_VERDICT_MARKER = "[no-verdict]"
+COMPILE_STATUS_NO_VERDICT = re.compile(re.escape(COMPILE_STATUS_NO_VERDICT_MARKER) + r"|No compile result for this head|"
+                                       r"The compile check gave no verdict|The compile result does not match this head|"
+                                       r"No compile verdict:")
 
 
 class ReceiptUnreachable(Refused):
