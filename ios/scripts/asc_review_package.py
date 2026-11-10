@@ -60,7 +60,12 @@ NOTES_LIMIT = 4000
 IN_REVIEW_STATES = {"WAITING_FOR_REVIEW", "IN_REVIEW"}
 # A product Apple already approved (with an earlier version) does not ride again.
 SUBMITTED_OK_STATES = IN_REVIEW_STATES | {"APPROVED"}
-OPEN_SUBMISSION_STATES = ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "UNRESOLVED_ISSUES")
+# A submission that entered review during the verification wait is still
+# withdrawn: a mismatch must never stay in front of a reviewer.
+OPEN_SUBMISSION_STATES = ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW", "UNRESOLVED_ISSUES")
+# An image counts once App Store Connect has its bytes; anything else is a
+# reservation a failed run left behind, deleted and uploaded again.
+IMAGE_DELIVERED_STATES = {"UPLOAD_COMPLETE", "COMPLETE"}
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 MAILINATOR_URL = re.compile(r"https?://(?:www\.)?mailinator\.com/[^\s)]+", re.IGNORECASE)
 
@@ -296,6 +301,10 @@ def png_size(data: bytes) -> tuple[int, int]:
     return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
 
 
+def image_state(image: dict) -> str:
+    return (((image.get("attributes") or {}).get("assetDeliveryState") or {}).get("state")) or ""
+
+
 def upload_images(api: Api, manifest: dict, images_dir: Path) -> list[str]:
     subs = subscriptions(api, manifest["group_id"])
     uploaded = []
@@ -308,9 +317,13 @@ def upload_images(api: Api, manifest: dict, images_dir: Path) -> list[str]:
             raise PackageError(f"{path.name}: promotional images are 1024x1024")
         sub_id = subs[product]["id"]
         existing = api.get(f"/v1/subscriptions/{sub_id}/images").get("data") or []
-        if existing:
-            note(f"{product} already has a promotional image")
+        delivered = [image for image in existing if image_state(image) in IMAGE_DELIVERED_STATES]
+        if delivered:
+            note(f"{product} already has a promotional image ({image_state(delivered[0])})")
             continue
+        for image in existing:
+            api.request("DELETE", f"/v1/subscriptionImages/{image['id']}")
+            note(f"{product}: removed unfinished promotional image {image['id']} ({image_state(image) or 'no state'})")
         reserved = api.request("POST", "/v1/subscriptionImages", {
             "data": {
                 "type": "subscriptionImages",

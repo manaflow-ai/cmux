@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +105,11 @@ class FakeAsc:
                 body = json.loads(self._body() or b"{}")
                 fake.requests.append(("PATCH", self.path, body))
                 self._send(*fake.patch(self.path, body))
+
+            def do_DELETE(self):
+                fake.requests.append(("DELETE", self.path, {}))
+                self.send_response(204)
+                self.end_headers()
 
             def do_PUT(self):
                 fake.uploaded.append(self._body())
@@ -372,10 +378,22 @@ class ImageTests(FakeAscCase):
         self.assertEqual(commit[2]["data"]["attributes"], {"uploaded": True, "sourceFileChecksum": hashlib.md5(data).hexdigest()})
 
     def test_upload_skips_a_product_that_has_an_image(self):
-        fake = self.start(images={SUBS["com.cmux.app.pro.trial.monthly"]: [{"id": "existing"}]})
+        fake = self.start(images={SUBS["com.cmux.app.pro.trial.monthly"]: [
+            {"id": "existing", "attributes": {"assetDeliveryState": {"state": "COMPLETE"}}},
+        ]})
         manifest = pkg.load_manifest(pkg.DEFAULT_MANIFEST)
         self.assertEqual(pkg.upload_images(pkg.Api(), manifest, pkg.DEFAULT_IMAGES_DIR), [])
         self.assertEqual(self.writes(fake, "POST"), [])
+        self.assertEqual(self.writes(fake, "DELETE"), [])
+
+    def test_an_unfinished_reservation_is_replaced(self):
+        fake = self.start(images={SUBS["com.cmux.app.pro.trial.monthly"]: [
+            {"id": "stale", "attributes": {"assetDeliveryState": {"state": "AWAITING_UPLOAD"}}},
+        ]})
+        manifest = pkg.load_manifest(pkg.DEFAULT_MANIFEST)
+        self.assertEqual(pkg.upload_images(pkg.Api(), manifest, pkg.DEFAULT_IMAGES_DIR), ["com.cmux.app.pro.trial.monthly"])
+        self.assertEqual([r[1] for r in self.writes(fake, "DELETE")], ["/v1/subscriptionImages/stale"])
+        self.assertEqual(len(self.writes(fake, "POST")), 1)
 
 
 class VerifySubmissionTests(FakeAscCase):
@@ -415,6 +433,15 @@ class VerifySubmissionTests(FakeAscCase):
         })
         self.assertEqual(problems, [])
         self.assertEqual(fake.cancelled, [])
+
+    def test_a_submission_already_in_review_is_found_for_cancelling(self):
+        fake, _ = self.verify({
+            "com.cmux.app.pro.monthly": "IN_REVIEW", "com.cmux.app.max.monthly": "IN_REVIEW",
+            "com.cmux.app.go.monthly": "IN_REVIEW", "com.cmux.app.pro.trial.monthly": "READY_TO_SUBMIT",
+        })
+        query = next(r[1] for r in fake.requests if r[1].startswith(f"/v1/apps/{APP}/reviewSubmissions"))
+        self.assertIn("IN_REVIEW", urllib.parse.unquote(query))
+        self.assertEqual(fake.cancelled, ["submission-1"])
 
     def test_only_the_submission_carrying_this_version_is_cancelled(self):
         fake, _ = self.verify({
