@@ -1,11 +1,7 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxRemoteSession
 
 /// Regression coverage for authoritative pane captures containing blank rows.
 @Suite struct RemoteTmuxControlParserBlankLineTests {

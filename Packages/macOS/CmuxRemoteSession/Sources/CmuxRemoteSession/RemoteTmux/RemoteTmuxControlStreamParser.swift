@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Incremental parser for a tmux control-mode (`tmux -CC`) byte stream.
 ///
@@ -14,8 +14,8 @@ import Foundation
 /// split across two notifications. `%output` is therefore parsed from raw bytes
 /// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
 /// reassemble; a String round-trip would replace each split half with U+FFFD.
-struct RemoteTmuxControlStreamParser {
-    static let defaultMaximumCommandBlockBytes = 16_777_216
+public struct RemoteTmuxControlStreamParser {
+    public static let defaultMaximumCommandBlockBytes = 16_777_216
 
     private let maxBufferedLineBytes: Int
     private let maxCommandBlockBytes: Int
@@ -28,7 +28,7 @@ struct RemoteTmuxControlStreamParser {
     /// a newline, so a bare `Passcode: ` otherwise sits here unseen — which is exactly the case a
     /// transport that authenticates itself produces, and the reason such a stream used to fail with
     /// nothing to explain it.
-    var unterminatedTail: String { String(decoding: buffer, as: UTF8.self) }
+    public var unterminatedTail: String { String(decoding: buffer, as: UTF8.self) }
     private var inBlock = false
     /// Whether control mode has been entered. Entering happens once per stream, so the scan for
     /// the enter DCS stops after it — searching later lines could match a DCS that is genuinely
@@ -38,7 +38,7 @@ struct RemoteTmuxControlStreamParser {
     private var blockLines: [String] = []
     private var blockBufferedBytes = 0
 
-    init(
+    public init(
         maxBufferedLineBytes: Int = 1_048_576,
         maxCommandBlockBytes: Int = Self.defaultMaximumCommandBlockBytes
     ) {
@@ -70,7 +70,7 @@ struct RemoteTmuxControlStreamParser {
     private static let outputPrefix: [UInt8] = Array("%output ".utf8)
 
     /// Feeds a chunk of stream bytes and returns any newly completed messages.
-    mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
+    public mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
         var messages: [RemoteTmuxControlMessage] = []
         // A flood is hundreds of megabytes of `%output`, so the work per line is kept to a
         // memchr for the newline and, for `%output`, a bulk unescape: no per-byte loop and no
@@ -402,7 +402,7 @@ struct RemoteTmuxControlStreamParser {
     }
 
     /// Parses a sigil-prefixed tmux id token, e.g. `@4` → 4, `%8` → 8, `$2` → 2.
-    static func id(_ token: Substring, sigil: Character) -> Int? {
+    public static func id(_ token: Substring, sigil: Character) -> Int? {
         guard token.first == sigil else { return nil }
         return Int(token.dropFirst())
     }

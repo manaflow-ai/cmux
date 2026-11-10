@@ -1,4 +1,6 @@
 #if DEBUG
+import CmuxRemoteSession
+
 extension RemoteTmuxControlConnection {
     func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) {
         stdinWriter = writer
