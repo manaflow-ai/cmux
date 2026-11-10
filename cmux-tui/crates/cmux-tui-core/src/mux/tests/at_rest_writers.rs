@@ -288,7 +288,7 @@ fn an_equal_project_observation_writes_nothing() {
     mux.stop_journal_maintenance();
     let observe = |entries: &Value| {
         mux.state_project_observe(
-            &crate::workspace_registry::WorkspaceMutation::daemon_local("at-rest-test"),
+            &WorkspaceMutation::daemon_local("at-rest-test"),
             "acpmux",
             entries,
             true,
