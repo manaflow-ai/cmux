@@ -176,8 +176,9 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             "head": view.head,
             "base": base,
             // No diff or textconv driver: one can run a script the pull
-            // request changes.
-            "diff": format!("git diff --no-ext-diff --no-textconv {base} HEAD"),
+            // request changes. `--submodule=short` too: `diff.submodule=diff`
+            // runs a nested diff in each submodule, which neither flag reaches.
+            "diff": format!("git diff --no-ext-diff --no-textconv --submodule=short {base} HEAD"),
             // A review never runs the worktree's setup recipe: the recipe
             // (or a script it names) is the pull request's code, run with
             // the person's environment before anyone read it.

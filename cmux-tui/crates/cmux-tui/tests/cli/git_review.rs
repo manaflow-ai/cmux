@@ -299,6 +299,11 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(value["head"], head.as_str(), "{value}");
     assert_eq!(value["base"], merge_base.as_str(), "the base is the merge-base, not main's tip");
     assert_eq!(value["reused"], false, "{value}");
+    // The diff it hands the agent runs no driver, a submodule's included.
+    let diff = value["diff"].as_str().unwrap();
+    for flag in ["--no-ext-diff", "--no-textconv", "--submodule=short"] {
+        assert!(diff.contains(flag), "{diff}");
+    }
     // The pull request's own setup script never runs before anyone read it,
     // and no git hook runs in its checkout either.
     assert_eq!(value["setup"]["state"], "none", "{value}");
