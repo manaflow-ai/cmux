@@ -113,7 +113,9 @@ export type CapOffer =
   /** Delete this machine (a test leftover, a failed create, a never-used one, or one already archived). */
   | { kind: "delete"; machine: string; name: string }
   /** Archive and delete the oldest paused machine (its disk kept as an archive). */
-  | { kind: "archive"; machine: string; name: string };
+  | { kind: "archive"; machine: string; name: string }
+  /** Pause this running machine of the person (the running-machines limit; its files and processes are kept). */
+  | { kind: "pause"; machine: string; name: string };
 
 /** The provider's own machine limit (paused ones count), as cmux-platform words it. Its text is
  * read only to know the cap refused; the machine to delete is only ever the id in `free_up`. */
@@ -123,13 +125,16 @@ const HELD_CAP = "machines (paused ones count)";
  * The offer of a create refusal at a machines cap: the plan's (`cloud.quota.exceeded` with
  * `details.resource: "machines"` and `details.free_up`) or the provider's ("limit of 20 machines
  * (paused ones count)"). A delete is offered only for the machine id the platform names in
- * `free_up`; without one, the oldest paused machine nobody kept is archived and deleted. Undefined for any other error, or nothing to free.
+ * `free_up`; without one, the oldest paused machine nobody kept is archived and deleted. At the
+ * running-machines limit (the same code without `resource: "machines"`) the offer is a pause
+ * (`pauseOffer`). Undefined for any other error, or nothing to free.
  */
 export function capOffer(error: unknown, machines: readonly CloudMachine[]): CapOffer | undefined {
   if (!isPageError(error)) return undefined;
   const details = (error.details && typeof error.details === "object" ? error.details : {}) as Record<string, unknown>;
   const planCap = error.code === CloudErrors.quotaExceeded && details.resource === "machines";
   const heldCap = (error.message ?? "").includes(HELD_CAP);
+  if (error.code === CloudErrors.quotaExceeded && !planCap && !heldCap) return pauseOffer(details.busy, machines);
   if (!planCap && !heldCap) return undefined;
   const free = details.free_up as { machine?: unknown; name?: unknown } | null | undefined;
   if (free && typeof free.machine === "string") {
@@ -139,6 +144,23 @@ export function capOffer(error: unknown, machines: readonly CloudMachine[]): Cap
   }
   const oldest = oldestPaused(machines);
   return oldest ? { kind: "archive", machine: oldest.id, name: oldest.name || oldest.id } : undefined;
+}
+
+/**
+ * The offer at the running-machines limit: the platform found no idle machine of the person to pause
+ * and names their running ones in `details.busy`; the one used longest ago is offered. Undefined when
+ * it names none (a teammate's machines hold the slots).
+ */
+function pauseOffer(busy: unknown, machines: readonly CloudMachine[]): CapOffer | undefined {
+  if (!Array.isArray(busy)) return undefined;
+  const named = busy
+    .filter((b): b is { machine: string; name?: unknown; last_active_at?: unknown } => typeof b?.machine === "string")
+    .map((b) => ({ ...b, used: typeof b.last_active_at === "number" ? b.last_active_at : 0 }))
+    .sort((a, b) => a.used - b.used)[0];
+  if (!named) return undefined;
+  const known = machines.find((machine) => machine.id === named.machine);
+  const name = typeof named.name === "string" && named.name ? named.name : known?.name || named.machine;
+  return { kind: "pause", machine: named.machine, name };
 }
 
 /** The paused machine used longest ago that nobody kept: the one "Archive and delete" frees first. */

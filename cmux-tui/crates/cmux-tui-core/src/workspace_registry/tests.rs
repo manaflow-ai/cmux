@@ -1462,6 +1462,7 @@ fn viewport_screen() -> RegistryScreen {
     let boundary = split_id(2);
     let base_column = split_id(3);
     let first_column = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal,
         direction: "down".into(),
         ratio: 0.5,
@@ -1474,6 +1475,7 @@ fn viewport_screen() -> RegistryScreen {
         position: 0,
         name: None,
         layout: RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: boundary.clone(),
             direction: "right".into(),
             ratio: 1.0 / (1.0 + 0.5),
@@ -1534,6 +1536,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
     let fourth = pane_id(4);
     if let RegistryLayoutNode::Split { second, .. } = &mut duplicate.layout {
         **second = RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: split_id(4),
             direction: "down".into(),
             ratio: 0.5,
@@ -1542,6 +1545,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
         };
     }
     duplicate.viewport.columns[1].layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: split_id(1),
         direction: "down".into(),
         ratio: 0.5,
@@ -1672,6 +1676,7 @@ fn commit_browser_topology(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split,
                             direction: "right".into(),
                             ratio: 0.5,
@@ -2915,6 +2920,7 @@ fn commit_browser_topology_unchecked(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split_id(1),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -3011,6 +3017,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split.clone(),
                             direction: "right".into(),
                             ratio: 0.5,

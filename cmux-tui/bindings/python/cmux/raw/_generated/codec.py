@@ -504,6 +504,7 @@ MODEL_BY_PATH = {
     'commands/set-client-sizing/request': models.SetClientSizingRequest,
     'commands/set-column-dock/request': models.SetColumnDockRequest,
     'commands/set-default-colors/request': models.SetDefaultColorsRequest,
+    'commands/set-divider-visible/request': models.SetDividerVisibleRequest,
     'commands/set-frontend-browser-history/request': models.SetFrontendBrowserHistoryRequest,
     'commands/set-host-size-policy/request': models.SetHostSizePolicyRequest,
     'commands/set-layout-sizes/request': models.SetLayoutSizesRequest,
