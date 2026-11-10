@@ -127,8 +127,8 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
-        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud
-            withAgentPane(invocation, context: context, seed: AgentPaneSeed(picksCloud: true)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab())) }
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud, carrying a page's `handoff` token
+            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: invocation["handoff"]?.stringValue)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: invocation["handoff"]?.stringValue)) }
             return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()

@@ -38,10 +38,8 @@ extension CloudStartChat {
             var verdict = decision.verdict // One FFI answer per step (cmux#32483): a step's fields never mix a failed call with a good one.
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await cloud.callerOwnsVM(machineID)
-                // The guest's kind (again until a new guest binds) and the machine's own login, read at once; a login the
-                // provider rejects (a reused machine's expired token) is replaced like a missing one.
-                try await decision.readMachine(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause,
-                                               warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID, cloud.claimedCopies) }) { await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams) }
+                // The guest's kind, the machine's own login and the transfer's guest check, at once (``CloudHarnessLoginDecision/readMachine(on:machineID:teamID:userID:otherTeams:warmCopy:)``).
+                try await decision.readMachine(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams, warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID, cloud.claimedCopies) })
                 steps.done("login.machine")
             }
             verdict = decision.verdict
@@ -78,7 +76,7 @@ extension CloudStartChat {
                 }
             } else {
                 let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
-                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, steps: steps, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                    allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), otherTeams: otherTeams, steps: steps, guestCheckedAt: decision.guestCheckedAt, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                        confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) }, stillAllowed: gate.stillAllowed)
             }
