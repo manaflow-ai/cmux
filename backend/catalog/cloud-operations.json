@@ -1473,6 +1473,29 @@
             }
           }
         },
+        "paused_hourly_rate_usd": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
         "running_since": {
           "required": false,
           "type": {
@@ -25509,6 +25532,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -27366,6 +27407,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -28216,6 +28275,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -28768,6 +28845,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29238,6 +29333,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29689,6 +29802,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -30453,6 +30584,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -30897,6 +31046,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -31369,6 +31536,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -31888,6 +32073,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -32354,6 +32557,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -32798,6 +33019,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -34896,6 +35135,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -36189,6 +36446,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"

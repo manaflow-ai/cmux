@@ -12,7 +12,7 @@ struct AgentConfigurationActionCatalogTests {
     @Test("each setter is palette, CLI and MCP reachable")
     func surfacesAndArguments() throws {
         for (id, argument, source) in Self.expected {
-            let descriptor = try #require(AgentConfigurationActionCatalog.descriptors().first { $0.id == id })
+            let descriptor = try #require(ActionCatalog.descriptors(inGroup: "AgentConfigurationActionCatalog").first { $0.id == id })
             #expect(descriptor.surfacePlan.palette.isOffered)
             #expect(descriptor.surfacePlan.cli?.isOffered == true)
             #expect(descriptor.surfacePlan.mcp?.isOffered == true)
@@ -25,7 +25,7 @@ struct AgentConfigurationActionCatalogTests {
 
     @Test("palette keywords expose the three configuration verbs")
     func keywords() throws {
-        let byID = Dictionary(uniqueKeysWithValues: AgentConfigurationActionCatalog.descriptors().map { ($0.id, Set($0.keywords)) })
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.descriptors(inGroup: "AgentConfigurationActionCatalog").map { ($0.id, Set($0.keywords)) })
         #expect(byID["agentPane.setModel"]?.isSuperset(of: ["model", "switch", "set"]) == true)
         #expect(byID["agentPane.setEffort"]?.isSuperset(of: ["effort", "reasoning", "set"]) == true)
         #expect(byID["agentPane.setMode"]?.isSuperset(of: ["mode", "permission", "set"]) == true)

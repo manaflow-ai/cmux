@@ -91,6 +91,8 @@ mod command;
 mod dev;
 mod docs;
 mod event_match;
+#[cfg(unix)]
+mod ext;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -104,6 +106,8 @@ mod inference_gateway;
 mod inference_setup;
 mod internal;
 mod keys_help;
+#[cfg(unix)]
+mod last_chat;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
@@ -115,6 +119,8 @@ mod repo_hold;
 mod sandbox_run;
 #[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
 mod vm_words;
@@ -799,6 +805,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| ext::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))

@@ -37,7 +37,10 @@ final class SpaceSwitchBench {
     ///   - panes: each workspace holds one pane with a terminal tab (shown) and a browser tab.
     ///   - parked: workspaces visited once before the timed switches, so they stay mounted and
     ///     parked as in a long-running window (`WindowController.park`).
-    init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0) async throws {
+    ///   - registered: the window is one `WindowManager` opened and holds (`openWindow`), as every window of
+    ///     the app is, so a switch reaches its controller in the switch's own turn. Without it the controller
+    ///     stands alone and only its observers show a switch.
+    init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0, registered: Bool = false) async throws {
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.machines.local.store
@@ -59,11 +62,20 @@ final class SpaceSwitchBench {
             pins: keys.enumerated().map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), profile: rooms[$0 % spaces]) },
             workspaces: keys.enumerated().map { PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), index: $0) })
         store.apply(snapshot: tree)
-        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"space-bench","workspace_key":"k0"}"#.utf8))
-        state = WindowState(record: record)
-        if state.profileID != rooms[0] { state.enterProfile(rooms[0]) }
-        services.windows.registry.provisional[state.id] = keys
-        controller = WindowController(state: state, services: services, frame: NSRect(x: 200, y: 200, width: 1100, height: 720))
+        let frame = NSRect(x: 200, y: 200, width: 1100, height: 720)
+        if registered {
+            services.windows.ordersWindowsIn = false
+            guard let opened = services.windows.openWindow(id: "space-bench", workspaces: keys, frame: frame) else { throw BenchError.noWindow }
+            controller = opened
+            state = opened.state
+            if state.profileID != rooms[0] { services.windows.switchProfile(rooms[0], in: state) }
+        } else {
+            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"space-bench","workspace_key":"k0"}"#.utf8))
+            state = WindowState(record: record)
+            if state.profileID != rooms[0] { state.enterProfile(rooms[0]) }
+            services.windows.registry.provisional[state.id] = keys
+            controller = WindowController(state: state, services: services, frame: frame)
+        }
         self.rooms = rooms
         keysByRoom = byRoom
         controller.showWorkspace(requested: state.workspaceID)
@@ -152,7 +164,24 @@ final class SpaceSwitchBench {
         return samples
     }
 
-    enum BenchError: Error { case neverShown(String) }
+    enum BenchError: Error {
+        case neverShown(String)
+        case noWindow
+    }
+
+    /// The workspace the content area shows.
+    var shownWorkspace: String? { controller.content?.workspace.id }
+
+    /// What the window shows of `room` right now, with no turn of the run loop: the sidebar lists it, the
+    /// content area shows one of its workspaces, and no page of another space is beside the list.
+    func showsNow(_ room: ProfileID) -> (sidebar: Bool, content: Bool, atRest: Bool) {
+        let content = shownWorkspace.map { keysByRoom[room]?.contains($0) == true } ?? false
+        return (shows(room), content, Self.pages(in: controller.sidebar.container.sidebarView).isEmpty)
+    }
+
+    private static func pages(in view: NSView) -> [SpacePageView] {
+        view.subviews.flatMap { ($0 as? SpacePageView).map { [$0] } ?? pages(in: $0) }
+    }
 
     /// Samples this process with `/usr/bin/sample` while `rounds` switches run and prints the
     /// heaviest frames of the main thread (the "top of stack" table and the call tree lines with
@@ -199,10 +228,10 @@ final class SpaceSwitchBench {
         return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
     }
 
-    /// One line per field: p50 / p99 / max.
+    /// One line per field: p50 / p95 / p99 / max.
     static func summary(_ total: Int, _ samples: [Sample]) -> String {
         func row(_ name: String, _ values: [Double]) -> String {
-            String(format: "%@ p50 %.2f p99 %.2f max %.2f", name, percentile(values, 0.5), percentile(values, 0.99), values.max() ?? 0)
+            String(format: "%@ p50 %.2f p95 %.2f p99 %.2f max %.2f", name, percentile(values, 0.5), percentile(values, 0.95), percentile(values, 0.99), values.max() ?? 0)
         }
         var counterMeans: [String: Double] = [:]
         for sample in samples { for (key, value) in sample.counters { counterMeans[key, default: 0] += Double(value) / Double(samples.count) } }
