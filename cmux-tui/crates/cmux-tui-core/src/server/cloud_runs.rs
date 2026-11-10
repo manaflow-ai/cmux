@@ -300,11 +300,14 @@ fn machine_of(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The other account a `cloud start-chat --account` refusal found the app on (`app_account`):
-/// the start may have made the Run's machine there.
+/// The other account a `cloud start-chat --account` refusal found the app on (`app_account`),
+/// once its start answered a machine (`machine_id`): the start may have made the Run's machine
+/// there. A refusal before the start made nothing anywhere.
 fn app_account(result: &Result<Value, Value>) -> Option<String> {
     let Err(error) = result else { return None };
-    if text(error, "code") != "cloud.account_changed" {
+    if text(error, "code") != "cloud.account_changed"
+        || error.pointer("/details/machine_id").and_then(Value::as_str).is_none()
+    {
         return None;
     }
     error.pointer("/details/app_account").and_then(Value::as_str).map(str::to_owned)
@@ -426,7 +429,13 @@ impl Steps for AppVerbs {
                 task.account.as_str(),
             ];
             let ran = self.cmux(&words, Some(&task.prompt), left + START_MARGIN, Some(cancel));
-            if let Some(other) = app_account(&answer(&ran)) {
+            // A start cut off (a cancel, its bound) answers nothing: the account the app is on
+            // now is where it may have made the machine.
+            let other = match ran.code {
+                None => self.scope().filter(|now| *now != task.account),
+                Some(_) => app_account(&answer(&ran)),
+            };
+            if let Some(other) = other {
                 let mut seen =
                     self.elsewhere.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 seen.entry(task.run.clone()).or_default().push(other);
@@ -664,8 +673,14 @@ mod tests {
         ));
         // A start-chat refusal names that account.
         let refusal = Err(json!({ "code": "cloud.account_changed", "message": "x",
-                                  "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal" } }));
+                                  "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal",
+                                               "machine_id": "vm-1" } }));
         assert_eq!(app_account(&refusal).as_deref(), Some("user:u2|personal"));
+        // A refusal before any start answered a machine: nothing was made on that account.
+        let before = Err(json!({ "code": "cloud.account_changed", "message": "x",
+                                 "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal",
+                                              "machine_id": null } }));
+        assert_eq!(app_account(&before), None);
         assert_eq!(app_account(&Err(json!({ "code": "cloud.start_pending" }))), None);
     }
 
