@@ -271,7 +271,7 @@ final class SidebarListView: NSView {
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
         // A group's fold splices that group's rows (SidebarListView+Fold), never reloads the list.
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
-        // A close's successor is the next row drawn here (FocusAfterClose.workspace).
+        // A close's successor is picked among the rows drawn here (close-focus.md, "One close-selection rule").
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         model.drawnSelectionOrder = { [weak self] in self?.selectionOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.

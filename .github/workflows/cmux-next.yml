@@ -299,8 +299,8 @@ on:
       - Assets.xcassets/**
       - Resources/**
       # What the checks tier's tests import, run or read outside the paths above (tests/test_ci_workflow_paths_cover_inputs.py).
-      # Pull-request only, like the lines above. scripts/ci/ is CI-only to the router (checks tier alone); most of the
-      # others are unknown to it, so a PR changing only one of them also starts the Mac compile tiers.
+      # Pull-request only, like the lines above. The router's CI_ONLY lists the ones no build reads (checks tier alone);
+      # the GhosttyKit download, the reload and release-strip scripts and .gitattributes still start the Mac tiers.
       - scripts/ci/**
       - .claude/settings.json
       - .gitattributes

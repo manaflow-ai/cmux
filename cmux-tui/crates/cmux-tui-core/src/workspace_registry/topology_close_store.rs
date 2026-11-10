@@ -44,6 +44,7 @@ impl WorkspaceRegistry {
         tab_groups: Option<&TabGroupState>,
         record_closed: bool,
         before_patch: Option<BeforePatch<'_>>,
+        restates_all: bool,
     ) -> anyhow::Result<TopologyCloseCommit> {
         validate_identifier("resource operation", operation)?;
         validate_terminal_batch_close(mutation, terminals)?;
@@ -157,7 +158,9 @@ impl WorkspaceRegistry {
         prune_resource_mutations(&tx)?;
         tx.commit()?;
         drop(db);
-        self.record_public_fold(previous_revision, revision, &deltas, true);
+        // Only the changes of a full projection are the complete live set that may seed an empty
+        // fold; a scoped close states its own workspaces.
+        self.record_public_fold(previous_revision, revision, &deltas, restates_all);
         Ok(TopologyCloseCommit {
             resource: ResourcePatchCommit { revision, result, replayed: false },
             workspace_revision,
