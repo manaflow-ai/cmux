@@ -181,7 +181,7 @@ fn a_reply_after_the_timeout_goes_to_the_late_handler_on_a_link_kept_open_for_it
         "session/new",
         json!({}),
         silent,
-        std::time::Instant::now() + WAIT,
+        Instant::now() + WAIT,
         WAIT,
         move |link, reply| {
             let killed = link.call("_acpmux/kill", json!({"sessionId": reply["sessionId"]}), WAIT);
@@ -196,8 +196,8 @@ fn a_reply_after_the_timeout_goes_to_the_late_handler_on_a_link_kept_open_for_it
     assert_eq!(methods.recv_timeout(WAIT).unwrap(), "session/new");
     assert_eq!(methods.recv_timeout(WAIT).unwrap(), LIVENESS_PROBE);
     assert_eq!(methods.recv_timeout(WAIT).unwrap(), "_acpmux/kill");
-    let deadline = std::time::Instant::now() + WAIT;
-    while !link.closed.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+    let deadline = Instant::now() + WAIT;
+    while !link.closed.load(Ordering::Acquire) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(link.closed.load(Ordering::Acquire), "the late wait closes the link when it ends");
@@ -208,7 +208,7 @@ fn a_reply_after_the_timeout_goes_to_the_late_handler_on_a_link_kept_open_for_it
 fn a_reply_in_time_never_reaches_the_late_handler() {
     let (link, _asked, _dir) = scripted(vec![json!({"sessionId": "s-1"})]);
     let patience = Patience { quiet: WAIT, probe: WAIT, ceiling: WAIT };
-    let until = std::time::Instant::now() + WAIT;
+    let until = Instant::now() + WAIT;
     let answer =
         link.call_while_alive_or_late("session/new", json!({}), patience, until, WAIT, |_, _| {
             panic!("not late")
