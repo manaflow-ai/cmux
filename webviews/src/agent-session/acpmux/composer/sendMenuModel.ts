@@ -11,6 +11,7 @@
 
 import { CMUX_COMMANDS } from "../cmuxCommands";
 import type { StringKey } from "../i18n";
+import { FORK_ICON } from "../icons/forkIcon";
 
 export type SendChoice = "send" | "queue" | "side" | "runOn";
 
@@ -47,7 +48,7 @@ export const SEND_LABELS: Record<SendChoice, StringKey> = {
 export const SEND_ICONS: Record<SendChoice, string> = {
   send: "composer.send",
   queue: "time.waiting",
-  side: "agent.fork",
+  side: FORK_ICON,
   runOn: "git.worktree",
 };
 

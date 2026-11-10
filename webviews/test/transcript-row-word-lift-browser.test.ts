@@ -7,9 +7,11 @@
 // lighting only its chevron: "this scheduled check thing isn't highlighted all the way through like
 // other tool calls are". So every row kind is swept, not only that one: background turns
 // ("Scheduled check", "Background update", "4 background tasks finished", a reaction's line),
-// "Subagent finished", "Report from …", a sub-session's line, a notice, "Background command
+// "Report from …", a sub-session's line, a notice, "Background command
 // completed", "Received N messages", the plan's summary and "Worked for". A line with nothing behind
-// it (a compaction's note) never lights. Measured in the page from the real transcript, gallery
+// it (a compaction's note) never lights, nor does a "Subagent finished" line with no report: only its
+// name chip opens the subagent and lights (Leo, 2026-11-05: "subagents need to have their clickable
+// bit be highlighted instead of the whole line click sending me to the subagent righ split"). Measured in the page from the real transcript, gallery
 // entries named below. design/chat-transcript.md.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -79,11 +81,12 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       glyph: ".cv-agent-activity__icon",
     },
     {
-      name: "Subagent finished",
+      name: "Subagent finished, no report (only its name chip opens)",
       entry: "agent-pane.background-tasks",
-      line: "button.cv-subagent-done",
+      line: "div.cv-subagent-done",
       words: ".cv-agent-activity__sentence",
       glyph: ".cv-tool__icon",
+      lights: false,
     },
     {
       name: "Report from (subagent report)",
@@ -92,9 +95,9 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       words: ".cv-subagent-report__sentence",
     },
     {
-      name: "sub-session line (opens its chat)",
+      name: "sub-session line (its name chip opens its chat)",
       entry: "agent-pane.long-report",
-      line: "button.cv-disclosure__open",
+      line: ".cv-disclosure__open",
       words: ".cv-disclosure__label",
       glyph: ".cv-disclosure__icon",
     },

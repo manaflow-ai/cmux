@@ -166,6 +166,12 @@ pub struct SessionSummary {
     pub queued: u64,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
+    /// A daemon start holds what this chat queued until a person opens it: its folder is guarded
+    /// (`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not
+    /// drain. Absent otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub person_hold: Option<PersonHold>,
     /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
     /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
     /// otherwise, and from a peer on an older acpmux.
@@ -503,6 +509,16 @@ pub enum MessageRole {
 pub struct LastMessage {
     pub role: MessageRole,
     pub text: String,
+}
+
+/// What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
+/// why an agent does not start there unasked.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct PersonHold {
+    pub folder: String,
+    pub reason: String,
 }
 
 /// The running turn.
