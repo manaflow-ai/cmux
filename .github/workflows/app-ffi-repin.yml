@@ -18,9 +18,10 @@ on:
       - "Packages/macOS/CmuxNext/app-ffi-pin.json"
   # No schedule: a scheduled run starts from the default branch (main), where
   # neither this job's ref check nor the ffi-release environment admits it.
-  # The landers merge with an App token or a person's token, whose pushes start
-  # this workflow; a merge whose push starts nothing is re-pinned by the next
-  # FFI publish (app-ffi-release.yml), as before this workflow existed.
+  # A merge with an App token or a person's token starts this workflow by its
+  # push. A merge with the job's GITHUB_TOKEN starts no push workflow, so the
+  # batch lander dispatches this one after it lands (scripts/ci/next_batch.py
+  # after_landing); with nothing newer published the run changes nothing.
   workflow_dispatch:
 
 permissions: {}
@@ -34,6 +35,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
       checks: read
       statuses: read
     # One group with app-ffi-release.yml's repin job: re-pins run one at a time

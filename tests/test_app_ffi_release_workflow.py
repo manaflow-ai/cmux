@@ -329,6 +329,9 @@ elif args[:2] == ["pr", "create"]:
     print("https://github.com/manaflow-ai/cmux/pull/2")
 elif args[0] == "api":
     endpoint = next(a for a in args if a.startswith("repos/"))
+    if not os.environ.get("GH_TOKEN"):
+        print("gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable.",
+              file=sys.stderr); sys.exit(4)
     if "contents/" in endpoint:
         if "PUT" in args:
             payload = json.loads(Path(args[args.index("--input") + 1]).read_text())
@@ -375,7 +378,7 @@ class RePinPublication(unittest.TestCase):
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
-                  check_total=None,
+                  check_total=None, pr_token="pr-token",
                   workflow=WORKFLOW):
         step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
@@ -411,6 +414,8 @@ class RePinPublication(unittest.TestCase):
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
                        GITHUB_RUN_ID=RUN_ID, GITHUB_RUN_ATTEMPT="2", GITHUB_SERVER_URL="https://github.com",
                        RUNNER_TEMP=temp)
+            if pr_token is None:
+                env.pop("GH_TOKEN")
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work,
                                     env=env, capture_output=True, text=True, timeout=10)
             return result, json.loads(state_path.read_text())
@@ -487,6 +492,23 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["published"], [])
         self.assertEqual(state["writes"], 0)
 
+    def test_the_hold_holds_without_the_pull_request_token(self):
+        # #39645 F1: the hold read the open PR with the pull-request token, so a
+        # failed mint of that token turned the hold off and every publish moved
+        # the head again. The hold reads with the job token.
+        result, state = self.run_repin(head_age_min=20, checks=("success",), pr_token=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("kept #1 at cccccccccccc", result.stdout)
+        self.assertEqual(state["published"], [])
+        self.assertEqual(state["writes"], 0)
+
+    def test_a_missing_pull_request_token_fails_loud_after_the_push(self):
+        result, state = self.run_repin(pr_token=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error title=Open the re-pin pull request::", result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+        self.assertNotIn("verified open", result.stdout)
+
     def test_a_head_past_the_hold_or_with_a_failed_check_is_moved(self):
         cases = {
             "past the hold": {"head_age_min": 95},
@@ -522,7 +544,8 @@ class RePinPublication(unittest.TestCase):
         self.assertNotIn("needs", job)
         self.assertEqual(job["environment"], "ffi-release")
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
-        self.assertEqual(job["permissions"], {"contents": "read", "checks": "read", "statuses": "read"})
+        self.assertEqual(job["permissions"],
+                         {"contents": "read", "pull-requests": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(job["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")
         self.assertEqual(release["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")

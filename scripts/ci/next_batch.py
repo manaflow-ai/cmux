@@ -49,6 +49,9 @@ BRANCH_PREFIX = "next-batch/"
 WORKFLOW = "cmux-next-batch.yml"
 HEAVY_WORKFLOW = "cmux-next.yml"
 TUI_WORKFLOW = "cmux-tui-artifacts.yml"
+# Re-pins the app FFI after a merge; its push trigger never fires for a job-token
+# merge, so after_landing dispatches it (a no-op when nothing newer is published).
+REPIN_WORKFLOW = "app-ffi-repin.yml"
 # A group's extra lanes (docs/ci/cmux-next-batch.md#groups), dispatched on its branch.
 WEB_WORKFLOW = "cmux-next-web.yml"
 MEDIA_WORKFLOW = "cmux-next-media.yml"
@@ -2013,7 +2016,7 @@ class Controller:
                 break
             except RuntimeError as error:
                 log(f"could not queue the next batch on {ref}: {error}")
-        for workflow in (HEAVY_WORKFLOW, TUI_WORKFLOW):
+        for workflow in (HEAVY_WORKFLOW, TUI_WORKFLOW, REPIN_WORKFLOW):
             try:
                 self.gh.dispatch(workflow, BASE)
             except RuntimeError as error:

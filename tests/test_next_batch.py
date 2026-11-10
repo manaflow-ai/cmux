@@ -1455,6 +1455,20 @@ class LocalController(unittest.TestCase):
         controller.after_landing()
         controller.gh.dispatch.assert_not_called()
 
+    def test_job_token_merges_dispatch_the_base_workflows_and_the_ffi_repin(self):
+        # A job-token merge starts no push workflow, app-ffi-repin.yml's included:
+        # without this dispatch a held re-pin PR's merge never pins the releases
+        # published while it was held (#39645 F2).
+        controller = self.controller()
+        controller.local = False
+        controller.args = Namespace(ref=nb.BASE)
+        controller.batch_id = "1"
+        controller.gh = mock.Mock()
+        controller.after_landing()
+        dispatched = [call.args[0] for call in controller.gh.dispatch.call_args_list]
+        self.assertEqual(dispatched, [nb.WORKFLOW, nb.HEAVY_WORKFLOW, nb.TUI_WORKFLOW, nb.REPIN_WORKFLOW])
+        self.assertTrue((Path(__file__).resolve().parents[1] / ".github/workflows" / nb.REPIN_WORKFLOW).exists())
+
 
 class StickyBody(unittest.TestCase):
     def test_newest_on_top_and_history_bounded(self):
