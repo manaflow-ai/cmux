@@ -11,15 +11,8 @@ final class ChiefVoiceRecordUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    override func tearDown() {
-        // Back to the simulator's default (light); `.unspecified` is refused.
-        XCUIDevice.shared.appearance = .light
-    }
-
     @MainActor
     func testTapHintsHoldRecordsAndLocks() throws {
-        // Dark, as the Messages reference recording was taken.
-        XCUIDevice.shared.appearance = .dark
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_CONVERSATION_AUDIO_INPUT"] = "synthetic"
