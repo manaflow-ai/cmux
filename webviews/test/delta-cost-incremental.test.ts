@@ -3,7 +3,7 @@
 // update cost more as the transcript grew, 1.9x and 2.9x from 50 to 5,000 rows).
 import { expect, test } from "bun:test";
 import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
-import { PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
+import { keptPrefix, PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
 import { rowPresence, type RowPresenceHints } from "../src/agent-session/acpmux/conversation/rowPresence";
 import { withoutQuietThoughts } from "../src/agent-session/acpmux/conversation/thoughts";
 import {
@@ -345,4 +345,31 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
     333 * 3 * 13,
     (rows) => rows.map((each) => [each.id, each.kind]),
   );
+});
+
+test("the prefix passes hold no rows of a chat that closed", async () => {
+  // The passes are module state shared by every chat; holding a closed 35,000-row chat's arrays
+  // there kept it in memory until newer passes pushed it out (review of #40592).
+  const { composerRows } = await import("../src/agent-session/acpmux/composer/composerView");
+  const { subagentsIn } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+  const cache = new PrefixFlatCache<AcpmuxRow, string>((each) => [each.id]);
+  const open = (): WeakRef<readonly AcpmuxRow[]>[] => {
+    const first = mixedHistory(2000);
+    const next = [...first, row("live", { text: "x" })];
+    for (const rows of [first, next]) {
+      cache.read(rows);
+      composerRows(rows);
+      subagentsIn(rows);
+      keptPrefix(first, rows);
+    }
+    // The passes reused the first snapshot's work for the next one.
+    expect(cache.read(next).items.length).toBe(next.length);
+    return [new WeakRef(first), new WeakRef(next)];
+  };
+  const closed = [...open(), ...open()];
+  for (let pass = 0; pass < 4; pass += 1) {
+    await Bun.sleep(1);
+    Bun.gc(true);
+  }
+  expect(closed.filter((ref) => ref.deref() !== undefined).length).toBe(0);
 });
