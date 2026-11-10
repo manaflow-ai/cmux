@@ -209,7 +209,7 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         request,
         machine_id,
         session,
-        (prompt, answer),
+        (prompt, answer, None),
         deadline,
         &mut progress,
     );
@@ -1192,8 +1192,6 @@ fn steps(
         "session_id": session,
         "workspace_id": at(&started, "workspace_id"),
         "tab_id": at(&started, "tab_id"),
-        // The tab's surface on the machine's daemon: the pushed wait attaches to it (`pushed_turn`).
-        "surface_id": at(&started, "surface_id"),
         "host": at(&started, "host"),
         "agent": request.agent,
         "follow_up": follow_ups(machine_id, session),
@@ -1212,7 +1210,8 @@ fn steps(
     if deadline.passed(runner) {
         return out_of_time(request, &Machine::Target(machine_id.to_owned()), answer);
     }
-    send_prompt(runner, request, machine_id, session, (prompt, answer), deadline, progress)
+    let tab = internal::chat_tab(&started);
+    send_prompt(runner, request, machine_id, session, (prompt, answer, tab), deadline, progress)
 }
 
 /// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
@@ -1223,7 +1222,7 @@ fn send_prompt(
     request: &Request,
     machine_id: &str,
     session: &str,
-    (prompt, mut answer): (&str, Value),
+    (prompt, mut answer, tab): (&str, Value, Option<u64>),
     deadline: Deadline,
     progress: &mut Progress,
 ) -> Outcome {
@@ -1305,7 +1304,7 @@ fn send_prompt(
     if !request.wait {
         return Outcome::Done(answer);
     }
-    wait_turn(runner, request, machine_id, session, baseline, answer, deadline)
+    wait_turn(runner, request, machine_id, session, (baseline, tab), answer, deadline)
 }
 
 /// 4. The turn after `baseline` in `session`: its end and its reply.
@@ -1314,16 +1313,17 @@ fn wait_turn(
     request: &Request,
     machine_id: &str,
     session: &str,
-    baseline: u64,
+    (baseline, tab): (u64, Option<u64>),
     mut answer: Value,
     deadline: Deadline,
 ) -> Outcome {
     // A fresh chat's turn (no turn before the send): pushed over the machine's link in one call when the app
     // can observe the chat's tab, else read through the Cloud API below.
+    // `tab`: the chat tab's handle on the machine's daemon, known for a chat this run started.
     if baseline == 0
-        && let Some(surface) = at(&answer, "surface_id").as_str().and_then(|id| id.parse::<u64>().ok())
+        && let Some(tab) = tab
     {
-        match pushed_turn(runner, machine_id, surface, deadline) {
+        match pushed_turn(runner, machine_id, tab, deadline) {
             Pushed::Ended(ended) => return ended.outcome(answer),
             Pushed::Permission => return permission_waiting(answer),
             Pushed::Unavailable => {
@@ -2128,7 +2128,8 @@ mod cap;
 mod clone_wait;
 mod fault;
 mod folder;
-mod link_wait;
+mod internal;
+use internal::link_wait;
 use folder::local_folder;
 mod support;
 use support::{at, last_turn, reply, words};

@@ -21,12 +21,12 @@ const ATTACH: &str = "agent-session-attach-v1";
 /// Records asked per page.
 const PAGE: u64 = 500;
 /// At most this many records in one wait; a longer turn's next wait starts after the last one.
-pub(super) const KEPT: usize = 2000;
+pub(crate) const KEPT: usize = 2000;
 
 /// One wait's answer: `{records, last_seq, ended}`, `ended` one of `turn_end`, `permission`, `closed`, `more` or
 /// `timeout`. An error is a link this side could not read (no socket, no capability, a refusal), or
 /// [`Failure::Timeout`] when the wait passed before the attach answered.
-pub(super) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -> Result<Value, Failure> {
+pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -> Result<Value, Failure> {
     let deadline = Instant::now() + wait;
     let stream = UnixStream::connect(socket).map_err(|error| Failure::Link(format!("connect: {error}")))?;
     let mut writer = stream.try_clone().map_err(|error| Failure::Link(error.to_string()))?;
@@ -95,6 +95,13 @@ pub(super) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
     Ok(json!({"records": got.records, "last_seq": got.last_seq, "ended": got.ended.unwrap_or("timeout")}))
 }
 
+/// The chat tab's handle on the machine's daemon, from `cloud start-session`'s answer (its `surface_id`): what the
+/// pushed wait attaches to. None from an app that answers none.
+pub(crate) fn chat_tab(started: &Value) -> Option<u64> {
+    let id = started.get("surface_id")?;
+    id.as_str().and_then(|id| id.parse().ok()).or_else(|| id.as_u64())
+}
+
 /// Why a wait read no answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Failure {
@@ -131,7 +138,7 @@ fn next(lines: &mut BufReader<UnixStream>, deadline: Instant) -> Result<Option<V
 /// A record that ends a turn (as acpmux's own wait reads them, `acpmux/src/cli/steer_reply.rs`): `Some(None)` for a
 /// `turn_end`, `Some(Some(record's msg))` for a failed turn (a `turn_error`, or a `turn_result` whose status is
 /// `failed`: such a turn writes no `turn_end`).
-pub(super) fn turn_ended(record: &Value) -> Option<Option<&Value>> {
+pub(crate) fn turn_ended(record: &Value) -> Option<Option<&Value>> {
     if record.get("dir").and_then(Value::as_str) != Some("mux") {
         return None;
     }
@@ -145,7 +152,7 @@ pub(super) fn turn_ended(record: &Value) -> Option<Option<&Value>> {
 }
 
 /// The records after the caller's seq, each once.
-pub(super) struct Got {
+pub(crate) struct Got {
     pub records: Vec<Value>,
     pub last_seq: u64,
     pub ended: Option<&'static str>,
@@ -175,7 +182,7 @@ impl Got {
         }
     }
 
-    pub(super) fn add(&mut self, record: &Value) {
+    pub(crate) fn add(&mut self, record: &Value) {
         let seq = record.get("seq").and_then(Value::as_u64).unwrap_or(0);
         if seq <= self.last_seq {
             return;
