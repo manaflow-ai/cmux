@@ -151,7 +151,7 @@ enum AgentHandlers {
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
             AgentPaneTunables.pointerInspector.value ? nil :
-                "UI pointer inspector is off. Turn it on in Debug Settings."
+                "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
             // A targeted context-menu invocation starts at the right-click point.
