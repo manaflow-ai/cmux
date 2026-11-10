@@ -599,6 +599,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/skill_resolve",
+      "params": {
+        "$ref": "#/types/SkillResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -6915,6 +6923,21 @@
           "$ref": "#/types/RequestMeta"
         },
         "chat": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "SkillResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "action": true,
+        "body": true,
+        "description": true,
+        "name": true,
+        "offerId": true,
         "sessionId": true
       },
       "type": "object"

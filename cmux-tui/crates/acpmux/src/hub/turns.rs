@@ -1711,6 +1711,8 @@ impl Hub {
             // Whether it taught something, taken however it ended: a turn's signals never carry
             // into the next one.
             let taught = crate::memory_inbox::take(&session.id);
+            // Its tool runs and prompt, the chat's task shape (`skill_distill.rs`), likewise.
+            let shape = crate::skill_distill::take(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -1754,6 +1756,9 @@ impl Hub {
                     }
                     if status == "completed" && taught {
                         self.offer_learned(session, learned);
+                    }
+                    if status == "completed" {
+                        self.record_task_shape(session, shape);
                     }
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {

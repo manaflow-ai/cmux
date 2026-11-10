@@ -1,0 +1,10 @@
+{"prompt":"The login button is the wrong color in dark mode, fix it"}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"c1","kind":"search","title":"login","status":"pending","rawInput":{}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed"}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"c2","kind":"read","title":"Login.tsx","status":"pending","rawInput":{}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"completed"}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"c3","kind":"edit","title":"Login.tsx","status":"pending","rawInput":{}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c3","status":"completed"}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"c4","kind":"execute","title":"Bash","status":"pending","rawInput":{"command":"bun test login"}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c4","status":"completed","rawOutput":{"exit_code":0}}}
+{"turn_end":true}

@@ -352,6 +352,7 @@ impl Hub {
                     crate::wrap_up_suggestion::observe(&tap_session.id, &params["update"]);
                     if let Some(update) = params.get("update") {
                         crate::memory_inbox::observe(&tap_session.id, update);
+                        crate::skill_distill::observe(&tap_session.id, update);
                     }
                 }
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {

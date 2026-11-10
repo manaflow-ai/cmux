@@ -1,0 +1,16 @@
+{"prompt":"Release time again: bump the version, run tests, tag and push the release"}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b1","kind":"read","title":"Cargo.toml","status":"pending","rawInput":{}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b1","status":"completed"}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b2","kind":"edit","title":"Cargo.toml","status":"pending","rawInput":{}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b2","status":"completed"}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b3","kind":"execute","title":"Bash","status":"pending","rawInput":{"command":"cargo test --workspace"}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b3","status":"completed","rawOutput":{"exit_code":0}}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b4","kind":"execute","title":"Bash","status":"pending","rawInput":{"command":"git commit -am \"release 0.6.0\""}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b4","status":"completed","rawOutput":{"exit_code":0}}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b5","kind":"execute","title":"Bash","status":"pending","rawInput":{"command":"git tag v0.6.0"}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b5","status":"completed","rawOutput":{"exit_code":0}}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b6","kind":"execute","title":"Bash","status":"pending","rawInput":{"command":"GH_TOKEN=abc123 git push origin main --tags"}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b6","status":"completed","rawOutput":{"exit_code":0}}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"b7","kind":"execute","title":"Bash","status":"pending","rawInput":{"command":"git push origin main --tags"}}}
+{"update":{"sessionUpdate":"tool_call_update","toolCallId":"b7","status":"completed","rawOutput":{"exit_code":0}}}
+{"turn_end":true}

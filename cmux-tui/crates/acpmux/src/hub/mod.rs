@@ -19,6 +19,8 @@ pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
 mod memory_inbox;
+// A task done three times offered as a skill (`skill_distill.rs`).
+mod skill_distill;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
