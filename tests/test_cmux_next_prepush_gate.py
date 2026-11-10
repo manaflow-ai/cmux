@@ -381,6 +381,34 @@ class PrePushGateTests(unittest.TestCase):
         self.assertTrue(runs.exists(), "a push that changes check-ui-font.py must run it\n"
                         + result.stdout + result.stderr)
 
+    def test_ci_advisory_names_an_arch_and_a_guardrails_violation_as_warnings_and_keeps_the_exit_code(self):
+        # CI never runs the arch ratchet or the guardrails line rules (CLAUDE.md: no new CI gates), so a push that
+        # skipped the hook landed them unseen. --advisory (the fast gates' prepush gate) names each finding as a
+        # ::warning on its file and line and a summary row; the gate's exit code is what it is without it.
+        self.kit("Cache", "final class Cache {\n    var hits = 0\n    static let shared = Cache()\n}\n")
+        self.kit("Hop", MAIN_HOP)
+        self.commit("adds a stateful singleton and a main hop")
+        summary = self.root / "step-summary.md"
+        env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
+        args = ["--base", "origin/feat-cmux-next", "--head", "HEAD"]
+        plain = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=env, text=True, capture_output=True)
+        advised = subprocess.run(["python3", "-I", GATE, *args, "--advisory"], cwd=self.repo, env=env, text=True,
+                                 capture_output=True)
+        output = advised.stdout + advised.stderr
+        self.assertEqual(advised.returncode, 0, output)
+        self.assertEqual(advised.returncode, plain.returncode, plain.stdout + plain.stderr)
+        self.assertNotIn("::warning", plain.stdout, "without --advisory CI shows nothing new")
+        kit = f"{PKG}/Sources/CmuxNextKit"
+        self.assertRegex(advised.stdout, rf"::warning file={kit}/Cache\.swift,line=3,title=prepush advisory \(arch "
+                                         r"ratchet\) \[stateful_singletons\]::", output)
+        self.assertRegex(advised.stdout, rf"::warning file={kit}/Hop\.swift,line=2,title=prepush advisory \(guardrails "
+                                         r"line rules\) \[main-async\]::", output)
+        table = summary.read_text()
+        self.assertIn("| arch ratchet | 1 finding(s)", table)
+        self.assertIn("| guardrails line rules | 1 finding(s)", table)
+        self.assertIn("| What's New pictures | clean", table)
+        self.assertRegex(table, r"\| SwiftFormat \| (clean|skipped: |\d+ finding)")
+
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
 

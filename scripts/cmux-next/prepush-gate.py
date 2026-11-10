@@ -2204,6 +2204,199 @@ dialogs, translucent theme tints on glass. A reviewed escape comment (`// concur
 Never --no-verify: CI names every commit that adds a violation (step "Pushed commits add no violations")."""
 
 
+# ---------------------------------------------------------------- advisory (CI: named, never a gate)
+
+# The pull request's fast gates pass --advisory (scripts/ci/cmux_next_fast_gates.py, its existing "prepush gate").
+# The four layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
+# refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
+# plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
+# without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
+# tests" (Lawrence 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"): this is no gate,
+# no job and no step; it is advisory, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
+ADVISORY_ARCH = "arch ratchet"
+ADVISORY_GUARDRAILS = "guardrails line rules"
+ADVISORY_SWIFTFORMAT = "SwiftFormat"
+ADVISORY_PICTURES = "What's New pictures"
+ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES)
+ADVISORY_SECONDS = 240.0  # the whole advisory pass; past it, what is left is reported as stopped, never a failure
+ADVISORY_ANNOTATIONS = 50  # GitHub shows at most this many annotations of a job; the summary has every count
+# A site under an arch ratchet refusal: `  path:line: text` (a count row) or `  path: text` (an escape site).
+ARCH_SITE = re.compile(r"^\s+(?P<path>[\w.+@/-]+\.\w+)(?::(?P<line>\d+))?: (?P<text>.*)$")
+
+
+class AdvisoryFinding:
+    __slots__ = ("layer", "path", "line", "title", "message")
+
+    def __init__(self, layer: str, path: str | None, line: int | None, title: str, message: str) -> None:
+        self.layer, self.path, self.line, self.title, self.message = layer, path, line, title, message
+
+
+def _workflow_data(text: str) -> str:
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _workflow_property(text: str) -> str:
+    return _workflow_data(text).replace(":", "%3A").replace(",", "%2C")
+
+
+def advisory_annotation(finding: AdvisoryFinding) -> str:
+    """The `::warning` workflow command for FINDING: file and line when it has them, the layer in its title."""
+    props = []
+    if finding.path:
+        props.append(f"file={_workflow_property(finding.path)}")
+        if finding.line:
+            props.append(f"line={finding.line}")
+    props.append(f"title={_workflow_property(f'prepush advisory ({finding.layer}) {finding.title}')}")
+    return f"::warning {','.join(props)}::{_workflow_data(finding.message)}"
+
+
+def _repo_path(repo: Path, path: str) -> str:
+    """PATH as a repository path (an annotation's file=): as given, or under the package when it is relative to it."""
+    for prefix in ("", PKG + "/", PKG + "/Sources/"):
+        if (repo / (prefix + path)).exists():
+            return prefix + path
+    return path
+
+
+def _load_script(repo: Path, name: str, filename: str):
+    script = repo / SCRIPTS / filename
+    spec = importlib.util.spec_from_file_location(name, script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def advisory_arch(repo: Path, ranges: list) -> list[AdvisoryFinding]:
+    """The arch ratchet's refusals for RANGES: one finding per named site, or one for a refusal that names none."""
+    module = _load_script(repo, "cmux_next_arch_ratchet", "arch-ratchet.py")
+    refusals, _ = module.push_refusals(repo, ranges)
+    found = []
+    for row, text in refusals:
+        lines = text.splitlines()
+        title = re.sub(r"^arch-ratchet: ", "", lines[0]).strip() if lines else f"[{row}]"
+        sites = [m for m in (ARCH_SITE.match(line) for line in lines[1:]) if m]
+        for m in sites:
+            found.append(AdvisoryFinding(ADVISORY_ARCH, _repo_path(repo, m.group("path")),
+                                         int(m.group("line")) if m.group("line") else None, f"[{row}]",
+                                         f"{title}: {m.group('text').strip()}"))
+        if not sites:
+            found.append(AdvisoryFinding(ADVISORY_ARCH, None, None, f"[{row}]", text))
+    return found
+
+
+def advisory_guardrails(repo: Path, ranges: list) -> list[AdvisoryFinding]:
+    """guardrails.py's line rules (and its Ghostty pin) for RANGES: one finding per refused line."""
+    module = load_guardrails(repo, None)
+    if module is None:
+        raise RuntimeError(f"{SCRIPTS}/guardrails.py is missing")
+    found = []
+    for own in module.load_push_range().as_own_ranges(repo, ranges):
+        refusals, _ = module.check_own(repo, own.base, own.head, own.before)
+        for rule, hits in refusals:
+            for hit in hits:
+                found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, hit.path, hit.number or None, f"[{rule.id}]",
+                                             f"{rule.title}: {hit.text.strip()[:140]}. Do: {rule.fix}"))
+        pin = module.ghostty_pin_problem(repo, own.base, own.head, own.before)
+        if pin:
+            found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, None, None, "[ghostty-pin]", pin))
+    return found
+
+
+def _record_findings(layer: str, repo: Path, found: list[tuple[str, list[str]]]) -> list[AdvisoryFinding]:
+    out = []
+    for name, records_ in found:
+        for record in records_:
+            first = str(record).splitlines()[0] if str(record) else ""
+            at = LOCATION.match(first)
+            if at:
+                path, line = at.group("path"), int(at.group("line"))
+            else:
+                path, line = (first.partition(": ")[0] or None), None
+            out.append(AdvisoryFinding(layer, _repo_path(repo, path) if path else None, line, name, str(record)))
+    return out
+
+
+def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], str | None]:
+    """(findings, the reason the layer was skipped or None). Skipped, not installed, when the runner has no binary:
+    the rule above forbids an install step."""
+    if not any(p.startswith(SWIFT_SCOPE) and p.endswith(".swift")
+               for own in ranges for p in changed_files(repo, own.base, own.head)):
+        return [], "no Swift file changed"
+    lock = repo / SCRIPTS / "lint-tools.lock"
+    try:
+        binary = ensure_tool(lock, "swiftformat")
+        probe = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=30,
+                               stdin=subprocess.DEVNULL)
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
+        return [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
+    if probe.returncode != 0:
+        return [], f"the pinned SwiftFormat does not run on this runner: {(probe.stderr or probe.stdout).strip()[:200]}"
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"swiftformat"}, False, None, swiftformat_layer=True)
+    return _record_findings(ADVISORY_SWIFTFORMAT, repo, found), None
+
+
+def advisory_pictures(repo: Path, ranges: list) -> list[AdvisoryFinding]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"pictures"}, False, None)
+    return _record_findings(ADVISORY_PICTURES, repo, found)
+
+
+def advisory(repo: Path, ranges: list, summary: str | None, seconds: float = ADVISORY_SECONDS) -> None:
+    """Run the hook-only layers on RANGES and print each finding as a `::warning` (see ADVISORY_LAYERS' comment).
+
+    Returns nothing on purpose: nothing here can change the gate's exit code. A layer that fails is reported as
+    not run; the whole pass stops after SECONDS (its thread is left; the process ends with the gate)."""
+    import threading
+
+    rows: dict[str, str] = {layer: "not run (the advisory pass ran out of time)" for layer in ADVISORY_LAYERS}
+    findings: list[AdvisoryFinding] = []
+
+    def layer(name: str, fn) -> None:
+        t0 = time.monotonic()
+        try:
+            got = fn()
+            got, skipped = got if isinstance(got, tuple) else (got, None)
+        except (Exception, SystemExit) as error:  # noqa: BLE001 - advisory: report it, never fail the gate
+            rows[name] = f"did not run ({type(error).__name__}: {str(error)[:160]})"
+            return
+        if skipped:
+            rows[name] = f"skipped: {skipped}"
+            return
+        findings.extend(got)
+        rows[name] = (f"{len(got)} finding(s)" if got else "clean") + f" ({time.monotonic() - t0:.1f}s)"
+
+    def run_all() -> None:
+        layer(ADVISORY_ARCH, lambda: advisory_arch(repo, ranges))
+        layer(ADVISORY_GUARDRAILS, lambda: advisory_guardrails(repo, ranges))
+        layer(ADVISORY_SWIFTFORMAT, lambda: advisory_swiftformat(repo, ranges))
+        layer(ADVISORY_PICTURES, lambda: advisory_pictures(repo, ranges))
+
+    worker = threading.Thread(target=run_all, name="prepush-advisory", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    shown = list(findings)
+    print("prepush-gate: advisory, hook-only checks on this range (they never fail this step): "
+          + "; ".join(f"{name}: {rows[name]}" for name in ADVISORY_LAYERS), flush=True)
+    for finding in shown[:ADVISORY_ANNOTATIONS]:
+        print(advisory_annotation(finding), flush=True)
+    if len(shown) > ADVISORY_ANNOTATIONS:
+        print(f"prepush-gate: advisory: {len(shown) - ADVISORY_ANNOTATIONS} more finding(s) not annotated", flush=True)
+    if summary:
+        lines = ["### prepush advisory (hook-only checks, never a gate)", "",
+                 "Run on CI only to show what a push that skipped the pre-push hook adds; the step's result is "
+                 "unchanged by them.", "", "| check | result |", "| --- | --- |"]
+        lines += [f"| {name} | {rows[name].replace('|', '/')} |" for name in ADVISORY_LAYERS]
+        try:
+            with open(summary, "a", encoding="utf-8") as stream:
+                stream.write("\n".join(lines) + "\n\n")
+        except OSError as error:
+            print(f"prepush-gate: advisory: could not write the step summary ({error})", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=None)
@@ -2221,6 +2414,10 @@ def main(argv: list[str] | None = None) -> int:
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
+    parser.add_argument("--advisory", action="store_true",
+                        help="CI (the fast gates): also run the hook-only layers (arch ratchet, guardrails line rules, "
+                             "SwiftFormat, What's New pictures) and print each finding as a ::warning; never changes "
+                             "the exit code")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
@@ -2306,6 +2503,8 @@ def main(argv: list[str] | None = None) -> int:
         # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
                               highlights_layer=swiftformat_layer)
+    if args.advisory and only is None and not args.pre_push:
+        advisory(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
