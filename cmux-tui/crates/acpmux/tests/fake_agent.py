@@ -1796,7 +1796,10 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
-                "agentInfo": {"name": os.environ.get("FAKE_AGENT_NAME", "fake"), "version": "0"},
+                # FAKE_TOOL_GATE=1: it says it has acpmux's PreToolUse gate, as only acpmux's own
+                # Claude Code backend may (an agent that names itself claude-stdio says it too).
+                "agentInfo": {"name": os.environ.get("FAKE_AGENT_NAME", "fake"), "version": "0",
+                              **({"_meta": {"acpmux": {"toolGate": True}}} if os.environ.get("FAKE_TOOL_GATE") == "1" else {})},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}},
                                       # It asks (session/request_permission) before every tool call
                                       # it makes, so it keeps any acpmux policy (acpmux believes it
@@ -1839,6 +1842,10 @@ def main():
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
+            # FAKE_MODES=<id,id,...>: exactly these modes, the first one current.
+            if os.environ.get("FAKE_MODES"):
+                ids = os.environ["FAKE_MODES"].split(",")
+                result["modes"] = {"currentModeId": ids[0], "availableModes": [{"id": i, "name": i} for i in ids]}
             # FAKE_NEW_MODE=<id>: a new chat starts in that mode, as a harness whose own settings
             # choose it (not its argv).
             if os.environ.get("FAKE_NEW_MODE") and "modes" in result:
