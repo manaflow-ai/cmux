@@ -296,18 +296,50 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
 - `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
 - Only a tagged DEV build: each command refuses a daemon whose session is not `cmux-app-<tag>`
   (the release session, a shipped build's (`nightly`, `rc`, `staging`, `cmux-next`), an untagged build's, a person's own session).
-- `launch` ends with exit 1 when the model did not load, a step failed or the `clients` step
-  ended early; it quits the app and takes the installed session away first.
-- `clients --total 13` reads the daemon's client list and holds what is missing. The list moves
-  (a hook call is a client for a moment, the app's own connections come and go), so it prints
-  the count it reached and `SESSION-REAL-CLIENTS-DIFFER` when that is not the count asked for.
+- Exit codes: 0 done; 1 refused or stopped, and `launch` with a failure (the model did not load, a
+  step gave a non-zero exit, the `clients` step ended early or gave exit 3, the quit or the uninstall
+  failed); 2 wrong arguments; 3 the command ran to its end and wrote its output, but the result has
+  failures: it prints `SESSION-REAL-FAULTS <command> [...]` first. `make`: a count read back is not
+  the count asked for. `agents`: a `restart-tab` failed, a terminal took no input, or the agent
+  programs that run are not one per agent terminal. `clients`: the count is not the one asked for, or
+  the daemon closed a held connection. `map`: a row failed, was cut by the time budget, has fewer
+  runs than asked, has a failed run or a good run with no commit time, or a set-up action failed. A
+  slow action (`unusable`, over 1 s) is a result of the app, not a fault. Check the exit code.
+- `launch` quits the app, ends the tag's processes and takes the installed session away at its end,
+  each part also when the part before fails or SIGTERM comes. If the uninstall cannot run (the tag
+  still has processes) it prints `SESSION-REAL-STATE-LEFT` with the command to run.
+- `launch` sets `CMUX_MOCK_KEYCHAIN=1` for the app, so a Release or nightly bundle shows no keychain
+  dialog over the window on a host whose keychain is locked.
+- `launch` times (`window_and_socket_s`, `model_loaded_s`, `kept_terminals_restarted_s`) all start at
+  the spawn of the app; `before_spawn_s` is the time of the checks before it.
+- What the tool removes: only a folder that it made itself in this run, proved by a mark file in it
+  (a token of this process and the folder's inode), never by a name. `install` copies beside the
+  tag's state and changes the tag only at the end, by two renames that no signal can part: a failed
+  or killed copy leaves the tag as it was. `install` refuses when the tag has a state that is not an
+  installed copy and `<tag>.before-session-real` is there too. `launch --saved` deletes the copy
+  that it installed. The `uninstall` command of a later run does not delete: it moves the installed
+  copy to `<tag>.session-real-removed-<time>-<id>` beside the tag's state, puts the old state back and
+  prints the path (an APFS clone: it uses little disk; remove it yourself).
+- `clients --total 13` makes the daemon's list of steady clients 13 long and reads it back. A steady
+  client is named, or connected 10 s or more; an agent's hook call is an unnamed client for a moment
+  (p50 0.3 s, longest 9 s), and the app holds 2 named connections and 0 to 2 unnamed ones. So the
+  command holds 9 to 11 connections for a total of 13, not always 11. It prints `held`, `steady` and
+  `listed_with_short_ones`; a count that is not the one asked for is a fault (exit 3 at its end).
   A held client reads its events at once: the daemon closes a subscriber that does not read.
+- `agents` counts the agent programs of this daemon only (each program's own `CMUX_TUI_SOCKET`),
+  not every program of that name on the host, and refuses counts that are not the session's.
+- `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
+  terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
+- `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says
+  that its times are not a person's. Use it for counts, memory and exit codes only.
+- `ptys_in_use_machine` counts this user's processes only (`ptys_in_use_scope` says so).
 - The daemon serves 64 connections. A start of 170 agents (about 500 hook calls) fills them for about
   2.5 s; in that time a new connection gets one `server.busy` line. The script's own connections
   try again for 20 s; a bench driver of your own must do the same.
 - `map` gives, per action (20 runs): `commit_ms` (the action's start to its committed frame, from
   `debug.action_budget`), the longest frame and the main-thread gap, and the longest stall the
   watchdog recorded with its frames. `--sample-rows <row>` runs a row beside a `sample` of the app:
-  those times are then not for a table. For the same map at another size, give `build` and `agents`
+  those times are then not for a table. The cold-switch row shows each workspace one time: with
+  fewer other workspaces than `--runs` the row is short and that is a fault. For the same map at another size, give `build` and `agents`
   the same counts in proportion, for example 60 workspaces:
   `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.
