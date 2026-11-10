@@ -33,12 +33,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The pull request's merge commit, blobless: the check compares tree ids,
+      # The pull request's merge commit, blobless, with only the check script
+      # in the work tree: the check compares tree ids from git's object store,
       # and git fetches only the blobs a drift's diffstat needs.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
           filter: blob:none
+          sparse-checkout: cmux-next-ios/scripts/check-tabskit-sync.sh
+          sparse-checkout-cone-mode: false
 
       - name: Shared iOS packages match their upstream branches
         run: |
