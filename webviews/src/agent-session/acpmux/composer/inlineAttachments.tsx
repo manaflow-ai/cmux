@@ -19,6 +19,7 @@ import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
+import { videoShapeStyle } from "./videoShape";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
@@ -414,6 +415,8 @@ const InlineChip = memo(function InlineChip({
         {...(!pending!.failed && pending!.image && pending!.size
           ? { "data-sized": "", style: imageShape(pending!.size) }
           : {})}
+        // A video is the box its chip, poster and sent tile keep (videoShape.ts), loading or failed.
+        {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(pending!.videoShape) } : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
