@@ -99,13 +99,11 @@ fn appends_across_chats_alone() {
     // The same chats again, no new one: appends spread over all of them hold nothing more.
     let ids: Vec<String> =
         (0..rounds).flat_map(|r| (0..per_round).map(move |i| format!("c-{r:02}-{i:04}"))).collect();
-    let mut seq = 5;
     let mut held = Vec::new();
-    for round in 0..10 {
+    for (round, seq) in (5..15).enumerate() {
         for id in ids.iter().step_by(3) {
             store.append(id, &record(seq)).unwrap();
         }
-        seq += 1;
         store.flush().unwrap();
         if round >= 2 {
             held.push(rss_bytes().unwrap() as f64);
