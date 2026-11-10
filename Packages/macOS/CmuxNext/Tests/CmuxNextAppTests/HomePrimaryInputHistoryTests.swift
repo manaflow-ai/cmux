@@ -14,6 +14,48 @@ import CmuxNextTestSupport
 /// The recall's content (newest sent message, Down back to the draft) is covered by
 /// MessagesLabHomeTests.ComposerHistoryKeysTests.
 @MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomePrimaryInputHistoryTests {
+    /// The native hosts (the docked Home's Messages view is the React page now).
+    enum Container: String, CaseIterable { case conversationTab }
+
+    struct Harness {
+        let window: NSWindow
+        let content: TabContent
+        let box: NSView
+        let home: HomeHostView
+        func close() { window.closeWithHomePopovers() }
+    }
+
+    private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {
+        let deadline = ContinuousClock.now + limit
+        // test-only: polls for the async Home view build in a hosted window, bounded by `limit`
+        while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    private static func harness(_ container: Container) async throws -> Harness {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let conversation = ConversationID("conv_history_keys")
+        let content: TabContent
+        let host: () -> HomeHostView?
+        switch container {
+        case .conversationTab:
+            let view = HomeHostView(services: services, conversation: conversation.rawValue)
+            content = .conversation(view)
+            host = { view }
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        content.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        window.contentView = content.view
+        window.orderFrontRegardless()
+        content.view.layoutSubtreeIfNeeded()
+        await wait { host()?.focusTarget is NSTextView }
+        let home = try #require(host(), "Home shows no conversation")
+        let box = try #require(home.focusTarget as? NSTextView, "Home's message box never appeared")
+        return Harness(window: window, content: content, box: box, home: home)
+    }
+
     private static func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags = [.function, .numericPad]) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
                          characters: "\u{F700}", charactersIgnoringModifiers: "\u{F700}", isARepeat: false, keyCode: code)!
@@ -27,6 +69,62 @@ import CmuxNextTestSupport
         #expect(KeyRouter.historyArrow(Self.key(126, [.function, .numericPad, .option])) == nil)
         #expect(KeyRouter.historyArrow(Self.key(126, [.function, .numericPad, .control])) == nil)
         #expect(KeyRouter.historyArrow(Self.key(123)) == nil)
+    }
+
+    /// A pane-focus shortcut (Cmd-Opt-Up/Down), the sidebar, a window switch: no responder, or
+    /// the transcript after a click. Up focuses the box from every container.
+    /// The dispatcher's decision as `typesIntoPrimaryInput` takes it: the input claims the key and is ready.
+    private static func routes(_ event: NSEvent, _ target: any PrimaryInputTarget) -> Bool {
+        target.routesToPrimaryInput(event) && target.acceptsRedirectedTyping
+    }
+
+    /// A pane-focus shortcut (Cmd-Opt-Up/Down), the sidebar, a window switch: no responder, or
+    /// the pane itself. Up focuses the box and recalls from every container.
+    @Test(arguments: Container.allCases)
+    func upWithTheKeyboardOutsideTheBoxGoesToItsHistory(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        let target = try #require(h.content.primaryInput, "\(container) declares no primary input")
+
+        h.window.makeFirstResponder(nil)
+        #expect(Self.routes(Self.key(126), target), "\(container): no responder")
+        h.window.makeFirstResponder(h.home)
+        #expect(Self.routes(Self.key(126), target), "\(container): the pane")
+        #expect(!target.routesToPrimaryInput(Self.key(126, [.function, .numericPad, .shift])), "\(container): Shift-Up")
+
+        target.beginTyping(with: Self.key(126))
+        #expect(h.window.firstResponder === h.box, "\(container): the box did not take the keyboard")
+    }
+
+    /// A focused button on the Set Up cmux card keeps Space and the arrows (Full Keyboard Access: Tab,
+    /// then Space presses it); the box does not take them.
+    @Test(arguments: Container.allCases)
+    func theSetupCardKeepsItsKeys(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        let target = try #require(h.content.primaryInput)
+        let card = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        let button = CardButton(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        card.addSubview(button)
+        h.home.transcript.setSetupCard(card, height: 120)
+        h.window.makeFirstResponder(button)
+        #expect(h.window.firstResponder === button)
+        let space = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                     characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49)!
+        #expect(!Self.routes(space, target), "\(container): Space left the card's button")
+        #expect(!Self.routes(Self.key(126), target), "\(container): Up left the card's button")
+        h.window.makeFirstResponder(nil)
+        #expect(Self.routes(Self.key(126), target), "\(container): outside the card Up still recalls")
+    }
+
+    /// The box recalls through its own keys (first-line rule).
+    @Test(arguments: Container.allCases)
+    func theBoxKeepsItsArrows(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        let target = try #require(h.content.primaryInput)
+        h.window.makeFirstResponder(h.box)
+        #expect(!Self.routes(Self.key(126), target), "\(container): the box's own Up was taken by the dispatcher")
     }
 }
 

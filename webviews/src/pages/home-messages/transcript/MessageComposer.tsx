@@ -12,9 +12,6 @@
 // - Files attach from the + button, a paste or a drop (intake.ts rules); each uploads at once with
 //   its progress in the tray above the field (the Channels plumbing, attachmentService.ts). A file
 //   the data side cannot take is refused before it uploads, with a notice. Send waits for uploads.
-// - While the Chief answers (`chief.working`), the emoji button is Stop (ChatController+Stop.swift): a
-//   click stops the Chief's turn, Option-click stops all its agents. After a Stop, while nothing
-//   runs, it is Continue (`chief.continueAvailable`): a click asks the Chief to go on with the turn.
 // - The files are the conversation's (attachmentDrafts.ts, kept by the page): another conversation
 //   showing leaves them, uploads and all, and coming back finds them in the tray.
 import type { PrepareFile } from "./prepareAttachment";
@@ -28,7 +25,6 @@ import {
   type Ref,
 } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
-import { elementBox, type ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
 import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
 import { isActive, useDictation } from "../../../agent-session/acpmux/dictation";
@@ -41,8 +37,6 @@ import { HomeIcon } from "../../home-channels/icons";
 import type { HomeAttachment } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { useWebSwapHold } from "../../shared/useWebSwapHold";
-import { quoteMarkdown } from "../../home-channels/quoteSelection";
-import type { ComposerTarget } from "../composerHandoff";
 import { AttachmentDrafts } from "./attachmentDrafts";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { excerpt } from "./replyQuote";
@@ -51,9 +45,11 @@ import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./i
 /** The host's call for dictation (`dictation.toggle`, `dictation.cancel`, ...), as the agent pane's. */
 export type DictationCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
-/** Files dropped on the transcript come here (the pane's drop target), and what the app hands over
- * (composerHandoff.ts): files by path, a quote of selected text. */
-export interface MessageComposerHandle extends ComposerTarget {
+export interface MessageComposerHandle {
+  /** Files dropped on the transcript come here (the pane's drop target); their tray ids. */
+  addFiles(files: Iterable<File>): string[];
+  /** Takes files out of the tray by their ids (the app took back what it handed). */
+  removeFiles(ids: readonly string[]): void;
   focus(): void;
 }
 
@@ -90,9 +86,6 @@ export interface MessageComposerProps {
   chief?: ComposerChief;
   /** Over the field: the page's toast (Stop all agents' answer). */
   toast?: ReactNode;
-  /** The host's toasts rest above this compose bar (its tray, notices and quote too): its box goes
-   * to the host while it is mounted (detailHost.ts `homeToastAvoidance`). Absent: no host. */
-  toastAvoidance?: ToastAvoidanceReports | undefined;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -125,7 +118,6 @@ export function MessageComposer({
   onRemoveQuote,
   chief,
   toast,
-  toastAvoidance,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -142,13 +134,6 @@ export function MessageComposer({
   const [emoji, setEmoji] = useState<{ anchor: Element; table?: EmojiTable } | undefined>();
   const editor = useRef<PromptEditorHandle | null>(null);
   const picker = useRef<HTMLInputElement | null>(null);
-  // The app's toasts never cover the compose bar and never move it (Leo, 2026-11-07: "The composer
-  // should never ever rise up because there's some sort of ... tooltip type thing"): the bar's box
-  // goes to the host, which lifts its toasts above it, as the agent pane's (toastAvoidance.ts).
-  const [bar, setBar] = useState<HTMLDivElement | null>(null);
-  useEffect(() => (bar && toastAvoidance ? toastAvoidance.report(bar, elementBox) : undefined), [bar, toastAvoidance]);
-  /** The files each hand-off group added, by group (a design card's files go back together). */
-  const groups = useRef(new Map<string, string[]>());
   const [browse] = useState(() => new ComposerHistory());
   const voice = useDictation(editor, dictation ?? noDictation);
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
@@ -160,8 +145,8 @@ export function MessageComposer({
   useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
 
-  const addFiles = (list: Iterable<File>, group?: string) => {
-    if (!attachments) return;
+  const addFiles = (list: Iterable<File>): string[] => {
+    if (!attachments) return [];
     const { service, conversation, prepare } = attachments;
     const added: string[] = [];
     for (const file of list) {
@@ -191,27 +176,9 @@ export function MessageComposer({
         reader.readAsDataURL(file);
       }
     }
-    if (group) groups.current.set(group, [...(groups.current.get(group) ?? []), ...added]);
+    return added;
   };
   const removeFile = (id: string) => drafts.remove(tray, id);
-  const removeGroup = (group: string): boolean => {
-    const ids = groups.current.get(group);
-    groups.current.delete(group);
-    if (!ids?.length) return false;
-    for (const id of ids) drafts.remove(tray, id);
-    return true;
-  };
-  // Quote in Reply: the quote goes after what is typed, with a line for the reply, and typing goes on there.
-  const quoteInReply = (text: string): boolean => {
-    const markdown = quoteMarkdown(text);
-    const field = editor.current;
-    if (field?.quoteReply(markdown)) {
-      field.focus();
-      return true;
-    }
-    setText(value ? `${value.replace(/\s+$/, "")}\n\n${markdown}` : markdown);
-    return true;
-  };
 
   const setText = (text: string) => {
     setValue(text);
@@ -270,24 +237,15 @@ export function MessageComposer({
   };
 
   useImperativeHandle(ref, () => ({
-    takesFiles: !!attachments,
     addFiles,
-    removeGroup,
-    quote: quoteInReply,
-    recallHistory: (direction) => {
-      const field = editor.current;
-      if (!field || !history) return false;
-      field.focus();
-      const next = browse.step(direction, field.text().value, history);
-      if (next === undefined) return direction === "older" && browse.isBrowsing;
-      field.writeText(next, next.length, next.length);
-      return true;
+    removeFiles: (ids) => {
+      for (const id of ids) drafts.remove(tray, id);
     },
     focus: () => editor.current?.focus(),
   }));
 
   return (
-    <div ref={setBar} className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
+    <div className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
       {toast}
       {notice && (
         <div className={`mt-notice${notice.alert ? " alert" : ""}`} role={notice.alert ? "alert" : "status"}>

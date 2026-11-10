@@ -96,39 +96,29 @@ struct HomeMessagesR10Tests {
         #expect(shown == [id], "the opened conversation shows once its send's outcome is known")
     }
 
-    /// A Messages page as the app's hand-off reaches it (``HomeComposerHosting``): it reads each
-    /// handed file's bytes by token, chunk by chunk, as the page does (composerHandoff.ts).
-    final class FakePage: NSView, HomeComposerHosting {
-        let files = HomeComposerFiles()
+    /// A Messages page as the intake reaches it: it reads each offered file's bytes, as the page does.
+    final class FakePage: NSView, HomeComposerPage {
+        let intake = HomeMessagesIntake()
         var asked: [(String, [String: JSONValue])] = []
         var read: [Data] = []
         var takes = true
 
-        var composerHandoff: HomeComposerHandoff {
-            HomeComposerHandoff(files: files, window: { [weak self] in self?.window }) { [weak self] op, params, _ in
-                await self?.answer(op, params)
-            }
-        }
-
-        private func answer(_ op: String, _ params: [String: JSONValue]) async -> JSONValue? {
-            if op == "home.currentSelection" { return .object([:]) }
+        func ask(_ op: String, _ params: [String: JSONValue], within: Duration) async -> JSONValue? {
             asked.append((op, params))
             guard op == "home.messages.attach" else { return .object(["removed": .bool(true)]) }
-            guard takes else { return .object(["attached": .bool(false), "reason": .string("noComposer")]) }
-            let context = PageCallContext(page: PageDescriptor.homeMessages.id)
+            guard takes else { return .object(["attached": .bool(false)]) }
             for file in params["files"]?.arrayValue ?? [] {
-                let answer = try? await files.call(HomeComposerFiles.prefix + "read", params: ["token": file.value(at: ["token"]) ?? .null, "offset": .number(0)],
-                                                   context: context)
+                let token = file.value(at: ["token"]) ?? .null, count = file.value(at: ["byteCount"]) ?? .null
+                let answer = try? await intake.call("attachments.intake.read", ["token": token, "offset": .number(0), "length": count])
                 read.append(answer?.value(at: ["data"])?.stringValue.flatMap { Data(base64Encoded: $0) } ?? Data())
             }
-            return .object(["attached": .bool(true)])
+            return .object(["attached": .array([.string("f1")])])
         }
     }
 
-    /// F1 (cmux#37736 round 10, on #37777's one hand-off): the window's Messages page takes the app's
-    /// files as a drop, reading their bytes by token while it answers; the tokens go when the call
-    /// ends, a missing path is refused, and a page with no composer (New Message) answers not taken,
-    /// so the caller refuses.
+    /// F1: the window's Messages page takes the app's files as a drop, reading their bytes by token
+    /// while it answers; the tokens go when the call ends, a missing path is refused, and a page
+    /// with no composer (New Message) answers not connected, so the caller refuses.
     @Test func theAppsFilesReachTheMessagesPagesComposer() async throws {
         let folder = try HomeMessagesR6NewMessageTests.directory()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -137,26 +127,26 @@ struct HomeMessagesR10Tests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
         let page = FakePage(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         window.contentView?.addSubview(page)
-        let handoff = try #require(HomeComposerHandoff.shown(in: window))
+        let intake = try #require(HomeComposerIntake(window: window))
 
-        #expect(await handoff.attach([file], group: "card-1") == .accepted)
+        let attached = await intake.attach(paths: [file.path], via: .drop)
+        #expect(attached.result == .accepted)
+        #expect(attached.ids == ["f1"])
         #expect(page.read == [Data("a quote".utf8)])
         let offered = try #require(page.asked.first?.1["files"]?.arrayValue?.first)
         #expect(offered.value(at: ["name"]) == .string("quote.md"))
-        #expect(offered.value(at: ["size"]) == .number(7))
-        #expect(page.asked.first?.1["group"] == .string("card-1"))
-        let context = PageCallContext(page: PageDescriptor.homeMessages.id)
+        #expect(offered.value(at: ["byteCount"]) == .number(7))
         await #expect(throws: PageError.self, "the call ended: its token reads nothing") {
-            _ = try await page.files.call(HomeComposerFiles.prefix + "read", params: ["token": offered.value(at: ["token"]) ?? .null, "offset": .number(0)],
-                                          context: context)
+            _ = try await page.intake.call("attachments.intake.read", ["token": offered.value(at: ["token"]) ?? .null,
+                                                                       "offset": .number(0), "length": .number(7)])
         }
 
-        #expect(await handoff.attach([folder.appending(path: "missing.txt")]) == .missingFile)
+        #expect(await intake.attach(paths: [folder.appending(path: "missing.txt").path], via: .drop).result == .missingFile)
         page.takes = false
-        #expect(await handoff.attach([file]) == .notTaken)
-        await handoff.remove(group: "card-1")
+        #expect(await intake.attach(paths: [file.path], via: .drop).result == .notConnected)
+        await intake.remove(["f1"])
         #expect(page.asked.last?.0 == "home.messages.detach")
         page.isHidden = true
-        #expect(HomeComposerHandoff.shown(in: window) == nil, "a hidden page takes nothing")
+        #expect(HomeComposerIntake(window: window) == nil, "a hidden page takes nothing")
     }
 }

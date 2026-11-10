@@ -5,11 +5,10 @@ public import CmuxHomeRender
 public import CmuxNextHomeModel
 public import CmuxNextSettings
 public import Foundation
-import MessagesLabHome
 
 // The Messages page's wire (`webviews/src/pages/home-messages`): the Home model values its host
 // (the App's `HomeMessagesHostProvider`) sends, in the shapes the page parses (sheets/wire.ts,
-// detail/detailHost.ts, cards/links/linkPreview.ts). Values only: no view, no service.
+// detail/detailHost.ts). Values only: no view, no service.
 
 extension HomeChatColorStore {
     /// The `appearance` stream (detail/detailHost.ts parseAppearance): the bubble look, a Chief's
@@ -224,44 +223,5 @@ extension HomeLinkPreview {
             fields["thumbnail"] = .string("data:image/png;base64," + png.base64EncodedString())
         }
         return .object(fields)
-    }
-}
-
-extension HomeStore {
-    /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
-    public static let maxPageDraftLength = 200_000
-
-    /// `{drafts: {conversation: text}}`: every kept composer draft (`drafts.load`).
-    public var pageDrafts: JSONValue {
-        let drafts = rows.reduce(into: [String: JSONValue]()) { out, row in
-            if let text = draft(for: row.id), !text.isEmpty { out[row.id.rawValue] = .string(text) }
-        }
-        return .object(["drafts": .object(drafts)])
-    }
-
-    /// Keeps `text` as `id`'s draft (`drafts.save`); false when it is longer than a draft keeps.
-    public func savePageDraft(_ text: String, for id: ConversationID) -> Bool {
-        guard text.count <= Self.maxPageDraftLength else { return false }
-        setDraft(text, for: id)
-        return true
-    }
-}
-
-extension [ConversationID: Seq] {
-    /// `{hidden: {id: seq}}`: the conversations deleted from the list, each listed again by a message after its seq.
-    public var pageHidden: JSONValue {
-        .object(["hidden": .object(reduce(into: [String: JSONValue]()) { $0[$1.key.rawValue] = .number(Double($1.value)) })])
-    }
-}
-
-extension HomeRecipient {
-    /// New Message's recipients as the page sends them (`start {recipients: [{contact} | {address}]}`).
-    public static func page(_ entries: JSONValue?, contacts: [HomeContact]) -> [HomeRecipient] {
-        (entries?.arrayValue ?? []).compactMap { entry in
-            if let id = entry["contact"]?.stringValue, !id.isEmpty {
-                return .contact(contacts.first { $0.id.rawValue == id } ?? HomeContact(id: ParticipantID(id), name: id, source: .team))
-            }
-            return entry["address"]?.stringValue.flatMap { ContactAddress.parse($0) }.map(HomeRecipient.address)
-        }
     }
 }

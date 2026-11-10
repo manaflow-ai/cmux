@@ -237,9 +237,7 @@ test("round 10 F5: after a reconnect the files upload with the new store's servi
 });
 
 test("round 10 F1: the app's files reach the shown conversation's composer as a drop, and come back out", async () => {
-  // #37777 keeps one hand-off (composerHandoff.ts): files by token, read in chunks, taken back by group.
-  const { servePageCommands } = await import("../src/pages/home-messages/pageCommands");
-  const { HandoffOps } = await import("../src/pages/home-messages/composerHandoff");
+  const { servePageCommands, MessagesPageOps } = await import("../src/pages/home-messages/pageCommands");
   const { MessagesNav } = await import("../src/pages/home-messages/nav");
   const handlers = new Map<string, (params: unknown) => unknown>();
   const reads: Record<string, unknown>[] = [];
@@ -250,35 +248,34 @@ test("round 10 F1: the app's files reach the shown conversation's composer as a 
     },
     call: async (op: string, params: Record<string, unknown>) => {
       reads.push({ op, ...params });
-      return { data: btoa("quote"), size: 5 };
+      return { data: btoa("quote") };
     },
-    subscribe: async () => () => {},
   };
   const nav = new MessagesNav();
   const store = { getSnapshot: () => ({ selected: "dm", highlight: undefined }) };
   servePageCommands(host as never, () => ({ store: store as never, nav, model: {} as never }));
-  const attach = handlers.get(HandoffOps.attach)!;
-  const files = [{ token: "t1", name: "quote.md", mimeType: "text/markdown", size: 5 }];
+  const attach = handlers.get(MessagesPageOps.attach)!;
+  const files = [{ token: "t1", name: "quote.md", mimeType: "text/markdown", byteCount: 5 }];
 
   // Nothing takes files (New Message, or no conversation): the app hears false and refuses.
-  expect(await attach({ files })).toEqual({ attached: false, reason: "noComposer" });
+  expect(await attach({ files, request: "r1" })).toEqual({ attached: false });
 
   const taken: File[] = [];
   const removed: string[] = [];
-  nav.setComposer(() => ({
-    takesFiles: true,
-    addFiles: (list) => void taken.push(...list),
-    removeGroup: (group) => {
-      removed.push(group);
-      return true;
+  nav.setFileDrop(() => ({
+    over: () => true,
+    leave: () => {},
+    drop: () => {},
+    take: (list) => {
+      taken.push(...list);
+      return ["f1"];
     },
-    quote: () => true,
-    recallHistory: () => false,
+    remove: (ids) => void removed.push(...ids),
   }));
-  expect(await attach({ files, group: "card-1" })).toEqual({ attached: true });
-  expect(reads).toEqual([{ op: HandoffOps.read, token: "t1", offset: 0 }]);
+  expect(await attach({ files, request: "r2" })).toEqual({ attached: ["f1"] });
+  expect(reads).toEqual([{ op: "cmux.home.messages.attachments.intake.read", token: "t1", offset: 0, length: 5 }]);
   expect(taken.map((file) => [file.name, file.type, file.size])).toEqual([["quote.md", "text/markdown", 5]]);
   expect(await taken[0]!.text()).toBe("quote");
-  expect(await handlers.get(HandoffOps.detach)!({ group: "card-1" })).toEqual({ removed: true });
-  expect(removed).toEqual(["card-1"]);
+  expect(await handlers.get(MessagesPageOps.detach)!({ ids: ["f1"] })).toEqual({ removed: true });
+  expect(removed).toEqual(["f1"]);
 });

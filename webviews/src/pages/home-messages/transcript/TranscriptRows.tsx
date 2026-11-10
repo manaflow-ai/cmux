@@ -18,7 +18,6 @@ import { ApprovalCard } from "../cards/approval/ApprovalCard";
 import type { ApprovalDecisions } from "../cards/approval/approval";
 import { HomeLinkChip } from "../cards/links/HomeLinkChip";
 import { LinkPreviewCard, LocationCard, mentionedText } from "../cards/parts/PartCards";
-import { WidgetCard } from "../cards/widget/WidgetCard";
 import type { LinkPreviewFetch } from "../cards/links/linkPreview";
 import { formatDay, formatTime } from "./format";
 import {
@@ -397,8 +396,7 @@ function bubbleRow(
   );
 }
 
-/** A part drawn as a card instead of a text bubble: a permission card, a link preview, a place, a
- * chat widget. */
+/** A part drawn as a card instead of a text bubble: a permission card, a link preview, a place. */
 function cardOf(row: Extract<TranscriptRow, { kind: "bubble" }>, strings: Strings, actions: RowActions): ReactNode {
   const head = row.parts[0];
   if (head?.type === "question" && row.approval)
@@ -420,7 +418,6 @@ function cardOf(row: Extract<TranscriptRow, { kind: "bubble" }>, strings: String
       />
     );
   if (head?.type === "location") return <LocationCard part={head} />;
-  if (head?.type === "widget") return <WidgetCard message={row.message.id} partIndex={row.partIndex} part={head} />;
   return undefined;
 }
 

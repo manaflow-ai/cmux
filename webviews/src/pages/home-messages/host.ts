@@ -52,6 +52,7 @@ export const MessagesOps = {
   releaseAttachments: "cmux.home.messages.attachments.release",
   writeAttachment: "cmux.home.messages.attachments.write",
   readAttachment: "cmux.home.messages.attachments.read",
+  readOffered: "cmux.home.messages.attachments.intake.read",
   list: "cmux.home.messages.list",
   loadWidth: "cmux.home.messages.width.load",
   saveWidth: "cmux.home.messages.width.save",
@@ -119,6 +120,28 @@ export function answered(call: Promise<unknown>): Promise<boolean> {
     () => true,
     () => false,
   );
+}
+
+/** An offered file's bytes, read from the app in frames (pageCommands.ts `attach`). */
+export async function readOffered(
+  client: Pick<PageClient, "call">,
+  offer: { token: string; name: string; mimeType: string; byteCount: number },
+): Promise<File | undefined> {
+  try {
+    const pieces: Uint8Array[] = [];
+    for (let offset = 0; offset < offer.byteCount; offset += READ_BYTES) {
+      const piece = await client.call<{ data?: string }>(MessagesOps.readOffered, {
+        token: offer.token,
+        offset,
+        length: Math.min(READ_BYTES, offer.byteCount - offset),
+      });
+      pieces.push(fromBase64(piece.data ?? ""));
+    }
+    const file = new File(pieces as BlobPart[], offer.name, offer.mimeType ? { type: offer.mimeType } : {});
+    return file.size === offer.byteCount ? file : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function toBase64(bytes: Uint8Array): string {

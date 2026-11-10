@@ -16,7 +16,6 @@
 // - Gaps are Messages' measured ones (points, drawn as CSS pixels).
 import { PENDING_PREFIX, partShows, partText, pendingMessages, threadOf } from "../../home-channels/model";
 import { isApprovalCard } from "../cards/approval/approval";
-import { fallbackHeight } from "../cards/widget/widgetModel";
 import type { HomeDraft } from "../../home-channels/drafts";
 import type { PendingSend } from "../../home-channels/store";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../../home-channels/types";
@@ -26,10 +25,10 @@ export const GROUP_GAP_MS = 60_000;
 /** A time label heads a message more than an hour after the one above (`RowBuilder.separatorGap`, macOS 27). */
 export const SEPARATOR_GAP_MS = 60 * 60_000;
 
-/** Another participant's read cursor: the newest seq they read, and when (where the owner says). */
+/** Another participant's read cursor: the newest seq they read, and when. */
 export interface ReadCursor {
   seq: number;
-  at?: number;
+  at: number;
 }
 
 /** My message's delivery: sending (pending), failed (pending, the owner refused or never answered),
@@ -38,7 +37,7 @@ export type Delivery =
   | { state: "sending" }
   | { state: "failed" }
   | { state: "delivered" }
-  | { state: "read"; at?: number };
+  | { state: "read"; at: number };
 
 /** What the rows derive from (the view reads only these). */
 export interface TranscriptData {
@@ -119,14 +118,13 @@ export function deliveryOf(
   message: HomeMessage,
   me: string,
   failed: ReadonlySet<string>,
-  readers: readonly ({ id: string } & ReadCursor)[],
+  readers: readonly { id: string; seq: number; at: number }[],
 ): Delivery | undefined {
   if (message.author !== me) return undefined;
   if (message.id.startsWith(PENDING_PREFIX))
     return failed.has(message.id.slice(PENDING_PREFIX.length)) ? { state: "failed" } : { state: "sending" };
   const reader = readers.find((cursor) => cursor.seq >= message.seq);
-  if (!reader) return { state: "delivered" };
-  return reader.at === undefined ? { state: "read" } : { state: "read", at: reader.at };
+  return reader ? { state: "read", at: reader.at } : { state: "delivered" };
 }
 
 /** Which of my messages carry a receipt (`receiptTargets`): my newest read one, and my newest delivered
@@ -135,7 +133,7 @@ export function receiptTargets(
   messages: readonly HomeMessage[],
   deliveries: ReadonlyMap<string, Delivery>,
 ): Map<string, { receipt: "read" | "delivered"; at?: number }> {
-  let read: { index: number; id: string; at?: number } | undefined;
+  let read: { index: number; id: string; at: number } | undefined;
   let delivered: { index: number; id: string } | undefined;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
@@ -143,13 +141,13 @@ export function receiptTargets(
     const delivery = deliveries.get(message.id);
     if (!delivery) continue;
     if (delivery.state === "read") {
-      read = { index, id: message.id, ...(delivery.at === undefined ? {} : { at: delivery.at }) };
+      read = { index, id: message.id, at: delivery.at };
       break;
     }
     if (delivery.state === "delivered" && !delivered) delivered = { index, id: message.id };
   }
   const out = new Map<string, { receipt: "read" | "delivered"; at?: number }>();
-  if (read) out.set(read.id, read.at === undefined ? { receipt: "read" } : { receipt: "read", at: read.at });
+  if (read) out.set(read.id, { receipt: "read", at: read.at });
   if (delivered && delivered.index > (read?.index ?? -1)) out.set(delivered.id, { receipt: "delivered" });
   return out;
 }
@@ -255,8 +253,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
   const unkept = new Set(
     (data.pending ?? []).filter((entry) => entry.unkept).map((entry) => `${PENDING_PREFIX}${entry.key}`),
   );
-  // The transcript's own cursors (with times) where given, else the owner's on the conversation.
-  const readers = readersOf(data.readCursors ?? data.conversation.readCursors, me);
+  const readers = readersOf(data.readCursors, me);
   const deliveries = new Map<string, Delivery>();
   for (const message of messages) {
     if (message.author !== me) continue;
@@ -436,7 +433,6 @@ export function estimateRow(row: TranscriptRow): number {
       if (part?.type === "attachment") return row.gap + 160 * Math.min(row.parts.length, 2);
       if (part?.type === "link_preview") return row.gap + (part.image ? 220 : 56);
       if (part?.type === "location") return row.gap + 56;
-      if (part?.type === "widget") return row.gap + fallbackHeight(part.fallback);
       const text = part ? partText(part) : "";
       const lines = text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0);
       return row.gap + 16 + 18 * Math.min(lines, 400) + (row.approval ? 36 : 0);

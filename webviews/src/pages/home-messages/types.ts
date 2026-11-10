@@ -116,9 +116,6 @@ export interface MessagesDetailProps {
   openedAt?: number;
   /** The page's view state the list shares: New Message, the sheet, drafts, the keyboard. */
   nav: MessagesNav;
-  /** The one conversation this page shows (a conversation tab, the Chief panel: `#/conversation/<id>`):
-   * no list, and a conversation link opens through the host instead of here. */
-  single?: string;
 }
 
 /** The detail slot: the shell calls it with the open conversation's props. */

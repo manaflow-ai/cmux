@@ -23,8 +23,6 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import type { ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
-import { MOTION_MS } from "../../../motion/scale.generated";
 import { AttachmentContext } from "../../home-channels/AttachmentViews";
 import type { AttachmentService } from "../../home-channels/attachmentService";
 import { conversationName } from "../../home-channels/model";
@@ -45,15 +43,13 @@ import {
   type DictationCall,
   type MessageComposerHandle,
 } from "./MessageComposer";
-import { pinnedLayout, PINNED_GAP } from "./pinnedLayout";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
-import { TranscriptHeader, alsoHereNames, type HeaderPanelItem, type TranscriptHeaderProps } from "./TranscriptHeader";
+import { TranscriptHeader, alsoHereNames, type HeaderPanelItem } from "./TranscriptHeader";
 import type { ReplyQuote } from "./replyQuote";
 import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptRows";
 import type { BubbleContext, BubbleHostFacts, FileAction, FileTarget } from "./bubbleMenu";
 import { NO_BUBBLE_HOST } from "./bubbleMenu";
 import { MediaViewerHost } from "../viewer/MediaViewer";
-import { useWidgetKeep } from "../cards/widget/widgetService";
 import "./transcript.css";
 
 /** The room the header takes over the rows (its avatar, pill and padding). */
@@ -64,8 +60,6 @@ const TOP_KEY = "top";
 export interface MessagesTranscriptHandle {
   /** The message box takes the keyboard; true when it did. */
   focusComposer(): boolean;
-  /** The compose bar, for what the app hands over (composerHandoff.ts). */
-  composer(): MessageComposerHandle | null;
   /** Files dragged over the conversation list come here, with this transcript's drop highlight;
    * undefined when it takes no files. */
   fileDrop: FileDropTarget | undefined;
@@ -81,23 +75,14 @@ export interface MessagesTranscriptProps extends TranscriptData {
   colors?: ChatColors;
   panels?: readonly HeaderPanelItem[];
   onPanel?(id: string): void;
-  onContact?(anchor: { x: number; y: number; width: number; height: number }): void;
-  /** A Chief chat's face and location chip in the header (``TranscriptHeader``). */
-  face?: TranscriptHeaderProps["face"];
-  place?: TranscriptHeaderProps["place"];
-  onPlace?: TranscriptHeaderProps["onPlace"];
+  onContact?(): void;
   /** A section pinned under the header (Needs you); it lies over the rows. */
   pinned?: ReactNode;
-  /** A Chief's Set Up cmux card (cards/setup/setupHost.tsx), under `pinned` and over the rows; both stop
-   * above the message box and keep it its room (pinnedLayout.ts). */
-  setupCard?: ReactNode;
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
   attachments?: AttachmentService;
   /** What each attached file goes through before it uploads (the app's location removal). */
   prepareFile?: PrepareFile;
   dictation?: DictationCall;
-  /** The app's toasts rest above the composer (MessageComposer `toastAvoidance`). */
-  toastAvoidance?: ToastAvoidanceReports | undefined;
   /** The page's files per conversation (they outlive this conversation's composer); absent: the composer's own. */
   attachmentDrafts?: AttachmentDrafts;
   initialDraft?: string;
@@ -195,7 +180,6 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     colors,
     attachments,
     pinned,
-    setupCard,
     onLoadOlder,
     onRead,
     highlight,
@@ -242,7 +226,6 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       now,
     ],
   );
-  useWidgetKeep(messages);
   const [pinnedHeight, setPinnedHeight] = useState(0);
   // A toast over the message box takes room under the newest message (+ToastRoom.swift): a row of
   // its height ends the transcript while it shows, so the rows move up with it and back down after.
@@ -339,6 +322,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           setDropping(false);
           composer.current?.addFiles(files);
         },
+        take: (files) => composer.current?.addFiles(files) ?? [],
+        remove: (ids) => composer.current?.removeFiles(ids),
       }
     : undefined;
   useImperativeHandle(props.ref, () => ({
@@ -347,7 +332,6 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       composer.current.focus();
       return true;
     },
-    composer: () => composer.current,
     fileDrop,
   }));
 
@@ -413,45 +397,13 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     const observer = new ResizeObserver(() => setPinnedHeight(element.offsetHeight ? element.offsetHeight + 8 : 0));
     observer.observe(element);
     return () => observer.disconnect();
-    // The boxes are there while their parts are: a new element for the same part (each page render
-    // makes one) keeps its observer and reads no layout.
-  }, [hasPinned, hasCard]);
-  // The room above the message box, and the natural heights of the pinned section and the card:
-  // pinnedLayout.ts shares that room out (the native layoutPinnedSection).
-  const pinnedContent = useRef<HTMLDivElement | null>(null);
-  const cardContent = useRef<HTMLDivElement | null>(null);
-  const [heights, setHeights] = useState({ room: 0, pinned: 0, card: 0 });
-  useEffect(() => {
-    const parts = [scroller.current, pinnedContent.current, cardContent.current];
-    const read = () =>
-      setHeights((last) => {
-        const next = {
-          room: Math.max(0, (scroller.current?.clientHeight ?? 0) - HEADER_ROOM),
-          pinned: pinnedContent.current?.offsetHeight ?? 0,
-          card: cardContent.current?.offsetHeight ?? 0,
-        };
-        return next.room === last.room && next.pinned === last.pinned && next.card === last.card ? last : next;
-      });
-    read();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(read);
-    for (const part of parts) if (part) observer.observe(part);
-    return () => observer.disconnect();
-  }, [scroller, hasPinned, hasCard]);
-  // Before the room is measured nothing is capped (a first frame shows the parts whole).
-  const shares = heights.room
-    ? pinnedLayout(heights.room, pinned ? heights.pinned : undefined, setupCard ? heights.card : undefined)
-    : undefined;
+  }, [pinned]);
 
   const title = conversationName(conversation, me);
   const other = conversation.kind === "group" ? undefined : conversation.participants.find((p) => p.id !== me);
   const alsoHere = alsoHereNames(props.viewing ?? [], conversation.participants, me, strings.language);
   const history = () => historyEntries(messages, me);
-  const style = {
-    ...bubbleStyle(colors),
-    "--mt-top-room": `${HEADER_ROOM + pinnedHeight}px`,
-    "--mt-header-room": `${HEADER_ROOM}px`,
-  } as CSSProperties;
+  const style = { ...bubbleStyle(colors), "--mt-top-room": `${HEADER_ROOM + pinnedHeight}px` } as CSSProperties;
 
   return (
     <AttachmentContext.Provider value={attachments}>
@@ -526,35 +478,15 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           <TranscriptHeader
             title={title}
             participant={other}
-            {...(props.face ? { face: props.face } : {})}
-            {...(props.place ? { place: props.place } : {})}
-            {...(props.onPlace ? { onPlace: props.onPlace } : {})}
             alsoHere={alsoHere}
             panels={props.panels}
             onPanel={props.onPanel}
             onContact={props.onContact}
             strings={strings}
           />
-          {(pinned || setupCard) && (
+          {pinned && (
             <div ref={pinnedBox} className="mt-pinned">
-              {pinned && (
-                <div className="mt-pinned-section" style={shares ? { maxHeight: shares.pinned } : undefined}>
-                  <div ref={pinnedContent}>{pinned}</div>
-                </div>
-              )}
-              {setupCard && (
-                <div
-                  className="mt-setup-slot"
-                  style={{
-                    ...(shares ? { maxHeight: shares.card } : {}),
-                    ...(pinned && (!shares || shares.pinned > 0) ? { marginTop: PINNED_GAP } : {}),
-                  }}
-                >
-                  <div ref={cardContent} className="mt-setup-card">
-                    {setupCard}
-                  </div>
-                </div>
-              )}
+              {pinned}
             </div>
           )}
           {dropping && <div className="mt-drop-highlight" aria-hidden />}
@@ -575,7 +507,6 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           }
           history={history}
           dictation={props.dictation}
-          toastAvoidance={props.toastAvoidance}
           initialText={props.initialDraft}
           onDraftChange={props.onDraftChange}
           {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}
