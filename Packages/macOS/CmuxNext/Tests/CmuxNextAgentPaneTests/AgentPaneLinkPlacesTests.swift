@@ -77,6 +77,48 @@ struct AgentPaneLinkPlacesTests {
         }
         #expect(places.places == fresh)
     }
+
+    /// A Cloud machine's workspace that comes (or goes) names that workspace only, never the local ones
+    /// again (review of #40038: a change of the machine-name map re-mapped every workspace).
+    @Test func aRemoteWorkspaceThatComesNamesOnlyThatWorkspace() async throws {
+        let count: UInt64 = 40
+        let local = DaemonStore()
+        _ = local.apply(.connected(DaemonIdentity(generation: "boot"), generationChanged: true))
+        local.apply(snapshot: DaemonTree(workspaces: (1...count).map { id in
+            let tab = TabSnapshot(surface: SurfaceID(rawValue: id), tabResourceID: ResourceID(rawValue: "tab_\(id)"), kind: .pty, title: "shell \(id)")
+            let pane = PaneSnapshot(id: PaneID(rawValue: id), resourceID: ResourceID(rawValue: "pane_\(id)"), tabs: [tab])
+            let screen = ScreenSnapshot(id: ScreenID(rawValue: id), layout: .leaf(PaneID(rawValue: id)), panes: [pane])
+            return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: id), key: nil, resourceID: ResourceID(rawValue: "ws_\(id)"),
+                                     name: "w\(id)", screens: [screen])
+        }))
+        let remote = DaemonStore()
+        _ = remote.apply(.connected(DaemonIdentity(generation: "box-boot"), generationChanged: true))
+        let counts = NamingCounts()
+        let titles = AgentPaneLinkPlaces.Titles(workspace: { workspace in
+            counts.workspaces += 1
+            return workspace.displayName
+        }, tabs: { { _, tab in tab.displayTitle } })
+        let places = AgentPaneLinkPlaces()
+        places.follow({ [local, remote] in
+            local.workspaces.map { ($0, host: String?.none) } + remote.workspaces.map { ($0, host: String?.some("build-box")) }
+        }, titles: titles)
+        func until(_ condition: () -> Bool) async {
+            let deadline = ContinuousClock.now + .seconds(10)
+            while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        }
+        await until { places.places.count == Int(count) * 3 }
+        #expect(places.places.count == Int(count) * 3)
+
+        counts.workspaces = 0
+        let tab = TabSnapshot(surface: 1, tabResourceID: "tab_box", kind: .pty, title: "remote shell")
+        let pane = PaneSnapshot(id: 1, resourceID: "pane_box", tabs: [tab])
+        remote.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, resourceID: "ws_box", name: "box",
+                                                                         screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])])]))
+        await until { places.places.contains { $0.id == "ws_box" } }
+        #expect(places.places.contains { $0.id == "ws_box" && $0.host == "build-box" })
+        #expect(places.places.contains { $0.id == "tab_box" && $0.host == "build-box" && $0.workspace == "box" })
+        #expect(counts.workspaces <= 1, "a remote workspace that came named \(counts.workspaces) workspaces again")
+    }
 }
 
 @MainActor private final class NamingCounts {
