@@ -117,7 +117,7 @@ mod tests {
             // SAFETY: the child calls only async-signal-safe functions
             // (`pause`) until the parent kills it.
             let pid = unsafe { libc::fork() };
-            assert!(pid >= 0, "fork failed: {}", std::io::Error::last_os_error());
+            assert!(pid >= 0, "fork failed: {}", io::Error::last_os_error());
             if pid == 0 {
                 loop {
                     // SAFETY: async-signal-safe; the parent ends this child.
