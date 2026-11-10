@@ -267,7 +267,7 @@ if [[ "$SUBMIT_DRY_RUN" -eq 1 || "$SUBMIT_REQUESTED" -eq 1 ]]; then
   asc "${submit_args[@]}"
   if [[ "$SUBMIT_REQUESTED" -eq 1 ]]; then
     note "checking that exactly the manifest's subscriptions entered review with the version"
-    python3 "$SCRIPT_DIR/asc_review_package.py" --app "$APP" verify-submission
+    python3 "$SCRIPT_DIR/asc_review_package.py" --app "$APP" verify-submission --version "$VERSION"
   fi
 fi
 

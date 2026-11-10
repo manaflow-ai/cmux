@@ -139,7 +139,13 @@ class FakeAsc:
             sid = path.split("/")[3]
             return 200, {"data": self.images.get(sid, [])}
         if path == f"/v1/apps/{APP}/reviewSubmissions":
-            return 200, {"data": [{"id": "submission-1"}]}
+            return 200, {"data": [{"id": "submission-1"}, {"id": "submission-other"}]}
+        if path == "/v1/reviewSubmissions/submission-1/items":
+            return 200, {"data": [{"id": "item-1", "relationships": {
+                "appStoreVersion": {"data": {"type": "appStoreVersions", "id": "version-1"}}}}]}
+        if path == "/v1/reviewSubmissions/submission-other/items":
+            return 200, {"data": [{"id": "item-2", "relationships": {
+                "appStoreVersion": {"data": {"type": "appStoreVersions", "id": "version-other"}}}}]}
         return 404, {"errors": [{"code": "NOT_FOUND"}]}
 
     def post(self, path, body):
@@ -376,7 +382,7 @@ class VerifySubmissionTests(FakeAscCase):
     def verify(self, states):
         fake = self.start(states=states)
         manifest = pkg.load_manifest(pkg.DEFAULT_MANIFEST)
-        return fake, pkg.verify_submission(pkg.Api(), APP, manifest, wait_seconds=0, cancel=True)
+        return fake, pkg.verify_submission(pkg.Api(), APP, "1.0.0", manifest, wait_seconds=0, cancel=True)
 
     def test_exactly_the_manifest_in_review_passes(self):
         fake, problems = self.verify({
@@ -401,6 +407,28 @@ class VerifySubmissionTests(FakeAscCase):
         })
         self.assertEqual(len(problems), 1)
         self.assertEqual(fake.cancelled, ["submission-1"])
+
+    def test_products_approved_with_an_earlier_version_pass(self):
+        fake, problems = self.verify({
+            "com.cmux.app.pro.monthly": "APPROVED", "com.cmux.app.max.monthly": "APPROVED",
+            "com.cmux.app.go.monthly": "READY_TO_SUBMIT", "com.cmux.app.pro.trial.monthly": "READY_TO_SUBMIT",
+        })
+        self.assertEqual(problems, [])
+        self.assertEqual(fake.cancelled, [])
+
+    def test_only_the_submission_carrying_this_version_is_cancelled(self):
+        fake, _ = self.verify({
+            "com.cmux.app.pro.monthly": "READY_TO_SUBMIT", "com.cmux.app.max.monthly": "READY_TO_SUBMIT",
+            "com.cmux.app.go.monthly": "READY_TO_SUBMIT", "com.cmux.app.pro.trial.monthly": "READY_TO_SUBMIT",
+        })
+        self.assertEqual(fake.cancelled, ["submission-1"])
+
+
+class ListingReadBackTests(FakeAscCase):
+    def test_an_en_us_description_write_that_does_not_take_fails(self):
+        self.start(descriptions={"en-US": "cmux Pro only"}, sticky={"en-US"})
+        wrong = pkg.sync_listing(pkg.Api(), APP, "1.0.0", LISTING, ["cmux Go"], dry_run=False)
+        self.assertEqual(wrong, ["en-US description differs from the repository"])
 
 
 if __name__ == "__main__":

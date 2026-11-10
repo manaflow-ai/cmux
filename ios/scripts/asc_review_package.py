@@ -58,6 +58,8 @@ DEFAULT_IMAGES_DIR = REVIEW_DIR / "subscription-images"
 VERSION_METADATA_DIR = REVIEW_DIR / "metadata" / "version"
 NOTES_LIMIT = 4000
 IN_REVIEW_STATES = {"WAITING_FOR_REVIEW", "IN_REVIEW"}
+# A product Apple already approved (with an earlier version) does not ride again.
+SUBMITTED_OK_STATES = IN_REVIEW_STATES | {"APPROVED"}
 OPEN_SUBMISSION_STATES = ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "UNRESOLVED_ISSUES")
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 MAILINATOR_URL = re.compile(r"https?://(?:www\.)?mailinator\.com/[^\s)]+", re.IGNORECASE)
@@ -271,13 +273,13 @@ def sync_listing(api: Api, app: str, version: str, listing: dict, banned: list[s
         note(f"{locale}: {', '.join(sorted(changes))} written from the repository")
     current = localizations if dry_run else api.get_all(path)
     wrong = [line for item in current for line in listing_problems(item, support_url, banned)]
-    if dry_run:
-        wrong += [
-            f"{(item.get('attributes') or {}).get('locale')} description differs from the repository"
-            for item in current
-            if (item.get("attributes") or {}).get("locale") == "en-US"
-            and (item.get("attributes") or {}).get("description") != description
-        ]
+    # Read back after a write too: a write that did not take fails here.
+    wrong += [
+        "en-US description differs from the repository"
+        for item in current
+        if (item.get("attributes") or {}).get("locale") == "en-US"
+        and (item.get("attributes") or {}).get("description") != description
+    ]
     for line in wrong:
         note("BLOCKING: " + line)
     if not wrong:
@@ -403,7 +405,21 @@ def gate(reports: list[Any], manifest: dict, load_subs, strict: bool) -> list[st
 # --- verify-submission -------------------------------------------------------
 
 
-def verify_submission(api: Api, app: str, manifest: dict, wait_seconds: int, cancel: bool) -> list[str]:
+def submissions_for_version(api: Api, app: str, vid: str) -> list[str]:
+    """Open iOS review submissions that carry this app version, and only those."""
+    query = urllib.parse.urlencode({"filter[platform]": "IOS", "filter[state]": ",".join(OPEN_SUBMISSION_STATES)})
+    found = []
+    for submission in api.get_all(f"/v1/apps/{app}/reviewSubmissions?{query}"):
+        items = api.get_all(f"/v1/reviewSubmissions/{submission['id']}/items?include=appStoreVersion&limit=50")
+        if any(
+            (((item.get("relationships") or {}).get("appStoreVersion") or {}).get("data") or {}).get("id") == vid
+            for item in items
+        ):
+            found.append(submission["id"])
+    return found
+
+
+def verify_submission(api: Api, app: str, version: str, manifest: dict, wait_seconds: int, cancel: bool) -> list[str]:
     submit = set(manifest["submit_with_version"])
     deadline = time.monotonic() + wait_seconds
     while True:
@@ -411,7 +427,7 @@ def verify_submission(api: Api, app: str, manifest: dict, wait_seconds: int, can
         problems = []
         for product in sorted(submit):
             state = (subs.get(product) or {}).get("state", "missing")
-            if state not in IN_REVIEW_STATES:
+            if state not in SUBMITTED_OK_STATES:
                 problems.append(f"{product} is {state}, not in review with the version")
         for product, info in sorted(subs.items()):
             if product not in submit and info["state"] in IN_REVIEW_STATES:
@@ -427,12 +443,12 @@ def verify_submission(api: Api, app: str, manifest: dict, wait_seconds: int, can
     for line in problems:
         note("BLOCKING: " + line)
     if cancel:
-        query = urllib.parse.urlencode({"filter[platform]": "IOS", "filter[state]": ",".join(OPEN_SUBMISSION_STATES)})
-        for item in api.get_all(f"/v1/apps/{app}/reviewSubmissions?{query}"):
-            api.request("PATCH", f"/v1/reviewSubmissions/{item['id']}", {
-                "data": {"type": "reviewSubmissions", "id": item["id"], "attributes": {"canceled": True}},
+        vid = version_id(api, app, version)
+        for sid in submissions_for_version(api, app, vid):
+            api.request("PATCH", f"/v1/reviewSubmissions/{sid}", {
+                "data": {"type": "reviewSubmissions", "id": sid, "attributes": {"canceled": True}},
             })
-            note(f"cancelled review submission {item['id']} before a reviewer saw it")
+            note(f"cancelled review submission {sid} of {version} before a reviewer saw it")
     note(
         "fix once in App Store Connect: the version page > In-App Purchases and Subscriptions > select exactly "
         + ", ".join(sorted(submit)) + " > Save, then dispatch the workflow again"
@@ -461,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     gate_p.add_argument("--report", type=Path, action="append", required=True)
     gate_p.add_argument("--strict", action="store_true")
     verify_p = sub.add_parser("verify-submission")
+    verify_p.add_argument("--version", required=True)
     verify_p.add_argument("--wait-seconds", type=int, default=120)
     verify_p.add_argument("--no-cancel", action="store_true")
     args = parser.parse_args(argv)
@@ -494,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             note("readiness gate passed")
             return 0
         if args.command == "verify-submission":
-            return 1 if verify_submission(api, args.app, manifest, args.wait_seconds, not args.no_cancel) else 0
+            return 1 if verify_submission(api, args.app, args.version, manifest, args.wait_seconds, not args.no_cancel) else 0
     except PackageError as error:
         note(f"error: {error}")
         return 1
