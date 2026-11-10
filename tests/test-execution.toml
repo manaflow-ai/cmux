@@ -1655,6 +1655,10 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_ui_nightly.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 

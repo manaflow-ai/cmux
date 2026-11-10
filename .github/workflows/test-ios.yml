@@ -34,7 +34,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test target, target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell; cmuxUITests alone runs every UI test (ios-ui-tests-nightly.yml)"
         required: false
         default: ""
       swift_package:
@@ -939,7 +939,7 @@ jobs:
           fi
           # The build action emits every scheme plan unless one is named.
           # Match ordinary test's default plan and keep the product unambiguous.
-          if [[ "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
+          if [[ "${TEST_FILTER:-}" == cmuxUITests || "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
             XCODEBUILD_ARGS+=(-testPlan cmux-ui)
           else
             XCODEBUILD_ARGS+=(-testPlan cmux)
@@ -980,7 +980,7 @@ jobs:
 
       - name: Stage and stamp iOS test product
         env:
-          CMUX_IOS_TEST_PLAN: ${{ startsWith(inputs.test_filter, 'cmuxUITests/') && 'cmux-ui' || 'cmux-ios-default' }}
+          CMUX_IOS_TEST_PLAN: ${{ (inputs.test_filter == 'cmuxUITests' || startsWith(inputs.test_filter, 'cmuxUITests/')) && 'cmux-ui' || 'cmux-ios-default' }}
           CMUX_IOS_TEST_FILTER: ${{ inputs.test_filter }}
           CMUX_IOS_VERSION: ${{ inputs.ios_version }}
         run: |
@@ -1122,8 +1122,10 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m. The per-step
     # watchdogs remain the first line of defense; this 25-minute job cap bounds
-    # setup or teardown that makes no test progress.
-    timeout-minutes: 25
+    # setup or teardown that makes no test progress. The whole UI target
+    # (test_filter cmuxUITests, the nightly) runs about 170 UI tests, so it
+    # gets the room its own xcodebuild bound below needs.
+    timeout-minutes: ${{ inputs.test_filter == 'cmuxUITests' && 150 || 25 }}
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
@@ -1252,7 +1254,7 @@ jobs:
         env:
           EXPECTED_SHA256: ${{ needs.ios-simulator-build.outputs.archive_sha256 }}
           EXPECTED_BYTES: ${{ needs.ios-simulator-build.outputs.archive_bytes }}
-          CMUX_IOS_TEST_PLAN: ${{ startsWith(inputs.test_filter, 'cmuxUITests/') && 'cmux-ui' || 'cmux-ios-default' }}
+          CMUX_IOS_TEST_PLAN: ${{ (inputs.test_filter == 'cmuxUITests' || startsWith(inputs.test_filter, 'cmuxUITests/')) && 'cmux-ui' || 'cmux-ios-default' }}
           CMUX_IOS_TEST_FILTER: ${{ inputs.test_filter }}
           CMUX_IOS_VERSION: ${{ inputs.ios_version }}
         run: |
@@ -1285,7 +1287,8 @@ jobs:
           # Bounds one xcodebuild invocation. Generous against the ~2 minutes
           # the non-UI suite actually takes, and well under the job's 35-minute
           # ceiling so a wedge still leaves room for the steps after this one.
-          XCODEBUILD_TIMEOUT_SECONDS: "900"
+          # The whole UI target takes two hours at most, inside its 150-minute cap.
+          XCODEBUILD_TIMEOUT_SECONDS: ${{ inputs.test_filter == 'cmuxUITests' && '7200' || '900' }}
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -1323,7 +1326,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
-            if [[ "$TEST_FILTER" != cmuxUITests/* ]]; then
+            if [[ "$TEST_FILTER" != cmuxUITests && "$TEST_FILTER" != cmuxUITests/* ]]; then
               # Keep focused package assertions bounded on virtualized iOS
               # runners; failed sysdiagnose collection can otherwise take 10m.
               XCODEBUILD_ARGS+=(

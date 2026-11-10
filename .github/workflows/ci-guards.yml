@@ -756,6 +756,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
+      - name: Validate the nightly run of every iOS UI test
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_ui_nightly.py
+
       - name: Validate main full-suite failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_attribution.py
