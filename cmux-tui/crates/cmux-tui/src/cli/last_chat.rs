@@ -2,8 +2,7 @@
 //! session id: `cmux chat send 'next'`, `cmux chat wait last`, `cmux chat read last` (Leo,
 //! 2026-11-10: "We need to keep cleaning up the cli commands so they're nice to type and
 //! intuitive and ergonomic and go with best practices"). Before, every follow-up took the 36
-//! character session id copied from the start's answer, as `docker`, `gh` and `kubectl` would
-//! not make you do with the thing you just made.
+//! character session id copied from the start's answer: the thing you just made is the default.
 //!
 //! The record is a small file in the state folder (`$XDG_STATE_HOME/cmux/last-chat.json`, else
 //! `~/.local/state/cmux/`), one entry per cmux terminal (`CMUX_TUI_TERMINAL_ID`,
