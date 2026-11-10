@@ -194,6 +194,8 @@ fn only_a_plain_https_share_link_is_handed_out() {
         "https://[::1]x/",
         "https://[zz]/",
         "https://host:80a/",
+        "https://host:/x",
+        "https://[::1]:/x",
         "https://ho^st/",
         "https://share.cmux.dev/%zz",
         "https://share.cmux.dev/<x>",

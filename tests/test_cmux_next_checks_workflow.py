@@ -4083,16 +4083,18 @@ esac
 
     def test_the_report_exits_with_the_clients_result(self):
         report = self.jobs()["fast-tier"]["steps"][0]
+        # scripts/ci/needs_verdict.py's rule: a failed fleet job is a red whatever its verdict output says, and one
+        # that judged nothing (cancelled, abandoned, skipped, empty) is no verdict, exit 3, never a pass (cmux#39857).
         for verdict, result, code in (("pass", "success", 0), ("fail", "failure", 1), ("unavailable", "failure", 1),
-                                      ("", "cancelled", 1), ("", "failure", 1), ("pass", "failure", 1)):
+                                      ("", "cancelled", 3), ("", "failure", 1), ("pass", "failure", 1),
+                                      ("", "abandoned", 3), ("", "", 3), ("pass", "cancelled", 3)):
             with self.subTest(verdict=verdict, result=result), tempfile.TemporaryDirectory() as tmp:
                 done = subprocess.run(["/bin/bash", "-e", "-c", report["run"]], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL, timeout=30,
                                       env={"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
                                            "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
-                if code and verdict != "fail":
-                    self.assertIn("no verdict", done.stdout)
+                self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
 
 
 if __name__ == "__main__":

@@ -428,7 +428,7 @@ pub fn share_link_ok(url: &str) -> bool {
     let host_ok = !host.is_empty()
         && (authority.starts_with('[')
             || host.chars().all(|c| c.is_ascii_alphanumeric() || "-._~!$&'()*+,;=%".contains(c)));
-    host_ok && port.is_none_or(|port| port.chars().all(|c| c.is_ascii_digit()))
+    host_ok && port.is_none_or(|port| !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// RFC 3986's characters: unreserved, reserved and `%`.

@@ -42,6 +42,13 @@
 //! every other publish carry the exact time; output on its own pushes an
 //! upsert at most once per `OUTPUT_PUBLISH_INTERVAL_MS`, so a streaming
 //! command does not commit a revision per chunk.
+//!
+//! `last_input` is when a client last wrote input to the terminal through
+//! the resource API (`terminal.input.write`, `terminal.input.keys`). It is
+//! read-time only: it never publishes a change by itself. `cmux terminal <t>
+//! wait --until idle` uses it as the input's sequence point, so an idle
+//! state the terminal had before that input does not end the wait (W5-R,
+//! bench round 4 item 10).
 
 use crate::shell_history::ShellMark;
 use serde_json::{Value, json};
@@ -130,6 +137,8 @@ pub(crate) struct ShellActivity {
     prompt_since_ms: Option<u64>,
     /// When the terminal last printed anything.
     last_output_ms: Option<u64>,
+    /// When a client last wrote input through the resource API.
+    last_input_ms: Option<u64>,
     /// The last command the shell finished.
     last_command: Option<LastCommand>,
     published: (Option<u64>, bool, Option<u64>),
@@ -228,6 +237,16 @@ impl ShellActivity {
         self.last_output_ms
     }
 
+    /// Notes input a client wrote at `now_ms`.
+    pub(crate) fn note_input(&mut self, now_ms: u64) {
+        self.last_input_ms = Some(now_ms);
+    }
+
+    /// When a client last wrote input, if one did.
+    pub(crate) fn last_input(&self) -> Option<u64> {
+        self.last_input_ms
+    }
+
     /// The state a terminal host hands to the daemon that adopts it.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn snapshot(&self) -> ShellActivitySnapshot {
@@ -253,6 +272,7 @@ impl ShellActivity {
     pub(crate) fn keep_output_of(&mut self, previous: &ShellActivity) {
         self.last_output_ms = previous.last_output_ms;
         self.published_output_ms = previous.published_output_ms;
+        self.last_input_ms = previous.last_input_ms;
         // Nor the last command: a reconnect to the same host keeps it.
         if self.last_command.is_none() {
             self.last_command = previous.last_command;
@@ -314,6 +334,11 @@ pub(crate) fn last_command_json(last: LastCommand) -> Value {
 
 /// The `last_output` field of a terminal record.
 pub(crate) fn last_output_json(at_ms: u64) -> Value {
+    json!({"at_ms": at_ms.to_string()})
+}
+
+/// The `last_input` field of a terminal record.
+pub(crate) fn last_input_json(at_ms: u64) -> Value {
     json!({"at_ms": at_ms.to_string()})
 }
 
