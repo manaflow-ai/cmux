@@ -195,9 +195,10 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        context.window = { [weak self] in self?.window }
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
-        driver.onSettle = { [weak self] in _ = self?.landMotion() }
+        driver.onSettle = { [weak self] in self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
@@ -347,10 +348,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`), and it is asked for.
     /// The key's own turn stays a model change. A root that runs
     /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does. A screen the change did not put on a
-    /// spring (Reduce Motion, pane animations off: its frames snapped) is asked to present in this turn. When the snap
-    /// resizes a pane's host, that screen gives the host its size ahead in this turn and presents at the next frame
-    /// tick (``ScreenContentView/holdsSnapForContent(keyPress:)``, #37330), so `applyPresentation` here returns at once. Only a
-    /// snap that resizes no host presents in this turn.
+    /// spring (Reduce Motion, pane animations off: its frames snapped) presents in this turn, a resized terminal's last
+    /// frame kept top-left by its renderer until the program's redraw (`GHOSTTY_HOST_PRESENT_RENDERER_SYNCED`).
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
@@ -465,7 +464,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && staysShown, snapWaitsForFrame: isLive && driver.isAttached) {
+                               animated: (animated || reflows) && staysShown) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -562,11 +561,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     // MARK: Frames
 
     /// The final layout now, in one pass: Reduce Motion turned on mid-flight, or the window went out
-    /// of sight (`DisplayLinkDriver.motionSettle`). `waitsForContent`: a Reduce Motion frame tick, in which a key press's
-    /// held snap may wait for its terminals' programs (``LayoutFrameInput/presentWaiting(waitsForContent:)``); returns
-    /// whether one still waits.
-    @discardableResult
-    func landMotion(waitsForContent: Bool = false) -> Bool {
+    /// of sight (`DisplayLinkDriver.motionSettle`), or a Reduce Motion frame tick.
+    func landMotion() {
         defer { onFramePlaced?() }
         // A drag's newest pointer first, as in a frame (its window went out of sight mid-drag): it lands in this one pass.
         let input = LayoutFrameInput(root: self)
@@ -575,12 +571,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             view.settleCanvasCamera()
         }
-        let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
+        input.presentWaiting()
         highlight.settle()
         updateVisibility()
         flushOverlaySync()
         setLayoutInMotion(false)
-        return snapWaits
     }
 
     /// ``advanceFrame(_:)``'s body (`LayoutRootView+AvoiderBatch`).
@@ -597,9 +592,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames but a drag's.
         if context.reduceMotion {
-            // A key press's snap that waits for its terminals' programs needs the next tick (RESIZE P0 20).
-            let snapWaits = landMotion(waitsForContent: true)
-            return dragging || snapWaits
+            landMotion()
+            return dragging
         }
         defer { onFramePlaced?() }
         // One motion policy per frame (it reads the animation settings), not one per spring.
@@ -611,7 +605,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
-        let snapWaits = input.presentWaiting()
+        input.presentWaiting()
         if highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
@@ -623,7 +617,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging || snapWaits
+        return moving || panning || dragging
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

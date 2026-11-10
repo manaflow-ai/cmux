@@ -82,17 +82,12 @@ colour	webviews/src/ui/titleFade.ts	2
 duration	cmux-tui/crates/acpmux/web/index.html	2
 duration	plans/cmux-next/spec-proposals/visuals/design-tokens.json	6
 duration	webviews/src/agent-session/acpmux/TaskGoalStrip.css	6
-duration	webviews/src/agent-session/acpmux/bottomStack.css	1
 duration	webviews/src/agent-session/acpmux/composerAttachments.css	2
 duration	webviews/src/agent-session/acpmux/conversation/conversation.css	4
 duration	webviews/src/agent-session/acpmux/conversation/renderBase.ts	1
 duration	webviews/src/agent-session/acpmux/dictation.css	1
-duration	webviews/src/agent-session/acpmux/session-info/sessionInfo.css	3
-duration	webviews/src/agent-session/acpmux/styles.css	1
 duration	webviews/src/pages/changelog/updateSurfaces.css	1
 duration	webviews/src/pages/home-messages/list/swipe.ts	1
-duration	webviews/src/pages/home-messages/transcript/MessagesTranscript.tsx	1
 duration	webviews/src/pages/markdown/styles.css	2
 duration	webviews/src/pierre-options.ts	1
-duration	webviews/src/ui/popupSurface.css	6
 duration	webviews/src/ui/wave.css	1

@@ -455,7 +455,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
         currentTabKey = key
-        services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
+        services.themes.applyPaneBackground(self, waitsForTerminal: content == nil && showsLiveTerminal) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }
         DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
@@ -494,6 +494,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
     func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
         guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
+        services.themes.applyPaneBackground(self, waitsForTerminal: true) // its terminal's ground under the frame, or alone (m81)
         launchFrames.showAhead(key, in: view.contentHost)
     }
 
@@ -504,7 +505,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
         return tab.kind == .pty && !tab.dead
     }
-
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 

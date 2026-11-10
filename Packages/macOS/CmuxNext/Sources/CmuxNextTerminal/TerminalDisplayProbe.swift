@@ -12,8 +12,7 @@ import QuartzCore
 /// Animation commit, consecutive within 1 ms) with their p50/p95/max ms.
 ///
 /// From `start` to `stop` it also checks that each terminal changes size with its pane (the bench fails a drag or a
-/// key resize that holds one, ``TerminalPaneFollowProbe``): `stop` adds `follow_frames`, `terminals_followed` and
-/// `follow_presenter` (the frame presenters' counts in the run).
+/// key resize that holds one, ``TerminalPaneFollowProbe``): `stop` adds `follow_frames` and `terminals_followed`.
 @MainActor
 public final class TerminalDisplayProbe {
     /// What `debug.terminal_display` answers (snake_case keys). The pane check's keys are only in `stop`'s reply.
@@ -28,13 +27,11 @@ public final class TerminalDisplayProbe {
         public var passMaxMs: Double
         public var followFrames: Int?
         public var terminalsFollowed: [String: TerminalPaneFollowTally]?
-        public var followPresenter: TerminalPaneFollowPresenterCounts?
 
         nonisolated enum CodingKeys: String, CodingKey {
             case armed, calls, passes
             case totalMs = "total_ms", maxCallMs = "max_call_ms", passP50Ms = "pass_p50_ms", passP95Ms = "pass_p95_ms"
             case passMaxMs = "pass_max_ms", followFrames = "follow_frames", terminalsFollowed = "terminals_followed"
-            case followPresenter = "follow_presenter"
         }
     }
 
@@ -63,7 +60,6 @@ public final class TerminalDisplayProbe {
             follow.stop()
             report.followFrames = follow.frames
             report.terminalsFollowed = follow.tallies
-            report.followPresenter = follow.presenter
             return report
         default:
             return report()
