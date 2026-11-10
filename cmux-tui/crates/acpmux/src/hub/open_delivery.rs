@@ -28,8 +28,10 @@
 //! - Not proven yet, or proven only by records no machine could run it again from (a
 //!   `user_message` with an attachment's hidden context and no `queued` or `turn_started`:
 //!   [`rerunnable`]): delivered again on every link of the peer while open, under its own prompt
-//!   id and pinned generation (`server/outbox.rs` `redeliver_open`): a machine that has it
-//!   answers with its first outcome and nothing runs twice; a stale or refused one fails it.
+//!   id, to its pinned session and generation ([`again_request`], `server/outbox.rs`
+//!   `redeliver_open`): a machine that has it answers with its first outcome and nothing runs
+//!   twice; a stale or refused one fails it. A cut turn of an attachment prompt a restore gave
+//!   back is settled for that resend to run it whole ([`RERUN_ON_RESEND`]).
 //!
 //! Cost: a proven delivery holds its prompt's records (the prompt's text once more, and a few
 //! small records) until the peer's next link shows them, at most 30 days: bounded by the open
@@ -62,6 +64,26 @@ pub(crate) fn name_generation(request: &mut Value, pin: Option<&Pin>) {
     if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.insert("sessionCreatedAt".into(), json!(pin.generation));
     }
+}
+
+/// The request a delivery again of `d` sends: its own, as a resend of its prompt id, addressed
+/// to the session it was pinned to (`pin.peer`/`pin.session`) in the pinned generation (review
+/// of #37284 at 4bce04df, F2). A delivery first addressed by a name (`peer/name`) would resolve
+/// that name again, and a session renamed meanwhile (its name maybe another session's now) was
+/// refused as stale for good, though the pinned session still held it; 4bce04df kept the
+/// address it was sent to.
+pub(crate) fn again_request(d: &Delivery, pin: &Pin) -> Value {
+    let mut request = d.request.clone();
+    if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.insert("resend".into(), json!(true));
+    }
+    if !crate::hub::journal_restore::rules_of_4bce()
+        && let Some(fields) = request.as_object_mut()
+    {
+        fields.insert("sessionId".into(), json!(format!("{}/{}", pin.peer, pin.session)));
+    }
+    name_generation(&mut request, Some(pin));
+    request
 }
 
 /// An attempt that started with `pin` was accepted: delivered, and open on the peer when it
@@ -213,10 +235,26 @@ pub(crate) fn rerunnable(records: &[Value], images: &HashSet<String>) -> bool {
         })
 }
 
-/// Whether `records` of a prompt's life show how it ended.
+/// Whether `records` of a prompt's life show how it ended. A cut turn a restore settled for a
+/// resend to run whole ([`RERUN_ON_RESEND`]) did not end: its prompt runs once the resend comes
+/// (review of #37284 at 4bce04df, F1).
 fn ended(records: &[Value]) -> bool {
     let ends = ["turn_result", "queue_removed", "queue_declined", "prompt_retracted"];
-    records.iter().any(|r| ends.contains(&kind(r)))
+    let old = crate::hub::journal_restore::rules_of_4bce();
+    records.iter().any(|r| ends.contains(&kind(r)) && (old || !reruns_on_resend(r)))
+}
+
+/// The field of the `turn_result` a restore writes for a cut turn whose prompt carried a hidden
+/// context (an attachment's text, never logged, so no continuation can carry it): the turn is
+/// settled with no continuation, and a resend of its prompt id runs the prompt again whole
+/// (`log_load.rs` `mark_unknown_outcome`, `prompt_ledger.rs` `logged_prompt`; review of #37284
+/// at 4bce04df, F1).
+pub(crate) const RERUN_ON_RESEND: &str = "rerunOnResend";
+
+/// Whether `record` is a `turn_result` marked [`RERUN_ON_RESEND`].
+pub(crate) fn reruns_on_resend(record: &Value) -> bool {
+    kind(record) == "turn_result"
+        && record.pointer(&format!("/msg/{RERUN_ON_RESEND}")) == Some(&Value::Bool(true))
 }
 
 /// a088585e's [`rerunnable`]: a started turn, or a `user_message` without a hidden context, a

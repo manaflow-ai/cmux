@@ -197,7 +197,12 @@ fn prompt(text: &str, prompt_id: &str) -> Value {
 
 /// Sends `text` from A through its outbox and waits until B took it.
 async fn send(ca: &mut C, text: &str, prompt_id: &str) {
-    let queued = ca.call(method::MUX_SEND_QUEUE, prompt(text, prompt_id)).await;
+    send_queued(ca, prompt(text, prompt_id), prompt_id).await;
+}
+
+/// Sends `queued` (a `MUX_SEND_QUEUE` request) from A and waits until B took it.
+async fn send_queued(ca: &mut C, queued: Value, prompt_id: &str) {
+    let queued = ca.call(method::MUX_SEND_QUEUE, queued).await;
     let delivery = queued["deliveryId"].as_str().expect("a delivery id").to_owned();
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
@@ -913,4 +918,161 @@ async fn a_copy_takes_a_running_turns_records_while_it_runs() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     b.shutdown_all().await;
+}
+
+/// What B's agent is asked to hold its turn on (`FAKE_UNTIL_CANCEL_IN`): the fresh machine's
+/// agent is not, so the prompt B was running when it went runs to its end there.
+const HOLD: &str = "hold-the-turn";
+
+/// The bytes of the document the attachment prompt carries.
+const NOTES: &[u8] = b"the notes say forty-two";
+
+/// Review of #37284 at 4bce04df, F1: a prompt with an inline document starts its turn at once
+/// (nothing waits), so its journal holds its `user_message` (with a hidden context: the
+/// attachment's text, never logged) and `turn_started`, and no `queued` record naming its file.
+/// The machine goes mid-turn; a fresh machine from an older disk takes A's copy back. The cut
+/// turn is settled with no continuation (one could carry only the prompt's text), and A's
+/// delivery again of that prompt id, which carries the whole prompt, is not answered from the
+/// settled turn: it runs there once, with the document saved and named to the agent. 4bce04df
+/// continued it with its text alone and answered the resend as a duplicate, so the document
+/// never reached the fresh machine's agent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    acpmux::hub::peer_snapshot_reads_fail("b", 0);
+    acpmux::hub::peer_snapshot_bound(0);
+    let _ = HERMETIC;
+    let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
+    let home = tempfile::tempdir().unwrap();
+    let (b_disk, auth_dir) = (home.path().join("b-disk"), home.path().join("b-auth"));
+    std::fs::create_dir_all(&b_disk).unwrap();
+    let mut b_cfg = config(StoreMode::Local);
+    let fake = b_cfg.harnesses.get_mut("fake").unwrap();
+    fake.env.insert("FAKE_UNTIL_CANCEL_IN".into(), HOLD.into());
+    let b2_cfg = config(StoreMode::Local);
+    let b = Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &b_disk).unwrap());
+    b.resume_queues();
+    let auth = Arc::new(PeerAuth::create(&auth_dir).unwrap());
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth_dir)).unwrap();
+    let relay = Relay::to(serve(b.clone(), &auth).await).await;
+    let mut cb = plain_client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "moved"}}});
+    let id = cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+
+    let a_dir = home.path().join("a");
+    std::fs::create_dir_all(&a_dir).unwrap();
+    let a_cfg = config(StoreMode::Local);
+    let a = Hub::new(a_cfg.clone(), acpmux::store::open(&a_cfg.store, &a_dir).unwrap());
+    let url = format!("ws://127.0.0.1:{}", relay.port);
+    a.add_peer("b", &url, Some("tok".into()), Some(peer_token), true).await.unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/moved", "limit": 400})).await;
+
+    // A first turn runs to its end; then the machine's disk is snapshotted.
+    send(&mut ca, "first", "p0").await;
+    copy_until(&mut ca, "the first reply", |e| e.iter().any(|e| says(e, "echo: first"))).await;
+    b.flush();
+    let snapshot = home.path().join("b-snapshot");
+    copy_dir(&b_disk, &snapshot);
+
+    // The attachment prompt starts its turn at once, and a prompt waits behind it.
+    let text = format!("{HOLD}: read the notes");
+    let attached = json!({"request": {"sessionId": "b/moved",
+        "prompt": [{"type": "text", "text": text}, acpmux::attach::block("notes.txt", NOTES)],
+        "_meta": {"acpmux": {"promptId": "p1"}}}});
+    send_queued(&mut ca, attached, "p1").await;
+    send(&mut ca, "second", "p2").await;
+    let seen = copy_until(&mut ca, "the running attachment turn and the waiting prompt", |e| {
+        e.iter().any(|e| says(e, "running"))
+            && e.iter().any(|e| names_prompt(e, "turn_started", "p1"))
+            && e.iter().any(|e| names_prompt(e, "queued", "p2"))
+    })
+    .await;
+    // The case of the finding: its `user_message` holds a hidden context, and no `queued` record
+    // names it (so none names its file).
+    let accepted = seen.iter().find(|e| names_prompt(e, "user_message", "p1")).expect("p1's");
+    assert!(accepted["msg"].get("hiddenContext").is_some(), "no hidden context: {accepted}");
+    assert!(
+        !seen.iter().any(|e| names_prompt(e, "queued", "p1")),
+        "p1 waited in the queue first: {seen:#?}"
+    );
+    relay.cut();
+    b.shutdown_all().await;
+
+    // A fresh machine starts from the older snapshot, at the same address.
+    let b2 = Hub::new(b2_cfg.clone(), acpmux::store::open(&b2_cfg.store, &snapshot).unwrap());
+    b2.resume_queues();
+    relay.point_at(serve(b2.clone(), &auth).await);
+    let restored = seen.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let ran_whole = |e: &Value| {
+        e["seq"].as_u64() > Some(restored) && says(e, "resource_link:notes.txt") && says(e, HOLD)
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let events = journal(&b2, &id);
+        if events.iter().any(ran_whole) && events.iter().any(|e| says(e, "echo: second")) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let kinds: Vec<_> = events
+                .iter()
+                .map(|e| json!([e["seq"], e["kind"], e["msg"]["promptId"]]))
+                .collect();
+            let mut sent = vec![];
+            for d in ca.call(method::MUX_SEND_STATUS, json!({"list": true})).await["deliveries"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+            {
+                sent.push(json!([d["promptId"], d["status"], d["error"], d["attempts"]]));
+            }
+            panic!(
+                "the attachment prompt never ran whole on the fresh machine.\nsent: {sent:?}\nB2: {kinds:?}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let events = journal(&b2, &id);
+    // The cut turn is settled for the resend, with no continuation of its text alone.
+    let settled = events
+        .iter()
+        .find(|e| names_prompt(e, "turn_result", "p1") && e["seq"].as_u64() > Some(restored))
+        .expect("the cut turn settled");
+    assert_eq!(settled["msg"]["detail"], "outcome_unknown", "{settled}");
+    assert_eq!(settled["msg"]["rerunOnResend"], true, "{settled}");
+    let continued = events.iter().any(|e| {
+        e["msg"]["promptId"].as_str().is_some_and(|p| p.starts_with("p1") && p != "p1")
+            || (e["kind"] == "auto_resume_scheduled" && e["msg"]["promptId"] == "p1")
+    });
+    assert!(!continued, "the cut attachment turn was continued with its text alone: {events:#?}");
+    // It ran once on the fresh machine, whole: the agent got the document, saved there.
+    let count = |events: &[Value]| {
+        let runs = events
+            .iter()
+            .filter(|e| names_prompt(e, "user_message", "p1") && e["seq"].as_u64() > Some(restored))
+            .count();
+        (runs, events.iter().filter(|e| ran_whole(e)).count())
+    };
+    assert_eq!(count(&events), (1, 1), "p1 ran on the fresh machine: {events:#?}");
+    let rerun = events
+        .iter()
+        .find(|e| names_prompt(e, "user_message", "p1") && e["seq"].as_u64() > Some(restored))
+        .unwrap();
+    assert!(rerun["msg"].get("hiddenContext").is_some(), "not the whole prompt: {rerun}");
+    let reply = events.iter().find(|e| ran_whole(e)).unwrap().to_string();
+    let uri = reply.split("resource_link:notes.txt:").nth(1).and_then(|r| r.split("file://").nth(1));
+    let path = uri.and_then(|u| u.split(['"', ' ', '\\']).next()).expect("the document's path");
+    assert_eq!(std::fs::read(path).unwrap(), NOTES, "the document the fresh machine saved");
+    // Let the redelivery settle, then count again: a late resend runs nothing more.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let events = journal(&b2, &id);
+    assert_eq!(count(&events), (1, 1), "p1 ran again after the redelivery: {events:#?}");
+    for p in ["p0", "p2"] {
+        let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
+        assert_eq!(ran, 1, "{p} ran {ran} times: {events:#?}");
+    }
+    let replies = events.iter().filter(|e| says(e, "echo: second")).count();
+    assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
 }

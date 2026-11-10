@@ -242,7 +242,8 @@ impl Hub {
         if waiting && !hosted && session.status() != SessionStatus::Closed {
             self.mark_lost_wait(session);
         }
-        let continued = if hosted { None } else { self.mark_unknown_outcome(session) };
+        let continued =
+            if hosted { None } else { self.mark_unknown_outcome(session, from_copy.is_some()) };
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
@@ -305,7 +306,7 @@ impl Hub {
         }
         self.restore_transfer_authority(session);
         let _marked = super::restore_writer::Recovering::start();
-        let continued = self.mark_unknown_outcome(session);
+        let continued = self.mark_unknown_outcome(session, true);
         self.settle_subagent_retries(session);
         self.rebuild_queue(session, from_copy);
         self.settle_queue_changes(session, from_copy);
@@ -478,7 +479,7 @@ impl Hub {
         // its continuation at the head (`restore_queue` adds only what it has not restored).
         if gone
             && *loaded
-            && let Some(prompt_id) = self.mark_unknown_outcome(session)
+            && let Some(prompt_id) = self.mark_unknown_outcome(session, false)
         {
             self.restore_queue(session);
             self.drop_unsent_subagent_retries(session);
@@ -490,7 +491,19 @@ impl Hub {
     /// `turn_result failed outcome_unknown`, so nobody replays a prompt that
     /// may have run to completion; its continuation is queued instead
     /// (`restart_resume.rs`). Returns the continuation's prompt id.
-    fn mark_unknown_outcome(&self, session: &Arc<Session>) -> Option<String> {
+    ///
+    /// `restored`: the log is settled after a journal restore (`journal_restore.rs`). A cut turn
+    /// there whose prompt (or a message steered into it) carried a hidden context (an inline
+    /// document's text, never logged) gets no continuation: one would carry only the logged
+    /// text, and the owner's delivery again of that prompt id, which carries the whole prompt
+    /// and its files, would be answered from the settled turn and never reach the agent (review
+    /// of #37284 at 4bce04df, F1). Its `turn_result` says so ([`od::RERUN_ON_RESEND`]): the
+    /// resend runs the prompt again whole, once (`logged_prompt`). A prompt whose sender never
+    /// sends it again (no open delivery holds it) ends failed, as a cut turn with continuations
+    /// turned off does. 4bce04df continued it with its text alone.
+    ///
+    /// [`od::RERUN_ON_RESEND`]: super::open_delivery::RERUN_ON_RESEND
+    fn mark_unknown_outcome(&self, session: &Arc<Session>, restored: bool) -> Option<String> {
         let meta = session.meta();
         // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
         if meta.watching.is_some() || meta.status == SessionStatus::Closed {
@@ -499,7 +512,10 @@ impl Hub {
         // Scan the whole log: a long turn can stream far more records
         // than any fixed tail window after its `turn_started`.
         let mut open: Option<(u64, Value, Value, bool)> = None;
-        let kinds = ["turn_started", "turn_result"];
+        // The turns (by id) a `user_message` with a hidden context went into: the prompt that
+        // started one is logged before its `turn_started`, a steer after it.
+        let mut hidden_turns: std::collections::HashSet<String> = Default::default();
+        let kinds = ["turn_started", "turn_result", "user_message"];
         self.store
             .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
@@ -512,6 +528,11 @@ impl Hub {
                         ))
                     }
                     "turn_result" => open = None,
+                    "user_message" if e.msg.get("hiddenContext").is_some() => {
+                        if let Some(turn) = e.msg.get("turnId").and_then(Value::as_str) {
+                            hidden_turns.insert(turn.to_owned());
+                        }
+                    }
                     _ => {}
                 }
                 true
@@ -524,9 +545,18 @@ impl Hub {
             return None;
         }
         let (seq, turn_id, prompt_id, trigger) = open;
-        let continued = turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t));
+        let hidden = turn_id.as_str().is_some_and(|t| hidden_turns.contains(t));
+        let rerun = restored && hidden && !trigger && !self.at_4bce();
+        let continued = if rerun {
+            tracing::info!(session = %session.id, prompt = ?prompt_id, "a restored cut turn carried a hidden context; its prompt runs again whole when it is sent again");
+            None
+        } else {
+            turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t))
+        };
         let error = if trigger {
             "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"
+        } else if rerun {
+            "this turn was cut when its machine went away; its prompt runs again whole when its sender sends it again"
         } else {
             "the daemon restarted before this turn settled"
         };
@@ -536,7 +566,11 @@ impl Hub {
                 "trigger":"system", "quiet":false, "reason":"exit"
             }));
         }
-        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "promptId":prompt_id, "trigger":trigger, "error": error, "errorText": error}));
+        let mut result = json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "promptId":prompt_id, "trigger":trigger, "error": error, "errorText": error});
+        if rerun && let Some(fields) = result.as_object_mut() {
+            fields.insert(super::open_delivery::RERUN_ON_RESEND.into(), Value::Bool(true));
+        }
+        self.append_unknown_outcome(session, result);
         self.save_meta(session);
         continued
     }

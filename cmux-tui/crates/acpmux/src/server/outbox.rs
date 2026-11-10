@@ -861,11 +861,9 @@ async fn redeliver_one(
         Step::Release => close_open(hub, d, od::release).await,
         Step::Wait | Step::Check => {}
         Step::Again => {
-            let mut request = d.request.clone();
-            if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
-                mux.insert("resend".into(), json!(true));
-            }
-            od::name_generation(&mut request, Some(&pin));
+            // To the pinned session, by its id, never by the name it was sent to (review of
+            // #37284 at 4bce04df, F2).
+            let request = od::again_request(d, &pin);
             let again = match attempt_once(hub, d.caller.as_deref(), request, Origin::Local).await {
                 Ok(answer) => Again::Taken(answer),
                 Err((error, Next::Fail | Next::NoSession | Next::Stale)) => Again::Refused(error),

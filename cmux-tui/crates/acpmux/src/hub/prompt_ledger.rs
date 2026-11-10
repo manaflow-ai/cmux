@@ -481,6 +481,22 @@ impl Hub {
                 {
                     started = true;
                 }
+                // A cut turn a restore settled for a resend to run whole (its prompt carried a
+                // hidden context no continuation can carry: `log_load.rs` `mark_unknown_outcome`,
+                // review of #37284 at 4bce04df, F1): this incarnation is over, unanswered, so a
+                // resend of the id runs it again, and the run that resend starts (its own
+                // `user_message` or `queued` record) is the prompt's from now on.
+                ("turn_result", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                        && rec.msg.get(super::open_delivery::RERUN_ON_RESEND)
+                            == Some(&Value::Bool(true)) =>
+                {
+                    turn_id = None;
+                    started = false;
+                    ended = None;
+                    declined = false;
+                    digest = None;
+                }
                 // Read on: a failed turn of agent messages may put it back (`requeued` below).
                 ("turn_result", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>

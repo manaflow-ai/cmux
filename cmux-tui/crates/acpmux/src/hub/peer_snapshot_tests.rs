@@ -2168,3 +2168,106 @@ fn a_copy_goes_back_from_where_the_peers_own_recovery_began() {
     assert!(store.copies[&key("m1")].head.last_seq >= recovery().seen().unwrap());
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
 }
+
+/// The step on a later link of a delivery of an attachment prompt (its `user_message` holds a
+/// hidden context) whose turn started at once, once the restore that gave its records back to a
+/// fresh machine settled that cut turn for a resend to run whole (`turn_result` marked
+/// `rerunOnResend`), under `rules`.
+fn step_after_a_restore_settled_its_cut_turn(rules: u8) -> crate::hub::open_delivery::Step {
+    use crate::hub::open_delivery as od;
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d);
+    let mut accepted = life("m1", 4, "user_message", "p1");
+    accepted["msg"]["text"] = json!("read the notes");
+    accepted["msg"]["hiddenContext"] = json!(true);
+    let mut settled = life("m1", 6, "turn_result", "p1");
+    settled["msg"]["status"] = json!("failed");
+    settled["msg"]["detail"] = json!("outcome_unknown");
+    settled["msg"][od::RERUN_ON_RESEND] = json!(true);
+    let records = [accepted, life("m1", 5, "turn_started", "p1"), settled];
+    od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
+    let step = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    step
+}
+
+/// Review of #37284 at 4bce04df, F1, on the owner: the restore's settling of a cut attachment
+/// turn (no continuation: one could not carry the attachment) is not the prompt's end, so its
+/// delivery is sent again, whole, and the machine runs it (`log_load.rs`
+/// `mark_unknown_outcome`). Under 4bce04df's rules that `turn_result` proved it ended: the
+/// delivery went on to its check and release, and the attachment never reached the agent.
+#[test]
+fn a_cut_attachment_turn_a_restore_settled_for_its_resend_is_delivered_again() {
+    use crate::hub::open_delivery as od;
+    assert_eq!(step_after_a_restore_settled_its_cut_turn(0), od::Step::Again);
+    let old = step_after_a_restore_settled_its_cut_turn(crate::hub::journal_restore::AT_4BCE);
+    assert_eq!(old, od::Step::Check, "4bce04df took the settling as the prompt's end");
+}
+
+/// Review of #37284 at 4bce04df, F2: a delivery sent to `peer/name` and pinned to the session
+/// that name named then is sent again to that session by its id, in its generation, after the
+/// session was renamed and another session took the name; never to the name's new holder. Under
+/// 4bce04df's rules the resend named `peer/name` again, which now resolves to the other session
+/// (another generation: refused as stale for good, the pinned session never reached).
+#[test]
+fn a_delivery_again_goes_to_its_pinned_session_after_a_rename_and_the_names_reuse() {
+    use crate::hub::open_delivery as od;
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let peer = add_idle_peer(&hub, PEER);
+    let row = |id: &str, name: &str, created: u64| {
+        json!({"sessionId": id, "name": name, "status": "idle", "createdAt": created,
+               "updatedAt": 5})
+    };
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row("m1", "moved", 7)]));
+    let by_name = format!("{PEER}/moved");
+    let (_, named, _) = hub.resolve_remote(&by_name).expect("the name resolves");
+    assert_eq!(named, "m1");
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": by_name,
+        "request": {"sessionId": by_name, "prompt": [{"type": "text", "text": "hi"}],
+                    "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    let pin = d.pin.clone().unwrap();
+    // The pinned session is renamed, and another session takes its old name.
+    hub.apply_peer_notice(
+        PEER,
+        peer.generation,
+        PeerNotice::Sessions(vec![row("m1", "moved-before", 7), row("m2", "moved", 9)]),
+    );
+    let (_, holder, _) = hub.resolve_remote(&by_name).expect("the name resolves");
+    assert_eq!(holder, "m2", "the name is the other session's now");
+    let resolved = |request: &Value| {
+        let target = request["sessionId"].as_str().unwrap().to_owned();
+        let (_, id, summary) = hub.resolve_remote(&target).expect("the resend's target resolves");
+        (id, summary["createdAt"].as_u64())
+    };
+    let again = od::again_request(&d, &pin);
+    assert_eq!(again["sessionId"], format!("{PEER}/m1"), "{again}");
+    assert_eq!(resolved(&again), ("m1".to_owned(), Some(7)), "the pinned session, its generation");
+    assert_eq!(again["_meta"]["acpmux"]["sessionCreatedAt"], 7, "{again}");
+    assert_eq!(again["_meta"]["acpmux"]["resend"], true, "{again}");
+    assert_eq!(again["_meta"]["acpmux"]["promptId"], "p1", "{again}");
+    assert_eq!(again["prompt"], d.request["prompt"], "the whole prompt goes again");
+    // 4bce04df's rules: the name again, now the other session's.
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(crate::hub::journal_restore::AT_4BCE));
+    let old = od::again_request(&d, &pin);
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    assert_eq!(old["sessionId"], by_name.as_str());
+    assert_eq!(resolved(&old), ("m2".to_owned(), Some(9)), "4bce04df sent it to the new holder");
+}
