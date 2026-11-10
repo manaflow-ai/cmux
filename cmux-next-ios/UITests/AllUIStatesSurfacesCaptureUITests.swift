@@ -31,7 +31,8 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "joystick", args: Self.idle, settle: 6) { app in
                 let arrow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'terminal.key.' AND (label CONTAINS[c] 'arrow' OR label CONTAINS[c] 'up')")).firstMatch
                 guard arrow.waitForExistence(timeout: 10) else { return "no arrow key" }
-                arrow.press(forDuration: 1.2, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7)))
+                arrow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    .press(forDuration: 1.2, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7)))
                 return nil
             },
             Scene(group: g, id: "send-menu", args: ["-cmux-mobile-demo", "ws-terminal-armed"], settle: 7) { app in
