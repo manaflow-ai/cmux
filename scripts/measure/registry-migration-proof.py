@@ -390,6 +390,8 @@ def kill_at_file_arm(args, state, before, report, name):
     owner = Owner(args, state, name + "-a")
     deadline = time.monotonic() + args.ready_timeout
     hit = False
+    polls = 0
+    ready_without_the_point = False
     while time.monotonic() < deadline and owner.child.poll() is None:
         if name == "kill-renamed":
             hit = previous.exists()
@@ -397,6 +399,13 @@ def kill_at_file_arm(args, state, before, report, name):
             hit = stamp() != first or previous.exists()
         if hit:
             break
+        polls += 1
+        # A start that is ready did not swap: the point does not come in this start.
+        if polls % 1000 == 0 and os.path.exists(owner.socket):
+            reply = drs.identify(owner.socket, 2.0)
+            if reply is not None and (reply.get("data") or {}).get("lifecycle_ready") is True:
+                ready_without_the_point = True
+                break
         time.sleep(0.0005)
     at_kill = {"backup_exists": previous.exists(), "staging_exists": staging.exists(),
                "registry_is_the_old_file": (drs.file_size(registry), registry.stat().st_ino)
@@ -404,6 +413,8 @@ def kill_at_file_arm(args, state, before, report, name):
                "registry_exists": registry.exists(), "ms_from_spawn": round(owner.elapsed() * 1000, 1)}
     owner.kill9()
     step = {"arm": name, "point_hit": hit, "at_kill": at_kill}
+    if ready_without_the_point:
+        step["error"] = "the start got ready with no swap: the kill was after it, not in the swap"
     step["restart"] = start_stop(args, state, name + "-b")
     after = counts(args, state)
     step.update(lost=compare(before, after), after_restart={
