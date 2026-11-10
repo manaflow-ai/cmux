@@ -8,7 +8,7 @@
 // scenario repeats one operation that should leave nothing behind (a session created, changed and closed; a chat
 // reopened; a reconnect in the middle of a stream) and fits a line over the samples after warm-up: any slope over the
 // stated noise band fails. Used by test/state-growth.test.ts (small sizes, every PR) and bench/state-growth.bench.ts
-// (small and god side by side, the perf cron's web UI part).
+// (small and god side by side; perf-cron.py's web-ui-growth part).
 /// <reference types="bun" />
 import { heapStats } from "bun:jsc";
 import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
@@ -26,6 +26,8 @@ export class VirtualClock {
   now = Date.UTC(2026, 10, 10, 8, 0, 0);
   private timers = new Map<number, Timer>();
   private nextId = 1;
+  /// What the client's timers threw: a scenario with any fails (a throw in a timer is a crash in the app).
+  errors: string[] = [];
   private saved: Record<string, unknown> = {};
 
   install(): this {
@@ -71,8 +73,10 @@ export class VirtualClock {
       else this.timers.delete(next.id);
       try {
         next.run();
-      } catch {
-        // A timer that throws is the client's bug to find elsewhere; the clock goes on.
+      } catch (error) {
+        // The clock goes on, as the page's would; the scenario reports it.
+        if (this.errors.length < 20)
+          this.errors.push(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
       }
     }
     this.now = end;
@@ -86,6 +90,20 @@ export async function settle(rounds = 30): Promise<void> {
 }
 
 // ---------- fake daemon ----------
+/// `maxBytes` as acpmux pages it: the records within the byte budget (at least one), counted from the end a read
+/// starts at (the newest for an attach or a page before a seq).
+function byteCap(events: EventRecord[], maxBytes: unknown, newestFirst: boolean): EventRecord[] {
+  if (typeof maxBytes !== "number") return events;
+  let bytes = 0;
+  let take = 0;
+  for (let index = 0; index < events.length; index++) {
+    bytes += JSON.stringify(events[newestFirst ? events.length - 1 - index : index]).length;
+    if (take > 0 && bytes > maxBytes) break;
+    take += 1;
+  }
+  return newestFirst ? events.slice(events.length - take) : events.slice(0, take);
+}
+
 export type FakeSession = { summary: Record<string, any>; history: EventRecord[] };
 
 /// A log of `scale`'s shape re-keyed to `sessionId`, records and all (godLog names its session `replay-<scale>`).
@@ -151,8 +169,13 @@ export class FakeDaemon {
         const after = typeof params?.afterSeq === "number" ? params.afterSeq : undefined;
         const limit = typeof params?.limit === "number" ? params.limit : 400;
         const events =
-          after === undefined ? session.history.slice(-limit) : session.history.filter((e) => e.seq > after);
-        return { session: session.summary, lastSeq: session.history.at(-1)?.seq ?? 0, events };
+          after === undefined
+            ? byteCap(session.history.slice(-limit), params?.maxBytes, true)
+            : session.history.filter((e) => e.seq > after);
+        const lastSeq = session.history.at(-1)?.seq ?? 0;
+        // Whether older records are left, for an attach that read the newest (one after a seq says nothing).
+        if (after !== undefined) return { session: session.summary, lastSeq, events };
+        return { session: session.summary, lastSeq, events, hasMore: events.length < session.history.length };
       }
       case "_acpmux/events": {
         const session = this.sessions.get(params?.sessionId);
@@ -161,8 +184,12 @@ export class FakeDaemon {
         const after = params?.afterSeq ?? 0;
         const limit = typeof params?.limit === "number" ? params.limit : 5000;
         let events = history.filter((event) => event.seq > after && event.seq < before);
-        const more = events.length > limit;
-        events = params?.beforeSeq !== undefined ? events.slice(-limit) : events.slice(0, limit);
+        const newestFirst = params?.beforeSeq !== undefined;
+        let more = events.length > limit;
+        events = newestFirst ? events.slice(-limit) : events.slice(0, limit);
+        const capped = byteCap(events, params?.maxBytes, newestFirst);
+        if (capped.length < events.length) more = true;
+        events = capped;
         return { events, hasMore: more, more, lastSeq: history.at(-1)?.seq ?? 0 };
       }
       default:
@@ -181,7 +208,11 @@ export class FakeDaemon {
         queueMicrotask(() => {
           if (socket.readyState !== 1) return;
           socket.onmessage?.({
-            data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: this.answer(message.method, message.params) }),
+            data: JSON.stringify({
+              jsonrpc: "2.0",
+              id: message.id,
+              result: this.answer(message.method, message.params),
+            }),
           });
         });
       },
@@ -296,9 +327,9 @@ export function retainedEntries(root: object, depth = 3): Map<string, number> {
         let index = 0;
         for (const item of value.values()) if (index++ < 64) walk(item, `${path}[]`, left - 1);
       }
-      return;
-    }
-    if (Array.isArray(value)) {
+      // A Map of its own kind (the client's OrderedRows) keeps its indexes in its own fields: walked too.
+      if (Object.getPrototypeOf(value) === Map.prototype || Object.getPrototypeOf(value) === Set.prototype) return;
+    } else if (Array.isArray(value)) {
       add(value.length);
       return;
     }
@@ -329,23 +360,42 @@ export type Sample = {
   types: Record<string, number>;
 };
 
-/// One growth sample after a full collection.
-export function sample(op: number, client: object, clock: VirtualClock, skip: (path: string) => boolean = () => false): Sample {
+/// What the samples taken of a client so far hold themselves (their path maps and type counts, kept by the scenario
+/// until it judges them): taken off each later sample's heap, or the harness's own record of the growth reads as
+/// growth (about 4 KiB per operation at one sample in ten, measured on the Linux pool).
+const sampleCost = new WeakMap<object, { heapBytes: number; objects: number }>();
+
+/// One growth sample after a full collection, less what the earlier samples of `client` hold.
+export function sample(
+  op: number,
+  client: object,
+  clock: VirtualClock,
+  skip: (path: string) => boolean = () => false,
+): Sample {
   clearWireLog(client as AcpmuxDirectClient);
   Bun.gc(true);
   const stats = heapStats();
   const byPath = retainedEntries(client);
   let entries = 0;
   for (const [path, size] of byPath) if (!skip(path)) entries += size;
-  return {
+  const held = sampleCost.get(client) ?? { heapBytes: 0, objects: 0 };
+  const taken: Sample = {
     op,
-    heapBytes: stats.heapSize,
-    objects: stats.objectCount,
+    heapBytes: stats.heapSize - held.heapBytes,
+    objects: stats.objectCount - held.objects,
     entries,
     timers: clock.live,
     byPath,
     types: { ...stats.objectTypeCounts },
   };
+  // This sample is held from here on: weigh it (the walk's garbage collected) for the samples after it.
+  Bun.gc(true);
+  const after = heapStats();
+  sampleCost.set(client, {
+    heapBytes: held.heapBytes + after.heapSize - stats.heapSize,
+    objects: held.objects + after.objectCount - stats.objectCount,
+  });
+  return taken;
 }
 
 /// The noise bands a scenario's slopes are held to, per operation, after warm-up.
@@ -362,13 +412,22 @@ export type Growth = {
   ops: number;
   ms: number;
   perOp: { heapBytes: number; objects: number; entries: number; timers: number };
+  /// The bands the slopes were held to (with what the streamed records weigh, for a scenario that streams).
+  bands: Bands;
   /// The paths whose size grew over the measured samples, with how much per operation.
   grew: [string, number][];
   failures: string[];
 };
 
 /// Fits each sample series after `warm` samples and names every slope above its band.
-export function judge(scenario: string, scale: Scale, samples: Sample[], warm: number, ms: number, bands = DEFAULT_BANDS): Growth {
+export function judge(
+  scenario: string,
+  scale: Scale,
+  samples: Sample[],
+  warm: number,
+  ms: number,
+  bands = DEFAULT_BANDS,
+): Growth {
   const kept = samples.slice(warm);
   const fit = (pick: (each: Sample) => number) => slope(kept.map((each) => ({ x: each.op, y: pick(each) })));
   const perOp = {
@@ -398,10 +457,20 @@ export function judge(scenario: string, scale: Scale, samples: Sample[], warm: n
     if (perOp[key] > bands[key])
       failures.push(`${scenario}/${scale}: ${key} grow ${perOp[key].toFixed(2)} per op (band ${bands[key]})`);
   if (failures.length && grew.length)
-    failures.push(`grew: ${grew.slice(0, 6).map(([path, rate]) => `${path} +${rate.toFixed(2)}/op`).join(", ")}`);
+    failures.push(
+      `grew: ${grew
+        .slice(0, 6)
+        .map(([path, rate]) => `${path} +${rate.toFixed(2)}/op`)
+        .join(", ")}`,
+    );
   if (failures.length && types.length)
-    failures.push(`cells: ${types.slice(0, 6).map(([type, rate]) => `${type} +${rate.toFixed(1)}/op`).join(", ")}`);
-  return { scenario, scale, ops: kept.at(-1)?.op ?? 0, ms, perOp, grew, failures };
+    failures.push(
+      `cells: ${types
+        .slice(0, 6)
+        .map(([type, rate]) => `${type} +${rate.toFixed(1)}/op`)
+        .join(", ")}`,
+    );
+  return { scenario, scale, ops: kept.at(-1)?.op ?? 0, ms, perOp, bands, grew, failures };
 }
 
 // ---------- scenarios ----------
@@ -483,9 +552,12 @@ async function measure(
   }
   const bands = { ...DEFAULT_BANDS, ...options.bands };
   // A scenario whose operation streams records into the transcript grows the transcript's own log by them, by
-  // design: its bands add what those records weigh (`expected`), measured, never a guess.
+  // design: its bands add what those records weigh (`expected`: their bytes measured, their cells counted), never a
+  // round allowance.
   for (const key of ["objects", "heapBytes"] as const) bands[key] += expected?.[key] ?? 0;
-  return judge(name, options.scale, samples, warm, performance.now() - started, bands);
+  const growth = judge(name, options.scale, samples, warm, performance.now() - started, bands);
+  if (run.clock.errors.length) growth.failures.push(`${name}: a timer threw: ${run.clock.errors.join("; ")}`);
+  return growth;
 }
 
 /// Sessions churn: one is made, changes three times (it runs, says something, goes idle), another listed chat changes,
@@ -535,7 +607,8 @@ export async function chatReopen(options: ScenarioOptions): Promise<Growth> {
   });
 }
 
-const shownSession = (client: AcpmuxDirectClient) => (client as unknown as { selectedSessionId?: string }).selectedSessionId;
+const shownSession = (client: AcpmuxDirectClient) =>
+  (client as unknown as { selectedSessionId?: string }).selectedSessionId;
 
 /// Reconnects mid-stream: a reply streams into the shown chat, the socket drops in the middle of it, the pane
 /// reconnects (its backoff run by the clock) and reads what it missed, and the reply streams on. The transcript's own
@@ -555,8 +628,10 @@ export async function reconnectMidStream(options: ScenarioOptions): Promise<Grow
       method: "session/update",
       params: { sessionId: id, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
     });
-  // Five records stream per operation (two before the drop, two while it is down, one after).
-  const weight = recordWeight(say(chunk), 5);
+  // Five records stream per operation (two before the drop, two while it is down, one after), and the reply's row
+  // draws their text: its string grows by the five chunks (a rope cell each until it is read whole).
+  const records = recordWeight(say(chunk), 5);
+  const weight = { objects: records.objects + 5, heapBytes: records.heapBytes + 5 * chunk.length };
   seq -= 1;
   const growth = await measure(
     "reconnect-mid-stream",
@@ -575,10 +650,12 @@ export async function reconnectMidStream(options: ScenarioOptions): Promise<Grow
     weight,
   );
   // The scenario measures nothing unless each drop was followed by a fresh connection.
-  if (daemon.opened < growth.ops) growth.failures.push(`reconnect-mid-stream: ${daemon.opened} connections for ${growth.ops} drops`);
+  if (daemon.opened < growth.ops)
+    growth.failures.push(`reconnect-mid-stream: ${daemon.opened} connections for ${growth.ops} drops`);
   const held = (client as unknown as { events: EventRecord[] }).events.map((event) => event.seq);
   if (new Set(held).size !== held.length) growth.failures.push("reconnect-mid-stream: the held log has a record twice");
-  if (held.at(-1) !== seq) growth.failures.push(`reconnect-mid-stream: the held log ends at ${held.at(-1)}, the daemon's at ${seq}`);
+  if (held.at(-1) !== seq)
+    growth.failures.push(`reconnect-mid-stream: the held log ends at ${held.at(-1)}, the daemon's at ${seq}`);
   return growth;
 }
 
@@ -597,7 +674,14 @@ export async function toolOutputStream(options: ScenarioOptions): Promise<Growth
   daemon.push([
     record("user_message", "mux", { text: "Run the suite" }),
     record("turn_started", "mux", {}),
-    update({ sessionUpdate: "tool_call", toolCallId: "stream-1", kind: "execute", title: "Run bun test", status: "in_progress", rawInput: { command: "bun test" } }),
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "stream-1",
+      kind: "execute",
+      title: "Run bun test",
+      status: "in_progress",
+      rawInput: { command: "bun test" },
+    }),
   ]);
   const size = options.scale === "god" ? 256 * 1024 : 1024;
   const body = "y".repeat(size);
@@ -696,17 +780,26 @@ export async function dayReplay(options: ScenarioOptions): Promise<Growth> {
   const failures: string[] = [];
   if (second.perOp.timers > DEFAULT_BANDS.timers)
     failures.push(`day-replay/${options.scale}: timers grow ${second.perOp.timers.toFixed(2)} per turn`);
+  // The day's bands: what a turn added in the first half, a quarter more, and the noise band.
+  const bands: Bands = { ...DEFAULT_BANDS };
   for (const key of ["entries", "objects", "heapBytes"] as const) {
     const limit = Math.max(0, first.perOp[key]) * 1.25 + DEFAULT_BANDS[key];
+    bands[key] = limit;
     if (second.perOp[key] > limit)
       failures.push(
         `day-replay/${options.scale}: ${key} per turn grew from ${first.perOp[key].toFixed(1)} to ` +
           `${second.perOp[key].toFixed(1)} over the day (limit ${limit.toFixed(1)})`,
       );
   }
+  if (clock.errors.length) failures.push(`day-replay: a timer threw: ${clock.errors.join("; ")}`);
   if (failures.length && second.grew.length)
-    failures.push(`grew: ${second.grew.slice(0, 6).map(([path, rate]) => `${path} +${rate.toFixed(2)}/turn`).join(", ")}`);
-  return { ...second, ops: turns, perOp: second.perOp, failures };
+    failures.push(
+      `grew: ${second.grew
+        .slice(0, 6)
+        .map(([path, rate]) => `${path} +${rate.toFixed(2)}/turn`)
+        .join(", ")}`,
+    );
+  return { ...second, ops: turns, perOp: second.perOp, bands, failures };
 }
 
 export const SCENARIOS = { sessionChurn, chatReopen, reconnectMidStream, toolOutputStream, dayReplay } as const;

@@ -97,7 +97,13 @@ async function play(events: EventRecord[], deliver: (daemon: FakeDaemon) => Prom
   return result;
 }
 
-const events = logFor(SESSION, "small", { turns: 8, checkpoints: [3, 6], depth: 3, chainEvery: 4, imageEvery: 5 }).events;
+const events = logFor(SESSION, "small", {
+  turns: 8,
+  checkpoints: [3, 6],
+  depth: 3,
+  chainEvery: 4,
+  imageEvery: 5,
+}).events;
 const firstTurn = events.findIndex((event) => event.kind === "turn_result") + 1;
 const live = events.slice(firstTurn);
 
@@ -124,6 +130,27 @@ test("in-order live delivery draws what the stored log draws", async () => {
   const storedRows = drawn(stored.rows());
   stored.client.close();
   expect(JSON.stringify(storedRows)).toBe(JSON.stringify(inOrder.rows));
+});
+
+// The regression the convergence property found first: a turn's prompt (its first record) lost, or overtaken by its
+// `turn_started` and dropped as stale, was never read back when the turn ended (the repair read from the first prompt
+// or start it held), so the finished turn drew without its prompt.
+test("a turn whose prompt never arrived, or came after its start, draws its prompt once it ends", async () => {
+  const reference = await play(events, async (daemon) => {
+    daemon.push(live);
+    await clock!.advance(1000);
+  });
+  reference.client.close();
+  clock!.uninstall();
+  clock = undefined;
+  const prompt = live.findIndex((event) => event.kind === "user_message");
+  expect(prompt).toBeGreaterThanOrEqual(0);
+  const lost: Delivery = { events: live, lost: new Set([live[prompt]!.seq]), log: ["lose the prompt"] };
+  expect(await converge(lost, reference.rows)).toEqual([]);
+  const order = [...live];
+  [order[prompt], order[prompt + 1]] = [order[prompt + 1]!, order[prompt]!];
+  const overtaken: Delivery = { events: order, lost: new Set(), log: ["the record after the prompt first"] };
+  expect(await converge(overtaken, reference.rows)).toEqual([]);
 });
 
 /// The first row that differs, both sides cut short, for a failure message.
@@ -161,8 +188,10 @@ async function converge(delivery: Delivery, reference: unknown): Promise<string[
   const seqs = held.map((event) => event.seq);
   const unique = new Set(seqs).size === seqs.length;
   const ordered = seqs.every((seq, index) => index === 0 || seqs[index - 1]! < seq);
-  if (!unique || !ordered) problems.push(`the held log is ${unique ? "" : "not unique "}${ordered ? "" : "not in order"}`);
+  if (!unique || !ordered)
+    problems.push(`the held log is ${unique ? "" : "not unique "}${ordered ? "" : "not in order"}`);
   if (JSON.stringify(result.rows) !== JSON.stringify(reference)) problems.push(firstDiff(result.rows, reference));
+  if (clock!.errors.length) problems.push(`a timer threw: ${clock!.errors.join("; ")}`);
   result.client.close();
   clock!.uninstall();
   clock = undefined;
@@ -204,7 +233,14 @@ test("closing the shown chat frees its records and rows", async () => {
     await clock!.advance(1000);
   });
   const { client, daemon } = run;
-  daemon.add({ sessionId: "next-chat", cwd: "/home/dev/y", title: "y", harness: "claude", status: "idle", updatedAt: clock!.now });
+  daemon.add({
+    sessionId: "next-chat",
+    cwd: "/home/dev/y",
+    title: "y",
+    harness: "claude",
+    status: "idle",
+    updatedAt: clock!.now,
+  });
   daemon.purge(SESSION);
   await clock!.advance(5_000);
   const held = (client as unknown as { events: EventRecord[] }).events;

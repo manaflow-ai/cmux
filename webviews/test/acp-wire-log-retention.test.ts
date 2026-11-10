@@ -13,7 +13,11 @@ test("a cut message keeps its cut, not the whole frame", () => {
   const before = heapStats().heapSize;
   for (let index = 0; index < frames; index++) {
     // A flat frame of its own each time (a reply's text as the socket hands it over).
-    const text = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: { index, blob: `${index}`.padEnd(size, "z") } });
+    const text = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "_acpmux/event",
+      params: { index, blob: `${index}`.padEnd(size, "z") },
+    });
     log.received(text);
   }
   Bun.gc(true);
