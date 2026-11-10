@@ -84,6 +84,20 @@ final class TerminalFramePresenter {
     /// What this window's presenter did, cumulative.
     private(set) var stats = Stats()
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Tests: refreshes a watch lasts instead of ``watchLimit`` (a watch that runs out without waiting seconds).
+    var watchLimitForTesting: Int?
+    #endif
+
+    /// Refreshes a watched terminal is read each refresh (``watchLimit``; tests may shorten it).
+    private var watchTicks: Int {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        watchLimitForTesting ?? Self.watchLimit
+        #else
+        Self.watchLimit
+        #endif
+    }
+
     private struct Request {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
@@ -249,7 +263,7 @@ final class TerminalFramePresenter {
             default:
                 var next = watch
                 next.ticks += 1
-                watched[id] = next.ticks > Self.watchLimit ? nil : next
+                watched[id] = next.ticks > watchTicks ? nil : next
             }
         }
         return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty || !aheads.isEmpty || !gridReports.isEmpty
