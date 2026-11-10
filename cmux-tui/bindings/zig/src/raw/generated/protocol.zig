@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "16dc901b40ed3a51599c02e8ad774f8f8e638e4b970274faa2cfcf267e7dc330";
+pub const ir_sha256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2040,6 +2040,69 @@ pub const ServerStatsConnections = struct {
     refused: u64,
 };
 
+pub const ServerStatsDisk = struct {
+    @"error": wire.Nullable([]const u8),
+    files: []const ServerStatsDiskFile,
+    files_truncated: bool,
+    files_unlisted: u64,
+    freelist_pages: u64,
+    journal: wire.Nullable(ServerStatsDiskJournal),
+    page_count: u64,
+    page_size: u64,
+    registry_bytes: u64,
+    segments: wire.Nullable(ServerStatsDiskSegments),
+    shm_bytes: u64,
+    wal_bytes: u64,
+};
+
+pub const ServerStatsDiskFile = struct {
+    bytes: u64,
+    files: u64,
+    name: []const u8,
+};
+
+pub const ServerStatsDiskJournal = struct {
+    estimated_live_bytes: u64,
+    first_sequence: u64,
+    head_sequence: u64,
+    kinds: []const ServerStatsDiskJournalKind,
+    live_rows: u64,
+    sample_bytes: u64,
+    sample_rows: u64,
+    sample_span_ms: u64,
+};
+
+pub const ServerStatsDiskJournalKind = struct {
+    budget_bytes_per_day: u64,
+    bytes_per_day: wire.Nullable(u64),
+    kind: []const u8,
+    over_budget: bool,
+    sample_bytes: u64,
+    sample_rows: u64,
+};
+
+pub const ServerStatsDiskSegmentCodec = struct {
+    codec: []const u8,
+    compressed_bytes: u64,
+    records: u64,
+    segments: u64,
+    uncompressed_bytes: u64,
+};
+
+pub const ServerStatsDiskSegmentKind = struct {
+    kind: []const u8,
+    segments: u64,
+};
+
+pub const ServerStatsDiskSegments = struct {
+    by_codec: []const ServerStatsDiskSegmentCodec,
+    compressed_bytes: u64,
+    kinds: []const ServerStatsDiskSegmentKind,
+    records: u64,
+    segments: u64,
+    uncompressed_bytes: u64,
+};
+
 pub const ServerStatsHistogram = struct {
     count: u64,
     max: u64,
@@ -2149,6 +2212,7 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
@@ -2159,6 +2223,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "disk",
         "hook_queue",
         "locks",
         "resource_projection",
@@ -9560,6 +9625,72 @@ pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataReques
     );
 }
 
+pub const ShellReadRequest = struct {
+    after: ?u64 = null,
+    run: []const u8,
+    wait_ms: wire.Field(u64) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "after",
+    };
+};
+
+pub const ShellReadResult = JsonValue;
+
+pub fn shellRead(client: anytype, request: ShellReadRequest) !wire.Decoded(ShellReadResult) {
+    return client.callTyped(
+        ShellReadResult,
+        .{
+            .name = "shell-read",
+            .authority = "control",
+            .since = 12,
+            .capability = "shell-runs-v1",
+        },
+        request,
+    );
+}
+
+pub const ShellRunRequest = struct {
+    command: []const u8,
+    cwd: wire.Field([]const u8) = .absent,
+    run: wire.Field([]const u8) = .absent,
+    scope: wire.Field([]const u8) = .absent,
+};
+
+pub const ShellRunResult = JsonValue;
+
+pub fn shellRun(client: anytype, request: ShellRunRequest) !wire.Decoded(ShellRunResult) {
+    return client.callTyped(
+        ShellRunResult,
+        .{
+            .name = "shell-run",
+            .authority = "control",
+            .since = 12,
+            .capability = "shell-runs-v1",
+        },
+        request,
+    );
+}
+
+pub const ShellStopRequest = struct {
+    run: []const u8,
+};
+
+pub const ShellStopResult = JsonValue;
+
+pub fn shellStop(client: anytype, request: ShellStopRequest) !wire.Decoded(ShellStopResult) {
+    return client.callTyped(
+        ShellStopResult,
+        .{
+            .name = "shell-stop",
+            .authority = "control",
+            .since = 12,
+            .capability = "shell-runs-v1",
+        },
+        request,
+    );
+}
+
 pub const ShutdownDaemonRequest = struct {
     end_terminals: ?bool = null,
     force: ?bool = null,
@@ -12122,7 +12253,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 296;
+pub const command_count: usize = 299;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12380,6 +12511,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },
+    .{ .name = "shell-read", .authority = "control", .since = 12, .capability = "shell-runs-v1", .stream = null },
+    .{ .name = "shell-run", .authority = "control", .since = 12, .capability = "shell-runs-v1", .stream = null },
+    .{ .name = "shell-stop", .authority = "control", .since = 12, .capability = "shell-runs-v1", .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },
     .{ .name = "sidebar-plugin", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "snapshot-request", .authority = "frontend", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },

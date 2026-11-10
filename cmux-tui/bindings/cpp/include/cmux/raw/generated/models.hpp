@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "16dc901b40ed3a51599c02e8ad774f8f8e638e4b970274faa2cfcf267e7dc330";
+inline constexpr std::string_view kProtocolIrSha256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -166,6 +166,13 @@ struct SelectionPane;
 struct SelectionScreen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
+struct ServerStatsDisk;
+struct ServerStatsDiskFile;
+struct ServerStatsDiskJournal;
+struct ServerStatsDiskJournalKind;
+struct ServerStatsDiskSegmentCodec;
+struct ServerStatsDiskSegmentKind;
+struct ServerStatsDiskSegments;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
 struct ServerStatsJournalWriter;
@@ -553,6 +560,9 @@ struct SetTerminalTailPinRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
+struct ShellReadRequest;
+struct ShellRunRequest;
+struct ShellStopRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
 struct SnapshotRequestRequest;
@@ -5027,6 +5037,76 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsDiskFile {
+    std::uint64_t bytes{};
+    std::uint64_t files{};
+    std::string name{};
+    friend bool operator==(const ServerStatsDiskFile&, const ServerStatsDiskFile&) = default;
+};
+
+struct ServerStatsDiskJournalKind {
+    std::uint64_t budget_bytes_per_day{};
+    std::optional<std::uint64_t> bytes_per_day{};
+    std::string kind{};
+    bool over_budget{};
+    std::uint64_t sample_bytes{};
+    std::uint64_t sample_rows{};
+    friend bool operator==(const ServerStatsDiskJournalKind&, const ServerStatsDiskJournalKind&) = default;
+};
+
+struct ServerStatsDiskJournal {
+    std::uint64_t estimated_live_bytes{};
+    std::uint64_t first_sequence{};
+    std::uint64_t head_sequence{};
+    std::vector<ServerStatsDiskJournalKind> kinds{};
+    std::uint64_t live_rows{};
+    std::uint64_t sample_bytes{};
+    std::uint64_t sample_rows{};
+    std::uint64_t sample_span_ms{};
+    friend bool operator==(const ServerStatsDiskJournal&, const ServerStatsDiskJournal&) = default;
+};
+
+struct ServerStatsDiskSegmentCodec {
+    std::string codec{};
+    std::uint64_t compressed_bytes{};
+    std::uint64_t records{};
+    std::uint64_t segments{};
+    std::uint64_t uncompressed_bytes{};
+    friend bool operator==(const ServerStatsDiskSegmentCodec&, const ServerStatsDiskSegmentCodec&) = default;
+};
+
+struct ServerStatsDiskSegmentKind {
+    std::string kind{};
+    std::uint64_t segments{};
+    friend bool operator==(const ServerStatsDiskSegmentKind&, const ServerStatsDiskSegmentKind&) = default;
+};
+
+struct ServerStatsDiskSegments {
+    std::vector<ServerStatsDiskSegmentCodec> by_codec{};
+    std::uint64_t compressed_bytes{};
+    std::vector<ServerStatsDiskSegmentKind> kinds{};
+    std::uint64_t records{};
+    std::uint64_t segments{};
+    std::uint64_t uncompressed_bytes{};
+    friend bool operator==(const ServerStatsDiskSegments&, const ServerStatsDiskSegments&) = default;
+};
+
+struct ServerStatsDisk {
+    std::optional<std::string> error{};
+    std::vector<ServerStatsDiskFile> files{};
+    bool files_truncated{};
+    std::uint64_t files_unlisted{};
+    std::uint64_t freelist_pages{};
+    std::optional<ServerStatsDiskJournal> journal{};
+    std::uint64_t page_count{};
+    std::uint64_t page_size{};
+    std::uint64_t registry_bytes{};
+    std::optional<ServerStatsDiskSegments> segments{};
+    std::uint64_t shm_bytes{};
+    std::uint64_t wal_bytes{};
+    friend bool operator==(const ServerStatsDisk&, const ServerStatsDisk&) = default;
+};
+
 struct ServerStatsHistogram {
     std::uint64_t count{};
     std::uint64_t max{};
@@ -5172,6 +5252,7 @@ struct ServerStatsWritePath {
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
+    std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
@@ -5465,6 +5546,26 @@ struct SettingsChangedEvent {
     SettingsChangedEventOrigin origin{};
     std::uint64_t revision{};
     friend bool operator==(const SettingsChangedEvent&, const SettingsChangedEvent&) = default;
+};
+
+struct ShellReadRequest {
+    std::optional<std::uint64_t> after{};
+    std::string run{};
+    Field<std::uint64_t> wait_ms{};
+    friend bool operator==(const ShellReadRequest&, const ShellReadRequest&) = default;
+};
+
+struct ShellRunRequest {
+    std::string command{};
+    Field<std::string> cwd{};
+    Field<std::string> run{};
+    Field<std::string> scope{};
+    friend bool operator==(const ShellRunRequest&, const ShellRunRequest&) = default;
+};
+
+struct ShellStopRequest {
+    std::string run{};
+    friend bool operator==(const ShellStopRequest&, const ShellStopRequest&) = default;
 };
 
 struct ShutdownDaemonRequest {
@@ -7218,6 +7319,48 @@ template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDisk> {
+    static Result<Json> encode(const ServerStatsDisk& value);
+    static Result<ServerStatsDisk> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskFile> {
+    static Result<Json> encode(const ServerStatsDiskFile& value);
+    static Result<ServerStatsDiskFile> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskJournal> {
+    static Result<Json> encode(const ServerStatsDiskJournal& value);
+    static Result<ServerStatsDiskJournal> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskJournalKind> {
+    static Result<Json> encode(const ServerStatsDiskJournalKind& value);
+    static Result<ServerStatsDiskJournalKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskSegmentCodec> {
+    static Result<Json> encode(const ServerStatsDiskSegmentCodec& value);
+    static Result<ServerStatsDiskSegmentCodec> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskSegmentKind> {
+    static Result<Json> encode(const ServerStatsDiskSegmentKind& value);
+    static Result<ServerStatsDiskSegmentKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskSegments> {
+    static Result<Json> encode(const ServerStatsDiskSegments& value);
+    static Result<ServerStatsDiskSegments> decode(const Json& value);
 };
 
 template <>
@@ -9540,6 +9683,24 @@ template <>
 struct Codec<SetWorkspaceMetadataRequest> {
     static Result<Json> encode(const SetWorkspaceMetadataRequest& value);
     static Result<SetWorkspaceMetadataRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellReadRequest> {
+    static Result<Json> encode(const ShellReadRequest& value);
+    static Result<ShellReadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellRunRequest> {
+    static Result<Json> encode(const ShellRunRequest& value);
+    static Result<ShellRunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellStopRequest> {
+    static Result<Json> encode(const ShellStopRequest& value);
+    static Result<ShellStopRequest> decode(const Json& value);
 };
 
 template <>

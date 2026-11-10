@@ -289,23 +289,33 @@ const JOURNAL_TABLES: [&str; 10] = [
     "journal_producers",
 ];
 
-/// Mutation receipts and the events they recorded: a row per change, never
-/// pruned, so they grow with use (scanning them took 1.9 s of a 4.2 s first
-/// start of a 58.7 GB registry on its new machine). The rehome leaves them
-/// as stored and records the id it replaced ([`FORMER_IDS_META_KEY`]); their
-/// readers serve the stored text through [`StoredIds`], which moves the
-/// references the scan would have moved. Only `fingerprint` and
-/// `result_json` can hold one: their other columns are client origins and
-/// mutation ids, random workspace keys and terminal ids, and event kinds.
-/// No table references them, and they reference none.
-/// (`resource_mutations` and `bookmark_mutations` are pruned to a window,
-/// so the scan still covers them.)
-const RECEIPT_TABLES: [&str; 5] = [
+/// Mutation receipts and the events they recorded: a row per change, so
+/// they grow with use (scanning the first five took 1.9 s of a 4.2 s first
+/// start of a 58.7 GB registry on its new machine). The resource ledger
+/// (`resource_mutations`, `resource_effect_receipts`) is pruned to a window
+/// of rows, but its results are large: scanning it took 1.2 s of the same
+/// start for 63 rows changed (`resource_mutations`, 1225.5 ms) and 48 ms
+/// for none (`resource_effect_receipts`), 2026-11-09. The rehome leaves
+/// them as stored and records the id it replaced ([`FORMER_IDS_META_KEY`]);
+/// their readers serve the stored text through [`StoredIds`], which moves
+/// the references the scan would have moved. Only the JSON columns can hold
+/// one (`fingerprint`, `result_json`, `intent_json`, `outcome_json`): the
+/// others are client origins and mutation ids, actors, random workspace keys
+/// and terminal ids, operation names, states and event kinds. No table the
+/// rehome rewrites references them or joins on their JSON; the SQL that
+/// reads their JSON matches notification public ids (minted, never a registry
+/// id) and the schema migrations that copy `resource_mutations` rows
+/// (agent projections, the legacy event journal) run only on registries
+/// older than any that has a former id. (`bookmark_mutations` is pruned to
+/// a window of small rows, so the scan still covers it.)
+const RECEIPT_TABLES: [&str; 7] = [
     "mutations",
     "workspace_events",
     "terminal_events",
     "terminal_mutations",
     "projection_mutations",
+    "resource_mutations",
+    "resource_effect_receipts",
 ];
 
 /// In `meta`: the registry ids this registry had before its moves to other
@@ -315,14 +325,14 @@ const FORMER_IDS_META_KEY: &str = "registry_former_ids";
 /// The registry's former ids and its current one: text stored before a
 /// move ([`RECEIPT_TABLES`]) is served with its references moved, as the
 /// rehome's scan moves them elsewhere.
-pub(super) struct StoredIds {
+pub(crate) struct StoredIds {
     current: String,
     former: Vec<String>,
 }
 
 impl StoredIds {
     /// One `meta` read; no former ids for a registry that never moved.
-    pub(super) fn load(connection: &Connection) -> anyhow::Result<Self> {
+    pub(crate) fn load(connection: &Connection) -> anyhow::Result<Self> {
         let former = meta_value(connection, FORMER_IDS_META_KEY)?
             .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
             .transpose()
@@ -337,7 +347,7 @@ impl StoredIds {
     }
 
     /// `text` with its references to a former id moved to the current one.
-    pub(super) fn text(&self, text: String) -> String {
+    pub(crate) fn text(&self, text: String) -> String {
         self.former.iter().fold(text, |text, old| {
             if !text.contains(old.as_str()) {
                 return text;
@@ -349,7 +359,7 @@ impl StoredIds {
     }
 
     /// A stored canonical fingerprint, moved and canonical again.
-    pub(super) fn fingerprint(&self, stored: String) -> anyhow::Result<String> {
+    pub(crate) fn fingerprint(&self, stored: String) -> anyhow::Result<String> {
         let moved = self.text(stored.clone());
         if moved == stored {
             return Ok(stored);
@@ -359,7 +369,10 @@ impl StoredIds {
 }
 
 /// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`])
-/// and the receipts ([`RECEIPT_TABLES`]).
+/// and the receipts ([`RECEIPT_TABLES`]), and less every `idempotency_key`:
+/// a client's opaque key, never a reference to the registry, on which the
+/// resource ledger the rehome leaves as stored is joined (creation receipts,
+/// input completions, the ledger's compaction and actor lookups).
 fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
     let mut immutable = immutable_tables(connection)?;
     immutable.extend(JOURNAL_TABLES.map(str::to_string));
@@ -375,6 +388,7 @@ fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<S
         let columns: Vec<String> = connection
             .prepare("SELECT name FROM pragma_table_info(?1)")?
             .query_map([&table], |row| row.get(0))?
+            .filter(|column| !matches!(column, Ok(name) if name == "idempotency_key"))
             .collect::<Result<_, _>>()?;
         out.push((table, columns));
     }
@@ -849,8 +863,67 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// Mutation receipts and the events they recorded, `count` of each kind:
-    /// what a long-lived registry accumulates, none naming the registry id.
+    /// An idempotency key is the client's opaque string, and the resource
+    /// ledger the rehome leaves as stored is joined on it: a creation
+    /// receipt and an input completion whose key happens to be the registry
+    /// id keep naming the effect receipt they belong to after a rehome.
+    #[test]
+    fn a_receipt_keyed_like_the_registry_keeps_its_joins_after_a_rehome() {
+        let root = temp_root("rehome-keys");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_effect_receipts(
+                       idempotency_key, operation, fingerprint, intent_json, state
+                     ) VALUES(?1, 'notification.create', '{}', '{}', 'pending')",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_creation_receipts(
+                       correlation_key, operation, fingerprint, idempotency_key, intent_json,
+                       execution_kind, attempt, state
+                     ) VALUES('correlated', 'notification.create', '{}', ?1, '{}', 'effect', 1,
+                       'prepared')",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_input_receipt_completions(idempotency_key) VALUES(?1)",
+                    [&copied],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        assert_ne!(ids(&root).0, copied, "rehomed");
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let joined = |table: &str| -> i64 {
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM {table} AS keyed
+                         JOIN resource_effect_receipts AS effect USING(idempotency_key)"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(joined("resource_creation_receipts"), 1, "the creation receipt's effect");
+        assert_eq!(joined("resource_input_receipt_completions"), 1, "the completion's effect");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Mutation receipts and the events they recorded, `count` of each kind,
+    /// and the resource ledger's receipts (results of a few kilobytes, as a
+    /// real ledger's are): what a long-lived registry accumulates, none
+    /// naming the registry id.
     fn seed_receipts(root: &Path, count: usize) {
         let connection = Connection::open(registry_file(root)).unwrap();
         let tx = connection.unchecked_transaction().unwrap();
@@ -887,6 +960,28 @@ mod tests {
                 "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
                  VALUES('client', ?1, '{}', ?2)",
                 params![id, result],
+            )
+            .unwrap();
+            let large = serde_json::json!({
+                "workspace_key": format!("ws_{index:032x}"),
+                "screen": "x".repeat(4096),
+            })
+            .to_string();
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+                 ) VALUES('client', ?1, 'workspace.update', '{}', ?2, ?3)",
+                params![id, large, index as i64 + 1],
+            )
+            .unwrap();
+            let outcome =
+                serde_json::json!({"kind": "success", "value": {"id": id, "body": large}});
+            tx.execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state, outcome_json,
+                   committed_revision
+                 ) VALUES(?1, 'notification.create', '{}', ?2, 'committed', ?3, ?4)",
+                params![id, large, outcome.to_string(), index as i64 + 1],
             )
             .unwrap();
         }
@@ -959,10 +1054,12 @@ mod tests {
         );
     }
 
-    /// Mutation receipts and their events grow with every change and are
-    /// never pruned; the rehome leaves them as stored and they are read
-    /// with the new id (`StoredIds`). Scanning them took 1.9 s of a 4.2 s
-    /// first start of a 58.7 GB registry on its new machine (2026-11-09).
+    /// Mutation receipts and their events grow with every change; the
+    /// rehome leaves them as stored and they are read with the new id
+    /// (`StoredIds`). Scanning them took 1.9 s of a 4.2 s first start of a
+    /// 58.7 GB registry on its new machine, and the resource ledger's
+    /// (`resource_mutations`, `resource_effect_receipts`) 1.27 s of a later
+    /// one (2026-11-09).
     #[test]
     fn the_rehome_cost_does_not_grow_with_mutation_receipts() {
         let sizes = [500, 5_000];
@@ -980,7 +1077,8 @@ mod tests {
 
     /// A receipt or event stored before the move, naming the copied id, is
     /// served naming the new one: a retried mutation's result, a
-    /// subscriber's catch-up and a terminal mutation's replay.
+    /// subscriber's catch-up, a terminal mutation's replay, a resource
+    /// patch's replay and a resource effect's committed outcome.
     #[test]
     fn receipts_stored_before_a_move_are_served_with_the_new_id() {
         let root = temp_root("rehome-receipts");
@@ -1022,6 +1120,27 @@ mod tests {
                     [result.to_string()],
                 )
                 .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_mutations(
+                       origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+                     ) VALUES('client', 'moved', 'workspace.update', ?1, ?2, 7)",
+                    params![canonical_json(&fingerprint).unwrap(), result.to_string()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_effect_receipts(
+                       idempotency_key, operation, fingerprint, intent_json, state, outcome_json,
+                       committed_revision
+                     ) VALUES('moved', 'notification.create', ?1, ?2, 'committed', ?3, 7)",
+                    params![
+                        canonical_json(&fingerprint).unwrap(),
+                        result.to_string(),
+                        serde_json::json!({"kind": "success", "value": result}).to_string()
+                    ],
+                )
+                .unwrap();
         }
         as_machine(Some("fedcba9876543210fedcba9876543210"));
         let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
@@ -1048,6 +1167,25 @@ mod tests {
         .unwrap()
         .unwrap();
         expected(&terminal.result);
+        let resource = resource_store::resource_patch_replay(
+            &registry.connection.get(),
+            &mutation,
+            "workspace.update",
+            &canonical_json(&moved_fingerprint).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        expected(&resource.result);
+        match registry
+            .lookup_resource_effect("moved", "notification.create", &moved_fingerprint)
+            .unwrap()
+        {
+            Some(ResourceEffectPreparation::Committed {
+                outcome: ResourceEffectOutcome::Success(value),
+                ..
+            }) => expected(&value),
+            other => panic!("the effect's outcome is not served: {other:?}"),
+        }
         drop(registry);
         fs::remove_dir_all(root).unwrap();
     }
