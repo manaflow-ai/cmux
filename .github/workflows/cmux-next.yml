@@ -7016,6 +7016,13 @@ jobs:
               echo "::warning title=Compile check::results service down ($down); compile-status-handoff posts the Mac Release compile's verdict"
               exit 0
             fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-346 (overflow handoff)
+            if [[ -n "${PR:-}" ]]; then
+              post pending "[overflow] Results service down ($down); the overflow compile of this head posts the verdict" "$RUN_URL" \
+                || { echo "::error title=Compile check::could not post the overflow handoff status"; exit 1; }
+              echo "::warning title=Compile check::results service down ($down); the overflow compile posts cmux-next/compile for $SHA"
+              exit 0
+            fi
             # Why: docs/ci/cmux-next-workflow-notes.md#note-84 ([no-verdict])
             post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL"
             echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (results service down, $down)"
