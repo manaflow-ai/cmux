@@ -337,15 +337,15 @@ impl Hub {
         }
         // Claude on a cmux Cloud machine: the model-plane pair the image's launcher puts back in
         // team mode (claude_cloud_auth.rs). A bound route owns the provider instead.
-        if p.family.as_deref() == Some("claude") && !p.env.contains_key(crate::routes::NAME_KEY) {
-            let env = p.env.clone();
-            let var = move |k: &str| {
-                env.get(k)
-                    .cloned()
-                    .or_else(|| crate::login_env::var(k))
-                    .or_else(|| std::env::var(k).ok())
-                    .filter(|v| !v.is_empty())
-            };
+        // The family as the launch derives it (`agent/command.rs`): a discovered Claude profile has
+        // none set. The sign-in check reads the env the child gets, with the vault's and
+        // `machine.env`'s values (`login_env::effective_for`), and its project settings.
+        if crate::config::derive_family(&meta.harness, &p) == "claude"
+            && !p.env.contains_key(crate::routes::NAME_KEY)
+        {
+            let env = crate::login_env::effective_for(Some("claude"), &p.env);
+            let read = env.clone();
+            let var = move |k: &str| read.get(k).cloned().filter(|v| !v.is_empty());
             let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
             let root = self.vm_marker_root();
             let inputs = crate::codex_cloud_auth::Inputs {
@@ -354,9 +354,14 @@ impl Hub {
                 var: &var,
                 broker: false,
             };
-            if let Some(pair) =
-                crate::claude_cloud_auth::team_pair(&inputs, crate::codex_cloud_auth::host_resolves)
-                    .await
+            let cwd = std::path::Path::new(&meta.cwd);
+            if let Some(pair) = crate::claude_cloud_auth::team_pair(
+                &inputs,
+                &env,
+                cwd,
+                crate::codex_cloud_auth::host_resolves,
+            )
+            .await
             {
                 tracing::info!(session = %meta.id, "claude on this Cloud machine uses the team's model plane");
                 p.env.extend(pair);
@@ -511,3 +516,7 @@ pub fn expand_env_value(
     }
     out
 }
+
+#[cfg(test)]
+#[path = "spawn_claude_cloud_tests.rs"]
+mod claude_cloud_tests;
