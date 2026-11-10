@@ -93,7 +93,8 @@ pub use tempfile::TempDir as TestDir;
 
 /// A new directory for test sockets under the canonical `/tmp`
 /// (`/private/tmp` on macOS, so symlinked-directory checks accept it), named
-/// `<prefix><random>`, whatever `$TMPDIR` is. The directory and everything in
+/// `<prefix><random>`, whatever `$TMPDIR` is, and owner-only (mode 700) whatever
+/// the caller's umask is. The directory and everything in
 /// it are removed when the guard drops. `prefix` is cut to 8 characters.
 ///
 /// Test support only: every dependent enables `test-support` from
@@ -111,8 +112,13 @@ pub fn short_test_dir(prefix: &str) -> TestDir {
     } else {
         std::env::temp_dir()
     };
-    tempfile::Builder::new()
-        .prefix(&prefix)
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix);
+    // Owner-only whatever the caller's umask: the stores and daemons under test refuse a folder
+    // that group or others may write.
+    #[cfg(unix)]
+    builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    builder
         .tempdir_in(root)
         // crash-allow: test-support only (dev-dependencies); a test without its socket directory must fail
         .expect("create a short test socket directory")
