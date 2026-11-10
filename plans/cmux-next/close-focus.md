@@ -59,19 +59,16 @@ the strip's scroll function (column-scroll.md).
   column), entering it at its most recently focused pane, else its first.
   Closing the right docked column focuses the strip's last column; the left one, the
   strip's first.
-- Tab: closing the selected tab selects the shown tab BEFORE it in its pane (left in a
-  strip, above in a vertical list), else the shown tab after it when it was the first.
-  Closing a tab that is not selected keeps the selection. One rule for every tab kind
-  (terminal, browser, agent, page) and every way a tab closes (Cmd-W, the close button, a
-  middle click, the context menu, Close Others, Close Tabs to the Right or Left, a group
-  close, the CLI or MCP, a terminal that exits): `cmux-focus-core` `close_focus::tab`, which
-  the app (`FocusAfterClose.tab`), the daemon's active tab (`tree_edit::remove_surface`) and
-  the cmux-tui client call. Pinned tabs come first in the strip, so closing the first
-  unpinned tab selects the last pinned one; the tab before may be in another group; members
-  of a collapsed group are skipped while a shown tab survives. No opener, most recently used
-  or "next to the right" step. Rule changed 2026-11-08 (Lawrence: "it should always focus
-  the tab before it if it exists"); before, a link tab went back to its opener family
-  (Chrome's `DetermineNewSelectedIndex`), then the next tab, else the previous one.
+- Tab: Chrome's rule (Lawrence 2026-11-09: "ensure our cmd w behavior matches chrome, in
+  terms of what's the next tab that should be focused to"; it replaces 2026-11-08's "always
+  the tab before it", #38316). One rule for every tab kind (terminal, browser, agent, page,
+  Markdown) and every way a tab closes (Cmd-W, the close button, a middle click, the context
+  menu, Close Others, Close Tabs to the Right or Left, a group close, the CLI or MCP, a
+  terminal that exits): `cmux-focus-core` `close_focus::tab`, which the app
+  (`FocusAfterClose.tab` over `cmux_close_focus_tab_chrome`), the daemon's active tab
+  (`tree_edit::remove_surface`) and the cmux-tui client call. The daemon and cmux-tui keep no
+  openers or groups, so they run the positional steps only; the app's selection is the one
+  the person sees. See "Chrome's tab close rule" below.
 - Workspace: the next workspace below, else the one above (`WindowRegistry.repairedSelection`).
 - A rejected close (the tab or pane comes back) does not move focus back.
 
@@ -127,8 +124,10 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
   clamped, target shows focus); action properties UnfocusedCloseKeepsFocus, NoJump,
   MinimalReveal, SuccessorRule, NoSecondScroll; liveness Settles (after the last user step
   the view settles with the focus visible).
-- Tab rule: `FocusAfterCloseTabTests` and `TabCloseSelectsBeforeTests` (app), cmux-focus-core
-  `close_successor.rs`. Pane rule (issue 38194): `PaneCloseControllerTests`
+- Tab rule: cmux-focus-core `close_successor.rs` (one test per case id of the Chrome
+  table), `model_check.rs` (`tab_close_like_chrome_*`), the C ABI's
+  `close_focus_rules.rs`, the daemon's `tab_close_like_chrome_in_the_daemon`, the
+  cmux-tui client's `tab_close_selection.rs`; app side `FocusAfterCloseTabTests`. Pane rule (issue 38194): `PaneCloseControllerTests`
   (`theDefaultCloseFocusIsClassicsMostRecentPane`, `theDefaultCloseFocusReturnsToTheLastUsedColumn`),
   `most_recent_without_history_focuses_the_closed_panes_sibling`, and the daemon's pane close
   tests in cmux-tui-core `mux/tests/tabs.rs`.
@@ -172,8 +171,8 @@ pill and animation smoothness (screenshots are settled frames).
 2. Entering the left column after a column closes lands on that column's most recently
    focused pane, else its first (each column keeps an active tile), not the
    geometrically nearest pane.
-3. Tabs keep their own rule (the tab before, else the one after; 2026-11-08) and do
-   not follow `layout.closeFocus`.
+3. Tabs keep their own rule (Chrome's, 2026-11-09) and do not follow
+   `layout.closeFocus`.
    Workspaces keep next-below, else above.
 4. The sidebar reveals the active row only when it changed or was visible; it does not
    pull a manually scrolled list back on unrelated closes.
@@ -185,3 +184,63 @@ pill and animation smoothness (screenshots are settled frames).
    focuses A, not C. Alternative: the sibling subtree's nearest pane.
 7. A sidebar row that is wholly in view never scrolls, even when it is closer to the edge
    than the 8 point reveal padding (no movement under a click or double-click).
+
+## Chrome's tab close rule
+
+Source: Chromium `chrome/browser/ui/tabs/tab_strip_model.cc` on `main` (read 2026-11-09):
+`TabStripModel::DetermineNewSelectedIndex`, `GetIndexOfNextWebContentsOpenedBy`,
+`GetIndexOfNextWebContentsOpenedByOpenerOf`, `GetNextExpandedActiveTab`, `FixOpeners`,
+`OnActiveTabChanged`, `TabNavigating`, `AddWebContents` and `InsertTabAtImpl`.
+
+`DetermineNewSelectedIndex` tries, over tabs that are not in a collapsed group:
+
+1. a tab the closed tab opened, the nearest after it, else before it;
+2. a tab the closed tab's opener opened (a sibling), nearest after, else before;
+3. the closed tab's opener;
+4. in the closed tab's group, the tab right after it, else right before it;
+5. the nearest tab after it, else before it, outside collapsed groups;
+6. else the tab after it, unless it was last, then the tab before it.
+
+Openers (`TabModel::opener`) come and go by these rules, which the app keeps in
+`BrowserTabOpeners` (`openerOf`, keyed by surface, any tab kind):
+
+- a link's tab (Cmd-click, a page's new tab, `ADD_INHERIT_OPENER`) records the active tab as
+  its opener; a foreground one first forgets every relation (`InsertTabAtImpl`);
+- a new tab the person makes (Cmd-T, the +; Chrome: a typed tab at the end of the strip)
+  records the active tab too, and that relation goes as soon as the person switches away
+  from the new tab (`reset_opener_on_active_tab_change`), so Cmd-T then Cmd-W returns to the
+  tab you were on, but not after you looked elsewhere;
+- a person's switch between two tabs that are not opener and child or siblings forgets every
+  relation (`OnActiveTabChanged`, user gesture);
+- a typed navigation forgets every relation, except in a new tab page at the end of the
+  strip (`TabNavigating`);
+- a tab that leaves hands its children its own opener (`FixOpeners`).
+
+| Id | Case | Strip, selected tab closed | Selected after | Chrome step |
+| --- | --- | --- | --- | --- |
+| P1 | middle tab | A **B** C | C | 6 (5) |
+| P2 | last tab | A B **C** | B | 6 (5) |
+| P3 | only tab in a pane | **A** | nothing; the pane closes (pane rule) | none |
+| P4 | a tab that is not selected | **A** B C, close C | A (no move) | the active tab stays |
+| P5 | pinned tabs | P1 **P2** U1 | U1 (pins are not special) | 5 |
+| O1 | the opener closes | X **A** Y B, B opened by A | B | 1 |
+| O2 | a link tab with a sibling | A **B** C D, B and D opened by A | D | 2 |
+| O3 | a link tab, no sibling | A **B** X, B opened by A | A | 3 |
+| O4 | opener closed in the same batch | A B C X, C opened by B opened by A, close B and C | A | `FixOpeners`, 3 |
+| O5 | Cmd-T then Cmd-W at once | A **N** B, N made by Cmd-T on A | A | 3 (reset on switch) |
+| O6 | Cmd-T, switch away and back, Cmd-W | A **N** B | B | 6 (opener forgotten) |
+| O7 | link tab after an unrelated switch | A **B** X, B opened by A, person went to X and back | X | 6 (`OnActiveTabChanged`) |
+| G1 | last tab of an open group | A [B **C**] D | B | 4 |
+| G2 | collapsed group beside | A [B C collapsed] **D** | A | 5 |
+| B1 | Close Tabs to the Right of A, C selected | A [B **C** D closed] | A | 6 |
+| B2 | Cmd-W four times from C | A B **C** D | D, B, A, nothing | 6 each time |
+| R1 | Cmd-Shift-T after closing B | A C D | A B C D, B selected | daemon `closed.reopen` |
+
+P3: the pane's last tab closing closes the pane, and focus follows the pane rule above.
+R1 is the daemon's (`tab_close_like_chrome_r1_reopen_puts_the_tab_back_in_its_slot`); Chrome's reopen does
+not restore the opener, and neither does cmux.
+
+Rollout: the app links a pinned FFI build. `cmux_close_focus_tab` (the pinned symbol) keeps
+2026-11-08's rule (`close_focus::tab_before`), so the automatic re-pin changes nothing the app
+shows; the app then moves to `cmux_close_focus_tab_chrome` (openers and groups) together with
+its Swift tests in one change, with no red window between.

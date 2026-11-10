@@ -48,7 +48,8 @@ fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
     std::fs::write(&file, "x").unwrap();
     let missing = dir.path().join("gone");
     for words in [
-        vec!["--prompt", "x", "--from-folder", "relative/app"],
+        // `~` is the shell's to expand: quoted, it is no folder of this shell's.
+        vec!["--prompt", "x", "--from-folder", "~/app"],
         vec!["--prompt", "x", "--from-folder", missing.to_str().unwrap()],
         vec!["--prompt", "x", "--from-folder", file.to_str().unwrap()],
         vec!["--prompt", "x", "--from-folder"],
@@ -62,6 +63,21 @@ fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
     let mut output = OutputMode::Human;
     let words = lift_output(&strings(&["--from-folder", "--json"]), &mut output);
     assert_eq!((words.len(), output), (2, OutputMode::Human));
+}
+
+/// A relative `--from-folder` is a folder of this shell's working directory, answered canonical, as
+/// `cloud start-session --from-folder` sends it (`app::run_action`).
+#[test]
+fn relative_from_folder_of_start_chat_is_of_the_working_directory() {
+    let folder = std::fs::canonicalize("src").unwrap().to_string_lossy().into_owned();
+    for spelled in ["src", "./src/../src"] {
+        let parsed = request(&["--prompt", "x", "--from-folder", spelled]);
+        assert_eq!(parsed.from_folder.as_deref(), Some(folder.as_str()), "{spelled}");
+    }
+    assert!(
+        parse(&strings(&["--prompt", "x", "--from-folder", "relative/app"]), || Ok(String::new()))
+            .is_err()
+    );
 }
 
 #[test]

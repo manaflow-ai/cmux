@@ -1773,6 +1773,12 @@ def issue_body(state, repo, now):
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
                       "no measure host had idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
                       "build, the regressed rows' parts kept failing, or the tick failed."]
+    cur_parts = (state.get("current") or {}).get("parts") if isinstance(state.get("current"), dict) else None
+    failed = [(p, e["why"]) for p, e in sorted((cur_parts or {}).items())
+              if isinstance(e, dict) and e.get("state") == "failed" and e.get("why")]
+    if failed:
+        lines += ["", "Failed parts of the measurement in flight: "
+                  + "; ".join(f"{p}: `{why.replace('`', chr(39))}`" for p, why in failed[:8]) + "."]
     hosts = state.get("hosts") if isinstance(state.get("hosts"), dict) else {}
     def host_line(h):
         info, last = host_info(state, h), host_last_seen(state, h)
@@ -2901,6 +2907,12 @@ def record_part(cur, part, result, run_url, t=None):
                   "seconds": result.get("seconds")})
     if result.get("timed_out"):
         entry["timed_out"] = True
+    if entry["state"] == "failed":
+        # The issue names why. From 2026-10-23 to 11-10 every Mac part exited 0 and then failed on a refused artifact
+        # read, and only the report job's log said so; the issue guessed a busy fleet.
+        why = next((str(line).strip() for line in reversed(result.get("tail") or []) if str(line).strip()), "")
+        if why:
+            entry["why"] = why[:200]
     if result["state"] == "yielded":
         entry["yields"] = entry.get("yields", 0) + 1
         if entry["yields"] >= MAX_YIELDS:

@@ -35,6 +35,30 @@ pub fn head_allowed(root: &Path, folders: &[&Path]) -> bool {
     )
 }
 
+/// Whether the file at `relative` (to the root, `/`-separated) is in the head of a chat opened
+/// at `subpath` (`a/b`, empty for the root): a file of the root or of a folder on the subpath,
+/// or one anywhere in their [`HEAD_DIRS`]. The Mac's held copy (cmux-tui `link::seed_cli`)
+/// sends these first, for the machine to mark with [`head_allowed`].
+pub fn in_head(relative: &str, subpath: &str) -> bool {
+    let subpath = subpath.trim_matches('/');
+    let mut folders = vec![""];
+    if !subpath.is_empty() {
+        folders.extend(subpath.match_indices('/').filter_map(|(at, _)| subpath.get(..at)));
+        folders.push(subpath);
+    }
+    folders.iter().any(|folder| {
+        let rest = if folder.is_empty() {
+            Some(relative)
+        } else {
+            relative.strip_prefix(*folder).and_then(|rest| rest.strip_prefix('/'))
+        };
+        rest.is_some_and(|rest| match rest.split_once('/') {
+            None => true,
+            Some((first, _)) => HEAD_DIRS.contains(&first),
+        })
+    })
+}
+
 /// A symlink in `dir` (and, from a head folder, in [`HEAD_DIRS`]) whose target is not there
 /// or is a folder.
 fn links_out_of_the_head(dir: &Path, depth: usize) -> bool {
@@ -56,6 +80,27 @@ fn links_out_of_the_head(dir: &Path, depth: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_head_is_the_root_and_subpath_folders_own_files_and_their_harness_folders() {
+        for (path, subpath, want) in [
+            ("README.md", "", true),
+            (".mcp.json", "", true),
+            (".claude/skills/a/SKILL.md", "", true),
+            ("src/main.rs", "", false),
+            (".git/HEAD", "", false),
+            ("app/CLAUDE.md", "app/web", true),
+            ("app/web/CLAUDE.md", "app/web", true),
+            ("app/web/.codex/config.toml", "app/web", true),
+            ("app/.claude/settings.json", "app/web", true),
+            ("app/web/src/index.ts", "app/web", false),
+            ("app/other/CLAUDE.md", "app/web", false),
+            ("application/x", "app", false),
+            ("README.md", "/app/", true),
+        ] {
+            assert_eq!(in_head(path, subpath), want, "{path} at {subpath:?}");
+        }
+    }
 
     #[test]
     fn start_settings_in_the_root_or_a_subpath_folder_keep_the_head_unmarked() {

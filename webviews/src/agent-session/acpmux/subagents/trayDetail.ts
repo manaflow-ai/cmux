@@ -105,11 +105,10 @@ export function latestLine(
     actionShell?: boolean;
     lastMessage?: string;
     result?: string;
-    reaction?: { text?: string };
   },
   ownWork: boolean,
 ): string | undefined {
-  const said = lastSaidLine(agent.reaction?.text) ?? lastSaidLine(agent.lastMessage ?? agent.result);
+  const said = lastSaidLine(agent.lastMessage ?? agent.result);
   const doing = actionDetail(t, agent.action, agent.actionShell);
   if (ownWork || isBareToolName(agent.action, agent.actionShell)) return said ?? doing;
   return doing ?? said;

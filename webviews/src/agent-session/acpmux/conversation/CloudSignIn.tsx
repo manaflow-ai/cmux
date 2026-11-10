@@ -16,7 +16,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
-import { LoginStepError, type CloudSignIn as SignIn, type LoginFailure, type LoginStart } from "../cloudAgentLogin";
+import {
+  LoginStepError,
+  takesApiKey,
+  type CloudSignIn as SignIn,
+  type LoginFailure,
+  type LoginStart,
+} from "../cloudAgentLogin";
 import { cancelResize, playResize } from "./fold";
 import { motionMode } from "../../../ui/motion/motionMode";
 
@@ -33,7 +39,11 @@ type Stage =
   | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
 
 /// What the card's lead says: the agent's own name, as the person knows it.
-const SIGN_IN_LABEL = { claude: "turn.signIn.claude", codex: "turn.signIn.codex" } as const;
+const SIGN_IN_LABEL = {
+  claude: "turn.signIn.claude",
+  codex: "turn.signIn.codex",
+  cursor: "turn.signIn.cursor",
+} as const;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   bad_code: "turn.signIn.error.badCode",
@@ -313,15 +323,17 @@ export function CloudSignIn({
               {t(SIGN_IN_LABEL[signIn.agent])}
             </button>
           )}
-          <button
-            type="button"
-            // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
-            className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
-            disabled={stage.at === "starting"}
-            onClick={() => setStage({ at: "key" })}
-          >
-            {t("turn.signIn.apiKey")}
-          </button>
+          {takesApiKey(signIn.agent) && (
+            <button
+              type="button"
+              // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
+              className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
+              disabled={stage.at === "starting"}
+              onClick={() => setStage({ at: "key" })}
+            >
+              {t("turn.signIn.apiKey")}
+            </button>
+          )}
         </>
       );
     case "approve":
@@ -374,6 +386,17 @@ export function CloudSignIn({
         </form>
       );
     case "device":
+      // A sign-in with no code to type (Cursor's): its page is open and it finishes on the approve.
+      if (!stage.login.userCode)
+        return (
+          <div className="cv-turn-signin">
+            <span className="cv-turn-signin__row">
+              {pageButton(stage.login)}
+              {cancelButton}
+            </span>
+            <span className="cv-turn-signin__text">{t("turn.signIn.approve")}</span>
+          </div>
+        );
       return (
         <div className="cv-turn-signin">
           <span className="cv-turn-signin__row">

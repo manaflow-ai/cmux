@@ -697,6 +697,18 @@ class IssueTests(unittest.TestCase):
         self.assertEqual(cron.issue_plan(state, "recovered", T0, True, True, True), {"open": False, "comment": "recovered"})
         self.assertEqual(cron.issue_plan(state, "good", T0, False, True, False), {"open": False, "comment": None})
 
+    def test_a_failed_parts_reason_reaches_the_issue(self):
+        # 2026-10-23..11-10: every Mac part exited 0 and failed on a refused artifact read; the issue guessed a busy fleet.
+        state = cron.empty_state(T0)
+        cur = {"sha": "a" * 40, "kind": "tip", "parts_todo": ["switch", "launch"], "parts": {}}
+        state["current"] = cur
+        entry = cron.record_part(cur, "switch", {"state": "failed", "tail": [
+            "perf-cron fetch-result", "artifact not read: <HTTPError 403: 'Forbidden'>", ""]}, "r")
+        self.assertEqual(entry["why"], "artifact not read: <HTTPError 403: 'Forbidden'>")
+        self.assertNotIn("why", cron.record_part(cur, "launch", {"state": "done", "tail": ["ok"]}, "r"))
+        self.assertIn("Failed parts of the measurement in flight: switch: `artifact not read: <HTTPError 403: 'Forbidden'>`",
+                      cron.issue_body(state, "o/r", T0))
+
     def test_stale_opens_once(self):
         state = cron.empty_state(T0)
         later = at(cron.STALE_HOURS + 1)

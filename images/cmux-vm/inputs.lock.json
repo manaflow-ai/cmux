@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "0daf0bc080b679038f5ef919a95b982e21c4db50",
-      "url": "https://files.cmux.com/cmux-tui/0daf0bc080b679038f5ef919a95b982e21c4db50/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "32800692287b820f96882c98b3db790f9a70eb3d2dfd4ca4928d68ceaacfbfa6",
-      "size": 180634736,
+      "version": "e0d9836e67f3d82a7833fd9be1432d8628d12f15",
+      "url": "https://files.cmux.com/cmux-tui/e0d9836e67f3d82a7833fd9be1432d8628d12f15/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "599c54f6abbe0c81622c141fbba85b1fc3387552c8f2f69cda48e60d9468e459",
+      "size": 183916656,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/0daf0bc080b679038f5ef919a95b982e21c4db50/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42734316745; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/e0d9836e67f3d82a7833fd9be1432d8628d12f15/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42819509801; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "0daf0bc080b679038f5ef919a95b982e21c4db50",
-      "url": "https://files.cmux.com/cmux-tui/0daf0bc080b679038f5ef919a95b982e21c4db50/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "d3e1775fc4a9e9a5cca8d16e4b2d6fbbc32eda60eee1fee5f7747ca47ce0f9c7",
-      "size": 4958240,
+      "version": "e0d9836e67f3d82a7833fd9be1432d8628d12f15",
+      "url": "https://files.cmux.com/cmux-tui/e0d9836e67f3d82a7833fd9be1432d8628d12f15/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "155a2244036a5de2ad9a228491c8c216b642b3f38eab83351fa24e1d3dfe3f50",
+      "size": 4969760,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/0daf0bc080b679038f5ef919a95b982e21c4db50/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42734316745; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/e0d9836e67f3d82a7833fd9be1432d8628d12f15/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42819509801; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -463,6 +463,40 @@
       "bin": { "pi": "bin/pi" },
       "versionArgs": ["--version"],
       "expect": "0.85.1"
+    },
+    {
+      "name": "cursor-agent",
+      "version": "2026.11.05-86047df",
+      "url": "https://downloads.cursor.com/lab/2026.11.05-86047df/linux/x64/agent-cli-package.tar.gz",
+      "sha256": "170b77786cbf4c93064d64fff12b71a178b968730561c64afc2e8e752535442e",
+      "size": 176081904,
+      "format": "tar.gz",
+      "bin": { "cursor-agent": "dist-package/cursor-agent" },
+      "versionArgs": ["--version"]
+    },
+    {
+      "name": "gemini",
+      "version": "0.67.0",
+      "url": "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-0.67.0.tgz",
+      "sha256": "3f42374e88171031459ad16e5fac32b161adba330292a1822fb7aae7fb476fc2",
+      "size": 20944139,
+      "format": "tar.gz",
+      "bin": { "gemini": "package/bundle/gemini.js" },
+      "versionArgs": ["--version"],
+      "expect": "0.67.0",
+      "notices": ["package/LICENSE"]
+    },
+    {
+      "name": "grok",
+      "version": "1.0.77",
+      "url": "https://x.ai/cli/grok-1.0.77-linux-x86_64",
+      "sha256": "b702950aa5827d855e493278ab6215a4e0f5bceb5bba6c6243a9f55cdd143b0a",
+      "size": 201655392,
+      "format": "raw",
+      "fileName": "grok",
+      "bin": { "grok": "grok" },
+      "versionArgs": ["--version"],
+      "expect": "1.0.77"
     },
     {
       "name": "workerd",

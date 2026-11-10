@@ -1217,7 +1217,7 @@ body {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
 }
 
-.md-width-field:focus-within {
+.md-width-field:is(:focus-visible, :has(:focus-visible)) {
   box-shadow: inset 0 0 0 1.5px var(--cmux-accent, var(--page-text-2));
 }
 

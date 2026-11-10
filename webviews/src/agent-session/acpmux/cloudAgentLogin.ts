@@ -6,8 +6,20 @@ import type { AcpmuxDirectClient } from "./direct";
 // agent's own login ON the machine (acpmux `_acpmux/agent_login/*`), never a copy of this Mac's
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
 
-/// The harnesses whose login acpmux runs on the machine.
-export type LoginAgent = "claude" | "codex";
+/// The harnesses whose login acpmux runs on the machine (Cursor's too, Leo 2026-11-10: "if somebody
+/// has a ChatGPT subscription or a Cursor subscription").
+export type LoginAgent = "claude" | "codex" | "cursor";
+
+/// Whether `agent` is one acpmux signs in on the machine.
+function loginAgent(agent: string | undefined): agent is LoginAgent {
+  return agent === "claude" || agent === "codex" || agent === "cursor";
+}
+
+/// Whether `agent`'s card offers Use an API key: Cursor's key goes in as the Cloud secret
+/// `CURSOR_API_KEY` (acpmux `agent_login` refuses one here), so its card offers only Sign in.
+export function takesApiKey(agent: LoginAgent): boolean {
+  return agent !== "cursor";
+}
 
 /// `_acpmux/agent_login/start`'s answer: the page to open, Codex's device code, whether the page
 /// gives a code to paste back (Claude), and when the login lapses. `autoUrl` is Claude's automatic
@@ -45,6 +57,7 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "console.anthropic.com",
   "auth.anthropic.com",
   "auth.openai.com",
+  "cursor.com",
 ]);
 
 /// `raw` as a URL the card may open: https, no user info, on ``SIGN_IN_HOSTS``; else undefined.
@@ -218,7 +231,7 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
   const agent = agentKey(harness?.split("/").pop());
-  if (!connected || !sessionId || !supported || (agent !== "claude" && agent !== "codex")) return undefined;
+  if (!connected || !sessionId || !supported || !loginAgent(agent)) return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");

@@ -17,6 +17,18 @@ pub const ALLOWED_HOSTS: &[&str] = &[
     "auth.openai.com",
 ];
 
+/// The hosts Cursor's sign-in link may point at (`cursor-agent login`), and only Cursor's: a
+/// Claude or Codex sign-in never offers one of these, nor Cursor's one of [`ALLOWED_HOSTS`].
+pub const CURSOR_HOSTS: &[&str] = &["cursor.com"];
+
+/// The hosts `agent`'s sign-in link may point at.
+pub fn hosts(agent: Agent) -> &'static [&'static str] {
+    match agent {
+        Agent::Cursor => CURSOR_HOSTS,
+        Agent::Claude | Agent::Codex => ALLOWED_HOSTS,
+    }
+}
+
 /// The longest link accepted.
 const MAX_URL: usize = 4096;
 
@@ -94,6 +106,11 @@ fn skip_csi(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
 /// `candidate` when it is an https link to an allowed host: no user part, no
 /// port, no whitespace, control or non-ASCII character, at most [`MAX_URL`].
 pub fn allowed_url(candidate: &str) -> Option<String> {
+    allowed_url_on(ALLOWED_HOSTS, candidate)
+}
+
+/// [`allowed_url`] for the hosts `hosts`.
+pub fn allowed_url_on(hosts: &[&str], candidate: &str) -> Option<String> {
     if candidate.len() > MAX_URL || !candidate.chars().all(|c| c.is_ascii_graphic()) {
         return None;
     }
@@ -103,16 +120,22 @@ pub fn allowed_url(candidate: &str) -> Option<String> {
         return None;
     }
     let host = authority.to_ascii_lowercase();
-    ALLOWED_HOSTS.contains(&host.as_str()).then(|| candidate.to_owned())
+    hosts.contains(&host.as_str()).then(|| candidate.to_owned())
 }
 
 /// The first complete allowed link: an OSC-8 target, else a word of `plain`
 /// that is followed by whitespace.
 pub fn first_url(plain: &str, links: &[String]) -> Option<String> {
-    if let Some(url) = links.iter().find_map(|l| allowed_url(l)) {
+    first_url_on(ALLOWED_HOSTS, plain, links)
+}
+
+/// [`first_url`] for the hosts `hosts`.
+pub fn first_url_on(hosts: &[&str], plain: &str, links: &[String]) -> Option<String> {
+    if let Some(url) = links.iter().find_map(|l| allowed_url_on(hosts, l)) {
         return Some(url);
     }
-    complete_words(plain).find_map(|w| w.starts_with("https://").then(|| allowed_url(w)).flatten())
+    complete_words(plain)
+        .find_map(|w| w.starts_with("https://").then(|| allowed_url_on(hosts, w)).flatten())
 }
 
 /// The words of `text` followed by whitespace (the last one may still be
@@ -143,12 +166,12 @@ pub fn device_code(plain: &str) -> Option<String> {
 }
 
 /// What `agent`'s sign-in output offers so far, once it is complete: Claude's
-/// link; Codex's link and code.
+/// or Cursor's link; Codex's link and code.
 pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
     let (plain, links) = strip_terminal(output);
-    let url = first_url(&plain, &links)?;
+    let url = first_url_on(hosts(agent), &plain, &links)?;
     match agent {
-        Agent::Claude => Some(Offer { url, user_code: None }),
+        Agent::Claude | Agent::Cursor => Some(Offer { url, user_code: None }),
         Agent::Codex => Some(Offer { url, user_code: Some(device_code(&plain)?) }),
     }
 }
