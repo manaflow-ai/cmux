@@ -33,6 +33,7 @@ pub const ENTRYPOINTS_KEY: &str = "agents.desktopBridge.entrypoints";
 pub const DESKTOP_ENTRYPOINT: &str = "claude-desktop";
 
 /// Longest a delivery waits to connect and write.
+// timeout: connecting and writing to a local Claude Code session's inbox socket; a session that does not answer gets an error the sender sees, nothing is dropped silently
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 /// A registry entry or key file larger than this is not Claude Code's.
 const MAX_FILE: u64 = 64 << 10;
