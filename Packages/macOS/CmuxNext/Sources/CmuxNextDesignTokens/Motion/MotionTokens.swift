@@ -66,7 +66,7 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// their dividers, on this one spring (Lawrence 2026-10-18).
     case exit
     /// A new tab growing in at its final slot while the tabs right of it make room, on one
-    /// spring (`ui.animations.newTab`, on by default). Structural.
+    /// spring (`ui.animations.newTab`, on by default).
     case tabOpen
     /// A split (Cmd-D, Cmd-Shift-D): the new pane grows in from the split edge while every pane
     /// of its chain gives up room, one spring from the key's frame to rest (Lawrence 2026-10-19:

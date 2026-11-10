@@ -224,7 +224,6 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | disappear | 0.15 | 0.90 | tab close, collapse, row removal |
 | settle | 0.22 | 0.85 | drop after drag |
 | scroll | 0.22 | 0.90 | strip reveal, column reveal, fling snap |
-| screen | 0.22 | 0.90 | none since 2026-11-10 (a screen switch has no animation) |
 | track | 0.12 | 0.90 | drop overlay, drag ghost |
 | selection | 0.15 | 0.90 | sidebar selection pill |
 | panel | 0.18 | 0.85 | hover card slide |

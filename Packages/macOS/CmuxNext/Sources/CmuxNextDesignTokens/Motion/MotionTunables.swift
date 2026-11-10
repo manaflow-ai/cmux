@@ -17,8 +17,8 @@ public nonisolated enum MotionTunables {
         // MotionScaleTests), but `settle`, `popover` and `pinDrag`: their responses were set for a
         // damping under 1 and end later at 1 (MotionScaleTests names them; the response is a Motion
         // Lab choice). Visible ends below are simulated at 480 Hz.
-        // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
-        // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
+        // The layout springs (design-tokens.json motion.springs): critically damped, as every
+        // spring is, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
         // 0.30 ended visibly at 354 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
         .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
