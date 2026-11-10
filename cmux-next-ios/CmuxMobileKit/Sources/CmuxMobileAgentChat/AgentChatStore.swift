@@ -1262,6 +1262,17 @@ public final class AgentChatStore {
                     reached(promptId)
                 case .dequeued(let promptId):
                     queue.removeAll { $0.id == promptId }
+                case .permissionDecision(let permissionId, _, _):
+                    // An answer this phone sent reached the Mac (its card is in the gap's turn).
+                    decidedAsks.insert(permissionId)
+                    if sentPermissionAnswer?.permissionID == permissionId {
+                        sentPermissionAnswer = nil
+                        permissionAnswerUncertain = false
+                        awaitsPermissionReply = false
+                        approvingOptionID = nil
+                    }
+                case .questionAnswered(let questionId, _):
+                    decidedAsks.insert(questionId)
                 case .elevationDecision(let id) where pendingElevation?.id == id:
                     pendingElevation = nil
                     sendingElevation = false

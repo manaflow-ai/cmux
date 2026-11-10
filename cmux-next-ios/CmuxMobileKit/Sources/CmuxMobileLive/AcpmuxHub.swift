@@ -1477,7 +1477,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // A first attach's page is the newest records, with a gap before them until the
             // older pages are in: nothing of it is applied. A reattach's is the oldest after
             // `lastSeq`: what was read has no gap and is applied.
-            guard !read.firstAttach, !page.isEmpty else { return false }
+            // A tail-first page has a gap before it: applied without its gap it would move
+            // `lastSeq` past the gap for good. The retry reads it tail-first again.
+            guard !read.firstAttach, pages.gap == nil, !page.isEmpty else { return false }
             beginHistory()
             for record in page { apply(record: record) }
             endHistory()
