@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -398,8 +399,10 @@ public final class RecorderHostButton: NSButton {
     }
 
     func handleRecordingEvent(_ event: NSEvent) {
-        // Escape aborts a chord-in-progress without committing.
-        if event.keyCode == 53 /* Escape */ {
+        // Bare Escape aborts a chord-in-progress without committing. Modified
+        // Escape is a recordable global-hotkey stroke.
+        if event.keyCode == UInt16(kVK_Escape),
+           event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
             pendingFirst = nil
             stopRecording()
             return

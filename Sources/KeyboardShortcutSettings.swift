@@ -2062,6 +2062,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.playPause": return 16
         case "media.next": return 17
         case "media.previous": return 18
+        case "escape": return UInt16(kVK_Escape)
         case "space": return 49
         case "a": return 0
         case "s": return 1
@@ -2206,7 +2207,7 @@ struct ShortcutStroke: Equatable, Hashable {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17,
         18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
         33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-        50, 123, 124, 125, 126,
+        50, UInt16(kVK_Escape), 123, 124, 125, 126,
     ]
 }
 
@@ -2516,6 +2517,8 @@ extension ShortcutStroke {
             return "\t"
         case "return", "enter", "↩":
             return "\r"
+        case "escape", "esc":
+            return "escape"
         case "space", "spacebar", "<space>":
             return "space"
         case "comma":

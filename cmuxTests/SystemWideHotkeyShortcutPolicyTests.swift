@@ -54,6 +54,37 @@ extension GlobalSearchShortcutBehaviorTests {
         )
     }
 
+    @Test func showHideAllWindowsAcceptsCommandEscapeButNotBareEscape() {
+        let commandEscape = StoredShortcut(
+            key: "escape",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        #expect(
+            commandEscape.carbonHotKeyRegistration
+                == CarbonHotKeyRegistration(keyCode: UInt32(kVK_Escape), modifiers: UInt32(cmdKey))
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(commandEscape)
+                == .accepted(commandEscape)
+        )
+
+        let bareEscape = StoredShortcut(
+            key: "escape",
+            command: false,
+            shift: false,
+            option: false,
+            control: false
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(bareEscape)
+                == .rejected(.systemWideHotkeyRequiresModifier)
+        )
+    }
+
     @Test func registrationPolicyContainsOnlyExplicitlySystemWideActions() {
         #expect(SystemWideHotkeySettings.action == .showHideAllWindows)
         #expect(KeyboardShortcutSettings.Action.allCases.filter(\.isSystemWideHotkey) == [.showHideAllWindows])
