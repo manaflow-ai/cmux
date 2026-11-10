@@ -28,8 +28,18 @@ async function mount(node: ReactNode): Promise<HTMLElement> {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "customElements",
+    "MutationObserver",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -37,6 +47,11 @@ async function mount(node: ReactNode): Promise<HTMLElement> {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // An edit's diff loads @pierre/diffs, whose web component registers itself once wherever there
+    // is an HTMLElement: with no customElements beside it the import fails, for every later file too.
+    customElements: dom.window.customElements,
+    // The diff follows the pane's theme attribute (EditDiffHunks.tsx).
+    MutationObserver: dom.window.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const container = dom.window.document.getElementById("root")!;
