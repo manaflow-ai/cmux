@@ -205,6 +205,42 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         #expect(try Data(contentsOf: imageURL) == png)
     }
 
+    @Test("Visible text wins over an unreadable backing file copied with image pixels")
+    func unreadableBackingFileYieldsToVisibleText() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unreadable-backing-text-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("clipboard-manager.png")
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        try png.write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: source.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path) }
+        try #require(FileHandle(forReadingAtPath: source.path) == nil, "test needs an unreadable file")
+
+        let pasteboard = NSPasteboard(name: .init("cmux-unreadable-backing-text-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setData(png, forType: .png))
+        #expect(item.setString(source.absoluteString, forType: .fileURL))
+        #expect(item.setString("<p>visible caption</p>", forType: .html))
+        #expect(item.setString("visible caption", forType: .string))
+        #expect(pasteboard.writeObjects([item]))
+
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .paste,
+            pasteboardService: service
+        )
+        guard case .insertText(let text) = prepared else {
+            Issue.record("Expected the visible text, got \(prepared)")
+            return
+        }
+        #expect(text.contains("visible caption"))
+        #expect(!text.contains(source.lastPathComponent))
+    }
+
     @Test("An image drop reaches the TUI as one bracketed paste", arguments: [false, true])
     func imageDropDeliversBracketedPaste(throughDropController: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
