@@ -66,6 +66,18 @@
 #               Swift cannot catch, which aborts the app (cmuxterm-hq#4753);
 #               use CmuxNextCompat's `handle.readReady()`. A reviewed
 #               exception carries `// pipe-read-allow: <reason>`.
+#   caller-isolated blocking (scripts/cmux-next/caller_isolation.py): a blocking
+#               call (the everywhere rules, raw FileHandle reads and writes,
+#               Process run and wait, CmuxNextCompat's `blocking*` seams) in an
+#               async function that is not `@concurrent` and not an actor's or
+#               another global actor's. Under NonisolatedNonsendingByDefault it
+#               runs on its caller's actor: awaited from the main actor, on the
+#               main thread (ProcessRunner's 391 s stdin write, 2026-11-09). Mark
+#               it `@concurrent` or move the call into `work.run(_, mayBlock:)`;
+#               a reviewed exception carries `// caller-isolation-allow: <reason>`.
+#               caller-isolated-blocking-pending.json lists the files that had
+#               hits when the rule landed, with their counts (shrink only: more
+#               hits fail, fewer print a note to lower the count).
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
 #               generic-class deinit, task-local, workspace-open and pipe-read
 #               rules; CI blocks on it.
@@ -79,8 +91,10 @@
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 - "$root" "$scripts_dir/check-main-actor-work.py" "$scripts_dir/swift_scope.py" <<'PY'
+exec python3 - "$root" "$scripts_dir/check-main-actor-work.py" "$scripts_dir/swift_scope.py" \
+    "$scripts_dir/caller_isolation.py" "$scripts_dir/caller-isolated-blocking-pending.json" <<'PY'
 import importlib.util
+import json
 import os
 import re
 import sys
@@ -97,6 +111,16 @@ _spec = importlib.util.spec_from_file_location("cmux_next_swift_scope", sys.argv
 swift_scope = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = swift_scope
 _spec.loader.exec_module(swift_scope)
+# The caller-isolated blocking rule (see the header) and its shrink-only pending counts.
+_spec = importlib.util.spec_from_file_location("cmux_next_caller_isolation", sys.argv[4])
+caller_isolation = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(caller_isolation)
+# CHECK_CONCURRENCY_CALLER_PENDING names another list (tests/test_check_concurrency_caller_isolated.py).
+CALLER_PENDING_PATH = os.environ.get("CHECK_CONCURRENCY_CALLER_PENDING") or sys.argv[5]
+CALLER_PENDING = {}
+if os.path.exists(CALLER_PENDING_PATH):
+    with open(CALLER_PENDING_PATH, encoding="utf-8") as handle:
+        CALLER_PENDING = json.load(handle)["files"]
 sources = os.path.join(root, "Sources")
 
 # Targets built with `.defaultIsolation(MainActor.self)`: every target whose
@@ -413,6 +437,12 @@ for path, text in sorted(texts.items()):
     for name, numbers in swift_scope.generic_declarations(text).items():
         site = os.path.relpath(path, root).replace(os.sep, "/")
         generic_declared.setdefault(name, []).extend(f"{site}:{number}" for number in numbers)
+masked_texts = {path: main_actor_scope.mask_code(text) for path, text in texts.items()} if not ONLY else {}
+actors = caller_isolation.actor_names(masked_texts.values())
+# The everywhere rules that name a call that blocks the thread it runs on (not a lock, a timer or a buffer).
+CALLER_NOT_BLOCKING = ("DispatchSemaphore", "DispatchGroup", "NSLock", "os_unfair_lock", "asyncAfter", "unbounded")
+caller_blocking = [re.compile(rx) for name, rx in EVERYWHERE if not name.startswith(CALLER_NOT_BLOCKING)]
+caller_counts = {}
 for dirpath, _, files in os.walk(sources):
     for filename in sorted(files):
         if not filename.endswith(".swift"):
@@ -429,6 +459,18 @@ for dirpath, _, files in os.walk(sources):
             os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
         main_lines = main_actor_scope.main_actor_lines(lines, default_main)
         handler_code = readability_handler_code(lines)
+        if not ONLY:
+            found = caller_isolation.hits(lines, masked_texts[path], default_main, caller_blocking, actors)
+            key = relative.replace(os.sep, "/")
+            if found:
+                caller_counts[key] = len(found)
+            if len(found) > CALLER_PENDING.get(key, 0):
+                for index in found:
+                    print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {caller_isolation.RULE}")
+                    print(f"    {lines[index].strip()}")
+                    failures += 1
+                if key in CALLER_PENDING:
+                    print(f"    ({key} is pending with {CALLER_PENDING[key]}; it now has {len(found)})")
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -510,6 +552,13 @@ for dirpath, _, files in ([] if ONLY else os.walk(tests)):
                       "(declare it `@Suite(.serialized) nonisolated struct`)")
                 print(f"    {line.strip()}")
                 failures += 1
+
+# A pending file with fewer hits than its count (fixed, maybe by another PR) is a note, never a failure:
+# lower its count, or drop it at zero, in caller-isolated-blocking-pending.json.
+for key, count in sorted(CALLER_PENDING.items()) if not ONLY else []:
+    if caller_counts.get(key, 0) < count:
+        print(f"check-concurrency: note: {key} has {caller_counts.get(key, 0)} caller-isolated blocking call(s), "
+              f"pending lists {count}; lower it in scripts/cmux-next/caller-isolated-blocking-pending.json")
 
 if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "

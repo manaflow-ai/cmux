@@ -273,6 +273,7 @@ jobs:
         run: |
           python3 -I tests/test_check_concurrency_generic_deinit.py
           python3 -I tests/test_check_concurrency_pipe_reads.py
+          python3 -I tests/test_check_concurrency_caller_isolated.py
       - name: Unrecognized-selector rule (super calls)
         if: ${{ !cancelled() }}
         run: python3 -I scripts/cmux-next/check-objc-selectors.py
