@@ -129,9 +129,8 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
 
     let steps: Rc<RefCell<Vec<(&'static str, WalIndex)>>> = Rc::default();
     let seen = steps.clone();
-    let observed = db_path.clone();
     crate::startup_timings::observe_laps_on_this_thread(Some(Box::new(move |step| {
-        seen.borrow_mut().push((step, wal_index(&observed)));
+        seen.borrow_mut().push((step, wal_index(&db_path)));
     })));
     let started = Instant::now();
     let registry = WorkspaceRegistry::open(&root, session);
