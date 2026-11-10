@@ -1448,6 +1448,8 @@ pub(crate) fn query_session_journal_after(
         records.truncate(limit);
         return Ok(SessionJournalPage { head_sequence, records });
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
     let active_after = records.last().map_or(sequence, |record| record.sequence);
     let mut statement = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
@@ -1697,6 +1699,25 @@ thread_local! {
         const { Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between a journal read's sealed
+    /// part and its active rows ([`query_session_journal_after`],
+    /// [`query_session_journal_sequences`]), where a concurrent seal can
+    /// commit.
+    pub(crate) static BETWEEN_JOURNAL_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_between_journal_reads_for_test() {
+    // Taken before it runs: a read the hook itself makes does not run it again.
+    let hook = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 fn not_output(kind: &str) -> bool {
     kind != "terminal.output"
 }
@@ -1817,6 +1838,8 @@ pub(crate) fn query_session_journal_sequences(
             }
         }
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
 
     let mut active_statement = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
