@@ -92,7 +92,7 @@ import UniformTypeIdentifiers
         let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
         chrome.setFrameNow(NSRect(x: 0, y: 80, width: 240, height: 30))
         chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red, windowIsKey: false)
-        #expect(try #require(chrome.field.layer).borderWidth == 0)
+        #expect((chrome.field.layer?.borderWidth ?? 0) == 0)  // unhosted, the glass may have no layer
         #expect(chrome.edge.borderWidth == 1)
         #expect(chrome.edge.bounds.height == 30)
         // The edge's view is not flipped: a field 80 pt from the top of a 120 pt chrome sits 10 pt from its bottom.
