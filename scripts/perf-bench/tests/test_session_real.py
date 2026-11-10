@@ -736,21 +736,30 @@ class BuildFailure(unittest.TestCase):
 
 
 class LiveForm(unittest.TestCase):
-    """The form `real-live` (the person's LIVE size): the same mix as `real`, 60 terminals run (50 agent programs + 10
-    plain shells), 738 are exited records, 214 agents are listed. `real` (the stress form) does not change."""
+    """The form `real-live` (the person's LIVE size): the same mix rule as `real`, 59 terminals run (58 agent programs + 1
+    plain shell), 739 are parked records, 214 agents are listed, 1598 tabs. `real` (the stress form) does not change."""
 
-    SIZE = dict(workspaces=826, terminals=798, tabs=1600, panes=858, browser_tabs=516)
+    SIZE = dict(workspaces=826, terminals=798, panes=858)
+    FORM_KEYS = ("agents", "agents_live", "live_shells", "tabs", "browser_tabs", "agents_working")
 
     def args(self, form, **given):
-        return m.apply_form(argparse.Namespace(form=form, **{**self.SIZE, "agents": None, "agents_live": None, "live_shells": None, **given}))
+        return m.apply_form(argparse.Namespace(form=form, **{**self.SIZE, **dict.fromkeys(self.FORM_KEYS), **given}))
 
     def form(self, args):
         mix = m.mix_of(args)
         return m.form_counts(mix, *m.live_split(args, mix))
 
-    def test_the_form_real_live_is_60_running_738_exited_214_listed_and_50_processes(self):
-        self.assertEqual(self.form(self.args("real-live")), {"terminals": 798, "terminals_running": 60, "terminals_exited": 738,
-                                                             "agents_listed": 214, "agent_processes": 50})
+    def test_the_form_real_live_is_59_running_739_parked_214_listed_and_58_processes(self):
+        args = self.args("real-live")
+        self.assertEqual(self.form(args), {"terminals": 798, "terminals_running": 59, "terminals_exited": 739,
+                                           "agents_listed": 214, "agent_processes": 58})
+        self.assertEqual(args.agents_working, 3)
+
+    def test_the_form_real_live_has_his_tab_kinds(self):
+        got = m.mix_of(self.args("real-live")).summary()
+        self.assertEqual((got["tabs"], got["terminals"], got["agent_chats"], got["chromium_pages"] + got["webkit_pages"]), (1598, 798, 614, 186))
+        real = m.mix_of(self.args("real")).summary()
+        self.assertEqual((real["tabs"], real["terminals"], real["chromium_pages"] + real["webkit_pages"]), (1600, 798, 516))
 
     def test_the_form_real_stays_the_stress_form(self):
         args = self.args("real")
@@ -758,7 +767,7 @@ class LiveForm(unittest.TestCase):
                                            "agents_listed": 170, "agent_processes": 170})
         self.assertFalse(args.restart_live_shells)
         # An old caller that has no form (a Namespace of its own) reads as `real`.
-        old = argparse.Namespace(**self.SIZE, agents=170, live_shells=30)
+        old = argparse.Namespace(**self.SIZE, tabs=1600, browser_tabs=516, agents=170, live_shells=30)
         self.assertEqual(self.form(old)["terminals_running"], 200)
 
     def test_a_count_from_the_command_line_wins_over_the_form(self):
@@ -772,11 +781,11 @@ class LiveForm(unittest.TestCase):
         mix = m.mix_of(self.args("real-live"))
         agents, plain = m.first_kind_numbers(mix, "agent"), m.first_kind_numbers(mix, "terminal")
         self.assertEqual((len(agents), len(plain)), (214, 584))
-        live = m.live_numbers(mix, "agent", 50)
-        self.assertEqual(len(live), 50)
+        live = m.live_numbers(mix, "agent", 58)
+        self.assertEqual(len(live), 58)
         self.assertTrue(live <= set(agents))
-        self.assertEqual(live, m.live_numbers(mix, "agent", 50))
-        self.assertEqual(len(m.live_numbers(mix, "terminal", 10)), 10)
+        self.assertEqual(live, m.live_numbers(mix, "agent", 58))
+        self.assertEqual(len(m.live_numbers(mix, "terminal", 1)), 1)
         self.assertEqual(m.live_numbers(mix, "agent", None), set(agents))
 
     def test_a_count_that_is_not_the_forms_or_is_not_known_is_a_fault(self):

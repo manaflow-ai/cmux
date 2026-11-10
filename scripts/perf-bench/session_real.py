@@ -93,14 +93,17 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROGRAM = os.path.join(HERE, "session_real_agent.zsh")
 REAL = {"workspaces": 826, "panes": 858, "tabs": 1600, "terminals": 798, "agents": 170, "browser_tabs": 516, "clients": 13}
-# The session FORMS (one mix, two live shapes). `real` is the STRESS form: every agent terminal runs its program and 30
-# plain shells run. `real-live` is the LIVE size read on the person's Mac (2026-11-10, 22:07Z: 798 terminals of which
-# 59 ran and 739 were exited records about 7 days old; 214 agents listed, 50 agent processes): 60 terminals run
-# (50 agent programs + 10 plain shells) and 738 are EXITED records (the tab stays in its workspace, its shell ended),
-# 164 of them the terminals of a listed agent that has no process.
+# The session FORMS (one mix rule, two shapes). `real` is the STRESS form: every agent terminal runs its program and 30
+# plain shells run. `real-live` is the LIVE size read on the person's Mac (2026-11-10, 22:35Z, counts only: 1598 tabs =
+# 798 terminal + 614 conversation + 186 browser; 59 terminals ran and 739 were PARKED records (the tab stays in its
+# workspace, its shell ended, `relaunch.on_show` true); 214 agents listed, 58 of them in a running terminal, 3 of
+# those working): 59 terminals run (58 agent programs + 1 plain shell) and 739 are parked records, 156 of them the
+# terminals of a listed agent that has no process.
 FORMS = {
-    "real": {"agents": REAL["agents"], "agents_live": None, "live_shells": 30, "restart_live_shells": False},
-    "real-live": {"agents": 214, "agents_live": 50, "live_shells": 10, "restart_live_shells": True},
+    "real": {"agents": REAL["agents"], "agents_live": None, "live_shells": 30, "restart_live_shells": False,
+             "tabs": REAL["tabs"], "browser_tabs": REAL["browser_tabs"], "agents_working": 8},
+    "real-live": {"agents": 214, "agents_live": 58, "live_shells": 1, "restart_live_shells": True,
+                  "tabs": 1598, "browser_tabs": 186, "agents_working": 3},
 }
 PTY_RESERVE = 64  # cmux-tui pty_reclaim.rs: the PTYs the daemon keeps free for new terminals
 NAME = re.compile(r"^real-(\d{4})$")
@@ -2396,16 +2399,16 @@ def main():
         p.add_argument("--workspaces", type=int, default=REAL["workspaces"])
         p.add_argument("--terminals", type=int, default=REAL["terminals"])
         p.add_argument("--form", choices=sorted(FORMS), default="real", help="the session form: `real` = the STRESS form (each agent terminal "
-                       "runs its program, 30 plain shells run); `real-live` = the person's LIVE size (60 terminals run, 738 are exited records, "
-                       "214 agents listed of which 50 have a process). It gives the counts below that the command line does not give")
+                       "runs its program, 30 plain shells run); `real-live` = the person's LIVE size (59 terminals run, 739 are parked records, "
+                       "214 agents listed of which 58 have a process, 1598 tabs of which 186 pages). It gives the counts below that the command line does not give")
         p.add_argument("--agents", type=int, help="agent terminals = agents the daemon lists (form real: 170, real-live: 214)")
         p.add_argument("--agents-live", type=int, help="agent terminals that keep their program; the others are listed agents with an "
-                       "exited terminal (form real: all, real-live: 50)")
-        p.add_argument("--live-shells", type=int, help="plain terminals that keep a shell; the others are parked (form real: 30, real-live: 10)")
-        p.add_argument("--tabs", type=int, default=REAL["tabs"])
+                       "exited terminal (form real: all, real-live: 58)")
+        p.add_argument("--live-shells", type=int, help="plain terminals that keep a shell; the others are parked (form real: 30, real-live: 1)")
+        p.add_argument("--tabs", type=int, help="all tabs (form real: 1600, real-live: 1598)")
         p.add_argument("--panes", type=int, default=REAL["panes"])
-        p.add_argument("--browser-tabs", type=int, default=REAL["browser_tabs"], help="pages among the second tabs (Chromium and WebKit in turn)")
-        p.add_argument("--agents-working", type=int, default=8, help="agent terminals that work (spinner at 10 Hz); the others wait")
+        p.add_argument("--browser-tabs", type=int, help="pages among the second tabs, Chromium and WebKit in turn (form real: 516, real-live: 186)")
+        p.add_argument("--agents-working", type=int, help="agent terminals that work, spinner at 10 Hz; the others wait (form real: 8, real-live: 3)")
         p.add_argument("--agents-blocked", type=int, default=0, help="agent terminals that wait for a permission")
         p.add_argument("--settle", type=float, default=60, help="seconds to wait for the agents' reports")
 
