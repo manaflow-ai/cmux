@@ -1,4 +1,5 @@
 public import AppKit
+import ObjectiveC
 
 extension NSMenu {
     /// Opens this menu, and its submenus, in the light or dark system look of `scope`, the view
@@ -55,7 +56,7 @@ extension NSMenu {
         let iconColumn = rows.contains { $0.image != nil }
         showsStateColumn = marked && !iconColumn
         guard iconColumn else { return }
-        for row in rows { MenuStateMarkImage.fit(row) }
+        for row in rows { MenuStateMark.fit(row) }
     }
 
     /// Every native row's image, its submenus' too, in the grid's icon box.
@@ -103,46 +104,55 @@ extension NSImage {
 }
 
 /// A checked row's mark in its icon slot (`NSMenu.fitStateColumn()`): the checkmark (a dash for a
-/// mixed row) in the grid's icon box. The mark carries the icon it stands in for, so the row gets
-/// that icon back when it is no longer checked; nothing outside the row keeps it.
-final class MenuStateMarkImage: NSImage, @unchecked Sendable {
-    /// The row's own icon, in the grid's box (nil for a row that had none).
-    let icon: NSImage?
-    let state: NSControl.StateValue
-
-    init?(state: NSControl.StateValue, replacing icon: NSImage?) {
-        let name = state == .mixed ? "minus" : "checkmark"
-        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .semibold, scale: .small)
-        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return nil }
-        self.icon = icon?.fittedToMenuIconBox()
-        self.state = state
-        let side = MenuMetrics.iconSize
-        super.init(size: NSSize(width: side, height: side))
-        let natural = symbol.size
-        addRepresentation(NSCustomImageRep(size: size, flipped: false) { rect in
-            let fit = min(1, rect.width / max(natural.width, 1), rect.height / max(natural.height, 1))
-            let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
-            symbol.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
-            return true
-        })
-        isTemplate = true
-        accessibilityDescription = state == .mixed ? "Mixed" : "Checked"
+/// mixed row) in the grid's icon box. The row itself keeps the icon the mark stands in for (an
+/// associated object), so it gets that icon back when it is no longer checked; nothing outside the
+/// row holds it.
+enum MenuStateMark {
+    /// What a marked row drew before its mark, and the mark it draws now.
+    final class Replaced {
+        let icon: NSImage?
+        let mark: NSImage
+        let state: NSControl.StateValue
+        init(icon: NSImage?, mark: NSImage, state: NSControl.StateValue) {
+            self.icon = icon
+            self.mark = mark
+            self.state = state
+        }
     }
 
-    required init?(coder: NSCoder) { nil }
-    required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) { nil }
+    /// The associated-object key: `Replaced`'s class object, one stable address with no storage of its own.
+    private static func key() -> UnsafeRawPointer { UnsafeRawPointer(Unmanaged.passUnretained(Replaced.self as AnyObject).toOpaque()) }
+
+    static func replaced(_ row: NSMenuItem) -> Replaced? {
+        guard let kept = objc_getAssociatedObject(row, key()) as? Replaced, kept.mark === row.image else { return nil }
+        return kept
+    }
 
     /// Puts `row`'s mark in its icon slot when it is checked or mixed, and its icon back when not.
     /// A caller that set a new image since the mark went in owns the slot again.
-    @MainActor static func fit(_ row: NSMenuItem) {
-        let current = row.image as? MenuStateMarkImage
+    static func fit(_ row: NSMenuItem) {
+        let kept = replaced(row)
         guard row.state != .off else {
-            if let current { row.image = current.icon }
+            if let kept { row.image = kept.icon }
+            objc_setAssociatedObject(row, key(), nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             return
         }
-        guard current?.state != row.state else { return }
-        let icon = if let current { current.icon } else { row.image }
-        if let mark = MenuStateMarkImage(state: row.state, replacing: icon) { row.image = mark }
+        guard kept?.state != row.state, let mark = image(for: row.state) else { return }
+        let icon = if let kept { kept.icon } else { row.image?.fittedToMenuIconBox() }
+        objc_setAssociatedObject(row, key(), Replaced(icon: icon, mark: mark, state: row.state), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        row.image = mark
+    }
+
+    /// AppKit's own mark for `state`, a checkmark or a dash, as a template in the grid's icon box.
+    static func image(for state: NSControl.StateValue) -> NSImage? {
+        let name = state == .mixed ? "minus" : "checkmark"
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .semibold, scale: .small)
+        let label = state == .mixed ? "Mixed" : "Checked"
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: label)?.withSymbolConfiguration(configuration) else { return nil }
+        symbol.isTemplate = true
+        let box = symbol.fittedToMenuIconBox()
+        // Always a fresh image in the box, so a row's mark is never another row's.
+        return box === symbol ? symbol.copy() as? NSImage : box
     }
 }
 
