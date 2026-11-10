@@ -231,6 +231,56 @@ class ReviewFixes(unittest.TestCase):
         self.assertEqual(qr.public_report(r)["crashes"]["total"], 1)
 
 
+class FixForward(unittest.TestCase):
+    def test_and_n_more_counts_at_the_post_time(self):
+        comment = "More reports: 23 on host.\n\n" + "\n".join([NIGHTLY_HANG] * 20) + "\n- and 3 more\n"
+        issue = hang_issue(1, "aaaaaaaaaa", "hang", "cmux X", "2026-11-01T00:00:00Z", [OLD_HANG],
+                           comments=[("2026-11-10T04:00:00Z", comment)])
+        got = qr.hang_watch_crashes([issue], SINCE)
+        self.assertEqual(got["by_channel"], {"NIGHTLY": 23})
+
+    def test_a_sibling_signature_is_its_own(self):
+        sibling = ("Another signature of this stall (different callers). hang-watch found 1 cmux hang report(s) with "
+                   "signature `bbbbbbbbbb` on host.\n\nReports:\n" + DEV_HANG)
+        issue = hang_issue(1, "aaaaaaaaaa", "hang", "cmux X", "2026-11-01T00:00:00Z", [NIGHTLY_HANG],
+                           comments=[("2026-11-10T05:00:00Z", sibling)])
+        sigs = {s["id"]: s for s in qr.hang_watch_crashes([issue], SINCE)["signatures"]}
+        self.assertEqual(sigs["aaaaaaaaaa"]["counts"], {"NIGHTLY": 1})
+        self.assertEqual(sigs["bbbbbbbbbb"]["counts"], {"DEV": 1})
+        self.assertTrue(sigs["bbbbbbbbbb"]["new"])
+
+    def test_undated_held_reports_are_not_counted(self):
+        body = ("Reports:\n" + NIGHTLY_HANG + "\n\nEarlier reports of this signature, held until it recurred:\n"
+                "- `/Users/x/Library/Logs/DiagnosticReports/cmux.spin`: build 1.0.0-nightly.40\n")
+        issue = {"number": 1, "title": "hang-watch aaaaaaaaaa: hang in cmux X", "createdAt": "2026-11-10T03:00:00Z",
+                 "url": "u", "body": body, "comments": []}
+        self.assertEqual(qr.hang_watch_crashes([issue], SINCE)["total"], 1)
+
+    def test_sessions_refused_still_counts_sentry_crashes(self):
+        issues = {"nightly-next": [{"shortId": "A", "title": "EXC_BAD_ACCESS", "level": "fatal", "count": "2",
+                                    "firstSeen": "2026-11-10T01:00:00Z"}]}
+        fake = FakeSentry(issues=issues)
+
+        def get(path, params):
+            if path.endswith("/sessions/"):
+                raise qr.SourceError("Sentry answered HTTP 403 for sessions")
+            return fake(path, params)
+        r = qr.build_report(24, T, None, None, None, None, sentry_getter=get,
+                            hang_watch=lambda since: self.fail("Sentry's issues answered"))
+        self.assertIn("403", r["crash_free_session_rate"]["why"])
+        self.assertEqual((r["crashes"]["source"], r["crashes"]["total"]), ("sentry", 2))
+        self.assertIn("!is:resolved", dict(fake.calls[-1][1])["query"])
+
+    def test_public_outputs_carry_no_session_counts(self):
+        r = qr.build_report(24, T, None, None, None, None, sentry_getter=FakeSentry(Sentry.SESSIONS, Sentry.ISSUES),
+                            hang_watch=lambda since: [])
+        pub = qr.public_report(r)
+        self.assertNotIn("sessions", pub["crash_free_session_rate"])
+        self.assertNotIn("sessions", json.dumps(pub["crash_free_session_rate"]["by_environment"]))
+        self.assertNotIn(" of 1000", qr.render_markdown(r, public=True))
+        self.assertIn(" of 1000", qr.render_markdown(r, public=False))
+
+
 class Inputs(unittest.TestCase):
     STATE = {
         "last_good": {"sha": "a" * 40, "measured_at": "2026-10-23T14:54:03Z", "rows": {
