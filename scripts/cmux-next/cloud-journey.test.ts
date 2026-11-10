@@ -976,9 +976,10 @@ describe("clean-room provider key probe", () => {
       // A key inside node_modules and inside a binary file still counts.
       "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
       "home/cmux/bin/blob": `\0\0ELF${PROJ}\0\0`,
-      // Installed software (what the image put in /opt, a harness's plugin cache) is listed apart, not counted.
+      // Installed software's bare key shapes (what the image put in /opt, a harness's plugin cache) are listed apart, not
+      // counted; a key found by its context (a refresh token's field) counts there too.
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
-      "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `{"refresh_token": "${REFRESH}"}\n`,
+      "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `call it with ${PROJ}\n`,
       // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
       "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
@@ -1018,7 +1019,7 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
-        "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OAuth refresh token",
+        "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OpenAI project key",
         "file /opt/[a name]/bin/[a name]: an OpenAI project key",
       ]);
       expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
@@ -1395,6 +1396,37 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
         "file /home/cmux/project/[a name].bin: an OpenAI project key",
       ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key's name across a binary file's 4 MiB reads counts, and a refresh token's field counts in installed software", () => {
+    const opaque = "Wv4Nq8Rt2Lp6Zx9Kb3Hj7Dm5Fc1Gs0";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "opt/tool/.env": `CODEX_AUTH_JSON='{"tokens":{"refresh_token":"${opaque}R"}}'\n`,
+    });
+    // A binary file whose JSON assignment starts 32 bytes before the first read's end: the value runs into the next.
+    const edge = 4 << 20;
+    const row = Buffer.from(`{"MISTRAL_API_KEY":"${opaque}B${"q7".repeat(40)}"}`);
+    const file = Buffer.alloc(edge + 4096);
+    Buffer.from("SQLite format 3\0").copy(file, 0);
+    row.copy(file, edge - 32);
+    mkdirSync(join(root, "workspace/project"), { recursive: true });
+    writeFileSync(join(root, "workspace/project/settings.db"), file);
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain(`${opaque}B`);
+      expect(out).not.toContain(`${opaque}R`);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /opt/[a name]/.env:1: an OAuth refresh token",
+        "file /workspace/project/[a name].db: MISTRAL_API_KEY",
+      ]);
+      expect(probe.shipped ?? []).toEqual([]);
       expect(probe.complete).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });

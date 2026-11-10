@@ -65,6 +65,10 @@ KEY_NAMES = {
     "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
 }
 
+# What is found by its context, not its shape alone: a key's name given a value, and a refresh token's JSON field. These
+# are a credential wherever they are; installed software's public text (shipped) is only ever a bare shape.
+CONTEXTUAL = KEY_NAMES | {"an OAuth refresh token"}
+
 # Values that are not keys: the public placeholder every Cloud machine's agents send to the edge
 # (web/services/coderouter/vmGuestEnv.ts), which swaps in the real credential outside the machine.
 PLACEHOLDERS = {"", "cmux-vm-edge-placeholder"}
@@ -122,6 +126,7 @@ OVERLAP = 256
 HIT_SPAN = 512
 # How far before a prefilter hit (a name's `_KEY` ending) a key's name may start, for a binary file's name check.
 NAME_SPAN = 128
+assert NAME_SPAN + 8 <= OVERLAP, "a key's name across chunks must fit in the overlap"
 
 # Cheap byte prefilter: a line or chunk without one of these holds no finding, so only those get the full checks.
 PREFILTER = re.compile(
@@ -500,7 +505,8 @@ def scan_file(path):
                     while open_value(window[max(0, at - 2):stop].decode("latin-1")) and stop < len(window) and stop - at < MAX_VALUE:
                         stop += stop - at
                     if stop >= len(window) and open_value(window[max(0, at - 2):].decode("latin-1")) and len(window) - at < MAX_VALUE:
-                        tail = window[max(0, at - 2):]
+                        # Held back with its key's name: the name starts up to NAME_SPAN before the hit.
+                        tail = window[max(0, at - NAME_SPAN):]
                         break
                     seen.update(shape_kinds(window[max(0, at - 2):stop].decode("latin-1")))
                     # A key's name starts before its `_KEY` ending: the stretch reaches back a name's length for it.
@@ -713,11 +719,12 @@ def scan_files(root, deadline, report):
                     if os.path.lexists(path):
                         report["scanned"]["files_unreadable"] += 1
                     continue
-                # Installed software's public text is a key's shape alone (a scanner's list of public keys); a key's
-                # name given a secret (an assignment in /opt/tool/.env) is configuration, a finding anywhere.
+                # Installed software's public text is a key's shape alone (a scanner's list of public keys). A key
+                # found by its context (a key's name given a secret, or a `"refresh_token":` field, as in an
+                # assignment in /opt/tool/.env) is configuration, a finding anywhere.
                 shipped = is_shipped(where, path)
                 for line, what in hits:
-                    listed = report["shipped"] if shipped and what not in KEY_NAMES else report["findings"]
+                    listed = report["shipped"] if shipped and what not in CONTEXTUAL else report["findings"]
                     listed.append({"place": "file", "where": where, "line": line, "what": what})
 
 
