@@ -92,7 +92,7 @@ public final class AuthCoordinator {
     var isRevalidatingSession = false
     var sessionRevalidationWaiters: [CheckedContinuation<Void, Never>] = []
     /// Monotonic session epoch, advanced by every session transition: each
-    /// ``clearAuthState()`` AND each published sign-in
+    /// ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` AND each published sign-in
     /// (``applySignedInUser(_:)``). Flows that touch session state after
     /// suspension points (launch restore, foreground revalidation, sign-in
     /// completion) capture it at entry and drop their writes when it has
@@ -112,6 +112,8 @@ public final class AuthCoordinator {
     /// would read the stale published flag and skip the rollback that keeps
     /// its raced store write from surviving the sign-out.
     @ObservationIgnored var signOutEpoch: UInt64 = 0
+    /// Why the app last signed out locally (``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)``).
+    @ObservationIgnored private(set) var lastSignOutReason: String?
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored var signInAttemptCounter: UInt64 = 0
     @ObservationIgnored var authenticatedSessionIdentityContinuations: [
@@ -588,7 +590,7 @@ public final class AuthCoordinator {
         await client.clearLocalSession()
         finishSignOutCredentialCapture()
         if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState(sessionTransitionAlreadyAnnounced: true)
+        clearAuthState(reason: "signed out by the person", sessionTransitionAlreadyAnnounced: true)
         await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
 
         // Best-effort bounded server-side teardown with the captured tokens:
@@ -782,10 +784,17 @@ public final class AuthCoordinator {
         }
         return teams.first?.id
     }
+    /// Signs the app out locally: the one place every sign-out goes through,
+    /// so each one leaves a record of why (`reason`, logged at error level
+    /// and kept in ``lastSignOutReason``). A field sign-out that logged
+    /// nothing could not be diagnosed (manaflow-ai/cmuxterm-hq#8831).
     func clearAuthState(
+        reason: String,
         preservePendingCode: Bool = false,
         sessionTransitionAlreadyAnnounced: Bool = false
     ) {
+        authLog.error("Signing out locally reason=\(reason, privacy: .public)")
+        lastSignOutReason = reason
         advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
         cancelTeamScopeRecovery()
         latestSignInRefreshToken = nil

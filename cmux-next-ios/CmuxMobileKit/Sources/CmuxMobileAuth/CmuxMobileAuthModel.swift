@@ -114,7 +114,7 @@ public final class CmuxMobileAuthModel {
         )
         let defaults = UserDefaults.standard
         let coordinator = AuthCoordinator(
-            client: StackAuthClient(stack: stack),
+            client: StackAuthClient(stack: stack, tokenStore: tokenStore),
             sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "cmuxMobile.auth.hasTokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "cmuxMobile.auth.cachedUser"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "cmuxMobile.auth.selectedTeam"),

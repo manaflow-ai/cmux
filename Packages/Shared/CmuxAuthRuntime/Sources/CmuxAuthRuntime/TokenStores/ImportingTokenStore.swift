@@ -88,6 +88,10 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
         sharesSessions && adopted.contains(refreshToken)
     }
 
+    public func tokenReadFailureCount() async -> UInt64 {
+        await primary.tokenReadFailureCount()
+    }
+
     public func getStoredAccessToken() async -> String? {
         await settle()
         return await primary.getStoredAccessToken()

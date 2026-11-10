@@ -28,6 +28,10 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
+    /// Reads that failed with a keychain error rather than finding the item
+    /// or definitively not finding it (`errSecItemNotFound`). See
+    /// ``TokenReadFailureReporting``.
+    private var readFailures: UInt64 = 0
 
     /// Creates a Keychain store writing under one exact signed access group.
     ///
@@ -45,6 +49,12 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         self.accessGroup = accessGroup
         self.legacyProjectID = legacyProjectID
     }
+
+    /// How many token reads failed with a keychain error (for example
+    /// `errSecInteractionNotAllowed` or a refused read) instead of answering
+    /// found or not found. A nil token from a read that bumped this is
+    /// unknown, not absent.
+    public func tokenReadFailureCount() async -> UInt64 { readFailures }
 
     /// The keychain service name auth tokens are stored under, namespaced by
     /// bundle id so tagged dev builds don't clobber the stable app's session.
@@ -164,6 +174,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             if accessGroup != nil,
                let legacyAccount,
                !hardenLegacyTokenIfPresent(account: legacyAccount, deleteAfterHardening: true) {
+                readFailures &+= 1
                 return nil
             }
             return current
@@ -239,6 +250,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
+                readFailures &+= 1
                 log.log("keychain READ status=\(status) account=\(account)")
             }
             return nil
@@ -248,6 +260,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
         )
         guard migrationStatus == errSecSuccess else {
+            // The item exists; withholding it is not "no session".
+            readFailures &+= 1
             log.log("keychain ACCESSIBILITY UPDATE status=\(migrationStatus) account=\(account)")
             return nil
         }
@@ -291,11 +305,13 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
+                readFailures &+= 1
                 log.log("keychain legacy READ status=\(status) account=\(account)")
             }
             return nil
         }
         guard hardenLegacyTokenIfPresent(account: account, deleteAfterHardening: false) else {
+            readFailures &+= 1
             return nil
         }
         return String(data: data, encoding: .utf8)

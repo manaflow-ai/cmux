@@ -124,6 +124,14 @@ public protocol AuthClient: Sendable {
     /// session is already cleared. Best-effort: returns `nil` when no token
     /// could be resolved (offline, dead server).
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String?
+
+    /// How many token reads from local storage have failed with a storage
+    /// error (a keychain error such as `errSecInteractionNotAllowed`) instead
+    /// of finding the token or definitively not finding it. Monotonic; the
+    /// coordinator compares it across a read, so a nil token from a failed
+    /// read is never taken for a signed-out store. Defaults to 0 (a store
+    /// whose reads cannot fail).
+    func tokenReadFailureCount() async -> UInt64
 }
 
 /// Errors returned when a team operation cannot be performed by an auth client.
@@ -139,6 +147,8 @@ public enum AuthClientError: Error, Equatable, Sendable {
 }
 
 public extension AuthClient {
+    func tokenReadFailureCount() async -> UInt64 { 0 }
+
     func selectedTeamID() async throws -> String? { nil }
 
     func setSelectedTeam(id: String?) async throws {

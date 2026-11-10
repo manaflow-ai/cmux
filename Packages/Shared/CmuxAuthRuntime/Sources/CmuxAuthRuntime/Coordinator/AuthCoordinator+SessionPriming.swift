@@ -22,7 +22,7 @@ extension AuthCoordinator {
 
     func primeSessionState() {
         if launch.clearAuthRequested {
-            clearAuthState()
+            clearAuthState(reason: "launch asked to clear auth")
             Task { await clearPersistedAuthForUITest() }
             return
         }
@@ -34,7 +34,7 @@ extension AuthCoordinator {
         // same launch. ``AuthCoordinator/start()`` clears the persisted
         // tokens (awaited) before the restore probe.
         if launch.shouldClearStoredSessionBeforePriming {
-            clearAuthState()
+            clearAuthState(reason: "auth environment changed")
         }
 
         #if DEBUG
@@ -112,13 +112,15 @@ extension AuthCoordinator {
         // it sets, by noteTeamScopeFailure as a session check.
         await StackAuthRateLimitReporting.$callerReports.withValue(true) {
             await checkExistingSessionBody(
-                retryOnStorageAvailable: retryOnStorageAvailable
+                retryOnStorageAvailable: retryOnStorageAvailable,
+                failedReadRetries: 0
             )
         }
     }
 
     private func checkExistingSessionBody(
-        retryOnStorageAvailable: Bool
+        retryOnStorageAvailable: Bool,
+        failedReadRetries: Int
     ) async {
         let generation = sessionGeneration
         let storeWriteHighWater = tokenStoreWriteHighWater
@@ -129,8 +131,11 @@ extension AuthCoordinator {
         // regresses while this process lives; an unavailable report can only
         // under-state readability. Snapshot before token reads so a first
         // unlock that lands while the token probe is suspended cannot make a
-        // nil locked read look like a definitive empty store.
-        let tokenStorageWasAvailable = await isTokenStorageAvailable()
+        // nil locked read look like a definitive empty store. The same
+        // snapshot holds the store's failed-read count, so a read that fails
+        // with a keychain error is told apart from an empty store.
+        let readBaseline = await tokenReadBaseline()
+        let tokenStorageWasAvailable = readBaseline.storageWasAvailable
         guard generation == sessionGeneration else { return }
         // accessToken() may refresh over the network; a sign-out can land
         // while these reads are parked, so bound the probe and re-check the
@@ -204,9 +209,47 @@ extension AuthCoordinator {
                     // online mid-restore; tests may script oscillating
                     // availability, while real protected data unlocks at most
                     // once per process.
-                    await checkExistingSessionBody(retryOnStorageAvailable: false)
+                    await checkExistingSessionBody(
+                        retryOnStorageAvailable: false,
+                        failedReadRetries: failedReadRetries
+                    )
                 }
             }
+            return
+        }
+
+        // Both reads came back empty from readable storage. When a read
+        // failed with a keychain error (refused, interaction not allowed)
+        // the store did not say "not found", so a signed-in person is not
+        // signed out on it: retry a few times with a short backoff, then keep
+        // the cached session; the next auth use reads again
+        // (``emptyTokenReadError(since:)`` keeps it retryable). Only a
+        // definite "not found" clears. (manaflow-ai/cmuxterm-hq#8831: NIGHTLY
+        // came up signed out after a keychain miss at launch.)
+        let hasCachedSession = cachedUser != nil || sessionCache.hasTokens
+        if hasCachedSession, await tokenReadFailed(since: readBaseline) {
+            guard generation == sessionGeneration else { return }
+            if failedReadRetries < Self.failedTokenReadRetryDelays.count {
+                let delay = Self.failedTokenReadRetryDelays[failedReadRetries]
+                authLog.error(
+                    "Session token read failed with a storage error; retry \(failedReadRetries + 1, privacy: .public) of \(Self.failedTokenReadRetryDelays.count, privacy: .public)"
+                )
+                do {
+                    try await clock.sleep(for: delay, tolerance: nil)
+                } catch {
+                    return
+                }
+                guard generation == sessionGeneration else { return }
+                await checkExistingSessionBody(
+                    retryOnStorageAvailable: retryOnStorageAvailable,
+                    failedReadRetries: failedReadRetries + 1
+                )
+                return
+            }
+            authLog.error(
+                "Session token read kept failing with a storage error; keeping the cached session, the next auth use retries"
+            )
+            preserveCachedSessionAfterValidationFailure()
             return
         }
 
@@ -216,8 +259,19 @@ extension AuthCoordinator {
             return
         }
 
-        clearAuthState(preservePendingCode: true)
+        clearAuthState(
+            reason: hasCachedSession
+                ? "launch restore found no stored tokens in readable storage"
+                : "launch restore found no session",
+            preservePendingCode: true
+        )
     }
+
+    /// Backoff before each retry of a launch token read that failed with a
+    /// storage error; after the last one the cached session is kept.
+    static let failedTokenReadRetryDelays: [Duration] = [
+        .milliseconds(100), .milliseconds(300), .milliseconds(900),
+    ]
 
     private func completeSessionRevalidation() {
         // Retire recovery only after validation and its side effects finish.
@@ -428,6 +482,6 @@ extension AuthCoordinator {
         }
         guard generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else { return }
-        clearAuthState(preservePendingCode: true)
+        clearAuthState(reason: reason, preservePendingCode: true)
     }
 }
