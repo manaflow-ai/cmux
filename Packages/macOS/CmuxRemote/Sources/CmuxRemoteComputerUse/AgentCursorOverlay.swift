@@ -69,39 +69,7 @@ final class AgentCursorOverlay {
         cursors[event.session] = cursor
         cursor.label = event.label
         let geometry = AgentCursorGeometry(primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
-        let point = event.at.map { geometry.appKit($0) }
-        let animated = animates
-        let speed = motion.speed
-        switch event.kind {
-        case .move:
-            if let point { cursor.glide(to: point, animated: animated, speed: speed) }
-        case .click:
-            if let point { cursor.glide(to: point, animated: animated, speed: speed) }
-            cursor.ripple(button: event.button, count: event.count, animated: animated, speed: speed)
-            cursor.chip(.text(AgentCursorEvent.clickTitle(button: event.button, count: event.count)))
-        case .typing:
-            if let point { cursor.glide(to: point, animated: animated, speed: speed) }
-            cursor.chip(.typing(AgentCursorEvent.caption(event.text)), animated: animated, speed: speed)
-        case .keys:
-            if let point { cursor.glide(to: point, animated: animated, speed: speed) }
-            cursor.chip(.keys(AgentCursorEvent.keyCaps(event.text)))
-            cursor.press(animated: animated, speed: speed)
-        case .scroll:
-            if let point { cursor.glide(to: point, animated: animated, speed: speed) }
-            cursor.scrollMarks(event.scroll, animated: animated, speed: speed)
-            cursor.chip(.text(ComputerUseText.t("computerUse.cursor.scroll", "Scroll") + " " + Self.arrow(event.scroll)))
-        case .drag:
-            let start = event.from.map { geometry.appKit($0) }
-            if let start, let point { cursor.drag(from: start, to: point, animated: animated, speed: speed) }
-            cursor.chip(.text(ComputerUseText.t("computerUse.cursor.drag", "Drag")))
-        case .look:
-            if let point { cursor.glide(to: point, animated: animated, speed: speed) }
-            if let rect = event.rect.map({ geometry.appKit($0) }) { cursor.frame(rect, animated: animated, speed: speed) }
-            if animated { cursor.pulse(speed: speed) }
-            cursor.chip(.text(ComputerUseText.t("computerUse.cursor.looking", "Looking")))
-        case .hide:
-            break
-        }
+        cursor.apply(event, geometry: geometry, animated: animates, speed: motion.speed)
         cursor.armIdleHide(after: Self.idleHide) { [weak self] in
             guard let self, self.cursors[event.session] === cursor else { return }
             self.cursors.removeValue(forKey: event.session)?.close(animated: self.animates, speed: self.motion.speed)
@@ -114,6 +82,29 @@ final class AgentCursorOverlay {
     }
 
     var sessionCount: Int { cursors.count }
+
+    /// Draws one cursor after `events` (desktop points in a `size`-point space, top-left origin)
+    /// into an image at `scale`, over a plain backdrop, with no window and no animation: the same
+    /// layers the overlay shows, for tests and the detail catalog.
+    static func render(_ events: [AgentCursorEvent], label: String, size: CGSize, scale: CGFloat,
+                       backdrop: [(CGRect, NSColor)] = []) -> CGImage? {
+        let cursor = SessionCursor(offscreen: CGRect(origin: .zero, size: size), scale: scale)
+        cursor.label = label
+        let geometry = AgentCursorGeometry(primaryHeight: size.height)
+        for event in events { cursor.apply(event, geometry: geometry, animated: false, speed: 1) }
+        let width = Int(size.width * scale), height = Int(size.height * scale)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        for (rect, color) in backdrop {
+            context.setFillColor(color.cgColor)
+            context.fill(CGRect(x: rect.minX, y: size.height - rect.maxY, width: rect.width, height: rect.height))
+        }
+        cursor.draw(in: context)
+        return context.makeImage()
+    }
 
     /// The scroll's main direction as an arrow.
     static func arrow(_ v: CGVector) -> String {
@@ -151,6 +142,11 @@ private final class SessionCursor {
     private var tip: CGPoint?
     private var hideTimer: Timer?
     private var scale: CGFloat = 2
+    /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
+    /// for the screen.
+    private let offscreen: CGRect?
+    /// The frame (AppKit screen points) of the screen the cursor is on.
+    private var screenFrame: CGRect?
     var label = "" {
         didSet { if label != oldValue { layoutName() } }
     }
@@ -161,7 +157,9 @@ private final class SessionCursor {
     static var captionSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption1).pointSize }
     static var smallSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption2).pointSize }
 
-    init() {
+    init(offscreen: CGRect? = nil, scale: CGFloat = 2) {
+        self.offscreen = offscreen
+        self.scale = scale
         let path = Self.pointerPath()
         root.masksToBounds = false
         body.anchorPoint = .zero
@@ -268,26 +266,76 @@ private final class SessionCursor {
     }
 
     private func local(_ point: CGPoint) -> CGPoint {
-        guard let panel else { return point }
-        return CGPoint(x: point.x - panel.frame.minX, y: point.y - panel.frame.minY)
+        guard let screenFrame else { return point }
+        return CGPoint(x: point.x - screenFrame.minX, y: point.y - screenFrame.minY)
+    }
+
+    /// Shows one event (AppKit points through `geometry`).
+    func apply(_ event: AgentCursorEvent, geometry: AgentCursorGeometry, animated: Bool, speed: Double) {
+        let point = event.at.map { geometry.appKit($0) }
+        switch event.kind {
+        case .move:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+        case .click:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+            ripple(button: event.button, count: event.count, animated: animated, speed: speed)
+            chip(.text(AgentCursorEvent.clickTitle(button: event.button, count: event.count)))
+        case .typing:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+            chip(.typing(AgentCursorEvent.caption(event.text)), animated: animated, speed: speed)
+        case .keys:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+            chip(.keys(AgentCursorEvent.keyCaps(event.text)))
+            press(animated: animated, speed: speed)
+        case .scroll:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+            scrollMarks(event.scroll, animated: animated, speed: speed)
+            chip(.text(ComputerUseText.t("computerUse.cursor.scroll", "Scroll") + " " + AgentCursorOverlay.arrow(event.scroll)))
+        case .drag:
+            if let start = event.from.map({ geometry.appKit($0) }), let point {
+                drag(from: start, to: point, animated: animated, speed: speed)
+            }
+            chip(.text(ComputerUseText.t("computerUse.cursor.drag", "Drag")))
+        case .look:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+            if let rect = event.rect.map({ geometry.appKit($0) }) { frame(rect, animated: animated, speed: speed) }
+            if animated { pulse(speed: speed) }
+            chip(.text(ComputerUseText.t("computerUse.cursor.looking", "Looking")))
+        case .hide:
+            break
+        }
+    }
+
+    /// Draws the cursor's layers (their model state) into `context` (offscreen rendering).
+    func draw(in context: CGContext) {
+        root.render(in: context)
     }
 
     // MARK: Motion
 
     func glide(to point: CGPoint, animated: Bool, speed: Double) {
         let screens = NSScreen.screens
-        guard let frame = AgentCursorGeometry.screen(containing: point, in: screens.map(\.frame)) else { return }
-        let panel = self.panel ?? Self.makePanel(root: root)
-        self.panel = panel
-        let movedScreen = panel.frame != frame
+        let frame: CGRect
+        if let offscreen {
+            frame = offscreen
+        } else {
+            guard let hit = AgentCursorGeometry.screen(containing: point, in: screens.map(\.frame)) else { return }
+            frame = hit
+        }
+        let movedScreen = screenFrame != frame
+        if offscreen == nil {
+            let panel = self.panel ?? Self.makePanel(root: root)
+            self.panel = panel
+            if movedScreen { panel.setFrame(frame, display: false) }
+        }
         if movedScreen {
-            panel.setFrame(frame, display: false)
+            screenFrame = frame
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             root.frame = CGRect(origin: .zero, size: frame.size)
             // Hand-made layers in a layer-hosting view are not scaled by AppKit: every layer draws
             // at the screen's pixel density (2 on Retina), not 1.
-            scale = screens.first { $0.frame == frame }?.backingScaleFactor ?? 2
+            if offscreen == nil { scale = screens.first { $0.frame == frame }?.backingScaleFactor ?? 2 }
             applyScale(to: root)
             CATransaction.commit()
         }
@@ -307,7 +355,7 @@ private final class SessionCursor {
             body.add(move, forKey: "glide")
         }
         body.removeAnimation(forKey: "fade")
-        panel.orderFrontRegardless()
+        panel?.orderFrontRegardless()
     }
 
     /// A drag: a trail from `start` to `end` and the pointer gliding along it.
@@ -456,8 +504,8 @@ private final class SessionCursor {
 
     /// Corner brackets around the window the agent looks at.
     func frame(_ rect: CGRect, animated: Bool, speed: Double) {
-        guard let panel else { return }
-        let box = CGRect(x: rect.minX - panel.frame.minX, y: rect.minY - panel.frame.minY,
+        guard let screenFrame else { return }
+        let box = CGRect(x: rect.minX - screenFrame.minX, y: rect.minY - screenFrame.minY,
                          width: rect.width, height: rect.height).insetBy(dx: -3, dy: -3)
         let arm = min(22, box.width / 4, box.height / 4)
         let path = CGMutablePath()
@@ -633,6 +681,8 @@ private final class SessionCursor {
         hideTimer = nil
         chipTimer?.invalidate()
         chipTimer = nil
+        // A cursor shown again later makes a new panel and sizes it to its screen.
+        screenFrame = nil
         guard let panel else { return }
         self.panel = nil
         if animated {
