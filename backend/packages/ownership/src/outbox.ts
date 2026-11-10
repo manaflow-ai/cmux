@@ -51,6 +51,22 @@ export class Outbox {
       .map((r) => r.channel)
   }
 
+  /**
+   * Whether one channel has a pending item and its backoff has passed: one indexed probe of that channel (the
+   * `_pending` partial index and the backoff primary key), never a scan of every due channel.
+   */
+  channelDue(channel: string, now: number): boolean {
+    return (
+      this.sql.exec(
+        `SELECT 1 FROM ${this.t.outbox} WHERE channel = ? AND sent_at IS NULL AND dead_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM ${this.backoff} WHERE channel = ? AND next_at > ?) LIMIT 1`,
+        channel,
+        channel,
+        now
+      ).length > 0
+    )
+  }
+
   /** Earliest time a pending channel may run again (now-ish when one is due), or null. */
   nextDueAt(now: number): number | null {
     const r = this.sql.exec<{ at: number | null }>(

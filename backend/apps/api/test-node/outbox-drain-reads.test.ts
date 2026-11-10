@@ -60,6 +60,7 @@ describe("an outbox drain's reads grow linearly with its channels", () => {
   it("reads O(N) rows for N single-row channels (N = 10, 100, 1000)", async () => {
     const at = { 10: await readsAt(10), 100: await readsAt(100), 1000: await readsAt(1000) }
     // A constant number of rows per channel (its pending row, its backoff probe, the sent marks), never one per other channel.
+    console.log(`outbox drain rows read: ${JSON.stringify(at)}`)
     for (const [n, reads] of Object.entries(at)) expect(reads / Number(n), `rows read per channel at N = ${n}: ${JSON.stringify(at)}`).toBeLessThanOrEqual(10)
     expect(at[1000] / at[10]).toBeLessThan(150)
   })

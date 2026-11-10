@@ -138,10 +138,12 @@ describe("only a Cloud answer waits, and only for its own delivery", { timeout: 
     const deliveries: Array<Delivery> = []
     let release!: () => void
     const held = new Promise<void>((r) => (release = r))
-    setTimeout(() => release(), 300)
+    let releasedAt = Infinity
+    setTimeout(() => ((releasedAt = Date.now()), release()), 300)
     const { started, returned } = await postAndAnswer(user("cloudown0001"), "team_cloudown0001", "cloud", deliveries, () => held)
     expect(answered(deliveries, "CloudDO").length).toBeGreaterThanOrEqual(1)
-    expect(returned - started).toBeGreaterThanOrEqual(250)
+    // Not before its delivery ended (the release), and soon after it.
+    expect(returned).toBeGreaterThanOrEqual(releasedAt)
     expect(returned - started).toBeLessThan(1_500)
   })
 })
@@ -259,8 +261,8 @@ describe("an answer's wait ends with its own delivery, not with the drain", { ti
       const aReturned = await aDone
       await Promise.all([xDone, bDone])
       expect(ended.team_twochana, "team_a's answer was delivered").toBeDefined()
-      expect(ended.team_twochanb - ended.team_twochana, "team_b's delivery ended after team_a's").toBeGreaterThanOrEqual(1_000)
-      expect(aReturned - ended.team_twochana, "team_a's answer waited on team_b's slower delivery").toBeLessThan(300)
+      expect(ended.team_twochanb! - ended.team_twochana!, "team_b's delivery ended after team_a's").toBeGreaterThanOrEqual(1_000)
+      expect(aReturned - ended.team_twochana!, "team_a's answer waited on team_b's slower delivery").toBeLessThan(300)
       expect(aReturned - aStarted).toBeLessThan(800)
     })
   })

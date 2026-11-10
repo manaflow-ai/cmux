@@ -29,6 +29,12 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
 /** One send per outbox channel at a time within an object: each `run` for a channel starts after the one before it ends. */
 export class ChannelLocks {
   private readonly tails = new Map<string, Promise<void>>()
+  private ended: () => void = () => {}
+  private sendEnd = new Promise<void>((r) => (this.ended = r))
+  /** Resolves when the next send of any channel ends (either path): a caller waiting on its own item looks again then. */
+  nextSendEnd(): Promise<void> {
+    return this.sendEnd
+  }
   async run(channel: string, fn: () => Promise<void>): Promise<void> {
     const before = this.tails.get(channel) ?? Promise.resolve()
     const mine = before.then(fn, fn)
@@ -38,6 +44,9 @@ export class ChannelLocks {
       await mine
     } finally {
       if (this.tails.get(channel) === tail) this.tails.delete(channel)
+      const wake = this.ended
+      this.sendEnd = new Promise<void>((r) => (this.ended = r))
+      wake()
     }
   }
 }
@@ -87,7 +96,7 @@ export const drainOutboxChannels = async <S>(
       if (++sent > maxChannels) break
       await locks.run(channel, async () => {
       // Read under the lock: a send that ran meanwhile has marked its rows, or failed and backed the channel off.
-      if (!outbox.dueChannels(Date.now()).includes(channel)) return
+      if (!outbox.channelDue(channel, Date.now())) return
       // A Cloud approval answer goes alone, too: CloudDO runs the approved create inside the send and a retryable
       // failure throws the whole batch, so an answer sent beside it would go again after its run ended.
       const rows = outbox.pending(channel, channel !== "" && (outbox.isolating(channel) || approvalAnswerChannel(channel)) ? 1 : 100)

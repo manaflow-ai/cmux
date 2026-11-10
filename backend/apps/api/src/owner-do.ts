@@ -140,7 +140,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     let late = false
     const deadline = new Promise<void>((r) => (timer = setTimeout(() => ((late = true), r()), maxMs)))
     try {
-      while (!late && !delivered() && this.wakeDrain) await Promise.race([this.wakeDrain, deadline])
+      // Every send that ends, of any channel and either path, wakes it to look again: never held behind a slower later channel.
+      while (!late && !delivered() && this.wakeDrain) await Promise.race([this.channelLocks.nextSendEnd(), this.wakeDrain, deadline])
     } finally {
       clearTimeout(timer)
     }
