@@ -112,7 +112,8 @@ public final class PulledBuildWatch {
             let read = lists.compactMap { $0 }.flatMap(PulledBuild.decode)
             guard let self else { return }
             self.refreshTask = nil
-            if !urls.isEmpty, lists.allSatisfy({ $0 != nil }) { self.lastReadAt = self.now() }
+            // A feed with no pulled list (a loopback test feed) has nothing to read: the read is whole.
+            if lists.allSatisfy({ $0 != nil }) { self.lastReadAt = self.now() }
             // A pulled build stays pulled for the life of this process: a read that fails, in whole
             // or for one of its lists, never forgets one (the feed never un-pulls a build).
             var all = self.pulledBuilds
