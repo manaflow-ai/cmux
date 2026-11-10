@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { LOCAL_COMPUTER_CAP, reserveLocalComputer } from "../src/chief-brain-cc/local-computer.ts"
 import { fakeCloud } from "./chief-brain-cc-fake.ts"
 import { http, inDO, op, sessionToken, testEnv, useCcSettings } from "./chief-brain-cc-harness.ts"
@@ -124,5 +124,57 @@ describe("a local Chief's computer", { timeout: 120_000 }, () => {
       testEnv.CHIEF_CC_ENABLED = was
     }
     expect(cloud.made.length).toBe(0)
+  })
+
+  it("deletes a Chief's computer for its owner, which frees its slot at once", async () => {
+    const cloud = fakeCloud(() => "ok")
+    const token = await person("chief-local-computer-delete")
+    const chiefs = Array.from({ length: LOCAL_COMPUTER_CAP }, (_, i) => `del-${i}`)
+    for (const chief of chiefs) {
+      expect((await provision(token, chief)).status).toBe(202)
+      await settled(token, chief, (v) => v.computer !== null)
+    }
+    expect((await provision(token, "del-over")).status).toBe(409)
+    const gone = (await status(token, chiefs[0]!)).computer.id as string
+    const del = await http("POST", path(chiefs[0]!, "/control"), token, { action: "delete" })
+    expect(del.status, del.text).toBe(200)
+    expect(cloud.deleted).toContain(gone)
+    expect(await status(token, chiefs[0]!)).toMatchObject({ computer: null })
+    // Someone else's delete reaches only their own (none).
+    const other = await person("chief-local-computer-other")
+    expect((await http("POST", path(chiefs[1]!, "/control"), other, { action: "delete" })).status).toBe(200)
+    expect((await status(token, chiefs[1]!)).computer).not.toBeNull()
+    // The freed slot is there now, not after the reservation's hold.
+    expect((await provision(token, "del-over")).status).toBe(202)
+  })
+
+  it("gives the slot back when a provision is refused", async () => {
+    fakeCloud(() => "ok")
+    const token = await person("chief-local-computer-unpaid")
+    for (const chief of ["a", "b", "c", "d"]) expect((await provision(token, `refused-${chief}`)).status).toBe(403)
+    const user = (await op(token, "user.ensure", {})).value.id as string
+    const registry = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`local:${user}/computers`))
+    expect(await inDO(registry, (b) => reserveLocalComputer(b, user, "next", 1))).toEqual({ ok: true })
+  })
+
+  it("never names the provider when the computer does not answer", async () => {
+    fakeCloud(() => "ok")
+    const token = await person("chief-local-computer-lease")
+    expect((await provision(token, "conv_quiet")).status).toBe(202)
+    await settled(token, "conv_quiet", (v) => v.computer !== null)
+    const spy = vi.mocked(globalThis.fetch)
+    const inner = spy.getMockImplementation()!
+    spy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init)
+      if (/\/exec-await$/.test(new URL(req.url).pathname)) return new Response("down", { status: 503 })
+      return inner(req)
+    })
+    try {
+      const r = await http("POST", path("conv_quiet", "/act"), token, { op: "click", x: 1, y: 1, shot: false })
+      expect(r.status).toBeGreaterThanOrEqual(500)
+      expect(JSON.stringify(r.json)).not.toMatch(/freestyle/i)
+    } finally {
+      spy.mockImplementation(inner)
+    }
   })
 })
