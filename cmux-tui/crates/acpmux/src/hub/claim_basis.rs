@@ -404,6 +404,46 @@ mod tests {
         }
     }
 
+    /// A path is judged by where it leads: a link to the chat folder (`/tmp` is `/private/tmp`
+    /// on macOS), or the chat folder named by a link, is the folder (review of #40158).
+    #[test]
+    fn a_path_through_a_link_into_the_folder_is_the_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("agent.py"), "").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let through_link = link.join("agent.py").to_string_lossy().into_owned();
+        let direct = real.join("agent.py").to_string_lossy().into_owned();
+        for (cwd, script) in [(&real, &through_link), (&link, &direct)] {
+            for argv in [vec!["python3", script.as_str()], vec![script.as_str()]] {
+                let why = judge(&launch(&argv, &[]), cwd, &system_path());
+                assert_eq!(why, Some("launch_reads_folder"), "{argv:?} in {}", cwd.display());
+            }
+            let env = launch(&["/usr/bin/agent"], &[("PYTHONPATH", script.as_str())]);
+            let why = judge(&env, cwd, &system_path());
+            assert_eq!(why, Some("launch_reads_folder"), "env {script} in {}", cwd.display());
+        }
+    }
+
+    /// An argument is a path only when it has a slash or is the script an interpreter runs: a
+    /// subcommand (`opencode acp`) or `.` is no file of the folder, even when the folder holds one
+    /// of that name (review of #40158).
+    #[test]
+    fn a_bare_argument_word_is_no_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        std::fs::write(cwd.join("acp"), "").unwrap();
+        for argv in [["/usr/bin/opencode", "acp"], ["/usr/bin/agent", "."]] {
+            assert_eq!(judge(&launch(&argv, &[]), cwd, &system_path()), None, "{argv:?}");
+        }
+        // The script an interpreter runs is still judged.
+        std::fs::write(cwd.join("agent.py"), "").unwrap();
+        let script = launch(&["python3", "-u", "agent.py"], &[]);
+        assert_eq!(judge(&script, cwd, &system_path()), Some("launch_reads_folder"));
+    }
+
     #[test]
     fn a_command_that_skips_approvals_carries_no_claim() {
         let cwd = Path::new("/w");
