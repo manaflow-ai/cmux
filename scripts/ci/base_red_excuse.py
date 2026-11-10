@@ -957,10 +957,10 @@ def _stamp_time(value) -> datetime | None:
 
 FAILED, ERRORED, PASSED, AMBIGUOUS = "failed", "errored", "passed", "ambiguous"
 # A live runner annotation: `##[error]` at the start of a line, outside the group in which the runner echoes the
-# step's script. A continue-on-error step that failed is a success to the jobs API, but its section still has its
-# `##[error]` lines and the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads
-# like one (`expected: Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth
-# Codex BLOCK, F1).
+# step's script (the group its `##[group]Run ...` header opens, proven by step_owners; every other line is live). A
+# continue-on-error step that failed is a success to the jobs API, but its section still has its `##[error]` lines and
+# the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads like one (`expected:
+# Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth Codex BLOCK, F1).
 SECTION_RED = re.compile(r"^##\[error\]")
 # Past this many lines a log is not placed: every line is AMBIGUOUS (kept for a comment, never evidence for an excuse).
 STEP_OWNERS_MAX_LINES = 2_000_000
@@ -989,7 +989,7 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
       silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
     Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
     is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
-    SECTION_RED line after its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
+    SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
     and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
     (#40542's fourth Codex BLOCK, F2)."""
     lines = log.splitlines()
@@ -1036,11 +1036,18 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
         elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
             status = AMBIGUOUS
         else:
-            # A step's section opens with its header's group, in which the runner echoes its script and env; the
-            # first `##[endgroup]` closes it (or, with none, the header line alone).
-            live = bounds[k] + 1 if k else bounds[k]
-            if k:
-                live = next((n + 1 for n in section if texts[n] == "##[endgroup]"), live)
+            # Every line is live but the runner's echo of the step's script and env: the group its own `##[group]Run
+            # ...` header opens, up to its `##[endgroup]` with no other group opened before it. A post step's
+            # `Post job cleanup.`, a group that is not the header's, or a header group with no end skips nothing
+            # (#40542's fifth Codex BLOCK: a post step's own `##[group]` hid its `##[error]` line).
+            live = bounds[k]
+            if k and texts[bounds[k]].startswith("##[group]Run "):
+                for n in range(bounds[k] + 1, bounds[k + 1]):
+                    if texts[n].startswith("##[group]"):
+                        break
+                    if texts[n] == "##[endgroup]":
+                        live = n + 1
+                        break
             status = ERRORED if any(SECTION_RED.match(texts[n]) for n in range(live, bounds[k + 1])) else PASSED
         found += [(lines[n], k, status) for n in section]
     return found
