@@ -88,8 +88,10 @@ final class LinkOpener {
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
     /// `kind`: what opens, a terminal or a browser, which goes to a right-column pane already holding
-    /// that kind (``RightColumnPlacement``); nil for anything else.
-    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    /// that kind (``RightColumnPlacement``); nil for anything else. `link`: a web link the person opened, a tab in
+    /// the pane on the right rather than a split below it (``LinkOpenPlacement/inColumn(right:column:sourceWidth:width:kind:holds:link:)``).
+    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
+                link: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
         let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
@@ -100,7 +102,7 @@ final class LinkOpener {
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
                 let column = content.map { Self.rightPanes(beside: source.layoutPaneID, in: $0) } ?? []
                 return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: Self.width(of: source), width: width,
-                                                                kind: kind, holds: holds)
+                                                                kind: kind, holds: holds, link: link)
             case .dockChat: return .dockChat(source.layoutPaneID)
             case .here, .besideDock: break
             }
@@ -123,7 +125,7 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, link: link, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
@@ -134,12 +136,12 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
+              link: Bool = false, focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus,
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, link: link, focusing: focus,
                                 split: split, make, done: done)
         }
         return now ? opened : true
@@ -147,9 +149,9 @@ final class LinkOpener {
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, link: Bool, focusing focus: FocusState.Target,
                        split: SplitMake?, _ make: Make, done: @escaping @MainActor () -> Void) -> Bool {
-        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
+        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind, link: link) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
@@ -230,7 +232,7 @@ final class LinkOpener {
         // tabs of one PR). Any pane of the right column counts, not only the one this open would use
         // (LinkOpenPlacement.reusePanes). A tab in the source's own pane stays Chrome's: each click is a new tab.
         if reusesTab, !background, let from, let content = from.workspace,
-           let found = LinkOpenPlacement<LayoutPaneID>.reusePanes(target: target(from: from, kind: .browser), column: Self.rightPanes(beside: from.layoutPaneID, in: content),
+           let found = LinkOpenPlacement<LayoutPaneID>.reusePanes(target: target(from: from, kind: .browser, link: true), column: Self.rightPanes(beside: from.layoutPaneID, in: content),
                                                                   source: from.layoutPaneID)
                .lazy.compactMap({ id in content.panes[id].flatMap { pane in self.browserTab(showing: url, in: pane).map { (pane: pane, tab: $0) } } }).first {
             let (pane, shown) = (found.pane, found.tab)
@@ -240,7 +242,7 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        return open(from: from, background: background, kind: .browser, split: background ? nil : browserSplit(url, returningTo: from)) { [weak self, weak from] pane, placed in
+        return open(from: from, background: background, kind: .browser, link: true, split: background ? nil : browserSplit(url, returningTo: from)) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement

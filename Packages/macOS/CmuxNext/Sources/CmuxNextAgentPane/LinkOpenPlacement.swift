@@ -11,7 +11,7 @@ package import CmuxNextSettings
 ///   a split below that pane once, then tabs in the column's lower pane (Leo 2026-10-30: "if
 ///   there's already a thing on the right, there should be logic for just putting it on the lower
 ///   pane of the right"). A terminal or browser goes to a pane there that already holds its kind,
-///   so only a different kind splits below (Leo 2026-10-31: "just open it on the existing"). A browser
+///   so only a different kind splits below (Leo 2026-10-31: "just open it on the existing"). A web
 ///   link never splits below: it is a tab in the pane there, as in classic cmux (Aziz 2026-11-09).
 ///   Unmeasured, the pane on the right gets the tab.
 /// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs.
@@ -65,13 +65,14 @@ package struct LinkOpenPlacement<Pane: Equatable> {
     /// `left`: the pane left of a source that is a page beside it (``LinkOpener`` names one only for
     /// a page, never a terminal or a chat): with nothing on the source's right, the open is a tab in
     /// the source, which is already the side pane (Leo 2026-11-07: "it's already in the second pane,
-    /// and it therefore doesn't need to open the right split").
+    /// and it therefore doesn't need to open the right split"). `link`: a web link the person opened
+    /// (``inColumn(right:column:sourceWidth:width:kind:holds:link:)``).
     package func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
                 width: (Pane) -> CGFloat? = { _ in nil }, kind: RightColumnPlacement.Kind? = nil,
-                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, left: Pane? = nil) -> Target {
+                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, link: Bool = false, left: Pane? = nil) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
         if let right, right != source {
-            return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds)
+            return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds, link: link)
         }
         if !takesTabs { return .besideDock(source) }
         if setting == .newColumn { return .newColumn(rightOf: source) }
@@ -102,16 +103,18 @@ package struct LinkOpenPlacement<Pane: Equatable> {
     /// An item opened beside pane `right`, already on the source's right: ``RightColumnPlacement``
     /// over the measured `column` (a split below its one pane, else a tab in its lower pane), or a tab
     /// in `right` when the column was not measured. A `kind` a pane there already `holds` is a tab in
-    /// that pane. Main pane layout's strip column uses it too.
+    /// that pane. Main pane layout's strip column uses it too. A `link` (a web link the person opened:
+    /// a terminal's Cmd-click, a chat's or a page's link) never splits: it is a tab in the pane there.
     package static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?,
                          kind: RightColumnPlacement.Kind? = nil,
-                         holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
+                         holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, link: Bool = false) -> Target {
         guard !column.isEmpty else { return .pane(right) }
         switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width, opening: kind, holds: holds) {
-        // A browser link never makes a pane when one is already on the right: a tab in it, as classic cmux does
+        // A web link never makes a pane when one is already on the right: a tab in it, as classic cmux does
         // (`openTerminalBrowserLink`). Aziz 2026-11-09: "when I open a browser link, it shouldn't open in a new
-        // pane if there already exists another pane".
-        case .splitBelow(let pane) where kind == .browser: return .pane(pane)
+        // pane if there already exists another pane". A browser the person asks for (a dock's Browser
+        // button, a New Tab page pick) still splits below a terminal (Leo 2026-10-31).
+        case .splitBelow(let pane) where link: return .pane(pane)
         case .splitBelow(let pane): return .splitBelow(of: pane)
         case .tab(let pane): return .pane(pane ?? right)
         case .splitRight: return .pane(right)

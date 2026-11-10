@@ -101,8 +101,10 @@ struct LinkOpenPlacementTests {
         #expect(rule.target(source: "chat", takesTabs: true, right: "web", column: ["web", "shell"], sourceWidth: 1400, width: wide,
                             kind: .browser, holds: holds) == .pane("web"), "the browser pane, not the lower one")
         #expect(Rule.inColumn(right: "web", column: ["web"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds) == .pane("web"))
-        // Aziz 2026-11-09 (LinkReusesExistingPaneTests): a browser link beside a terminal is a tab in it, no new pane.
         #expect(Rule.inColumn(right: "shell", column: ["shell"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds)
+                == .splitBelow(of: "shell"))
+        // Aziz 2026-11-09 (LinkReusesExistingPaneTests): a web link beside a terminal is a tab in it, no new pane.
+        #expect(Rule.inColumn(right: "shell", column: ["shell"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds, link: true)
                 == .pane("shell"))
     }
 

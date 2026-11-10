@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextLayout
 @testable import CmuxNextApp
@@ -16,26 +15,45 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct LinkReusesExistingPaneTests {
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
-    /// A window with a terminal on the left and, on its right, a terminal (and, with `lower`, a diff below it).
+    /// What the faked `new-frontend-browser-tab` was asked.
+    @MainActor private final class Creates {
+        var made: [(pane: PaneID, url: String, split: ConversationTabSplit?)] = []
+    }
+
+    /// A window with a terminal on the left and a terminal on its right, on a daemon that makes a link's tab in its
+    /// split (`frontend-browser-tab-split-v1`); browser tab creates are faked (recorded, then refused).
     private struct Shown {
         let services: AppServices
         let window: NSWindow
         let left: PaneController
-        let upper: PaneController
-        let lower: PaneController?
+        let right: PaneController
+        let creates: Creates
 
-        init(lower: Bool) throws {
+        init() throws {
             _ = NSApplication.shared
             let services = AppServices(environment: AppEnvironment.current([:]))
-            let right: LayoutNode = lower
-                ? .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: .leaf(2), b: .leaf(3)) : .leaf(2)
-            let columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)), ColumnSnapshot(id: 11, width: 0.5, layout: right)]
-            var panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Shell")]),
+            let store = services.daemon.store
+            let served: [DaemonCapability] = [.frontendBrowserTabs, .frontendBrowserTabSplit, .splitClientKeys, .splitClientSplitID]
+            let list = served.map { "\"\($0.rawValue)\"" }.joined(separator: ",")
+            let json = #"{"app":"cmux-tui","protocol":1,"session":"link-reuse","generation":"g1","capabilities":["# + list + "]}"
+            let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+            store.noteHandshake(identity)
+            store.connectionState = .connected(identity)
+            let columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)), ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2))]
+            let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Shell")]),
                          PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "Server")])]
-            if lower { panes.append(PaneSnapshot(id: 3, tabs: [TabSnapshot(surface: 3, title: "Logs")])) }
             let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)
-            services.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Links", screens: [screen])]))
-            let workspace = try #require(services.daemon.store.workspaces.first)
+            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Links", screens: [screen])]))
+            let creates = Creates()
+            self.creates = creates
+            let browserTabs = services.cache.browserTabs
+            browserTabs.serves = { _ in true }
+            browserTabs.cefUnavailable = { nil }
+            browserTabs.create = { _, pane, url, _, _, _, _, split in
+                creates.made.append((pane, url, split))
+                throw CancellationError()
+            }
+            let workspace = try #require(store.workspaces.first)
             let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"links-window","workspace_key":"Links"}"#.utf8))
             let state = WindowState(record: record)
             let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1600, height: 900), styleMask: [.borderless],
@@ -50,48 +68,40 @@ import Testing
             self.services = services
             self.window = window
             left = try #require(content.panes.values.first { $0.pane.handle == 1 })
-            upper = try #require(content.panes.values.first { $0.pane.handle == 2 })
-            self.lower = content.panes.values.first { $0.pane.handle == 3 }
+            right = try #require(content.panes.values.first { $0.pane.handle == 2 })
             services.linkOpener.placement = { .splitRight }
-        }
-
-        /// Opens a browser link from the left terminal through the link opener; answers the pane the tab was made
-        /// in and whether the open then moved it into a new split.
-        func openLink() -> (pane: LayoutPaneID?, split: Bool) {
-            var made: LayoutPaneID?
-            var split = false
-            _ = services.linkOpener.open(from: left, kind: .browser) { pane, placed in
-                made = pane.layoutPaneID
-                split = placed != nil
-                return false
-            }
-            return (made, split)
         }
 
         func close() { window.closeAfterTest() }
     }
 
-    /// One terminal on the right: the link is a tab in it, never a split below it.
-    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
-    func aLinkBesideATerminalOpensAsATabInThePaneOnTheRight() throws {
-        let shown = try Shown(lower: false)
+    /// A link Cmd-clicked in the left terminal (`openWeb`, as `TerminalHostDelegate` opens it) with a terminal on the
+    /// right: a tab in that terminal's pane, no new pane below it.
+    @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() }, .timeLimit(.minutes(1)))
+    func aLinkBesideATerminalOpensAsATabInThePaneOnTheRight() async throws {
+        let shown = try Shown()
         defer { shown.close() }
-        #expect(shown.services.linkOpener.target(from: shown.left, kind: .browser) == .pane(shown.upper.layoutPaneID),
-                "a browser link split a new pane below the terminal already on the right")
-        let opened = shown.openLink()
-        #expect(opened.pane == shown.upper.layoutPaneID)
-        #expect(!opened.split, "the link moved into a new pane instead of staying a tab in the existing one")
-        #expect(!shown.services.linkOpener.turns.isBusy(beside: shown.left.layoutPaneID))
+        let store = shown.services.daemon.store
+        let url = try #require(URL(string: "https://example.com/"))
+
+        #expect(shown.services.linkOpener.openWeb(url, from: shown.left, background: false))
+
+        #expect(!store.pendingIntents.contains { if case .splitPane = $0 { true } else { false } },
+                "the link split a new pane below the terminal already on the right")
+        #expect(store.workspaces.first?.screens.first?.panes.count == 2, "a new pane showed")
+        for _ in 0..<20 where shown.creates.made.isEmpty { await Task.yield() }
+        let made = try #require(shown.creates.made.first, "no browser tab was asked of the daemon")
+        #expect(made.pane == shown.right.pane.handle, "the link's tab was not made in the pane on the right")
+        #expect(made.split == nil, "the link's tab was made in a new split: \(String(describing: made.split))")
     }
 
-    /// Two panes on the right: still a tab in one of them, no third pane.
+    /// A browser the person asks for that is not a link (a dock's Browser button, a New Tab page pick) keeps Leo's
+    /// lower split beside a terminal (2026-10-31: split "when there's a terminal that gets opened when there's
+    /// already a browser, and vice versa"); only links reuse the pane.
     @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
-    func aLinkBesideAFullColumnOpensAsATabThere() throws {
-        let shown = try Shown(lower: true)
+    func aBrowserThatIsNoLinkStillSplitsBelowATerminal() throws {
+        let shown = try Shown()
         defer { shown.close() }
-        let lower = try #require(shown.lower)
-        let opened = shown.openLink()
-        #expect(opened.pane == lower.layoutPaneID)
-        #expect(!opened.split)
+        #expect(shown.services.linkOpener.target(from: shown.left, kind: .browser) == .splitBelow(of: shown.right.layoutPaneID))
     }
 }

@@ -355,7 +355,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source, kind: .browser) { target, placed in
+        services.linkOpener.open(from: source, kind: .browser, link: true) { target, placed in
             if target === source, placed == nil {
                 self.open(url: url, adopting: child, engine: engine, profile: profile, in: pane,
                           opener: opener, background: false)
