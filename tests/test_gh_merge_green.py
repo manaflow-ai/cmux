@@ -9,6 +9,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 from unittest import mock
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -61,7 +62,7 @@ ISSUE = "✘ Test fragmentNavigation() recorded an issue at NavigationEdgeTests.
 SUMMARY = "✘ Test run with 15 tests in 2 suites failed after 5.731 seconds with 1 issue."
 
 
-# scripts/ci/merge-fast-gate-protected-paths.txt as the base carries it.
+# A base copy of scripts/ci/merge-fast-gate-protected-paths.txt: gh-merge-green must not read it.
 PROTECTED_PATHS = "# comment\n.github/workflows/\nscripts/ci/\nscripts/gh-merge-green\n"
 
 
@@ -398,7 +399,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None, mergeable_reads=None, helper_script=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -501,11 +502,20 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -qE 'actions/runs/[0-9]+( |$)'; then "
             "printf '%s\\n' '{\"status\": \"in_progress\", \"conclusion\": null}'; exit 0; fi\n"
         ) if check_paths is not None else ""
+        # mergeable_reads: the REST pull request's (mergeable, mergeable_state) at the 1st, 2nd... read of it (the
+        # last one repeats); by default it can merge.
+        mergeable_answers = [{"mergeable": m, "mergeable_state": state} for m, state in (mergeable_reads or [(True, "clean")])]
+        mergeable_route = (
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42 .*mergeable'; then "
+            "printf '%s\\n' read >> \"$MERGE_MARKER.mergeablereads\"; r=$(grep -c '^read$' \"$MERGE_MARKER.mergeablereads\"); "
+            "case \"$r\" in "
+            + "".join(f"{index + 1}) printf '%s\\n' " + shlex.quote(json.dumps(answer)) + ";; " for index, answer in enumerate(mergeable_answers))
+            + "*) printf '%s\\n' " + shlex.quote(json.dumps(mergeable_answers[-1])) + ";; esac; exit 0; fi\n")
         rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
                             + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
         gh.write_text(
             "#!/bin/sh\n"
-            + rate_limit_route +
+            + rate_limit_route + mergeable_route +
             "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
             "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
@@ -548,7 +558,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "exit 2\n"
         )
         gh.chmod(0o755)
-        argv = [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
+        argv = [str(helper_script or ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
         env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_CHECK_PATHS_INTERVAL": "0"}
         if reviews is not None:
             env["GH_MERGE_GREEN_REVIEWS"] = reviews
@@ -1094,6 +1104,70 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["dispatch"])
             self.assertIn("final check-path gate", result.stderr)
+
+    # 2026-11-09: the #39027 try spent 4m39s and dispatched the fast gates, then gh pr merge refused with "the
+    # merge commit cannot be cleanly created". A pull request GitHub reports as conflicting refuses first.
+    def test_a_conflicting_pr_refuses_at_once_with_no_dispatch(self):
+        for fields in ({"mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY"}, {"mergeable": "MERGEABLE", "mergeStateStatus": "DIRTY"}):
+            with self.subTest(fields), tempfile.TemporaryDirectory() as directory:
+                marker, events = Path(directory) / "merged", Path(directory) / "events"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                         event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                         fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                         compare=self.LANDED, pr_fields=fields)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(events.exists() and events.read_text().strip(), events.exists() and events.read_text())
+                self.assertIn("conflicting: rebase", result.stderr)
+
+    def test_a_pr_that_turns_conflicting_before_a_rerun_refuses_with_no_rerun(self):
+        newer = "e" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_runs=[(MERGED_SHA, "success"), (newer, "success")],
+                                     tip_shas=[MERGED_SHA, newer], compare=self.LANDED,
+                                     pr_fields={"mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                                     mergeable_reads=[(True, "clean"), (False, "dirty")])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("conflicting: rebase", result.stderr)
+
+    def test_an_unknown_state_that_turns_conflicting_refuses_before_the_rerun(self):
+        # UNKNOWN goes on at once; the read before the next dispatch sees the conflict and refuses with no rerun.
+        newer = "e" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_runs=[(MERGED_SHA, "success"), (newer, "success")],
+                                     tip_shas=[MERGED_SHA, newer], compare=self.LANDED,
+                                     pr_fields={"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"},
+                                     mergeable_reads=[(None, "unknown"), (False, "dirty")])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("conflicting: rebase", result.stderr)
+
+    def test_an_unknown_mergeable_state_goes_on_at_once_with_no_re_read(self):
+        # UNKNOWN is no evidence of a conflict, and gh-merge-green never polls for it: the gates go on at once, the
+        # check-path gate reads it once per dispatch, and gh pr merge still refuses a real conflict.
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED,
+                                     pr_fields={"mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"},
+                                     mergeable_reads=[(None, "unknown")])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            dispatched = events.read_text().splitlines()
+            self.assertEqual(dispatched, ["dispatch", "merge"])
+            self.assertIn("still computing", result.stderr)
+            reads = (Path(directory) / "merged.mergeablereads").read_text().count("read")
+            self.assertEqual(reads, dispatched.count("dispatch"))
 
     def test_override_waives_the_check_path_gates_red(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2421,6 +2495,60 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 self.assertFalse(marker.exists())
                 self.assertIn("--only swift --base", log)
                 self.assertIn("god-file", result.stderr)
+
+    @staticmethod
+    def helper_copy(directory, protected_list):
+        """A helper checkout whose scripts/ci has `protected_list` (None: no list file) as its
+        protected gate paths; every other file links to this checkout's."""
+        scripts = Path(directory) / "helper/scripts"
+        (scripts / "ci").mkdir(parents=True)
+        for entry in (ROOT / "scripts").iterdir():
+            if entry.name not in ("ci", "gh-merge-green"):
+                (scripts / entry.name).symlink_to(entry)
+        for entry in (ROOT / "scripts/ci").iterdir():
+            if entry.name != "merge-fast-gate-protected-paths.txt":
+                (scripts / "ci" / entry.name).symlink_to(entry)
+        if protected_list is not None:
+            (scripts / "ci/merge-fast-gate-protected-paths.txt").write_text(protected_list)
+        shutil.copy2(ROOT / "scripts/gh-merge-green", scripts / "gh-merge-green")
+        return scripts / "gh-merge-green"
+
+    def test_the_protected_paths_list_is_the_helper_s_own_copy_not_the_base_s(self):
+        """#39634 (2026-11-09): feat-cmux-next never carried the list (#20566 landed on main after
+        the fork), so every fast-gate merge read the helper's copy anyway. The helper's copy is the
+        one source: a base copy that leaves out scripts/ci/ does not unprotect it."""
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n", "scripts/ci/merge_freeze.py": "# changed\n"},
+                full=False, helper_kwargs={"protected_paths": "docs/\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("god-file", result.stderr)
+            self.assertNotIn("has no readable", result.stderr)
+
+    def test_a_missing_or_empty_protected_paths_list_refuses_the_fast_gate(self):
+        """With no list there is no way to know which change needs the merged-tree checks: refuse,
+        never fall back to another copy or guess."""
+        for name, protected_list in (("missing", None), ("only comments", "# no entries\n\n")):
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                helper = self.helper_copy(directory, protected_list)
+                result, marker, log = self.run_merge(
+                    directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"}, full=False,
+                    helper_kwargs={"helper_script": helper})
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn("protected gate paths", result.stderr)
+                self.assertIn("merge-fast-gate-protected-paths.txt", result.stderr)
+
+    def test_the_helper_s_own_list_still_lets_an_ordinary_change_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            helper = self.helper_copy(directory, PROTECTED_PATHS)
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n"}, full=False,
+                helper_kwargs={"helper_script": helper, "protected_paths": None})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(log, "")
 
     def test_fork_without_head_trust_refuses(self):
         with tempfile.TemporaryDirectory() as directory:

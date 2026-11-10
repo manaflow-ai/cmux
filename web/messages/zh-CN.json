@@ -3520,11 +3520,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "下一代 cmux 应用的预览构建",
-    "metaTitle": "cmux NEXT NIGHTLY — 预览构建",
-    "metaDescription": "下载 cmux NEXT NIGHTLY，下一代 cmux 应用的预览版，从最新提交自动构建。与 cmux 并行运行，拥有独立的自动更新。",
+    "metaTitle": "cmux NEXT — Chief 和你的编程智能体，集于一个 Mac 应用",
+    "metaDescription": "cmux NEXT 是下一代 cmux for Mac。告诉 Chief 你想做什么：它会在各自的工作区里启动编程智能体，并向你汇报。",
     "description": "cmux NEXT NIGHTLY 是下一版 cmux 的预览版，从最新提交自动构建。它以 cmux NIGHTLY（Bundle ID com.cmuxterm.app.nightly）的身份安装，因此会替换 cmux NIGHTLY，并可与 cmux 并行运行。需要搭载 Apple 芯片的 Mac。",
     "download": "下载 Mac 版 NEXT NIGHTLY",
-    "warning": "NEXT NIGHTLY 构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。"
+    "warning": "NEXT NIGHTLY 构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。",
+    "landing": {
+      "tagline": "告诉 Chief 你想做什么，智能体由它来运行。",
+      "subtitle": "cmux NEXT 是下一代 cmux：一款基于 Ghostty 的原生 Mac 应用。内置助手 Chief 会在各自的工作区里启动编程智能体，盯着它们，并在有智能体需要你时通知你。每个智能体旁边都有终端、真正的浏览器和差异视图。",
+      "requirements": "Apple silicon · macOS 14 或更高版本 · 可与 cmux 并行运行",
+      "featuresTitle": "功能",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "告诉它你想做什么。它会启动智能体，把大任务交给子智能体，并向你汇报。"
+        },
+        "home": {
+          "title": "Home",
+          "body": "Chief 和所有智能体共用一个对话列表，有智能体需要你时会显示未读圆点。"
+        },
+        "agents": {
+          "title": "任意编程智能体",
+          "body": "Claude Code、Codex、Gemini CLI、OpenCode、Pi 等以真实对话的形式运行，修改和差异都看得见。"
+        },
+        "floating": {
+          "title": "悬浮的 Chief",
+          "body": "⌘I 让 Chief 出现在你当前的工作区上方。⌥⇧Space 可在任何应用中唤出它。"
+        },
+        "search": {
+          "title": "搜索一切",
+          "body": "⌘⇧A 可查找工作区、标签页、智能体对话、浏览器历史和过往命令。"
+        },
+        "spaces": {
+          "title": "空间",
+          "body": "为不同的工作保留不同的窗口集合。用 ⌃⌥⌘← 和 → 切换。"
+        },
+        "browser": {
+          "title": "真正的浏览器",
+          "body": "标签页中的 Chromium，支持扩展、DevTools 和配置文件，就在智能体旁边。"
+        },
+        "machines": {
+          "title": "你的机器",
+          "body": "通过 SSH 运行工作区，或在空闲时会暂停的 cmux Cloud 机器上运行（cmux Pro）。"
+        },
+        "history": {
+          "title": "带上你的历史记录",
+          "body": "把 Claude Code 和 Codex 历史导入为可搜索的对话，接着上次继续。"
+        },
+        "terminal": {
+          "title": "Ghostty 终端",
+          "body": "GPU 渲染，并读取你的 Ghostty 配置。"
+        },
+        "sidebar": {
+          "title": "你自己的侧边栏",
+          "body": "以列表或网格的形式添加侧边栏分区，用小型 JavaScript 应用构建。"
+        },
+        "phone": {
+          "title": "iPhone，测试版",
+          "body": "在手机上回应智能体的权限请求。"
+        }
+      },
+      "heroAlt": "cmux NEXT：左侧是 Home 中的 Chief，右侧是 Claude Code 智能体及其修改的文件",
+      "demosTitle": "看看效果",
+      "demos": {
+        "docked": {
+          "caption": "停靠在工作区旁边的 Chief。",
+          "alt": "停靠在终端工作区右侧的 Chief"
+        },
+        "floating": {
+          "caption": "⌘I 让 Chief 悬浮在你正在做的事情之上。",
+          "alt": "悬浮在终端工作区上方的 Chief"
+        },
+        "agents": {
+          "caption": "智能体的对话，就在 Chief 的对话旁边。",
+          "alt": "智能体对话与 Chief 对话并排显示"
+        },
+        "palette": {
+          "caption": "⌘⇧P 按名称运行任意操作。",
+          "alt": "在对话上方打开的命令面板"
+        },
+        "history": {
+          "caption": "导入 Claude Code 和 Codex 历史。",
+          "alt": "列出 Claude Code、Codex 等来源的导入界面"
+        },
+        "machines": {
+          "caption": "选择工作区分组运行在哪台机器上。",
+          "alt": "选择工作区分组运行的机器"
+        }
+      },
+      "nightlyTitle": "关于 NEXT NIGHTLY",
+      "nightlyBody": "每晚都会基于最新提交发布新构建，应用会自动更新。",
+      "iconAlt": "cmux NEXT NIGHTLY 图标"
+    }
   },
   "languageSwitcher": {
     "label": "语言"
