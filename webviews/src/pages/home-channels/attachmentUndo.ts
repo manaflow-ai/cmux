@@ -65,6 +65,19 @@ export class AttachmentUndo<T> {
     this.deadTextRedos = 0;
   }
 
+  /// Files the composer's owner took out itself (a card's files it replaced): no step brings them back,
+  /// and a step left with none goes.
+  forget(gone: (item: T) => boolean): void {
+    const keep = (edits: AttachmentEdit<T>[]) =>
+      edits.flatMap((edit) => {
+        const items = edit.items.filter((item) => !gone(item));
+        if (items.length === edit.items.length) return [edit];
+        return items.length ? [{ ...edit, items }] : [];
+      });
+    this.undos = keep(this.undos);
+    this.redos = keep(this.redos);
+  }
+
   /// The files were sent: nothing brings them back.
   clear(): void {
     this.undos = [];

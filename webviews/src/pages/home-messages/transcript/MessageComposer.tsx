@@ -188,7 +188,9 @@ export function MessageComposer({
     current,
   });
 
-  const addFiles = (list: Iterable<File>, group?: string) => {
+  /** `mine`: the person added them here (the file button, a paste or drop on the field), so the keyboard
+   * goes back to the field; the app's adds (a card's files, the media viewer's Send) leave it. */
+  const addFiles = (list: Iterable<File>, group?: string, mine = false) => {
     if (!attachments) return;
     const { conversation } = attachments;
     const index = drafts.files(conversation).length;
@@ -212,11 +214,14 @@ export function MessageComposer({
     }
     if (group) groups.current.set(group, [...(groups.current.get(group) ?? []), ...added]);
     if (added.length)
-      fileUndo.noteFileEdit({
-        kind: "add",
-        items: drafts.files(conversation).filter((item) => added.includes(item.id)),
-        index,
-      });
+      fileUndo.noteFileEdit(
+        {
+          kind: "add",
+          items: drafts.files(conversation).filter((item) => added.includes(item.id)),
+          index,
+        },
+        mine,
+      );
   };
   const removeFile = (id: string) => {
     const index = drafts.files(tray).findIndex((item) => item.id === id);
@@ -230,6 +235,8 @@ export function MessageComposer({
     groups.current.delete(group);
     if (!ids?.length) return false;
     for (const id of ids) drafts.remove(tray, id);
+    // The app replaced the card's files: no Cmd-Z or Shift-Cmd-Z brings the old ones back.
+    fileUndo.forget((item) => ids.includes(item.id));
     return true;
   };
   // Quote in Reply: the quote goes after what is typed, with a line for the reply, and typing goes on there.
@@ -262,7 +269,8 @@ export function MessageComposer({
     setNotice(undefined);
     setText("");
     editor.current?.reset("");
-    // The editor's history starts over with the empty field: the file steps go with it.
+    // The files are sent: no file step brings them back (Cmd-Z on the text still can, as the clear is
+    // the editor's own step).
     fileUndo.clear();
     const sentItems = sending.length ? drafts.take(tray, sending) : [];
     // Refused before it was logged: the text comes back to an empty field and the files to the tray.
@@ -299,13 +307,13 @@ export function MessageComposer({
     // Files attach; only the words beside them paste (a file's own name is not words).
     const words = textBeside(transfer);
     event.preventDefault();
-    addFiles(list);
+    addFiles(list, undefined, true);
     if (words) editor.current?.insertTyped(words);
   };
 
   useImperativeHandle(ref, () => ({
     takesFiles: !!attachments,
-    addFiles,
+    addFiles: (list, group) => addFiles(list, group),
     removeGroup,
     quote: quoteInReply,
     recallHistory: (direction) => {
@@ -366,7 +374,7 @@ export function MessageComposer({
               hidden
               aria-label={t("compose.attach")}
               onChange={(event) => {
-                if (event.target.files) addFiles(event.target.files);
+                if (event.target.files) addFiles(event.target.files, undefined, true);
                 event.target.value = "";
               }}
             />

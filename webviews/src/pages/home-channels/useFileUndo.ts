@@ -16,8 +16,11 @@ export type FileTray<T> = {
 };
 
 export type FileUndo<T> = {
-  /** A file edit of the person's: undoable, and what they type next is a new text step. */
-  noteFileEdit(edit: Omit<AttachmentEdit<T>, "depth">): void;
+  /** A file edit of the person's: undoable, and what they type next is a new text step. `focus` (the
+   * default) takes the keyboard back to the field; an add from elsewhere in the app leaves it. */
+  noteFileEdit(edit: Omit<AttachmentEdit<T>, "depth">, focus?: boolean): void;
+  /** Files the owner took out itself: no undo or redo brings them back. */
+  forget(gone: (item: T) => boolean): void;
   /** The editor's key-down: Cmd-Z, Shift-Cmd-Z and Cmd-Y run here (true), other keys do not. */
   keyDown(event: KeyboardEvent): boolean;
   /** The editor reported a change of its text. */
@@ -91,13 +94,14 @@ export function useFileUndo<T>(
   }, [root]);
 
   return {
-    noteFileEdit: (edit) => {
+    noteFileEdit: (edit, focus = true) => {
       const text = editor.current?.history();
       history.current.record({ ...edit, depth: text?.depth ?? 0 }, text?.redoDepth ?? 0);
       editor.current?.closeHistory();
       // A click on the tray or a file chooser took the keyboard from the field: Cmd-Z goes to it again.
-      editor.current?.focus();
+      if (focus) editor.current?.focus();
     },
+    forget: (gone) => history.current.forget(gone),
     keyDown: (event) => {
       const chord = undoChord(event);
       if (!chord) return false;
