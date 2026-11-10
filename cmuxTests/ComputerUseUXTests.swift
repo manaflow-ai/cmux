@@ -1284,10 +1284,12 @@ struct ComputerUseUXTests {
     @Test
     func permissionSetupReleasesAllowWhenItFinishes() {
         var setup = ComputerUsePermissionSetupRequest()
-        #expect(setup.begin(.screenRecording))
+        let started = setup.begin(.screenRecording)
+        #expect(started)
         let generation = setup.generation
         #expect(setup.isInFlight)
-        #expect(!setup.begin(.accessibility))
+        let startedSecond = setup.begin(.accessibility)
+        #expect(!startedSecond)
         #expect(setup.activeStep == .screenRecording)
         #expect(setup.generation == generation)
 
