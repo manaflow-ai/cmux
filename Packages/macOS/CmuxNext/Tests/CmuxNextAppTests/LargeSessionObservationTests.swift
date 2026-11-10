@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
@@ -139,5 +140,41 @@ struct LargeSessionObservationTests {
         await LargeSessionFixture.until { feed.workspaces(showing: ["s-7-moved"]).count == 1 }
         let moved = feed.workspaces(showing: ["s-7-moved", "s-7"])
         #expect(moved == [SidebarWorkspaceID(fixture.store.workspaces[6].id): "s-7-moved"])
+    }
+
+    /// O4 `SidebarDocMachines.swift:132`: the sidebar's link favicons read every tab of the local store (its open tab
+    /// favicon addresses, by origin) in one observation, so a navigation or a favicon change in any browser tab read
+    /// every tab again, and posted `itemFaviconsChanged` also when nothing moved. Each workspace's open tab favicons are
+    /// their own observation now; the follower reads their joined table.
+    @Test(.timeLimit(.minutes(2)))
+    func o4SidebarFaviconsObserveEachWorkspacesTabsOnTheirOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let doc = SidebarDocStore(remote: nil)
+        let openTabs = OpenTabFavicons()
+        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces }, favicon: { Self.favicon($0) })
+        let byOrigin: @MainActor () -> [String: String] = { openTabs.byOrigin }
+        SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: BookmarkURL.faviconKey(for:))
+        await LargeSessionFixture.drainMain()
+
+        // The probe: each workspace's Chromium page gets its favicon (what the follower reads of a tab).
+        let pages = fixture.tabs().filter { $0.tab.kind == .browser && $0.tab.url?.hasSuffix("/cef") == true }
+        try #require(pages.count == LargeSessionFixture.workspaces)
+        let changes = pages.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            (item.workspace, { item.tab.faviconURL = "http://127.0.0.1:9/\(item.workspace)/icon.png" })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextBridge/", changes: changes)
+        #expect(!woken.isEmpty, "fixture: no favicon observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "favicon observers woken by more than one workspace: \(wide)")
+        // The table still follows: the origin's first open tab (workspace 1) gives its favicon.
+        await LargeSessionFixture.until { byOrigin()["http://127.0.0.1:9"] != nil }
+        #expect(byOrigin()["http://127.0.0.1:9"] == "http://127.0.0.1:9/1/icon.png")
+    }
+
+    /// The fixture's open tab favicon: a browser tab's site origin and favicon address (the app also skips incognito tabs).
+    static func favicon(_ tab: TabModel) -> OpenTabFavicons.Favicon? {
+        guard tab.kind == .browser, let address = tab.faviconURL,
+              let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
+        return OpenTabFavicons.Favicon(origin: origin, address: address)
     }
 }
