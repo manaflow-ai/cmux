@@ -721,6 +721,137 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
         XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
     }
+
+    @MainActor
+    func testFillTextIsTheRowPickedWithArrowKeys() {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("browse"))
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(OmnibarSelectedSuggestionFillHarness.rows))
+        XCTAssertNil(
+            omnibarFillTextForSelectedSuggestion(state: state),
+            "A row the popup picked on its own must not take over Tab"
+        )
+
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 2))
+        XCTAssertEqual(
+            omnibarFillTextForSelectedSuggestion(state: state),
+            OmnibarSelectedSuggestionFillHarness.pickedURL
+        )
+
+        _ = omnibarReduce(state: &state, event: .bufferChanged("browse/"))
+        XCTAssertNil(omnibarFillTextForSelectedSuggestion(state: state), "Typing drops the keyboard pick")
+    }
+
+    @MainActor
+    func testFillTextIgnoresHoveredRow() {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("browse"))
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(OmnibarSelectedSuggestionFillHarness.rows))
+        _ = omnibarReduce(state: &state, event: .highlightIndex(2))
+
+        XCTAssertEqual(state.selectedSuggestionIndex, 2)
+        XCTAssertNil(omnibarFillTextForSelectedSuggestion(state: state))
+    }
+
+    @MainActor
+    func testFillTextForSearchRowIsItsQueryUnlessThatIsTheTypedText() {
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+            .search(engineName: "Google", query: "go"),
+            .remoteSearchSuggestion("go tutorial"),
+        ]))
+
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        XCTAssertEqual(omnibarFillTextForSelectedSuggestion(state: state), "go tutorial")
+
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: -1))
+        XCTAssertNil(omnibarFillTextForSelectedSuggestion(state: state), "Filling the typed text again would swallow Tab")
+    }
+
+    @MainActor
+    func testTabFillsFieldWithArrowPickedRowWithoutSubmitting() throws {
+        let harness = OmnibarSelectedSuggestionFillHarness(pickRowWithArrowKeys: true)
+        let url = OmnibarSelectedSuggestionFillHarness.pickedURL
+
+        XCTAssertTrue(try harness.dispatchTab())
+
+        XCTAssertEqual(harness.editor.string, url)
+        XCTAssertEqual(harness.editor.selectedRange(), NSRange(location: url.utf16.count, length: 0))
+        XCTAssertEqual(harness.state.buffer, url)
+        XCTAssertEqual(harness.submitCount, 0)
+    }
+
+    @MainActor
+    func testRightArrowFillsFieldOnlyWhenCaretIsAtEnd() throws {
+        let harness = OmnibarSelectedSuggestionFillHarness(pickRowWithArrowKeys: true)
+        let url = OmnibarSelectedSuggestionFillHarness.pickedURL
+
+        harness.editor.setSelectedRange(NSRange(location: 2, length: 0))
+        XCTAssertFalse(try harness.dispatchRightArrow(), "Right arrow mid-text still moves the caret")
+        XCTAssertEqual(harness.editor.string, OmnibarSelectedSuggestionFillHarness.typedText)
+
+        harness.editor.setSelectedRange(NSRange(location: OmnibarSelectedSuggestionFillHarness.typedText.utf16.count, length: 0))
+        XCTAssertTrue(try harness.dispatchRightArrow())
+        XCTAssertEqual(harness.editor.string, url)
+        XCTAssertEqual(harness.editor.selectedRange(), NSRange(location: url.utf16.count, length: 0))
+        XCTAssertEqual(harness.state.buffer, url)
+        XCTAssertEqual(harness.submitCount, 0)
+    }
+
+    @MainActor
+    func testTabWithoutKeyboardPickLeavesFieldAlone() throws {
+        let harness = OmnibarSelectedSuggestionFillHarness(pickRowWithArrowKeys: false)
+
+        XCTAssertFalse(try harness.dispatchTab())
+
+        XCTAssertEqual(harness.editor.string, OmnibarSelectedSuggestionFillHarness.typedText)
+        XCTAssertEqual(harness.state.buffer, OmnibarSelectedSuggestionFillHarness.typedText)
+    }
+
+    @MainActor
+    func testArrowPickedRowWinsOverInlineCompletionForAnotherRow() throws {
+        for key in ["tab", "right"] {
+            // Up from the auto-picked Gmail row lands on Google, which Return would open.
+            let harness = OmnibarSelectedSuggestionFillHarness(
+                typedText: "gm",
+                rows: OmnibarSelectedSuggestionFillHarness.inlineRows,
+                inlineCompletion: OmnibarSelectedSuggestionFillHarness.gmailInline,
+                selectionDelta: -1
+            )
+            XCTAssertEqual(harness.state.selectedSuggestionIndex, 1, key)
+
+            XCTAssertTrue(try key == "tab" ? harness.dispatchTab() : harness.dispatchRightArrow(), key)
+
+            XCTAssertEqual(harness.acceptInlineCount, 0, key)
+            XCTAssertEqual(harness.editor.string, "https://google.com/", key)
+            XCTAssertEqual(harness.state.buffer, "https://google.com/", key)
+            XCTAssertEqual(harness.submitCount, 0, key)
+        }
+    }
+
+    @MainActor
+    func testTabAcceptsInlineCompletionWithoutKeyboardPickOrWhenPickIsItsRow() throws {
+        for selectionDelta in [nil, 1] as [Int?] {
+            // nil: Gmail auto-picked. 1: Down from Gmail stays on Gmail, now explicit.
+            let harness = OmnibarSelectedSuggestionFillHarness(
+                typedText: "gm",
+                rows: OmnibarSelectedSuggestionFillHarness.inlineRows,
+                inlineCompletion: OmnibarSelectedSuggestionFillHarness.gmailInline,
+                selectionDelta: selectionDelta
+            )
+            XCTAssertEqual(harness.state.selectedSuggestionIndex, 2)
+
+            XCTAssertTrue(try harness.dispatchTab())
+
+            XCTAssertEqual(harness.acceptInlineCount, 1, "delta \(String(describing: selectionDelta))")
+            XCTAssertEqual(harness.editor.string, "gmail.com")
+            XCTAssertEqual(harness.state.buffer, "gm", "Inline accept is the panel's job, not the fill path")
+        }
+    }
 }
 
 @MainActor
@@ -1061,6 +1192,141 @@ private final class OmnibarInlineDeletionHarness {
         inlineCompletion = nil
     }
 
+}
+
+/// "browse" typed, popup showing a search row and two history rows whose URLs
+/// contain the text but don't start with it, so no inline completion shows.
+@MainActor
+private final class OmnibarSelectedSuggestionFillHarness {
+    static let typedText = "browse"
+    static let pickedURL = "https://example.atlassian.net/browse/ABC-773"
+    static let rows: [OmnibarSuggestion] = [
+        .search(engineName: "Google", query: typedText),
+        .history(url: "https://example.atlassian.net/browse/ABC-772", title: "ABC-772"),
+        .history(url: pickedURL, title: "ABC-773"),
+    ]
+
+    /// "gm" typed: the popup auto-picks Gmail and its inline completion shows.
+    static let inlineRows: [OmnibarSuggestion] = [
+        .search(engineName: "Google", query: "gm"),
+        .history(url: "https://google.com/", title: "Google"),
+        .history(url: "https://gmail.com/", title: "Gmail"),
+    ]
+    static let gmailInline = OmnibarInlineCompletion(
+        typedText: "gm",
+        displayText: "gmail.com",
+        acceptedText: "https://gmail.com/"
+    )
+
+    var state = OmnibarState()
+    var inlineCompletion: OmnibarInlineCompletion?
+    var submitCount = 0
+    var acceptInlineCount = 0
+    let editor = NSTextView()
+
+    convenience init(pickRowWithArrowKeys: Bool) {
+        self.init(
+            typedText: Self.typedText,
+            rows: Self.rows,
+            inlineCompletion: nil,
+            selectionDelta: pickRowWithArrowKeys ? 2 : nil
+        )
+    }
+
+    init(
+        typedText: String,
+        rows: [OmnibarSuggestion],
+        inlineCompletion: OmnibarInlineCompletion?,
+        selectionDelta: Int?
+    ) {
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        _ = omnibarReduce(state: &state, event: .bufferChanged(typedText))
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        if let selectionDelta {
+            _ = omnibarReduce(state: &state, event: .moveSelection(delta: selectionDelta))
+        }
+        self.inlineCompletion = inlineCompletion
+        if let inlineCompletion {
+            editor.string = inlineCompletion.displayText
+            editor.setSelectedRange(inlineCompletion.suffixRange)
+        } else {
+            editor.string = typedText
+            editor.setSelectedRange(NSRange(location: typedText.utf16.count, length: 0))
+        }
+    }
+
+    func dispatchTab() throws -> Bool {
+        try dispatch(keyCode: 48, characters: "\t", modifiers: [], command: #selector(NSResponder.insertTab(_:)))
+    }
+
+    func dispatchRightArrow() throws -> Bool {
+        try dispatch(
+            keyCode: 124,
+            characters: "\u{F703}",
+            modifiers: [.function, .numericPad],
+            command: #selector(NSResponder.moveRight(_:))
+        )
+    }
+
+    /// The key-down hook first, then the field editor's command if the hook
+    /// passed on it, the order AppKit uses.
+    private func dispatch(
+        keyCode: UInt16,
+        characters: String,
+        modifiers: NSEvent.ModifierFlags,
+        command: Selector
+    ) throws -> Bool {
+        let coordinator = makeCoordinator()
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
+        if coordinator.handleKeyEvent(event, editor: editor) { return true }
+        return coordinator.control(NSTextField(), textView: editor, doCommandBy: command)
+    }
+
+    private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
+        OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: UUID(),
+                fontSize: 12,
+                text: Binding(
+                    get: { self.state.buffer },
+                    set: { _ = omnibarReduce(state: &self.state, event: .bufferChanged($0)) }
+                ),
+                isFocused: Binding(
+                    get: { self.state.isFocused },
+                    set: { self.state.isFocused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: inlineCompletion,
+                selectedSuggestionFillText: omnibarFillTextForSelectedSuggestion(state: state),
+                placeholder: "",
+                onTap: {},
+                onSubmit: { _ in self.submitCount += 1 },
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: { self.acceptInlineCount += 1 },
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
 }
 
 
