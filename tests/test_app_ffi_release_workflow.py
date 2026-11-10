@@ -534,7 +534,7 @@ class RePinPublication(unittest.TestCase):
         self.assertNotIn("needs", job)
         self.assertEqual(job["environment"], "ffi-release")
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
-        self.assertEqual(job["permissions"], {"contents": "read", "checks": "read", "statuses": "read"})
+        self.assertEqual(job["permissions"], {"actions": "read", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(job["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")
         self.assertEqual(release["steps"][-1]["env"]["READ_TOKEN"], "${{ github.token }}")

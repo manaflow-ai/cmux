@@ -524,11 +524,14 @@ jobs:
   repin:
     name: open the re-pin pull request
     needs: [build, publish]
-    if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # always(): a run that ends with no release (its build failed or was cancelled) still re-pins the newest published
+    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh).
+    if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
       checks: read
       statuses: read

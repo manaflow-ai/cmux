@@ -32,6 +32,33 @@ read -r pin_sha CHECKSUM <<<"$picked"
 [[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
   || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
 TAG="cmux-app-ffi-$pin_sha"
+# Wait for a newer release that is still building (2026-11-10: #39863 at 8c29468b pinned 1818fd17 while the run for
+# the newer input commit b2fb62c7 was queued, so the re-pin was stale on arrival). Another app-ffi-release.yml run on
+# feat-cmux-next that is not completed, for a commit newer than the picked release (not its ancestor, or not in this
+# checkout: pushed after it), re-pins when it publishes; its re-pin job runs even when it ends with no release, so the
+# pin always has an owner. A failed read re-pins as before.
+pending_newer() {
+  local runs id head
+  if ! runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh api \
+      "repos/$GITHUB_REPOSITORY/actions/workflows/app-ffi-release.yml/runs?branch=feat-cmux-next&per_page=100" \
+      --jq '.workflow_runs[] | select(.status != "completed") | "\(.id) \(.head_sha)"')"; then
+    echo "::warning title=Re-pin::could not read the app FFI release runs; re-pinning $TAG as before" >&2
+    return 1
+  fi
+  while read -r id head; do
+    [[ "$id" =~ ^[0-9]+$ && "$head" =~ ^[0-9a-f]{40}$ ]] || continue
+    [[ "$id" != "${GITHUB_RUN_ID:-}" && "$head" != "$pin_sha" ]] || continue
+    git merge-base --is-ancestor "$head" "$pin_sha" 2>/dev/null && continue
+    echo "$id $head"
+    return 0
+  done <<<"$runs"
+  return 1
+}
+if newer="$(pending_newer)"; then
+  read -r newer_run newer_sha <<<"$newer"
+  echo "release run $newer_run for ${newer_sha:0:12}, newer than $TAG, is not finished: run $newer_run re-pins; this run leaves $branch alone"
+  exit 0
+fi
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
 if git diff --quiet -- "$manifest"; then
   echo "feat-cmux-next already pins $TAG, the newest published release"
