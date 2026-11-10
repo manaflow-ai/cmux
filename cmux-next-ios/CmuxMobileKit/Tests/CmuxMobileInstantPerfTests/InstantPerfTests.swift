@@ -79,7 +79,7 @@ struct InstantPerfTests {
         let godWhole = try await wholeList(.god)
         InstantPerfReport.record(
             "home_list_first_screen", target: 16, small: small, god: god,
-            note: String(format: "first window %d B (20 of 20 rows) vs %d B (20 of 5,000 rows); the whole god list (%d B) follows off the main actor: %.1f ms",
+            note: String(format: "first window %ld B (20 of 20 rows) vs %ld B (20 of 5,000 rows); the whole god list (%ld B) follows off the main actor: %.1f ms",
                          HomeInboxFixture.firstWindowWire(.small).count, HomeInboxFixture.firstWindowWire(.god).count,
                          HomeInboxFixture.wire(.god).count, godWhole))
     }
@@ -112,7 +112,7 @@ struct InstantPerfTests {
                 var list: MacHomeList?
                 var memoTime = Duration.zero
                 let elapsed = try ContinuousClock().measure {
-                    guard case .some(let found, _) = try MacHomeReply(line: fixture.reply) else { return }
+                    guard case .named(let found, _) = try MacHomeReply(line: fixture.reply) else { return }
                     let inPlace = MacHomeRows.apply(found, asked: [fixture.id], complete: true, to: &rows)
                     let start = ContinuousClock.now
                     list = memo.list(rows, query: "", unreadOnly: false, version: .init(rows: 2),
@@ -131,7 +131,7 @@ struct InstantPerfTests {
         let god = try await update(.god)
         InstantPerfReport.record(
             "home_list_one_row_update", target: 4, small: small.runs, god: god.runs,
-            note: String(format: "row N/2 changes in place; timed: the ids read's reply (%d B), the row put in place, the list patched. The memo alone: small %.3f ms, god %.3f ms",
+            note: String(format: "row N/2 changes in place; timed: the ids read's reply (%ld B), the row put in place, the list patched. The memo alone: small %.3f ms, god %.3f ms",
                          change(.god).reply.count, small.memo, god.memo))
     }
 

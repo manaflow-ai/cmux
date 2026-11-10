@@ -26,7 +26,7 @@ import Testing
         let window = MacHomeReply(homeInbox: ["rows": [Self.wire("conv_a")], "offset": 0, "total": 5_000])
         #expect(window == .window([Self.row("conv_a")], offset: 0, total: 5_000))
         let some = MacHomeReply(homeInbox: ["rows": [Self.wire("conv_b", index: 7)], "total": 5_000])
-        #expect(some == .some([MacHomeRows.Found(index: 7, row: Self.row("conv_b"))], total: 5_000))
+        #expect(some == .named([MacHomeRows.Found(index: 7, row: Self.row("conv_b"))], total: 5_000))
         // A host's refusal reads as one, so the feed can fall back.
         let refused = try JSONSerialization.data(withJSONObject: ["id": "m1", "ok": false,
                                                                   "error": ["code": "forbidden", "message": "home-inbox: limit is not accepted from a phone"]])

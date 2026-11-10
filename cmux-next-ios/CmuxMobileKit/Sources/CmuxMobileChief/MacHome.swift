@@ -726,7 +726,7 @@ public final class MacHomeFeed {
             let shown = Set(first.map(\.id))
             let below = (rows ?? []).filter { !shown.contains($0.id) }
             setRows(first + below, complete: first.count >= total)
-        case .some(let found, let total):
+        case .named(let found, let total):
             guard rows != nil else { return false }
             let inPlace = MacHomeRows.apply(found, asked: asked, complete: isComplete, to: &rows!)
             if inPlace?.isEmpty != true {

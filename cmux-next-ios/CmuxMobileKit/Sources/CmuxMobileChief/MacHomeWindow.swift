@@ -71,7 +71,7 @@ public enum MacHomeReply: Equatable, Sendable {
     /// `limit` rows from `offset` of the `total` the phone's list holds.
     case window([MacHomeRow], offset: Int, total: Int)
     /// The rows an `ids` read named, each at its index; an asked one missing has left.
-    case some([MacHomeRows.Found], total: Int)
+    case named([MacHomeRows.Found], total: Int)
 
     /// The reply's `data`.
     public init(homeInbox data: [String: Any]) {
@@ -84,7 +84,7 @@ public enum MacHomeReply: Equatable, Sendable {
             self = .window(wire.compactMap(MacHomeRow.init(wire:)), offset: offset, total: total)
             return
         }
-        self = .some(wire.compactMap { object in
+        self = .named(wire.compactMap { object in
             guard let index = (object["index"] as? NSNumber)?.intValue, index >= 0,
                   let row = MacHomeRow(wire: object) else { return nil }
             return MacHomeRows.Found(index: index, row: row)
@@ -108,7 +108,7 @@ public enum MacHomeReply: Equatable, Sendable {
     public var rows: [MacHomeRow] {
         switch self {
         case .all(let rows), .window(let rows, _, _): rows
-        case .some(let found, _): found.map(\.row)
+        case .named(let found, _): found.map(\.row)
         }
     }
 
