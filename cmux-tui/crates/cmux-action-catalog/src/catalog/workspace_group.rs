@@ -318,6 +318,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "workspaceGroup.setRowLimit",
+        group: GROUP,
+        title: t("WorkspaceActions", "action.workspaceGroup.setRowLimit", "Set Chats per Project…"),
+        keywords: &["group", "project", "chats", "per project", "limit", "cap", "show more", "rows", "all"],
+        category: "workspace",
+        symbol: "list.number",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "identity", 113).style("choices").folder("options").label(t("Localizable", "menu.group.chatsPerProject", "Chats per Project"))], ..SurfacePlan::DEFAULT },
+        arguments: &[args::ROW_LIMIT],
+        targets: &["workspace-group"],
+        cli_name: "workspace-group set-row-limit",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "workspaceGroup.moveToWindow",
         group: GROUP,
         title: t("ActionCatalog", "action.workspaceGroup.moveToWindow", "Move Workspace Group to Window…"),

@@ -102917,6 +102917,1578 @@
         }
       }
     },
+    "settings.sidebar.chatsPerProject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats per Project"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدردشات لكل مشروع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovori po projektu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats pr. projekt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats pro Projekt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats por proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discussions par projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat per progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトごとのチャット数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកក្នុងមួយគម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트당 채팅 수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter per prosjekt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty na projekt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats por projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатов в проекте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตต่อโปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proje başına sohbet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чатів у проєкті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số cuộc trò chuyện mỗi dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个项目的聊天数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個專案的聊天數"
+          }
+        }
+      }
+    },
+    "settings.sidebar.chatsPerProject.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many recent chats each project shows before Show more. Pinned, running, unread and waiting chats always show. A project's right-click menu can override it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الدردشات الحديثة التي يعرضها كل مشروع قبل «عرض المزيد». تظهر الدردشات المثبتة والجارية وغير المقروءة والمنتظرة دائمًا. يمكن لقائمة النقر بزر الماوس الأيمن على المشروع تجاوز ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko nedavnih razgovora svaki projekat prikazuje prije opcije Prikaži više. Prikvačeni, aktivni, nepročitani i razgovori koji čekaju uvijek se prikazuju. Meni desnog klika projekta to može promijeniti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange nylige chats hvert projekt viser før Vis flere. Fastgjorte, kørende, ulæste og ventende chats vises altid. Et projekts højrekliksmenu kan tilsidesætte det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viele aktuelle Chats jedes Projekt vor „Mehr anzeigen“ zeigt. Angeheftete, laufende, ungelesene und wartende Chats werden immer angezeigt. Das Rechtsklickmenü eines Projekts kann das überschreiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuántos chats recientes muestra cada proyecto antes de Mostrar más. Los chats fijados, en curso, sin leer y en espera siempre se muestran. El menú contextual de un proyecto puede cambiarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de discussions récentes affichées par chaque projet avant Afficher plus. Les discussions épinglées, en cours, non lues et en attente s'affichent toujours. Le menu contextuel d'un projet peut le remplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quante chat recenti mostra ogni progetto prima di Mostra altro. Le chat fissate, in esecuzione, non lette e in attesa sono sempre visibili. Il menu contestuale di un progetto può sostituirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「さらに表示」の前に各プロジェクトに表示する最近のチャット数。ピン留め、実行中、未読、待機中のチャットは常に表示されます。プロジェクトの右クリックメニューで個別に変更できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនការជជែកថ្មីៗដែលគម្រោងនីមួយៗបង្ហាញ មុន «បង្ហាញបន្ថែម»។ ការជជែកដែលបានខ្ទាស់ កំពុងដំណើរការ មិនទាន់អាន និងកំពុងរង់ចាំ តែងតែបង្ហាញ។ ម៉ឺនុយចុចខាងស្ដាំរបស់គម្រោងអាចជំនួសវាបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 보기 전에 각 프로젝트에 표시할 최근 채팅 수입니다. 고정됨, 실행 중, 읽지 않음, 대기 중인 채팅은 항상 표시됩니다. 프로젝트의 오른쪽 클릭 메뉴에서 따로 지정할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange nylige chatter hvert prosjekt viser før Vis flere. Festede, kjørende, uleste og ventende chatter vises alltid. Et prosjekts høyreklikkmeny kan overstyre det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ile ostatnich czatów pokazuje każdy projekt przed Pokaż więcej. Przypięte, działające, nieprzeczytane i oczekujące czaty są zawsze widoczne. Menu kontekstowe projektu może to zmienić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantos chats recentes cada projeto mostra antes de Mostrar mais. Chats fixados, em execução, não lidos e aguardando sempre aparecem. O menu de clique direito de um projeto pode substituir isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько недавних чатов показывает каждый проект до «Показать ещё». Закреплённые, работающие, непрочитанные и ожидающие чаты видны всегда. Контекстное меню проекта может это изменить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนแชตล่าสุดที่แต่ละโปรเจกต์แสดงก่อน แสดงเพิ่มเติม แชตที่ปักหมุด กำลังทำงาน ยังไม่ได้อ่าน และกำลังรอจะแสดงเสมอ เมนูคลิกขวาของโปรเจกต์สามารถกำหนดแทนได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her projenin Daha fazla göster'den önce gösterdiği son sohbet sayısı. Sabitlenmiş, çalışan, okunmamış ve bekleyen sohbetler her zaman görünür. Bir projenin sağ tık menüsü bunu geçersiz kılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки нещодавніх чатів показує кожен проєкт до «Показати ще». Закріплені, активні, непрочитані й очікувальні чати видно завжди. Контекстне меню проєкту може це змінити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số cuộc trò chuyện gần đây mỗi dự án hiển thị trước Hiện thêm. Cuộc trò chuyện đã ghim, đang chạy, chưa đọc và đang chờ luôn hiển thị. Menu chuột phải của dự án có thể ghi đè giá trị này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个项目在“显示更多”之前显示的最近聊天数。已置顶、运行中、未读和等待中的聊天始终显示。项目的右键菜单可以单独覆盖此设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個專案在「顯示更多」之前顯示的最近聊天數。已釘選、執行中、未讀和等待中的聊天一律顯示。專案的右鍵選單可以個別覆寫此設定。"
+          }
+        }
+      }
+    },
+    "settings.choice.chatsPerProject3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3"
+          }
+        }
+      }
+    },
+    "settings.choice.chatsPerProject5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5"
+          }
+        }
+      }
+    },
+    "settings.choice.chatsPerProject10": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10"
+          }
+        }
+      }
+    },
+    "settings.choice.chatsPerProjectAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystkie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tất cả"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        }
+      }
+    },
+    "settings.sidebar.floatWithinProject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Float to Top Within Project"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التعويم إلى الأعلى داخل المشروع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomjeri na vrh unutar projekta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt øverst i projektet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innerhalb des Projekts nach oben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subir al principio dentro del proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remonter en haut du projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porta in cima nel progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト内で上に移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទីទៅខាងលើក្នុងគម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 안에서 맨 위로 올리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt øverst i prosjektet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenoś na górę w projekcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subir ao topo dentro do projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поднимать наверх в проекте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลอยขึ้นด้านบนภายในโปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proje içinde en üste taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Піднімати вгору в проєкті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đưa lên đầu trong dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在项目内置顶浮动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在專案內浮到頂端"
+          }
+        }
+      }
+    },
+    "settings.sidebar.floatWithinProject.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats waiting on you, then finished unread chats, move to the top of their project, below pinned. They never leave the project, and working chats never move."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتقل الدردشات التي تنتظرك، ثم الدردشات المنتهية غير المقروءة، إلى أعلى مشروعها أسفل المثبتة. لا تغادر المشروع أبدًا، ولا تتحرك الدردشات العاملة أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovori koji čekaju na vas, zatim završeni nepročitani razgovori, pomjeraju se na vrh svog projekta, ispod prikvačenih. Nikad ne napuštaju projekat, a aktivni razgovori se nikad ne pomjeraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, der venter på dig, og derefter færdige ulæste chats, flyttes øverst i deres projekt under de fastgjorte. De forlader aldrig projektet, og kørende chats flyttes aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, die auf dich warten, dann fertige ungelesene Chats, rücken in ihrem Projekt nach oben, unter die angehefteten. Sie verlassen das Projekt nie, und laufende Chats bewegen sich nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats que te esperan y luego los terminados sin leer suben al principio de su proyecto, debajo de los fijados. Nunca salen del proyecto y los chats en curso nunca se mueven."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les discussions qui vous attendent, puis les discussions terminées non lues, remontent en haut de leur projet, sous les épinglées. Elles ne quittent jamais le projet, et les discussions en cours ne bougent jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat che ti aspettano, poi quelle completate e non lette, salgono in cima al loro progetto, sotto quelle fissate. Non lasciano mai il progetto e le chat in esecuzione non si spostano mai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応待ちのチャット、次に完了した未読のチャットが、プロジェクト内のピン留めの下の先頭に移動します。プロジェクトから出ることはなく、実行中のチャットは移動しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលកំពុងរង់ចាំអ្នក បន្ទាប់មកការជជែកដែលបានបញ្ចប់តែមិនទាន់អាន ផ្លាស់ទីទៅខាងលើគម្រោងរបស់វា នៅក្រោមការជជែកដែលបានខ្ទាស់។ វាមិនដែលចាកចេញពីគម្រោងទេ ហើយការជជែកដែលកំពុងដំណើរការមិនដែលផ្លាស់ទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답을 기다리는 채팅, 그다음 완료되었지만 읽지 않은 채팅이 프로젝트 맨 위, 고정된 항목 아래로 이동합니다. 프로젝트를 벗어나지 않으며, 작업 중인 채팅은 이동하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter som venter på deg, deretter ferdige uleste chatter, flyttes øverst i prosjektet sitt, under festede. De forlater aldri prosjektet, og kjørende chatter flyttes aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty czekające na ciebie, a potem zakończone nieprzeczytane, przesuwają się na górę swojego projektu, pod przypięte. Nigdy nie opuszczają projektu, a działające czaty nigdy się nie przesuwają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats aguardando você e depois chats concluídos não lidos sobem ao topo do projeto, abaixo dos fixados. Eles nunca saem do projeto, e chats em execução nunca se movem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты, ждущие вас, а затем завершённые непрочитанные поднимаются наверх своего проекта, под закреплённые. Они никогда не покидают проект, а работающие чаты не перемещаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่รอคุณอยู่ ตามด้วยแชตที่เสร็จแล้วแต่ยังไม่ได้อ่าน จะย้ายขึ้นไปด้านบนของโปรเจกต์ ใต้รายการที่ปักหมุด แชตจะไม่ออกจากโปรเจกต์ และแชตที่กำลังทำงานจะไม่ย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sizi bekleyen sohbetler, ardından bitmiş okunmamış sohbetler, projelerinin en üstüne, sabitlenmişlerin altına taşınır. Projeden asla çıkmazlar ve çalışan sohbetler asla yer değiştirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати, що чекають на вас, а потім завершені непрочитані піднімаються вгору свого проєкту, під закріплені. Вони ніколи не залишають проєкт, а активні чати не переміщуються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đang chờ bạn, rồi đến cuộc trò chuyện đã xong chưa đọc, được đưa lên đầu dự án, dưới mục đã ghim. Chúng không bao giờ rời dự án, và cuộc trò chuyện đang chạy không bao giờ di chuyển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你处理的聊天，以及随后已完成但未读的聊天，会移到所在项目顶部、已置顶项下方。它们不会离开项目，运行中的聊天也不会移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你處理的聊天，以及隨後已完成但未讀的聊天，會移到所在專案頂端、已釘選項目下方。它們不會離開專案，執行中的聊天也不會移動。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.needsYou.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs You Section"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قسم «يحتاجك»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjeljak Trebaju te"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sektionen Har brug for dig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich „Braucht dich“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sección Te necesitan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section Vous attendent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sezione Ti aspettano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「対応が必要」セクション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្នែក ត្រូវការអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답 필요 섹션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seksjonen Trenger deg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekcja Czekają na ciebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seção Precisam de você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раздел «Ждут вас»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วน ต้องการคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size ihtiyaç var bölümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розділ «Чекають на вас»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mục Cần bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“需要你处理”分区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「需要你處理」區段"
+          }
+        }
+      }
+    },
+    "settings.sidebar.needsYou.section.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A section at the top of the sidebar lists chats waiting on you, then finished unread chats, from every project. It shows only when there is something in it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قسم في أعلى الشريط الجانبي يسرد الدردشات التي تنتظرك، ثم الدردشات المنتهية غير المقروءة، من كل المشاريع. لا يظهر إلا عندما يكون فيه شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjeljak na vrhu bočne trake navodi razgovore koji čekaju na vas, zatim završene nepročitane razgovore, iz svih projekata. Prikazuje se samo kad nešto sadrži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En sektion øverst i sidebjælken viser chats, der venter på dig, og derefter færdige ulæste chats fra alle projekter. Den vises kun, når der er noget i den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Bereich oben in der Seitenleiste listet Chats, die auf dich warten, dann fertige ungelesene Chats aus allen Projekten. Er erscheint nur, wenn etwas darin ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una sección en la parte superior de la barra lateral muestra los chats que te esperan y luego los terminados sin leer, de todos los proyectos. Solo aparece cuando tiene algo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une section en haut de la barre latérale liste les discussions qui vous attendent, puis les discussions terminées non lues, de tous les projets. Elle n'apparaît que lorsqu'elle contient quelque chose."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una sezione in cima alla barra laterale elenca le chat che ti aspettano, poi quelle completate e non lette, da tutti i progetti. Compare solo quando contiene qualcosa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの上部のセクションに、すべてのプロジェクトから対応待ちのチャット、次に完了した未読のチャットを一覧表示します。項目があるときだけ表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្នែកមួយនៅខាងលើរបារចំហៀង រាយការជជែកដែលកំពុងរង់ចាំអ្នក បន្ទាប់មកការជជែកដែលបានបញ្ចប់តែមិនទាន់អាន ពីគ្រប់គម្រោង។ វាបង្ហាញតែនៅពេលមានអ្វីនៅក្នុងនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 맨 위 섹션에 모든 프로젝트의 응답을 기다리는 채팅과 그다음 완료되었지만 읽지 않은 채팅이 표시됩니다. 항목이 있을 때만 나타납니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En seksjon øverst i sidepanelet viser chatter som venter på deg, deretter ferdige uleste chatter, fra alle prosjekter. Den vises bare når det er noe i den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekcja na górze paska bocznego pokazuje czaty czekające na ciebie, a potem zakończone nieprzeczytane, ze wszystkich projektów. Pojawia się tylko wtedy, gdy coś w niej jest."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma seção no topo da barra lateral lista chats aguardando você e depois chats concluídos não lidos, de todos os projetos. Ela só aparece quando há algo nela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раздел вверху боковой панели показывает чаты, ждущие вас, а затем завершённые непрочитанные из всех проектов. Он появляется, только когда в нём что-то есть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนที่ด้านบนของแถบด้านข้างแสดงแชตที่รอคุณอยู่ ตามด้วยแชตที่เสร็จแล้วแต่ยังไม่ได้อ่าน จากทุกโปรเจกต์ จะแสดงเฉพาะเมื่อมีรายการอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunun üstündeki bir bölüm, tüm projelerden sizi bekleyen sohbetleri, ardından bitmiş okunmamış sohbetleri listeler. Yalnızca içinde bir şey olduğunda görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розділ угорі бічної панелі показує чати, що чекають на вас, а потім завершені непрочитані з усіх проєктів. Він з'являється, лише коли в ньому щось є."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một mục ở đầu thanh bên liệt kê các cuộc trò chuyện đang chờ bạn, rồi đến các cuộc trò chuyện đã xong chưa đọc, từ mọi dự án. Mục này chỉ hiện khi có nội dung."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏顶部的一个分区会列出所有项目中等待你处理的聊天，以及随后已完成但未读的聊天。仅在有内容时显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄頂端的一個區段會列出所有專案中等待你處理的聊天，以及隨後已完成但未讀的聊天。只在有內容時顯示。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.needsYou.includeWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Working Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تضمين الدردشات العاملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi aktivne razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medtag kørende chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufende Chats einbeziehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir chats en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclure les discussions en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Includi le chat in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のチャットを含める"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួមបញ្ចូលការជជែកដែលកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 채팅 포함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta med kjørende chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwzględniaj działające czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir chats em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать работающие чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รวมแชตที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan sohbetleri dahil et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включати активні чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bao gồm cuộc trò chuyện đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包括运行中的聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含執行中的聊天"
+          }
+        }
+      }
+    },
+    "settings.sidebar.needsYou.includeWorking.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working chats also float to the top of their project and show in Needs You."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتقل الدردشات العاملة أيضًا إلى أعلى مشروعها وتظهر في «يحتاجك»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivni razgovori se također pomjeraju na vrh svog projekta i prikazuju u odjeljku Trebaju te."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kørende chats flyttes også øverst i deres projekt og vises i Har brug for dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufende Chats rücken ebenfalls in ihrem Projekt nach oben und erscheinen in „Braucht dich“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats en curso también suben al principio de su proyecto y aparecen en Te necesitan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les discussions en cours remontent aussi en haut de leur projet et apparaissent dans Vous attendent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche le chat in esecuzione salgono in cima al loro progetto e compaiono in Ti aspettano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のチャットもプロジェクトの上部に移動し、「対応が必要」に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលកំពុងដំណើរការក៏ផ្លាស់ទីទៅខាងលើគម្រោងរបស់វា ហើយបង្ហាញក្នុង ត្រូវការអ្នក ដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 채팅도 프로젝트 맨 위로 이동하고 응답 필요에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjørende chatter flyttes også øverst i prosjektet sitt og vises i Trenger deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Działające czaty również przesuwają się na górę swojego projektu i pojawiają się w Czekają na ciebie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats em execução também sobem ao topo do projeto e aparecem em Precisam de você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работающие чаты тоже поднимаются наверх своего проекта и показываются в «Ждут вас»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่กำลังทำงานจะลอยขึ้นด้านบนของโปรเจกต์และแสดงใน ต้องการคุณ ด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan sohbetler de projelerinin en üstüne taşınır ve Size ihtiyaç var bölümünde görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активні чати теж піднімаються вгору свого проєкту й показуються в «Чекають на вас»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đang chạy cũng được đưa lên đầu dự án và hiện trong Cần bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的聊天也会移到所在项目顶部，并显示在“需要你处理”中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的聊天也會移到所在專案頂端，並顯示在「需要你處理」中。"
+          }
+        }
+      }
+    },
     "settings.agentPane.newChatsIn": {
       "comment": "Settings > Agent Chat: the row that picks where a new chat runs, on this Mac or on the person's Cloud machine",
       "extractionState": "manual",

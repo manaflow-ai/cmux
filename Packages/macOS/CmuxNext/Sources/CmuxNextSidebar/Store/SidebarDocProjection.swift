@@ -93,6 +93,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var groupSorts: [String: SidebarGroupSort] = [:]
     /// The group members pinned inside their group: a sorted group keeps them first.
     public var pinnedInGroup: Set<String> = []
+    /// Each group's own chats-per-project cap (0 is All), by group item; absent follows the setting.
+    public var groupRowLimits: [String: Int] = [:]
+    /// The rows each group's Show more revealed past its cap, by group item.
+    public var groupRevealed: [String: Int] = [:]
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -132,6 +136,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         archived = Set(wire.archived)
         groupSorts = wire.groupSorts.compactMapValues { SidebarGroupSort(rawValue: $0) }
         pinnedInGroup = Set(wire.pinnedInGroup)
+        groupRowLimits = wire.groupRowLimits ?? [:]
+        groupRevealed = wire.groupRevealed ?? [:]
     }
 
     private static func node(_ node: SidebarDocWire.Node) -> Node {

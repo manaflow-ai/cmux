@@ -11412,6 +11412,116 @@
           "isTargetDescription" : false,
           "isTargetName" : false,
           "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Default",
+                "value" : "default"
+              },
+              {
+                "title" : "3",
+                "value" : "3"
+              },
+              {
+                "title" : "5",
+                "value" : "5"
+              },
+              {
+                "title" : "10",
+                "value" : "10"
+              },
+              {
+                "title" : "All",
+                "value" : "all"
+              }
+            ]
+          },
+          "name" : "limit",
+          "suggestions" : null,
+          "title" : "Chats per Project"
+        }
+      ],
+      "category" : "workspace",
+      "cliName" : "workspace-group set-row-limit",
+      "computed" : {
+        "canonical_action_id" : "workspaceGroup.setRowLimit",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "WorkspaceGroupActionCatalog",
+      "hint" : null,
+      "id" : "workspaceGroup.setRowLimit",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "group",
+        "project",
+        "chats",
+        "per project",
+        "limit",
+        "cap",
+        "show more",
+        "rows",
+        "all"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "workspaceGroup",
+            "folder" : "options",
+            "group" : "identity",
+            "label" : "Chats per Project",
+            "parent" : null,
+            "rank" : 113,
+            "style" : "choices"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "list.number",
+      "targets" : [
+        "workspace-group"
+      ],
+      "title" : "Set Chats per Project…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
             "target" : "window"
           },
           "name" : "window",

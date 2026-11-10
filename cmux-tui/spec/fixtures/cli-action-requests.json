@@ -404,6 +404,17 @@
     },
     {
       "params": {
+        "action": "workspace-group set-row-limit",
+        "args": {
+          "limit": "default"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace-group set-row-limit --limit default"
+    },
+    {
+      "params": {
         "action": "workspace-group move-to-window",
         "args": {
           "window": "window:contract-1"

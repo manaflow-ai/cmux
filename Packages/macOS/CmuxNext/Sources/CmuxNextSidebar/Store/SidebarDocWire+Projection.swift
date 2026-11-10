@@ -15,6 +15,9 @@ extension SidebarDocWire {
         var archived: [String]
         var groupSorts: [String: String]
         var pinnedInGroup: [String]
+        /// Each group's own cap (0 is All) and how far Show more revealed it; absent when none has one.
+        var groupRowLimits: [String: Int]?
+        var groupRevealed: [String: Int]?
 
         enum CodingKeys: String, CodingKey {
             case sections, machines, items, unplaced, archived
@@ -24,6 +27,8 @@ extension SidebarDocWire {
             case hostGroups = "host_groups"
             case groupSorts = "group_sorts"
             case pinnedInGroup = "pinned_in_group"
+            case groupRowLimits = "group_row_limits"
+            case groupRevealed = "group_revealed"
         }
     }
 

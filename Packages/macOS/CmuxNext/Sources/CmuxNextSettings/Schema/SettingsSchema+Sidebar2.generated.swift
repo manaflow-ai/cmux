@@ -129,6 +129,51 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.chatsPerProjectPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.chatsPerProject", "Chats per Project"),
+                help: SettingsText.keyed("settings.sidebar.chatsPerProject.help", "How many recent chats each project shows before Show more. Pinned, running, unread and waiting chats always show. A project's right-click menu can override it."),
+                kind: .choice([
+                    SettingChoice(SidebarChatsPerProject.three.rawValue, SettingsText.keyed("settings.choice.chatsPerProject3", "3")),
+                    SettingChoice(SidebarChatsPerProject.five.rawValue, SettingsText.keyed("settings.choice.chatsPerProject5", "5")),
+                    SettingChoice(SidebarChatsPerProject.ten.rawValue, SettingsText.keyed("settings.choice.chatsPerProject10", "10")),
+                    SettingChoice(SidebarChatsPerProject.all.rawValue, SettingsText.keyed("settings.choice.chatsPerProjectAll", "All")),
+                ]),
+                default: .string(SidebarSectionsSetting.chatsPerProjectDefault.rawValue),
+                keywords: ["sidebar", "projects", "chats", "cap", "limit", "show more", "recent"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.floatWithinProjectPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.floatWithinProject", "Float to Top Within Project"),
+                help: SettingsText.keyed("settings.sidebar.floatWithinProject.help", "Chats waiting on you, then finished unread chats, move to the top of their project, below pinned. They never leave the project, and working chats never move."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.floatWithinProjectDefault),
+                keywords: ["sidebar", "float", "top", "unread", "waiting", "needs you", "order"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.sectionPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.needsYou.section", "Needs You Section"),
+                help: SettingsText.keyed("settings.sidebar.needsYou.section.help", "A section at the top of the sidebar lists chats waiting on you, then finished unread chats, from every project. It shows only when there is something in it."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.sectionDefault),
+                keywords: ["sidebar", "needs you", "waiting", "unread", "inbox", "attention"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.includeWorkingPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.needsYou.includeWorking", "Include Working Chats"),
+                help: SettingsText.keyed("settings.sidebar.needsYou.includeWorking.help", "Working chats also float to the top of their project and show in Needs You."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.includeWorkingDefault),
+                keywords: ["sidebar", "needs you", "working", "running", "float"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showSpacesPath,
                 section: .appearance,
                 group: group,
@@ -331,59 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
                 keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderMemberCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
-                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderBackgroundPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."),
-                kind: .choice([
-                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
-                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
-                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
-                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

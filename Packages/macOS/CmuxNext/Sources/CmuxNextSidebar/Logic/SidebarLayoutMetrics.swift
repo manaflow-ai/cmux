@@ -193,10 +193,22 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
     /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
-    /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
+    /// `sidebar.groupRowLimit` (Debug): a list longer than this shows its first rows and a "Show N more" row; 0 shows
+    /// all. Set, it overrides every project's cap too (captures).
     public var rowLimit = 0
-    /// The lists whose "Show N more" row the person opened.
+    /// Chats per Project (`sidebar.chatsPerProject`, Leo 2026-11-10): a project (group) shows this many quiet chats,
+    /// then "Show N more"; 0 shows all. A group's own cap (`SidebarGroup.rowLimit`) wins. Loose rows have no cap.
+    public var projectCap = 0
+    /// Float to Top Within Project (`sidebar.floatWithinProject`): yellow then blue rows rise to the top of their
+    /// project, below its pinned rows. Loose rows never move.
+    public var floatsInProject = false
+    /// Include Working (`sidebar.needsYou.includeWorking`): running rows float and list in Needs you too.
+    public var includesWorking = false
+    /// The lists whose "Show N more" row the person opened (the Projects list's own row).
     public var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The rows each list's "Show N more" revealed, as this window last set them: ahead of the document's
+    /// `SidebarGroup.revealed`, so a press shows at once (a fold never waits for the daemon).
+    public var revealed: [SidebarDoneFoldID: Int] = [:]
 
     public init() {}
 }

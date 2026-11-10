@@ -47,6 +47,18 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupBy`.
     public nonisolated static let groupByPath = ["sidebar", "groupBy"]
     public nonisolated static let groupByDefault: SidebarGroupBy = .none
+    /// `sidebar.chatsPerProject`.
+    public nonisolated static let chatsPerProjectPath = ["sidebar", "chatsPerProject"]
+    public nonisolated static let chatsPerProjectDefault: SidebarChatsPerProject = .five
+    /// `sidebar.floatWithinProject`.
+    public nonisolated static let floatWithinProjectPath = ["sidebar", "floatWithinProject"]
+    public nonisolated static let floatWithinProjectDefault = true
+    /// `sidebar.needsYou.section`.
+    public nonisolated static let sectionPath = ["sidebar", "needsYou", "section"]
+    public nonisolated static let sectionDefault = true
+    /// `sidebar.needsYou.includeWorking`.
+    public nonisolated static let includeWorkingPath = ["sidebar", "needsYou", "includeWorking"]
+    public nonisolated static let includeWorkingDefault = false
     /// `sidebar.showSpaces`.
     public nonisolated static let showSpacesPath = ["sidebar", "showSpaces"]
     public nonisolated static let showSpacesDefault = true

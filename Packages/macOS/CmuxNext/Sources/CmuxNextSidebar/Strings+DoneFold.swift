@@ -15,5 +15,5 @@ extension Strings {
     static func showMore(_ count: Int) -> String {
         String(localized: "sidebar.showMore.title", defaultValue: "Show \(count) more", bundle: .module)
     }
-    static var showFewer: String { String(localized: "sidebar.showMore.fewer", defaultValue: "Show fewer", bundle: .module) }
+    static var showLess: String { String(localized: "sidebar.showMore.fewer", defaultValue: "Show less", bundle: .module) }
 }

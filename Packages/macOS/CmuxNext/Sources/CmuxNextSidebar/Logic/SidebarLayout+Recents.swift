@@ -3,28 +3,20 @@ import Foundation
 
 // Projects and Recents (`sidebar.groupBy` = recents, off by default). Lawrence 2026-11-05: "similar thing in sidebar as
 // chatgpt app, make it an option, basically u have projects/groups at the top, and show more, and you have recents as
-// well". Every computer's groups list first under one "Projects" header: the first `projectLimit` top-level groups, then a
-// "Show N more" row for the rest. Then every workspace in no group lists under one "Recents" header, the newest activity
+// well". Every computer's groups list first under one "Projects" header, every project (Leo 2026-11-10: "there's obviously
+// no show more for like all projects"; each project caps its own chats instead, `SidebarLayout+DoneFold`). Then every workspace in no group lists under one "Recents" header, the newest activity
 // first. Pinned and the document's sections lay out as before. A filter and the session tree list every row in place, as
 // before; Group by Status wins over it (`SidebarGrouping.groupsByRecents`). The list does not reorder by drag while it
 // is on (`SidebarGrouping.isGrouped`).
 nonisolated extension SidebarLayout {
-    /// How many top-level groups Projects lists before its "Show N more" row (ChatGPT's sidebar shows five).
-    static let projectLimit = 5
-
     /// The sidebar split for Projects and Recents.
     struct RecentsSplit {
-        /// The sections with every computer's loose workspaces taken out, and the groups past the limit (with their
-        /// subgroups) while Projects is folded. Order and ids unchanged.
+        /// The sections with every computer's loose workspaces taken out. Order and ids unchanged.
         var sections: [SidebarSection]
         /// The loose workspaces, the newest activity first, each with its section and its index there.
         var recents: [(ws: SidebarWorkspace, section: SidebarSection, index: Int)]
         /// The top-level groups the computers hold (listed or not).
         var projectCount: Int
-        /// The top-level groups the folded Projects list leaves out (0 when it shows them all).
-        var hiddenProjects: Int
-        /// The person opened Projects past its limit: its row reads "Show fewer".
-        var projectsOpened: Bool
     }
 
     /// Whether this layout draws Projects and Recents: on, and no filter or session tree.
@@ -32,33 +24,14 @@ nonisolated extension SidebarLayout {
         o.grouping.groupsByRecents && o.filterMatches == nil && o.sessionTree == nil
     }
 
-    /// Splits `sections` for Projects and Recents. A group holding the active workspace, or one that needs you, always lists.
+    /// Splits `sections` for Projects and Recents.
     static func splittingRecents(_ sections: [SidebarSection], options o: SidebarLayoutOptions) -> RecentsSplit {
         var recents: [(ws: SidebarWorkspace, section: SidebarSection, index: Int)] = []
-        var topGroups: [GroupID] = []
-        var holdsActive = Set<GroupID>()
+        var projectCount = 0
         for section in sections where section.machine != nil {
-            var parents: [GroupID: GroupID] = [:]
-            for node in section.nodes {
-                guard case let .group(group) = node else { continue }
-                if let parent = group.parent { parents[group.id] = parent } else { topGroups.append(group.id) }
-                // The active row, or a row that needs you, keeps its group out of Show more (as the row limit does).
-                guard group.workspaces.contains(where: { $0.id == o.activeWorkspaceID || $0.agentChip == .needsYou }) else { continue }
-                // A subgroup's row keeps its top-level group listed (bounded: a bad parent cycle ends).
-                var top = group.id
-                for _ in 0..<64 { guard let parent = parents[top] else { break }; top = parent }
-                holdsActive.insert(top)
-            }
+            projectCount += section.nodes.count { if case let .group(group) = $0 { group.parent == nil } else { false } }
         }
-        let opened = o.openShowMore.contains(.projects)
-        // A list one group over the limit shows whole: a row that hides one group saves nothing.
-        let folds = topGroups.count > projectLimit + 1
-        var listed = Set(topGroups)
-        if folds && !opened {
-            listed = Set(topGroups.prefix(projectLimit)).union(holdsActive)
-        }
-        var split = RecentsSplit(sections: [], recents: [], projectCount: topGroups.count,
-                                 hiddenProjects: topGroups.count - listed.count, projectsOpened: folds && opened)
+        var split = RecentsSplit(sections: [], recents: [], projectCount: projectCount)
         for section in sections {
             guard section.machine != nil else {
                 split.sections.append(section)
@@ -66,15 +39,10 @@ nonisolated extension SidebarLayout {
             }
             var kept = section
             kept.nodes = []
-            var dropped = Set<GroupID>()
             for (index, node) in section.nodes.enumerated() {
-                switch node {
-                case let .workspace(ws):
+                if case let .workspace(ws) = node {
                     if o.visible(ws) { recents.append((ws, section, index)) }
-                case let .group(group):
-                    let hidden = group.parent.map(dropped.contains) ?? !listed.contains(group.id)
-                    if hidden { dropped.insert(group.id) } else { kept.nodes.append(node) }
-                case .item:
+                } else {
                     kept.nodes.append(node)
                 }
             }
@@ -101,18 +69,9 @@ nonisolated extension SidebarLayout {
         y += m.groupHeaderHeight + m.rowSpacing
     }
 
-    /// Projects' "Show N more" row (or "Show fewer"), then the "Recents" header and its rows, at `y`.
+    /// The "Recents" header and its rows, at `y`.
     static func appendRecents(_ split: RecentsSplit, firstRow: Bool, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                               to rows: inout [SidebarRow], y: inout CGFloat) {
-        if split.hiddenProjects > 0 || split.projectsOpened {
-            let h = m.height(for: WorkspaceRowContent())
-            rows.append(SidebarRow(
-                key: .showMore(.projects), y: y, height: h, section: SidebarDoneFoldID.projects.section, group: nil, siblingIndex: 0,
-                parentIndex: nil, isLastInGroup: false, isCollapsed: !split.projectsOpened, childCount: split.hiddenProjects,
-                groupColor: nil, content: WorkspaceRowContent()
-            ))
-            y += h + m.rowSpacing
-        }
         guard let first = split.recents.first else { return }
         if !firstRow { y += m.sectionSpacing }
         rows.append(SidebarRow(

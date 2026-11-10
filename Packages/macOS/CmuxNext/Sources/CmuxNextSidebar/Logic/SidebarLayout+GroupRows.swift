@@ -73,7 +73,8 @@ nonisolated extension SidebarLayout {
         }
         let fold = SidebarDoneFoldID(section: section, group: group.id)
         let drawn = foldingDone(treeOrder(workspaceIDs(members), parents: o.sessionTree?.parents),
-                                workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
+                                workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold,
+                                project: group, options: o)
         let foldedGap = gapEntry(drawn, gap: o.gap, section: section, group: group.id, count: members.count)
         for (position, (childIndex, depth)) in drawn.enumerated() {
             if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(gap.index) }

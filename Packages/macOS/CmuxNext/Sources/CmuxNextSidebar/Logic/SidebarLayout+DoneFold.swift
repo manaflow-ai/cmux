@@ -57,7 +57,8 @@ nonisolated extension SidebarLayout {
     /// The active workspace keeps its place.
     /// `limits` names the entries the limit counts and may hide: a section's groups and items always show.
     static func foldingDone(_ drawn: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, fold id: SidebarDoneFoldID,
-                            limits: (Int) -> Bool = { _ in true }, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
+                            limits: (Int) -> Bool = { _ in true }, project: SidebarGroup? = nil,
+                            options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
         guard o.filterMatches == nil, o.sessionTree == nil else { return drawn }
         var shown: [(index: Int, depth: Int)] = []
         var done: [(index: Int, depth: Int)] = []
@@ -72,7 +73,7 @@ nonisolated extension SidebarLayout {
                 shown.append(entry)
             }
         }
-        var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
+        var listed = limiting(shown, workspace: workspace, limits: limits, list: id, project: project, options: o)
         if !done.isEmpty { listed += [(doneFoldIndex, done.count)] + (o.openDoneFolds.contains(id.of(.done)) ? done : []) }
         if !archived.isEmpty {
             listed += [(archivedFoldIndex, archived.count)] + (o.openDoneFolds.contains(id.of(.archived)) ? archived : [])
@@ -80,23 +81,44 @@ nonisolated extension SidebarLayout {
         return listed
     }
 
-    /// `shown` past `rowLimit` rows (`sidebar.groupRowLimit`): the first ones, those that need you and the active one,
-    /// then a "Show N more" entry for the rest; opened, every row then a "Show fewer" entry. A list one row over the
-    /// limit shows whole: a row that hides one row saves nothing.
+    /// The cap, the revealed rows and the floating that decide list `id`'s rows: a project's (a group's own cap, else
+    /// Chats per Project), or a loose list's (only the Debug `rowLimit`, never floating: the top level keeps the order the
+    /// person gave it). Nil when the list shows every row in place.
+    static func caps(list id: SidebarDoneFoldID, project: SidebarGroup?, options o: SidebarLayoutOptions) -> RustSidebarCaps.Caps? {
+        let cap = o.rowLimit > 0 ? o.rowLimit : project.map { $0.rowLimit ?? o.projectCap } ?? 0
+        let floats = project != nil && o.floatsInProject
+        guard cap > 0 || floats else { return nil }
+        return RustSidebarCaps.Caps(cap: cap, revealed: o.revealed[id] ?? project?.revealed ?? 0, floats: floats,
+                                    includeWorking: o.includesWorking)
+    }
+
+    /// `shown` under its list's caps (Leo 2026-11-10, design/sidebar.md "Per-project caps"): the pinned rows, then yellow
+    /// and blue risen to the top of the project, then the first quiet rows in place with every active one (running, the
+    /// selected row, a row the limit does not count), then a "Show N more" entry (its depth is how many one press shows)
+    /// or, revealed to the end, "Show less" (depth 0). Rust decides (`RustSidebarCaps`); Swift passes the length and the
+    /// active rows only, so the cost is the rows drawn, not the rows hidden.
     private static func limiting(_ shown: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, limits: (Int) -> Bool,
-                                 list id: SidebarDoneFoldID, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
-        let limited = shown.filter { limits($0.index) }.count
-        guard o.rowLimit > 0, limited > o.rowLimit + 1 else { return shown }
-        if o.openShowMore.contains(id) { return shown + [(showMoreIndex, 0)] }
-        var kept: [(index: Int, depth: Int)] = []
-        var n = 0
-        for entry in shown {
-            guard limits(entry.index) else { kept.append(entry); continue }
-            let stays = workspace(entry.index).map { $0.id == o.activeWorkspaceID || $0.agentChip == .needsYou } ?? false
-            if n < o.rowLimit || stays { kept.append(entry) }
-            n += 1
+                                 list id: SidebarDoneFoldID, project: SidebarGroup?, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
+        guard let caps = caps(list: id, project: project, options: o) else { return shown }
+        var active: [(position: Int, flags: RustSidebarCaps.Flags)] = []
+        for (position, entry) in shown.enumerated() {
+            guard limits(entry.index), let ws = workspace(entry.index) else {
+                active.append((position, .keep)) // a group, an item: always drawn, in place
+                continue
+            }
+            var flags = RustSidebarCaps.Flags.of(ws)
+            if ws.id == o.activeWorkspaceID { flags.insert(.keep) }
+            if project?.pinnedMembers.contains(ws.id) == true { flags.insert(.pinned) }
+            if !flags.isEmpty { active.append((position, flags)) }
         }
-        return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
+        guard let answer = RustSidebarCaps.project(count: shown.count, active: active, caps: caps) else { return shown }
+        var listed = answer.rows.map { shown[$0] }
+        switch answer.tail {
+        case .none: break
+        case let .showMore(_, next): listed.append((showMoreIndex, next))
+        case .showLess: listed.append((showMoreIndex, 0))
+        }
+        return listed
     }
 
     /// Whether a drag of `dragged` unfolds every list: it carries a row the fold would hide or draw below it (marked
@@ -128,7 +150,8 @@ nonisolated extension SidebarLayout {
                            options o: SidebarLayoutOptions, to rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
         let more = entry == showMoreIndex
         let id = list.of(entry == archivedFoldIndex ? .archived : .done)
-        let open = more ? o.openShowMore.contains(id) : o.openDoneFolds.contains(id)
+        // "Show N more" carries how many one press reveals; 0 is "Show less" (`limiting`).
+        let open = more ? count == 0 : o.openDoneFolds.contains(id)
         let content = WorkspaceRowContent()
         let h = m.height(for: content)
         rows.append(SidebarRow(

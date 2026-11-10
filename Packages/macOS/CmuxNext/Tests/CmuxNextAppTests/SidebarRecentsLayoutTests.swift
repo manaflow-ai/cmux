@@ -35,11 +35,10 @@ import Testing
         ])]
     }
 
-    static func options(_ by: SidebarGroupBy = .recents, active: String? = nil, openProjects: Bool = false) -> SidebarLayoutOptions {
+    static func options(_ by: SidebarGroupBy = .recents, active: String? = nil) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.grouping.by = by
         o.activeWorkspaceID = active.map(WorkspaceID.init)
-        if openProjects { o.openShowMore = [.projects] }
         return o
     }
 
@@ -69,40 +68,19 @@ import Testing
         #expect(try #require(layout.row(for: .listHeader(.recents))).childCount == 3)
     }
 
-    @Test func pastFiveGroupsTheRestFoldBehindShowMore() throws {
+    /// Every project lists, past five too (Leo 2026-11-10: "there's obviously no show more for like all projects"):
+    /// each project caps its own chats instead.
+    @Test func everyProjectListsWithNoShowMore() throws {
         let keys = Self.keys(Self.options(), Self.manyGroups())
-        #expect(keys.filter { if case .group = $0 { true } else { false } } == (0..<5).map { Self.g("g\($0)") })
-        let layout = SidebarLayout.make(sections: Self.manyGroups(), metrics: .standard, options: Self.options())
-        let more = try #require(layout.row(for: .showMore(.projects)))
-        #expect(more.isCollapsed)
-        #expect(more.childCount == 2)
-        // The Show more row ends Projects: Recents follows it.
-        let recents = try #require(layout.row(for: .listHeader(.recents)))
-        #expect(more.y < recents.y)
-    }
-
-    @Test func openedProjectsListEveryGroupAndShowFewer() throws {
-        let layout = SidebarLayout.make(sections: Self.manyGroups(), metrics: .standard, options: Self.options(openProjects: true))
-        #expect(layout.rows.filter { if case .group = $0.key { true } else { false } }.count == 7)
-        #expect(try #require(layout.row(for: .showMore(.projects))).isCollapsed == false)
-    }
-
-    @Test func oneGroupOverTheLimitShowsWhole() {
-        let keys = Self.keys(Self.options(), Self.manyGroups(6))
-        #expect(keys.filter { if case .group = $0 { true } else { false } }.count == 6)
+        #expect(keys.filter { if case .group = $0 { true } else { false } } == (0..<7).map { Self.g("g\($0)") })
         #expect(!keys.contains(.showMore(.projects)))
+        let layout = SidebarLayout.make(sections: Self.manyGroups(), metrics: .standard, options: Self.options())
+        #expect(try #require(layout.row(for: .listHeader(.projects))).childCount == 7)
     }
 
-    @Test func theActiveWorkspacesGroupStaysListed() {
-        let keys = Self.keys(Self.options(active: "m6"), Self.manyGroups())
-        #expect(keys.contains(Self.g("g6")) && keys.contains(Self.w("m6")))
-    }
 
-    @Test func aHiddenGroupsSubgroupsHideWithIt() {
-        let nodes = (0..<7).map { Self.group("g\($0)", [Self.ws("m\($0)")]) } + [Self.group("sub", [Self.ws("s1")], parent: "g6")]
-        let keys = Self.keys(Self.options(), [SidebarSection(kind: .machine(Self.local), nodes: nodes)])
-        #expect(!keys.contains(Self.g("sub")) && !keys.contains(Self.w("s1")))
-    }
+
+
 
     @Test func twoComputersShareOneProjectsAndOneRecents() {
         let sections = [
@@ -143,7 +121,7 @@ import Testing
     }
 
     @Test func everyRowKeyAppearsOnce() {
-        let keys = Self.keys(Self.options(openProjects: true), Self.manyGroups())
+        let keys = Self.keys(Self.options(), Self.manyGroups())
         #expect(Set(keys).count == keys.count)
     }
     /// The opened Archive lists every archived group: Recents never folds them behind a Show more it cannot draw.
@@ -161,14 +139,5 @@ import Testing
         let keys = Self.keys(o, [SidebarSection(kind: .machine(Self.local), nodes: [.workspace(Self.ws("x"))] + archived)])
         #expect(keys.filter { if case .group = $0 { true } else { false } } == (0..<7).map { Self.g("z\($0)") })
         #expect(!keys.contains(.showMore(.projects)))
-    }
-    /// A project past the first five whose workspace needs you lists, as a row past the row limit does.
-    @Test func aProjectThatNeedsYouListsPastFive() {
-        var sections = Self.manyGroups()
-        guard case var .group(sixth) = sections[0].nodes[6] else { Issue.record("no seventh group"); return }
-        sixth.workspaces[0].agentChip = .needsYou
-        sections[0].nodes[6] = .group(sixth)
-        let keys = Self.keys(Self.options(), sections)
-        #expect(keys.contains(Self.g("g6")) && !keys.contains(Self.g("g5")))
     }
 }
