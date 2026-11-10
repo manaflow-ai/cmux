@@ -18,6 +18,14 @@ Vercel production deployment of that commit while it is still queued or building
 deploy. The pull request checks (classic-api-guard, classic-frozen-guard) judge a change before merge; this one
 judges the commit that is about to ship.
 
+The range is everything since the last deploy this guard passed (this workflow's last green push run), not only
+the push: a refused commit stays on main after its deployment is cancelled, so the next push would ship it too.
+It stays refused until its pull request gets the label: a later revert does not clear it, because a path's
+name alone cannot show its content is gone (a rename carries it on under another name). Before the first green
+run the baseline is `deploy_guard.seed_baseline` (the commit this guard landed in), so refusals can never move
+it forward. A push that does not contain the baseline (a history rewrite) is refused, since its commits cannot
+all be listed.
+
 Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont change
 it for clasisc".
 """
@@ -27,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -38,6 +47,9 @@ from typing import Callable, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = ROOT / "scripts" / "ci" / "classic-auto-deploy.json"
 ZERO_SHA = "0" * 40
+WORKFLOW = "classic-deploy-guard.yml"
+COMPARE_PAGE = 100
+MAX_COMPARE_PAGES = 100  # 10,000 commits since the last passed deploy; past that, the range is unreadable
 GITHUB_API = "https://api.github.com"
 VERCEL_API = "https://api.vercel.com"
 # Vercel states in which a deployment has not gone live yet and can still be cancelled.
@@ -52,11 +64,17 @@ class Unreadable(RuntimeError):
     """An answer the check needs could not be read; the deploy is refused."""
 
 
+class NotForward(RuntimeError):
+    """The push is not a fast-forward from the baseline; the deploy is refused."""
+
+
 def load_config(path: Path) -> dict:
     config = json.loads(path.read_text())
     guard = config.get("deploy_guard")
     if not isinstance(guard, dict) or not guard.get("deploys") or not guard.get("label"):
         raise ValueError(f"{path} has no deploy_guard section with deploys and a label")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(guard.get("seed_baseline") or "")):
+        raise ValueError(f"{path} deploy_guard.seed_baseline must be a full commit sha")
     known = {d["id"] for d in config["deploys"]}
     missing = [d for d in guard["deploys"] if d not in known]
     if missing:
@@ -98,7 +116,10 @@ def merged_pr(pulls: list[dict], sha: str, branch: str) -> dict | None:
 
 def judge(config: dict, commits: list[str], files_of: Callable[[str], list[str]],
           pulls_of: Callable[[str], list[dict]], branch: str = "main") -> tuple[list[str], list[str]]:
-    """(refusals, notices) for COMMITS landing on BRANCH. Any exception from a reader is a refusal."""
+    """(refusals, notices) for COMMITS landing on BRANCH. Any exception from a reader is a refusal.
+
+    Every commit is judged by its own changed paths, a rename's old and new name both: never by whether a path
+    still differs at the tip, which a rename or a revert-and-re-add would hide."""
     refusals: list[str] = []
     notices: list[str] = []
     for sha in commits:
@@ -151,19 +172,38 @@ class GitHub:
     def get(self, path: str) -> object:
         return (self.request or _request)(f"{GITHUB_API}/repos/{self.repo}/{path}", self.token)
 
+    def baseline(self, workflow: str, branch: str) -> str | None:
+        """The commit of WORKFLOW's last green push run on BRANCH: the last deploy the guard let through. Every
+        commit after it ships with the next deploy, refused ones included until they are approved."""
+        runs = self.get(f"actions/workflows/{workflow}/runs?branch={branch}&event=push&status=success&per_page=1")
+        if not isinstance(runs, dict):
+            raise Unreadable(f"{workflow}'s runs returned no object")
+        listed = runs.get("workflow_runs") or []
+        return listed[0].get("head_sha") if listed else None
+
     def commits(self, before: str, after: str) -> list[str]:
-        """The commits a push from BEFORE to AFTER landed, oldest first. A new branch or an unknown BEFORE: AFTER."""
+        """The commits from BEFORE to AFTER, oldest first, all of them (compare pages past its 250-commit answer).
+
+        AFTER must contain BEFORE. A force push that rewrote BEFORE away is not a range this can judge, so it
+        raises NotForward: what ships is AFTER's whole tree, and the commits that built it are not all listed."""
         if not before or before == ZERO_SHA:
-            return [after]
-        compare = self.get(f"compare/{before}...{after}")
-        if not isinstance(compare, dict):
-            raise Unreadable("compare returned no object")
-        commits = [c["sha"] for c in compare.get("commits") or []]
-        if compare.get("status") not in ("ahead", "identical"):
-            # A force push: what ships is AFTER's tree, so judge AFTER against BEFORE as a whole commit.
-            return [after]
-        if int(compare.get("total_commits") or 0) > len(commits):
-            raise Unreadable(f"the push lands {compare.get('total_commits')} commits; compare lists {len(commits)}")
+            raise NotForward(f"no baseline to judge {after[:12]} from")
+        commits: list[str] = []
+        total = 0
+        for page in range(1, MAX_COMPARE_PAGES + 1):
+            compare = self.get(f"compare/{before}...{after}?per_page={COMPARE_PAGE}&page={page}")
+            if not isinstance(compare, dict):
+                raise Unreadable("compare returned no object")
+            if compare.get("status") not in ("ahead", "identical"):
+                raise NotForward(f"{after[:12]} does not contain {before[:12]} (compare: {compare.get('status')}); "
+                                 "a history rewrite on main cannot be validated commit by commit")
+            total = int(compare.get("total_commits") or 0)
+            batch = [c["sha"] for c in compare.get("commits") or []]
+            commits.extend(sha for sha in batch if sha not in commits)
+            if len(commits) >= total or not batch:
+                break
+        if len(commits) < total:
+            raise Unreadable(f"the range lands {total} commits; compare listed {len(commits)}")
         return commits
 
     def files(self, sha: str) -> list[str]:
@@ -238,6 +278,9 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--before", default="")
     check.add_argument("--after", required=True)
     check.add_argument("--branch", default="main")
+    check.add_argument("--baseline", choices=("auto", "before"), default="auto",
+                       help="auto: judge every commit since this workflow's last green push run (else the seed "
+                            "baseline); before: a dry run of --after alone")
     cancel = sub.add_parser("cancel", help="cancel the Vercel production deployment of --sha")
     cancel.add_argument("--sha", required=True)
     cancel.add_argument("--wait", type=float, default=300)
@@ -246,10 +289,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "check":
         github = GitHub(args.repo, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+        base = args.before
         try:
-            commits = github.commits(args.before, args.after)
+            if args.baseline == "auto":
+                approved = github.baseline(WORKFLOW, args.branch)
+                base = approved or config["deploy_guard"]["seed_baseline"]
+                print(f"::notice::Judging every commit since {base[:12]}, "
+                      + ("the last deploy this guard passed" if approved else "the seed baseline (no green run yet)"))
+                commits = github.commits(base, args.after)
+            else:
+                commits = [args.after]  # a dry run of one commit
+        except NotForward as exc:
+            print(f"::error::Refused classic deploy: {exc}")
+            return 1
         except Exception as exc:  # noqa: BLE001
-            print(f"::error::Refused: the commits of {args.before[:12]}..{args.after[:12]} could not be read ({exc})")
+            print(f"::error::Refused: the commits of {base[:12]}..{args.after[:12]} could not be read ({exc})")
             return 1
         refusals, notices = judge(config, commits, github.files, github.pulls, args.branch)
         for line in notices:
