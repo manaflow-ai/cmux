@@ -43,7 +43,7 @@ impl Hub {
         if self.any_mode_for_web(meta) {
             return crate::web_modes::family_of(meta) == "codex" && mode == "ask";
         }
-        if crate::web_modes::family_of(meta) != "claude" {
+        if crate::web_modes::mode_family(meta) != "claude" {
             return false;
         }
         self.web_modes().session_asks(meta) && matches!(mode.as_str(), "default" | "plan")
@@ -97,7 +97,14 @@ impl Hub {
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
             out.set_path(
                 &["session", "asks"],
-                json!(table.config_value_asks(&family, Some(id), Some(value))),
+                json!(
+                    !table.refused().contains(&family)
+                        && table.config_value_asks(
+                            &crate::web_modes::mode_family(&m),
+                            Some(id),
+                            Some(value)
+                        )
+                ),
             );
         }
         Ok(out)

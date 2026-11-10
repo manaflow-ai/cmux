@@ -96,7 +96,9 @@ pub fn remote_start(
             family == "opencode" || crate::config::derive_family(name, &unnamed) == "opencode";
         return Err(if runs_opencode { OPENCODE_REFUSAL } else { NO_ASKING_MODE }.into());
     }
-    let modes = table.modes(&family);
+    // The modes the harness offers: a launcher profile of Claude Code (`claude-sr2`) gets
+    // Claude's row, no wider and no narrower.
+    let modes = table.modes(&profile_mode_family(name, profile));
     if modes.is_empty() {
         return Err("this agent has no reviewed mode that asks before each change".into());
     }
@@ -305,12 +307,13 @@ impl WebModeTable {
     /// Whether a session's mode asks: never for a refused family; else none
     /// reported, or listed for its family.
     pub fn session_asks(&self, m: &SessionMeta) -> bool {
-        if self.refused.contains(&family_of(m)) {
+        let modes_of = mode_family(m);
+        if self.refused.contains(&family_of(m)) || self.refused.contains(&modes_of) {
             return false;
         }
         match mode_of(m) {
             None => true,
-            Some(mode) => self.modes(&family_of(m)).contains(&mode),
+            Some(mode) => self.modes(&modes_of).contains(&mode),
         }
     }
 

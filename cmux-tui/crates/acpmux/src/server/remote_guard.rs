@@ -736,7 +736,8 @@ pub(super) async fn settle_web_session_mode(
     if mode_asks(hub, &s.meta(), cloud_mobile).await {
         return Ok(());
     }
-    let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
+    let modes_of = crate::web_modes::mode_family(&s.meta());
+    let Some(default) = asking_modes(hub, &modes_of).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     };
@@ -1038,8 +1039,16 @@ async fn web_starts_asking(
             let id = params.get("configId").and_then(Value::as_str);
             (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
+        // By the modes the harness offers (`web_modes::mode_family`); a refused family is refused
+        // whatever its modes.
+        let refused = hub.web_modes().refused().contains(&family_of(&meta));
         return if hub.any_mode_for_web(&meta)
-            || hub.web_modes().config_value_asks(&family_of(&meta), id, value)
+            || (!refused
+                && hub.web_modes().config_value_asks(
+                    &crate::web_modes::mode_family(&meta),
+                    id,
+                    value,
+                ))
         {
             Ok(())
         } else {

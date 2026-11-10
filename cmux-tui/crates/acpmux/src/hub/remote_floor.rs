@@ -135,7 +135,9 @@ impl Hub {
             return true;
         }
         match session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
-            Some(mode) => table.modes(&crate::web_modes::family_of(meta)).iter().any(|m| m == mode),
+            Some(mode) => {
+                table.modes(&crate::web_modes::mode_family(meta)).iter().any(|m| m == mode)
+            }
             None => true,
         }
     }
