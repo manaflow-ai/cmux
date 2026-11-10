@@ -202,6 +202,7 @@ impl CloudBackend for RemoteCloudBackend {
             "GET" => reqwest::Method::GET,
             "POST" => reqwest::Method::POST,
             "PATCH" => reqwest::Method::PATCH,
+            "PUT" => reqwest::Method::PUT,
             _ => return Err(TransportError("unsupported platform method".into())),
         };
         // Reuse the no-redirect transport: an install bearer never follows an upstream redirect.
