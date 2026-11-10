@@ -181,6 +181,11 @@ import PackageDescription
 // b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
 // 7a372c740: both changes above in one pin (RESIZE P0 22).
 //
+// Since b3a5ebfdf..a0e665d4f (release/cmux-gi-present-cb-1, ghostty-integration
+// step 3): ghostty_surface_set_present_callback reports each frame that
+// becomes the layer's contents (pixel size, content or resize, sequence, host
+// time); it replaces cmux's setContents: swizzle on IOSurfaceLayer.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -204,8 +209,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b3a5ebfdfe700635696ea8f71e9dfc72e496ab82-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "007a462b6e99a96a21cbfe4d37756164494b5337f9482d3c25fe14da7cec9b8a"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a0e665d4fa09e831373c9b1a21b4d51fced467c5-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "38618b48b2ae71f14f3076db0634c0936fe357afa18df791c243b27ef5729988"
         ),
     ]
 )
