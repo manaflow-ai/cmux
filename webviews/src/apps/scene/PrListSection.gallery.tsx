@@ -18,8 +18,7 @@ const PULLS: SceneProps[] = [
   pull("Refresh the repository list", "acme/atlas #176 · Draft", "circle.dashed", "secondary"),
   pull("Sidebar sections follow the theme", "acme/sidebar #52", "arrow.triangle.pull", "success"),
 ];
-const ERROR_MESSAGE =
-  "Connect GitHub in Settings > Integrations, or set a GitHub login in this extension's settings.";
+const ERROR_MESSAGE = "Connect GitHub in Settings > Integrations, or set a GitHub login in this extension's settings.";
 
 /** The ops renderPullRequests emits for one watch state (examples/extensions/pr-list/src/main.ts). */
 function sceneFor(state: State): SceneOp[] {

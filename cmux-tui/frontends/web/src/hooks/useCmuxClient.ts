@@ -89,8 +89,8 @@ export function useCmuxClient() {
         current.tree === null ? current : { ...current, tree: titleReconciler.apply(current.tree) },
       );
     };
-    const queueSurfaceTitle = (surface: Id, title: string) => {
-      titleReconciler.record(surface, title);
+    const queueSurfaceTitle = (surface: Id, title: string, text: string | undefined) => {
+      titleReconciler.record(surface, title, text);
       pendingSurfaceTitles.set(surface, title);
       titleFlushTimer ??= setTimeout(flushSurfaceTitles, 0);
     };
@@ -260,7 +260,7 @@ export function useCmuxClient() {
                 discardPendingSurfaceTitles();
                 queueTreeRefresh();
               } else {
-                queueSurfaceTitle(changed.surface, changed.title);
+                queueSurfaceTitle(changed.surface, changed.title, changed.text);
               }
             }
             // This frontend passes only live PTY tabs to useAttachedTerminal;
