@@ -166,24 +166,52 @@ if (phase === "more") {
 }
 if (phase === "cap") {
   // The personal team (Pro, 1 USD included) spends on to its default cap, 2 x the pool: the sync marks it, the level is
-  // billed (overage x 1.1), and the next call past the cap is refused for the team. Then a machine start is refused
-  // the same way (cmux-platform SpendCap.ts), and the plan read shows the cap and any pending pause.
+  // billed (overage x 1.1), and the next call whose most it could cost passes the cap is refused (team.cap_reached).
+  // A refused call leaves the billed spend just under the cap, so the machine side is not at the cap yet: the team's
+  // admin sets the cap to the spend (usage.cap.set), and the plan read must show at_cap before a machine start is
+  // refused (cmux-platform SpendCap.ts, #40327 F2). The cap goes back to the default at the end.
   const n = Number(process.env.E2E_CAP_CALLS ?? "40")
   let refusal: string | null = null
   for (let i = 0; i < n && refusal === null; i++) {
     const r = await chat(token)
-    if (r !== 200) refusal = r
+    if (r !== 200 && r.startsWith("402") && r.includes("team.cap_reached")) refusal = r
+    else if (r !== 200) log("chat_error_before_cap", r)
     if (i % 4 === 3) await syncAndLevel("sync-cap")
   }
   log("cap_refusal", refusal)
+  if (refusal === null) throw new Error(`no team.cap_reached refusal in ${n} calls`)
+  await syncAndLevel("sync-at-cap")
   log("level_at_cap", { billed_usd: st.team.level.micros / 1e6, cost_usd: st.team.level.cost_micros / 1e6, markup_bp: st.team.level.markup_bp })
-  log("plan_spend_cap", (await read(token, "cloud.plan.get")).body?.value?.spend_cap ?? null)
-  const create = await submit(token, "cloud.machine.create", { name: "usage-e2e-at-cap", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
-  const frame = (create.body?.frames ?? []).find((f: any) => f.t === "result" || f.t === "reject")
-  log("machine_create_at_cap", { status: create.status, t: frame?.t ?? null, code: frame?.code ?? create.body?.code ?? null })
-  // A create that was admitted (not at the cap on the platform's read) is deleted at once: nothing left running.
-  const made = frame?.t === "result" ? frame.value?.machine?.id : null
-  if (made) log("machine_cleanup", (await submit(token, "cloud.machine.delete", { machine: made })).status)
+  const capSet = async (cap_usd: number | null) => {
+    const r = await submit(token, "usage.cap.set", { cap_usd })
+    if (r.body?.ok !== true) throw new Error(`usage.cap.set ${cap_usd}: ${r.status} ${JSON.stringify(r.body?.error ?? r.body)}`)
+  }
+  const spendCap = async () => (await read(token, "cloud.plan.get")).body?.value?.spend_cap ?? null
+  let cap = await spendCap()
+  if (cap?.state !== "at_cap") {
+    const at = Math.floor(st.team.level.micros / 10_000) / 100
+    await capSet(at)
+    log("cap_set_to_spend", { cap_usd: at })
+    // The platform reads the team's cap at most every 5 minutes (SpendCap.ts CAP_CHECK_EVERY_MS).
+    for (let i = 0; i < 40 && (cap = await spendCap())?.state !== "at_cap"; i++) await Bun.sleep(10_000)
+  }
+  log("plan_spend_cap", cap)
+  try {
+    if (cap?.state !== "at_cap") throw new Error(`the plan never read at_cap: ${JSON.stringify(cap)}`)
+    // /v1/ops answers {ok, value, error} (cmux-platform CloudOps.ts OpResponse; #40327 F1).
+    const create = await submit(token, "cloud.machine.create", { name: "usage-e2e-at-cap", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+    log("machine_create_at_cap", { status: create.status, ok: create.body?.ok ?? null, code: create.body?.error?.code ?? null })
+    // A create that was admitted is deleted at once: nothing left running.
+    const made = create.body?.ok === true ? create.body.value?.machine?.id : null
+    if (made) {
+      const del = await submit(token, "cloud.machine.delete", { machine: made })
+      log("machine_cleanup", { status: del.status, ok: del.body?.ok ?? null, code: del.body?.error?.code ?? null })
+      if (del.body?.ok !== true) throw new Error(`machine ${made} was admitted at the cap and its delete failed`)
+    }
+  } finally {
+    await capSet(null)
+    log("cap_reset", null)
+  }
 }
 if (phase === "b") {
   for (const side of SIDES) log(`summary_before_end_${side}`, await settledSummary(side, st[side].level.micros / 1e6))
@@ -219,6 +247,8 @@ if (phase === "c") {
 if (phase === "cleanup") {
   for (const side of SIDES) if (st[side]?.sub) await stripe("DELETE", `/v1/subscriptions/${st[side].sub}`).then(() => log("cleanup", `${side} subscription canceled`)).catch((e) => log("cleanup_error", String(e)))
   if (st.clock) await stripe("DELETE", `/v1/test_helpers/test_clocks/${st.clock}`).then(() => log("cleanup", `test clock ${st.clock} deleted`)).catch((e) => log("cleanup_error", String(e)))
+  // The personal team's cap goes back to the default however the cap phase ended.
+  log("cap_reset", (await submit(token, "usage.cap.set", { cap_usd: null })).body?.ok ?? null)
   // The shared e2e team goes back to the per-team default (from its next period).
   const back = await internal("/v1/internal/billing/team-mode", { stack_team: STACK_TEAM, mode: "per_team", actor: "e2e-hq-84", reason: "cx-y79zh.1 e2e cleanup" })
   log("team_mode_reset", { before: back.before, mode: back.mode, changed: back.changed })
