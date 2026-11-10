@@ -107,6 +107,8 @@
       "web/CLAUDE.md"
     ],
     "label": "classic-migration",
+    "seed_baseline": "098485d516f5e116eb508bac6202250c6e867845",
+    "seed_baseline_note": "the merge of #40119, where this guard landed: the baseline until its first green push run",
     "vercel_project": "cmux",
     "teammates": [
       {"login": "austinywang", "id": 38676809},

@@ -10,9 +10,10 @@ name: classic deploy guard
 # Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont
 # change it for clasisc".
 #
-# Each run judges every commit since the last green push run of this workflow (the last deploy it passed), so a
-# refused commit stays refused on later pushes until it is approved or reverted; a push that rewrote history past
-# that baseline is refused. workflow_dispatch judges one commit and never cancels anything (a dry run).
+# Each run judges every commit since the last green push run of this workflow (the last deploy it passed; before
+# the first one, deploy_guard.seed_baseline), so a refused commit stays refused on later pushes until its pull
+# request is approved; a push that rewrote history past that baseline is refused. workflow_dispatch judges one
+# commit and never cancels anything (a dry run).
 on:
   push:
     branches: [main]
