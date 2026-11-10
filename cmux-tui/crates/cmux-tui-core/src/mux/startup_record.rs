@@ -46,7 +46,10 @@ impl Mux {
         let (workspaces, surfaces) =
             self.with_state(|state| (state.workspaces.len(), state.surfaces.len()));
         log.started(StartInfo {
-            session: session_dir.file_name().and_then(|name| name.to_str()).and_then(Label::word),
+            session_hash: session_dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(Label::session_hash),
             workspaces,
             surfaces,
             clients: self.client_count(),

@@ -13,7 +13,8 @@ fn open_log() -> (cmux_unix_socket::TestDir, Arc<RequestLog>) {
 
 /// One request of `line` that took `took` and was answered `ok`.
 fn request(log: &Arc<RequestLog>, connection: &Arc<AtomicBool>, line: &str, took: Duration) {
-    let guard = log.begin(7, (Label::word("cmux app; rm -rf /"), None), connection, line);
+    let guard =
+        log.begin(7, (Label::client("cmux-next"), Label::client("frontend")), connection, line);
     decoded_command();
     backdate(took);
     reply_follows(true, None);
@@ -57,14 +58,18 @@ fn a_param_that_is_not_on_the_allow_list_is_not_in_the_file() {
         },
     })
     .to_string();
-    let guard = log.begin(7, (Label::word("cmux app; rm -rf /"), None), &connection, &line);
+    // A TUI sends the computer's hostname as its name: a name that is not a fixed word of a cmux
+    // client gives no label at all.
+    let labels = (Label::client("Lawrences-MacBook-Pro"), Label::client("my own kind"));
+    let guard = log.begin(7, labels, &connection, &line);
     decoded_command();
     backdate(SLOW);
     reply_follows(false, Some("Not A Code: SECRET4"));
     reply_mark(&connection, 64).expect("the request's reply is marked").written();
     drop(guard);
     // A line the daemon did not decode: its `cmd` is the client's text, not a command's name.
-    let guard = log.begin(7, (None, None), &connection, r#"{"cmd":"my-secret-word","surface":4}"#);
+    let labels = (Label::client("cmux-next"), Label::client("frontend"));
+    let guard = log.begin(7, labels, &connection, r#"{"cmd":"my-secret-word","surface":4}"#);
     backdate(SLOW);
     reply_follows(false, None);
     reply_mark(&connection, 64).expect("the request's reply is marked").written();
@@ -78,7 +83,16 @@ fn a_param_that_is_not_on_the_allow_list_is_not_in_the_file() {
     assert_eq!(records[0]["surface"], 3);
     assert_eq!(records[0]["pane"], "pane_0123456789abcdef0123456789abcdef");
     assert_eq!(records[0]["error"], "error", "an error code that is not a code is not written");
-    assert_eq!(records[0]["client_name"], "cmux_app__rm_-rf__");
+    assert!(
+        records[0].get("client_name").is_none(),
+        "a client's own name is in the record: {text}"
+    );
+    assert!(
+        records[0].get("client_kind").is_none(),
+        "a client's own kind is in the record: {text}"
+    );
+    assert_eq!(records[1]["client_name"], "cmux-next");
+    assert_eq!(records[1]["client_kind"], "frontend");
     assert_eq!(records[1]["name"], "other");
     assert_eq!(records[1]["surface"], 4);
     for key in ["text", "workspace", "terminal", "browser", "tab", "id", "env", "command"] {
@@ -96,6 +110,10 @@ fn a_param_that_is_not_on_the_allow_list_is_not_in_the_file() {
         "client-chosen",
         "x.test",
         "rm -rf",
+        "Lawrences",
+        "MacBook",
+        "my own kind",
+        "my_own_kind",
     ] {
         assert!(!text.contains(secret), "{secret:?} is in the file: {text}");
     }
@@ -181,4 +199,32 @@ fn a_blocked_writer_does_not_hold_the_request_path() {
     let reported: u64 = records.iter().filter_map(|record| record["queue_full"].as_u64()).sum();
     assert_eq!(written + dropped, REQUESTS, "each request is written or counted as dropped");
     assert_eq!(reported, dropped, "the file says how many records it lost: {records:?}");
+}
+
+#[test]
+fn a_session_name_and_an_app_id_in_a_thread_name_are_not_labels() {
+    let hash = Label::session_hash("acme-merger-0123456789abcdef").expect("the folder's hash");
+    assert_eq!(hash.as_str(), "0123456789abcdef");
+    assert!(Label::session_hash("acme-merger").is_none(), "a folder name with no hash is a label");
+    assert!(Label::session_hash("acme-0123456789abcdeg").is_none(), "16 bytes that are not hex");
+    let thread = Label::thread("cmux-app-host:com.example.private-app").expect("the thread's name");
+    assert_eq!(thread.as_str(), "cmux-app-host");
+    assert_eq!(Label::thread("mux-slow-log").expect("a plain name").as_str(), "mux-slow-log");
+}
+
+/// The older file cannot be made here (its name is a folder): the file must still obey the limit.
+#[test]
+fn a_rotation_that_fails_does_not_let_the_file_pass_the_limit() {
+    let dir = cmux_unix_socket::short_test_dir("srl");
+    let path = dir.path().join(FILE_NAME);
+    std::fs::create_dir(dir.path().join(format!("{FILE_NAME}.1"))).expect("the folder");
+    std::fs::write(&path, vec![b'a'; (FILE_BYTES - 10) as usize]).expect("a file near the limit");
+    let line = format!("{}\n", "b".repeat(200));
+    let mut ring = Ring::new(dir.path());
+    for _ in 0..3 {
+        ring.append(&line);
+    }
+    let written = std::fs::read(&path).expect("the file");
+    assert!(written.len() as u64 <= FILE_BYTES, "the file passed 1 MiB: {} bytes", written.len());
+    assert!(written.ends_with(line.as_bytes()), "the newest record is not the last line");
 }

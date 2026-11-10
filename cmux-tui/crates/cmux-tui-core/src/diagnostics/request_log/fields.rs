@@ -11,6 +11,26 @@ const LABEL_BYTES: usize = 48;
 pub(super) const ID_KEYS: [&str; 7] =
     ["workspace", "screen", "pane", "tab", "surface", "terminal", "browser"];
 const TERMINAL_KEY: usize = 5;
+/// The client names and kinds a record may hold: fixed words of cmux's own clients. A client sets
+/// its name and kind itself (`set-client-info`), and a TUI sends the computer's hostname as its
+/// name: any text that is not one of these words is not written.
+const CLIENT_WORDS: [&str; 15] = [
+    "agent",
+    "cmux-next",
+    "cmux-next-chief-profile-relay",
+    "cmux-next-home",
+    "cmux-next-mobile-compat",
+    "cmux-next-page-relay",
+    "frontend",
+    "ios",
+    "mac",
+    "machine",
+    "mcp",
+    "script",
+    "tui",
+    "web",
+    "web-client",
+];
 
 /// A short ASCII word that passed one of the grammars below: the only text a record holds.
 #[derive(Clone, Copy)]
@@ -80,14 +100,30 @@ impl Label {
         Self::copied(text.as_bytes())
     }
 
-    /// A client's own name or kind (`set-client-info`), or a thread name: at most 48 bytes,
-    /// every byte outside `[A-Za-z0-9_.:-]` replaced by `_`.
-    pub(crate) fn word(text: &str) -> Option<Self> {
+    /// A client's own name or kind (`set-client-info`), only when it is one of `CLIENT_WORDS`.
+    pub(crate) fn client(text: &str) -> Option<Self> {
+        CLIENT_WORDS.contains(&text).then(|| Self::copied(text.as_bytes()))
+    }
+
+    /// The 16 hex digits that end a session folder's name (`<name>-<hash>`). The name before them
+    /// is the person's own text when the daemon was started with `--session NAME`: not written.
+    pub(crate) fn session_hash(folder: &str) -> Option<Self> {
+        let (_, hash) = folder.rsplit_once('-')?;
+        let fits = hash.len() == 16 && hash.bytes().all(|byte| byte.is_ascii_hexdigit());
+        fits.then(|| Self::copied(hash.as_bytes()))
+    }
+
+    /// A thread's name up to its first `:` (an app host thread has an app id after it): at most
+    /// 48 bytes, every byte outside `[A-Za-z0-9_.-]` replaced by `_`.
+    pub(crate) fn thread(name: &str) -> Option<Self> {
+        Self::word(name.split(':').next().unwrap_or_default())
+    }
+
+    fn word(text: &str) -> Option<Self> {
         let mut label = Self::copied(text.as_bytes());
         let len = usize::from(label.len);
         for byte in label.bytes.iter_mut().take(len) {
-            if !matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b':' | b'-')
-            {
+            if !matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'-') {
                 *byte = b'_';
             }
         }

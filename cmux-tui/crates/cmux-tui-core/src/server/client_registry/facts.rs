@@ -59,8 +59,8 @@ impl ClientFacts {
                     actor: record.origin.actor(),
                     attached,
                     log_labels: (
-                        record.name.as_deref().and_then(Label::word),
-                        record.kind.as_deref().and_then(Label::word),
+                        record.name.as_deref().and_then(Label::client),
+                        record.kind.as_deref().and_then(Label::client),
                     ),
                 };
                 (*client, facts)
@@ -72,8 +72,12 @@ impl ClientFacts {
 
 impl ClientRegistry {
     /// `client`'s name and kind for the slow request log. Reads the published facts, never the
-    /// registry lock: every request line asks.
+    /// registry lock: every request line asks. With the published facts off there are none to
+    /// read, and the record has the client's number only.
     pub(in crate::server) fn log_labels(&self, client: u64) -> (Option<Label>, Option<Label>) {
+        if !self.input_lane.on() {
+            return (None, None);
+        }
         let facts = self.state.load().recover_poison();
         facts.clients.get(&client).map_or((None, None), |connection| connection.log_labels)
     }

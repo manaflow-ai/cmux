@@ -328,7 +328,7 @@ pub(crate) fn reply_mark(connection: &Arc<AtomicBool>, reply_bytes: usize) -> Op
 
 /// What the start line says of the session.
 pub(crate) struct StartInfo {
-    pub(crate) session: Option<Label>,
+    pub(crate) session_hash: Option<Label>,
     pub(crate) workspaces: usize,
     pub(crate) surfaces: usize,
     pub(crate) clients: usize,
@@ -488,7 +488,7 @@ impl RequestLog {
             at_ms: crate::startup_timings::unix_now_ms().saturating_sub(held_ms),
             lock,
             site,
-            thread: std::thread::current().name().and_then(Label::word),
+            thread: std::thread::current().name().and_then(Label::thread),
             request,
             client,
             held,
@@ -542,6 +542,14 @@ impl Ring {
             self.open();
         }
         let Some(file) = self.file.as_mut() else { return 0 };
+        if self.bytes.saturating_add(length) > FILE_BYTES {
+            // The rename failed (the older name is a folder, the folder is read-only): the file is
+            // emptied, and when that fails too the record goes. The file never passes the limit.
+            if file.set_len(0).is_err() {
+                return 0;
+            }
+            self.bytes = 0;
+        }
         if file.write_all(line.as_bytes()).is_err() {
             self.file = None;
             return 0;
@@ -599,7 +607,7 @@ impl Writer {
                         std::process::id(),
                         json_text(crate::release::distribution_version())
                     );
-                    push_label(&mut line, "session", info.session);
+                    push_label(&mut line, "session_hash", info.session_hash);
                     let _ = writeln!(
                         line,
                         ",\"workspaces\":{},\"surfaces\":{},\"clients\":{},\"registry_bytes\":{},\
