@@ -125,6 +125,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         set { webView.refusesKeyFocus = newValue }
     }
 
+    /// The page never scrolls itself; scrolls over it go to the native scroll view around it
+    /// (``PageWKWebView/passesScrollWheel``): a strip inside a native list, such as the sidebar's chat history.
+    public var passesScrollWheel: Bool {
+        get { webView.passesScrollWheel }
+        set { webView.passesScrollWheel = newValue }
+    }
+
     public var followsUIScale = true {
         didSet { if followsUIScale != oldValue { applyUIScale() } }
     }
@@ -178,6 +185,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
+    /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
+    /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
+    public internal(set) var reportsUnsavedEdits = false
+    /// Unsaved edits the host or the page knows of: app health's repairs leave such a page alone.
+    public var holdsEdits: Bool { reportsUnsavedEdits || holdsUnsavedEdits() }
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
@@ -443,8 +455,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         healthFeed = chromium?.healthFeed
-        router.heartbeat = { [weak self] handled in
+        router.heartbeat = { [weak self] handled, edits in
             guard let self else { return }
+            reportsUnsavedEdits = edits
             healthFeed?.pageBeat(self, handled: handled)
         }
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -459,6 +472,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             self?.notePainted()
         }
         PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
+        // A VoiceOver press sends the view no event; its trusted click in the page counts instead (manaflow-ai/cmux#37809).
+        PageAccessibilityPress.install(on: webView) { [weak self] in self?.webView.noteAccessibilityPress() }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
