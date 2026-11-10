@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloudUI
 
 extension CloudHandlers {
     /// Move to Cloud and Bring Back Local: the palette, the tab and chat right-click
