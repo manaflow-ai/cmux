@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42925431804",
+  "recorded_at": "2026-11-10T23:50:08Z",
+  "reason": "cmux-tui 26b68e438ff9 changes the image's cmux-tui (pinned d4c61136ea8a)",
+  "dry_run": false,
+  "cmux_tui": "26b68e438ff9135ce1ca303383969fc95f035d07",
+  "fixes": [
+    {
+      "sha": "26b68e438ff9135ce1ca303383969fc95f035d07",
+      "mergedAt": "2026-11-10T23:25:50Z",
+      "subject": "Respawn gate: a terminal the person asks for does not wait for the restore line; a try after a back-off takes its turn (#40746)"
+    },
+    {
+      "sha": "a9443ebb0d5c421ada0658341929e024885052ad",
+      "mergedAt": "2026-11-10T23:14:30Z",
+      "subject": "perf(daemon): a workspace close moves the later ledger positions with two statements (#40824)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T23:50:08Z",
+    "snapshot_id": "sh-0d0087a5df3c4b4c99f58417309c8f46",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42925431804): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "71a77b21c037f26be86940a18e4792d2d607747b",
+    "image": "cloud-native-auto-26b68e43-42925431804-1",
+    "revision": "ci-42925431804-1",
+    "at": "2026-11-10T23:50:08Z"
+  },
+  "rolled_back": false
+}
