@@ -2362,6 +2362,17 @@
     },
     {
       "params": {
+        "action": "cloud move-to-machine",
+        "args": {
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud move-to-machine --machine machine:contract-1"
+    },
+    {
+      "params": {
         "action": "cloud exec",
         "args": {
           "command": "/tmp/contract"
