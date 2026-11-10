@@ -703,7 +703,6 @@
   font: var(--text-caption);
   font-weight: 600;
   line-height: 22px;
-  cursor: pointer;
 }
 
 /* Reply to Selection's card above the message box: a thin neutral bar, who and the words, a remove button. */
