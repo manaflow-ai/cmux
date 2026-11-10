@@ -4503,6 +4503,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// said nothing about for minutes (cloudStartProgress.ts `CLOUD_START_STALL_MS`) stalled: the card
   /// says so and the composer is the person's again.
   const cloudStarting = cloudStartLocksComposer(cloudStart);
+  /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
+  /// still opens its chat, the host closes this tab, with a chat started here in it.
+  const cloudSendHeld = cloudStart?.state === "starting";
   useEffect(
     () => watchCloudStartStall(cloudStart, (key) => setCloudStart((current) => cloudStartStalled(current, key))),
     [cloudStart],
@@ -11650,7 +11653,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
             blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
-            blockSend={blockSend}
+            blockSend={blockSend || cloudSendHeld}
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
@@ -12059,7 +12062,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               ),
                             }
                           : {}),
-                        cloudStarting,
+                        // The page stays locked through a stall: its send would start a chat in this tab.
+                        cloudStarting: cloudSendHeld,
                         onCloud: (
                           harness: string,
                           text: string,

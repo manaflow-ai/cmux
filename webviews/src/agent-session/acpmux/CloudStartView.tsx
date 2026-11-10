@@ -203,11 +203,13 @@ export function CloudStartView({
         </div>
       )}
       {waitingForSignIn && signInStatus}
-      {stalled && (
+      {stalled && !start.ask && (
         <output className="acpmux-cloud-start__status" data-stalled="true">
           {t("cloudStart.stalled", {
             minutes: String(Math.round(CLOUD_START_STALL_MS / 60_000)),
-            step: (rows.find((row) => row.status === "running") ?? rows[0])?.label ?? "",
+            step:
+              (rows.find((row) => row.status === "running") ?? rows.find((row) => row.status === "pending") ?? rows[0])
+                ?.label ?? "",
           })}
         </output>
       )}

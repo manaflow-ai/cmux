@@ -112,6 +112,23 @@ test("the stalled card says where the start stopped and that the composer is ope
   expect(markup).toContain('data-stalled="true"');
   expect(markup).toContain("Set up a Cloud machine");
   expect(markup).toContain(String(CLOUD_START_STALL_MS / 60_000));
+  // A question the host asks after the stall takes the card's word: the stall line goes.
+  const asked = renderToStaticMarkup(
+    <CloudStartView
+      start={{
+        ...begun(),
+        stalled: true,
+        ask: {
+          id: "a",
+          kind: "firstLogin",
+          title: "Log in",
+          lines: [],
+          buttons: [{ id: "ok", title: "OK", role: "default" }],
+        },
+      }}
+    />,
+  );
+  expect(asked).not.toContain('data-stalled="true"');
   // Still starting, the card reads as a first turn and says nothing of a stall.
   expect(renderToStaticMarkup(<CloudStartView start={{ ...begun(), step: "machine" }} bubble />)).not.toContain(
     "data-stalled",
