@@ -190,6 +190,9 @@ const moving = new Set<string>();
 /// tried again adds none twice.
 export async function moveStash(from: string, to: string): Promise<void> {
   if (from === to) return;
+  // A new chat's drafts belong to the session they were first sent to: while that move waits,
+  // another chat the tab opens tries it again and never takes them.
+  for (const [pinned, waiting] of moves) if (pinned !== to && waiting.has(from)) return moveNow(from, pinned);
   const sources = moves.get(to) ?? new Map<string, PendingMove>();
   if (!sources.has(from)) sources.set(from, { ids: new Set(), read: false });
   moves.set(to, sources);
