@@ -232,6 +232,7 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
         expanded = text
         for key, value in zip(keys, combination):
             expanded = re.sub(r"\$\{\{\s*matrix\s*\.\s*" + re.escape(key) + r"\s*\}\}", value, expanded, flags=re.IGNORECASE)
+        expanded = dotted(expanded)  # a matrix value may itself index: ${{ vars['X'] }}
         if _MATRIX_REF.search(expanded):
             return None
         out.append(expanded)
@@ -475,6 +476,37 @@ def name_values(job: Mapping[str, Any], job_id: str, workflow: str | None = None
     if not isinstance(name, str):
         return set(), {repr(name)}
     return _resolve(job, name, _tracer(workflow, workflows))
+
+
+def effective_env(document: Mapping[str, Any], job: Mapping[str, Any],
+                  step: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The env a step sees: the workflow's, then the job's, then the step's, the inner one winning a key, as
+    GitHub merges them. Values stay as written; read a path value with repo_path."""
+    env: dict[str, Any] = {}
+    for scope in (document, job, step or {}):
+        layer = scope.get("env") if isinstance(scope, Mapping) else None
+        if isinstance(layer, Mapping):
+            env.update({str(key): value for key, value in layer.items()})
+    return env
+
+
+_WORKSPACE = re.compile(r"^(?:\$\{\{\s*github\.workspace\s*\}\}|\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE\b)")
+
+
+def repo_path(value: str) -> str | None:
+    """`value` as a path from the repo root: `${{ github.workspace }}`, `${GITHUB_WORKSPACE}` and
+    `$GITHUB_WORKSPACE` are the root (`.`), a relative path is itself; None for anything else (another
+    expression or variable, an absolute path), which a guard counts as unresolved."""
+    text = value.strip()
+    anchored = _WORKSPACE.match(text)
+    if anchored:
+        text = text[anchored.end():].lstrip("/")
+    elif text.startswith("/") or "$" in text:
+        return None
+    if "$" in text:
+        return None
+    text = text.rstrip("/")
+    return text or "."
 
 
 class Resolved:

@@ -222,6 +222,24 @@ class ReusableInputTracing(unittest.TestCase):
                          (set(), {"inputs.runner"}))
 
 
+class EffectiveEnv(unittest.TestCase):
+    """effective_env merges as #40829's copy does (workflow, then job, then step, inner wins); repo_path reads
+    the workspace forms as the repo root."""
+
+    def test_the_inner_env_wins_a_key(self) -> None:
+        doc, job, step = {"env": {"A": "1", "P": "w"}}, {"env": {"P": "${{ github.workspace }}/scripts/ci"}}, {"env": {"A": "2"}}
+        self.assertEqual(workflow_jobs.effective_env(doc, job, step),
+                         {"A": "2", "P": "${{ github.workspace }}/scripts/ci"})
+        self.assertEqual(workflow_jobs.effective_env(doc, job), {"A": "1", "P": "${{ github.workspace }}/scripts/ci"})
+
+    def test_the_workspace_forms_are_the_repo_root(self) -> None:
+        for value in ("${{ github.workspace }}", "$GITHUB_WORKSPACE", "${GITHUB_WORKSPACE}/"):
+            self.assertEqual(workflow_jobs.repo_path(value), ".", value)
+        self.assertEqual(workflow_jobs.repo_path("${{ github.workspace }}/scripts/ci"), "scripts/ci")
+        for value in ("/opt/x", "$HOME/x", "${{ env.X }}", "$GITHUB_WORKSPACEX"):
+            self.assertIsNone(workflow_jobs.repo_path(value), value)
+
+
 HERE = __name__
 # Fixtures whose fix added a guard rather than changed a reader: the guard as it was before (absent), per list.
 PRE_FIX_GUARDS = {
