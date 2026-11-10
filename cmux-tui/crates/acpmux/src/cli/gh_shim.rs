@@ -10,8 +10,10 @@
 //! - `pr create --draft --title T [--head BRANCH] [--base BRANCH] [--body B | --body-file F]`
 //! - `issue create --title T [--body B | --body-file F]`
 //! - `issue comment NUMBER (--body B | --body-file F)`
+//! - `repo clone OWNER/REPO [DIR]`: into a new folder DIR (the repository's name when not given)
+//!   under the chat's own folder, which the daemon makes and runs git in (`github_clone.rs`)
 //!
-//! Each also takes `--repo`/`-R OWNER/REPO`; without it the repository is the one `origin`
+//! Each but `repo clone` also takes `--repo`/`-R OWNER/REPO`; without it the repository is the one `origin`
 //! names in this folder, as `gh` would read it.
 
 use crate::github_broker::{GithubAction, GithubActionParams, SHIM_REFUSAL_ENV};
@@ -19,7 +21,7 @@ use anyhow::{Result, anyhow, bail};
 use serde_json::Value;
 
 const USAGE: &str = "acpmux gh: supported: repo view, pr view N, pr create --draft, issue create, \
-issue comment N (each with --repo OWNER/REPO)";
+issue comment N (each with --repo OWNER/REPO), repo clone OWNER/REPO [DIR]";
 
 /// The flags each form takes: (long, short, takes a value).
 type Flags = &'static [(&'static str, Option<&'static str>, bool)];
@@ -89,6 +91,28 @@ fn request(
 ) -> Result<GithubActionParams> {
     let words: Vec<&str> = args.iter().take(2).map(String::as_str).collect();
     let tail = args.get(2..).unwrap_or_default();
+    if words == ["repo", "clone"] {
+        let p = parse_flags(tail, &[])?;
+        let mut positionals = p.positionals.into_iter();
+        let repo =
+            positionals.next().ok_or_else(|| anyhow!("acpmux gh: repo clone OWNER/REPO [DIR]"))?;
+        let dir = positionals.next();
+        if let Some(extra) = positionals.next() {
+            bail!("acpmux gh: unexpected argument {extra:?}\n{USAGE}");
+        }
+        return Ok(GithubActionParams {
+            session_id: None,
+            action: GithubAction::Clone,
+            repo,
+            branch: None,
+            base: None,
+            issue: None,
+            title: None,
+            body: None,
+            dir,
+            deadline_ms: None,
+        });
+    }
     let (action, rest, flags): (GithubAction, &[String], Flags) = match words.as_slice() {
         ["repo", "view", ..] => (GithubAction::Read, tail, &[REPO]),
         ["pr", "view", ..] => (GithubAction::Read, tail, &[REPO]),
@@ -150,6 +174,7 @@ fn request(
         issue,
         title: p.values.remove("--title"),
         body,
+        dir: None,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
     })

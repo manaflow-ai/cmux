@@ -295,6 +295,9 @@ mod subagent_title_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
+mod github_mcp;
+#[cfg(test)]
+mod github_mcp_tests;
 mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
@@ -407,6 +410,12 @@ pub const RENAME: &str = "_acpmux/claude/rename";
 /// `{"decision": "none"|"allow"|"ask"|"deny", "reason"?}`. A backend that has the gate says so in
 /// its `agentInfo` (`_meta.acpmux.toolGate`, [`has_tool_gate`]).
 pub const TOOL_GATE: &str = "_acpmux/claude/tool_gate";
+
+/// This backend -> hub: one GitHub broker action a remote chain's Claude Code asked for through
+/// the `acpmux-github` SDK MCP server (`github_mcp.rs`), `{sessionId, action, repo, ...}` as
+/// `github_broker::GithubActionParams`. The hub answers it for the session that owns this
+/// process (`hub/github_owner.rs`) with the broker's answer.
+pub const GITHUB_ACTION: &str = "_acpmux/claude/github_action";
 pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
@@ -540,6 +549,11 @@ pub struct Translator {
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
     /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
     gate: policy_gate::PolicyGate,
+    /// Tool calls of the `acpmux-github` server that wait on the hub (`github_mcp.rs`).
+    github_mcp: github_mcp::GithubMcp,
+    /// Whether this process offers the `acpmux-github` server (`github_mcp.rs`), set by the hub
+    /// before `initialize` for a remote chain on a machine a Mac lends GitHub to.
+    pub github_broker: AtomicBool,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -763,6 +777,8 @@ impl Translator {
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
+            github_mcp: Default::default(),
+            github_broker: AtomicBool::new(false),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,

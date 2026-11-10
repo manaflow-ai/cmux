@@ -590,6 +590,13 @@ impl Hub {
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
+        // A remote chain's Claude Code asks for a GitHub action over its own stdio
+        // (`github_owner.rs`).
+        if m == crate::claude_stdio::GITHUB_ACTION {
+            let result = self.answer_github_action(&session, params.unwrap_or(Value::Null)).await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
         if m == method::SESSION_REQUEST_PERMISSION {
             let mut params = params.unwrap_or(Value::Null);
             // Gemini's plan approval names its plan file only: its card carries the plan

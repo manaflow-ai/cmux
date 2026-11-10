@@ -14,10 +14,16 @@ impl Translator {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
                         let suggestions = prompt_suggestions::enabled_in_settings();
+                        let mut request = initialize_request(suggestions);
+                        // The broker's SDK MCP server, only for a chat the hub turned it on for
+                        // (`github_mcp.rs`): the one server acpmux itself adds to a chain.
+                        if let Some(servers) = self.sdk_mcp_servers() {
+                            request.set("sdkMcpServers", servers);
+                        }
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request(suggestions)
+                            "request": request
                         })];
                         lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
@@ -447,6 +453,12 @@ impl Translator {
             Message::Response { id, result, error } => {
                 // The hub answered the policy gate about a tool call (`policy_gate.rs`).
                 if let Some(reply) = self.gate_answer(id, result.as_ref(), error.is_some()).await {
+                    return Outbound::Lines(vec![reply]);
+                }
+                // The hub answered a GitHub broker tool call (`github_mcp.rs`).
+                if let Some(reply) =
+                    self.github_mcp_answer(id, result.as_ref(), error.as_ref()).await
+                {
                     return Outbound::Lines(vec![reply]);
                 }
                 // The hub answered a permission request we raised.

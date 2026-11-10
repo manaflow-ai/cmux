@@ -258,7 +258,28 @@ pub fn permissions(action: GithubAction) -> Value {
         GithubAction::DraftPr => {
             json!({"metadata": "read", "contents": "read", "pull_requests": "write"})
         }
+        // A clone reads the repository's contents and nothing else (`github_clone.rs`).
+        GithubAction::Clone => json!({"metadata": "read", "contents": "read"}),
     }
+}
+
+/// A clone's credential (`github_clone.rs`): only a token the App mints for that one
+/// repository with `permissions(Clone)`, handed on only while the sign-in it was minted with is
+/// still lent; never the keyring login, which is the person's whole GitHub. With no sign-in
+/// lent, none (`Ok(None)`): the clone runs without one, as for a public repository.
+pub async fn clone_token(
+    r: &GithubActionParams,
+    app: Option<&AppLease>,
+) -> (Option<&'static str>, Result<Option<String>, RpcError>) {
+    let Some((seq, lent)) = app.and_then(|a| a.current(crate::store::now_ms)) else {
+        return (None, Ok(None));
+    };
+    let source = match mint(&lent, r).await {
+        Ok(token) => Source::App(token, seq),
+        Err(e) => return (Some("app"), Err(e)),
+    };
+    let handed = while_lent(&source, app, || Ok(source.token().map(str::to_owned)));
+    (Some("app"), handed)
 }
 
 /// The error for Cloud's `code`, in fixed words: nothing Cloud wrote goes on to the machine.

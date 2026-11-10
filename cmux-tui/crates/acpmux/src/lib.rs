@@ -76,6 +76,7 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_clone;
 pub mod github_status;
 pub mod goal;
 pub mod hand;

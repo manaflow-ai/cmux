@@ -274,6 +274,9 @@ pub struct TranslatorSpec {
     pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+    /// The chat offers the GitHub broker's MCP server (`claude_stdio/github_mcp.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub github_broker: bool,
 }
 
 fn suggestions_default() -> bool {

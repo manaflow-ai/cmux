@@ -77,6 +77,9 @@ pub enum GithubAction {
     Issue,
     Comment,
     DraftPr,
+    /// Clone a repository into a new folder under the asking chat's folder (`clone.rs`): the
+    /// Mac only checks it and lends a read-only credential for it; the machine's daemon runs git.
+    Clone,
 }
 
 impl GithubAction {
@@ -86,6 +89,7 @@ impl GithubAction {
             Self::Issue => "issue",
             Self::Comment => "comment",
             Self::DraftPr => "draft_pr",
+            Self::Clone => "clone",
         }
     }
 }
@@ -111,6 +115,10 @@ pub struct GithubActionParams {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// The new folder a clone makes under the chat's folder (`clone::valid_dir`); the
+    /// repository's name when not given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
     /// Unix ms, by the machine's clock: when it stops waiting for the answer
     /// ([`deadline_from`]). The lane sets it; the Mac starts nothing that could finish later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -209,8 +217,10 @@ pub fn validate(r: &GithubActionParams) -> Result<(), RpcError> {
         GithubAction::Issue => (&["title"], &["body"]),
         GithubAction::Comment => (&["issue", "body"], &[]),
         GithubAction::DraftPr => (&["branch", "title"], &["base", "body"]),
+        GithubAction::Clone => (&[], &["dir"]),
     };
     let given = [
+        ("dir", r.dir.is_some()),
         ("branch", r.branch.is_some()),
         ("base", r.base.is_some()),
         ("issue", r.issue.is_some()),
@@ -229,7 +239,12 @@ pub fn validate(r: &GithubActionParams) -> Result<(), RpcError> {
         return Err(invalid("issue must be a positive number"));
     }
     bounded_text("title", r.title.as_deref())?;
-    bounded_text("body", r.body.as_deref())
+    bounded_text("body", r.body.as_deref())?;
+    if r.action == GithubAction::Clone {
+        crate::github_clone::valid_dir(&crate::github_clone::dir_name(r))
+            .map_err(|why| invalid(format!("dir {why}")))?;
+    }
+    Ok(())
 }
 
 /// The fixed `gh` command for a request `validate` accepted. Every caller value goes as
@@ -253,6 +268,8 @@ pub fn gh_args(r: &GithubActionParams) -> Vec<String> {
         (GithubAction::Comment, _) => {
             vec!["issue".into(), "comment".into(), n, opt("--body", &r.body)]
         }
+        // A clone runs no `gh` on the Mac (`serve_owner`); nothing to run.
+        (GithubAction::Clone, _) => return Vec::new(),
         (GithubAction::DraftPr, _) => vec![
             "pr".into(),
             "create".into(),
@@ -330,6 +347,7 @@ pub fn audit_payload(
         "repo": r.repo,
         "branch": r.branch,
         "issue": r.issue,
+        "dir": r.dir,
         "status": status,
         "source": source,
         "error": error.map(|e| json!({"code": e.code})),
@@ -446,6 +464,9 @@ pub async fn serve_owner(
         .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
     validate(&request)?;
     check_deadline(request.deadline_ms, crate::store::now_ms())?;
+    if request.action == GithubAction::Clone {
+        return crate::github_clone::serve_owner(peer, &request, app).await;
+    }
     let (source, chosen) = crate::github_app_token::choose(&request, app).await;
     let result = match &chosen {
         // Again once the login is chosen (`gh auth status` and a mint take time): `gh` still
@@ -468,7 +489,7 @@ pub async fn serve_owner(
 
 /// `e` says which login it ran with, whatever data it had (none, for a `gh` that failed to
 /// start or ran out of time).
-fn with_source(mut e: RpcError, source: Option<&str>) -> RpcError {
+pub(crate) fn with_source(mut e: RpcError, source: Option<&str>) -> RpcError {
     let Some(source) = source else { return e };
     let data = e.data.get_or_insert_with(|| json!({}));
     if let Value::Object(data) = data {
@@ -487,7 +508,7 @@ pub async fn handle(
     if conn.origin != crate::server::Origin::Local {
         return Err(denied("GitHub actions are asked over this machine's unix socket only"));
     }
-    let mut request: GithubActionParams = serde_json::from_value(params)
+    let request: GithubActionParams = serde_json::from_value(params)
         .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
     let session = conn
         .caller()
@@ -495,11 +516,25 @@ pub async fn handle(
             denied("GitHub actions are for an acpmux session's agent (run it inside one)")
         })?
         .to_owned();
-    request.session_id = Some(session.clone());
-    validate(&request)?;
     let session = hub.resolve(&session)?;
+    ask_owner(hub, &session, request).await
+}
+
+/// The lane's side once the asking session is proven, by its caller token on the unix socket
+/// (`handle`) or as the session whose own agent asked over its stdio (`hub/github_owner.rs`):
+/// check the request, send it up the newest link that lends GitHub, record the decision on the
+/// session, and, for a clone, run git here with what the Mac lent (`github_clone.rs`). Whatever
+/// the session put in `sessionId` is replaced by its own id.
+pub async fn ask_owner(
+    hub: &Arc<crate::hub::Hub>,
+    session: &Arc<crate::hub::Session>,
+    mut request: GithubActionParams,
+) -> Result<Value, RpcError> {
+    request.session_id = Some(session.id.clone());
+    request.deadline_ms = None;
+    validate(&request)?;
     let record = |status: &str, error: Option<&RpcError>, source: Option<&str>| {
-        hub.append_github_audit(&session, audit_payload(&request, status, error, source));
+        hub.append_github_audit(session, audit_payload(&request, status, error, source));
     };
     let Some(owner) = hub.github_owner_link() else {
         let error = RpcError::new(
@@ -510,13 +545,38 @@ pub async fn handle(
         record("unavailable", Some(&error), None);
         return Err(error);
     };
+    // A clone goes into a new folder: one that is there already is refused before the Mac is
+    // asked (and again when git starts, `github_clone::run`).
+    let cwd = session.meta().cwd;
+    if request.action == GithubAction::Clone
+        && let Err(e) = crate::github_clone::check_target(&cwd, &request)
+    {
+        record("failed", Some(&e), None);
+        return Err(e);
+    }
     // The Mac starts nothing it could not finish before this machine stops waiting.
     let mut wire = request.clone();
     wire.deadline_ms = Some(deadline_from(crate::store::now_ms()));
     let wire = serde_json::to_value(&wire).map_err(|e| RpcError::internal(e.to_string()))?;
     let budget = LANE_WAIT;
     let reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
-    let source = source_of(&reply);
+    // A clone's credential is taken out of the answer here, whatever happens next: it goes only
+    // to the git this daemon runs, never to the agent, a record or a log.
+    let (reply, lent) = match reply {
+        Ok(v) => {
+            let (v, lent) = crate::github_clone::take_lent(v);
+            (Ok(v), lent)
+        }
+        Err(e) => (Err(e), None),
+    };
+    let source = source_of(&reply).map(str::to_owned);
+    let source = source.as_deref();
+    let reply = match reply {
+        Ok(_) if request.action == GithubAction::Clone => {
+            crate::github_clone::run(&cwd, &request, lent, source).await
+        }
+        other => other,
+    };
     match &reply {
         Ok(_) => record("allowed", None, source),
         Err(e) if e.code == -32040 => record("denied", Some(e), source),

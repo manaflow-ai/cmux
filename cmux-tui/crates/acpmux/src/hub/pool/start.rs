@@ -83,6 +83,8 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    // A pooled agent is a local one; a remote chain's spawn sets it.
+                    github_broker: false,
                 }),
             )
         } else {

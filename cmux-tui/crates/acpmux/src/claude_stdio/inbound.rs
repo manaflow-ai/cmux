@@ -555,8 +555,11 @@ impl Translator {
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
-                    // Anything else (mcp_message) is declined with an error
-                    // response, so claude does not wait on it.
+                    // The broker's SDK MCP server (github_mcp.rs); any other server's
+                    // message is declined there.
+                    Some("mcp_message") => out.extend(self.github_mcp(&sid, &rid, &req).await),
+                    // Anything else is declined with an error response, so claude does not
+                    // wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }
@@ -565,6 +568,7 @@ impl Translator {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
                 // A gate hook Claude Code stopped waiting on: its late answer is dropped.
                 self.forget_gate(rid).await;
+                self.forget_github_mcp(rid).await;
                 if let Some(id) = self.cancel_control_request(rid).await {
                     out.push(Message::notification(
                         method::CANCEL_REQUEST,
