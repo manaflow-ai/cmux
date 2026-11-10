@@ -1994,7 +1994,7 @@ class AppFfiBuildPlacement(unittest.TestCase):
         return context
 
     def route(self, runners: list[dict], *, promote: str = "", free: tuple[int, int] = (5, 10), attempt: str = "1",
-              event: str = "push", ran: bool = True) -> tuple[str, dict[str, str]]:
+              event: str = "push", ran: bool = True, queued: int = 0) -> tuple[str, dict[str, str]]:
         """(the build's runs-on, the placement's outputs) for `runners` and `free` (12 vCPU, 6 vCPU) Blacksmith slots."""
         workflow = self.workflow()
         context = self.context(promote=promote, attempt=attempt, event=event)
@@ -2006,7 +2006,7 @@ class AppFfiBuildPlacement(unittest.TestCase):
         if ran:
             cap = placement.cascade.CAPACITY
             live = {label: cap[label] - slots for label, slots in zip((placement.cascade.LARGE, placement.cascade.SMALL), free)}
-            waiting = {label: 0 for label in live}
+            waiting = {label: queued if label == placement.cascade.SMALL else 0 for label in live}
             with tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "out"
                 values.update(GITHUB_OUTPUT=str(output), GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_RUN_ATTEMPT=attempt)
@@ -2056,6 +2056,23 @@ class AppFfiBuildPlacement(unittest.TestCase):
         label, lines = self.route([], promote="", free=(0, 0))
         self.assertEqual(label, FALLBACK)
         self.assertEqual(lines["blacksmith_12_jobs"], "")
+
+    def test_a_busy_promote_pool_with_no_free_slot_keeps_the_promote_pool(self):
+        # 6 vCPU full and backed up past the overflow's backlog: the promote pool's queue holds only this build.
+        busy = runner("cmux14", busy=True, labels=(self.PROMOTE,))
+        label, lines = self.route([busy], promote=self.PROMOTE, free=(0, 0),
+                                  queued=placement.cascade.OVERFLOW_BACKLOG)
+        self.assertEqual(lines["promote_runner"], "")
+        self.assertEqual(label, self.PROMOTE)
+
+    def test_a_build_re_run_alone_never_reads_attempt_1s_placement(self):
+        # A re-run of the build alone keeps attempt 1's placement outputs (placed_attempt 1).
+        workflow = self.workflow()
+        context = self.context(promote=self.PROMOTE, attempt="2")
+        context["needs"] = {"placement": {"outputs": {"promote_runner": self.PROMOTE, "placed_attempt": "1",
+                                                      "blacksmith_12_jobs": " app-ffi-build ",
+                                                      "blacksmith_6_jobs": ""}}}
+        self.assertEqual(evaluate(workflow["jobs"]["build"]["runs-on"], context), FALLBACK)
 
     def test_a_placement_that_did_not_run_keeps_the_earlier_route(self):
         label, _ = self.route([], promote=self.PROMOTE, ran=False)
