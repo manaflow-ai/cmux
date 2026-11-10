@@ -975,16 +975,18 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
     times alone: six reviews of cmux#40542, hq#8936 and LW#4177 found logs where they balance out (a composite action's
     inner `Run` line or a step's own `::group::Run` line standing in for a silent step's missing one, and a
     continue-on-error composite's diagnostic then dropped as a passing step's). The log is placed only when there is
-    exactly one STEP_START line per step and each one is that step's own header:
-    - an unnamed `run:` or `uses:` step's name is its header (`Run actions/checkout@v6` opens with `##[group]Run
-      actions/checkout@v6`), so the header must equal it;
-    - a post step (`Post ...`) opens with `Post job cleanup.`, and no other step does;
-    - a named step's header (`Run <its script's first line>`) cannot be read off its name: its stamp must fall within
-      that step's [started_at, completed_at + 1s) and no other step's (the metadata keeps whole seconds), so it can
-      only have been printed by that step.
-    Any composite action, silent step, extra header or mismatch places nothing. A placed section is FAILED when its
-    step (or, for the last section, "Complete job") did not succeed or the section has a SECTION_RED line, else
-    PASSED."""
+    exactly one STEP_START line per step and each one is that step's own header, by both of:
+    - its stamp falls within that step's [started_at, completed_at + 1s) and no other step's that can print one (the
+      metadata keeps whole seconds; "Set up job" and "Complete job" are the runner's and print none), so only that
+      step can have printed it;
+    - its text fits the step's name: an unnamed `run:` or `uses:` step's name is its header (`Run
+      actions/checkout@v6` opens with `##[group]Run actions/checkout@v6`), a post step (`Post ...`) opens with
+      `Post job cleanup.` and no other step does, and a named step's header (`Run <its script's first line>`) cannot
+      be read off its name. A name alone never proves a header is a step's: the workflow's author picks it, so a
+      silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
+    Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
+    is FAILED when its step (or, for the last section, "Complete job") did not succeed or the section has a
+    SECTION_RED line, else PASSED."""
     lines = log.splitlines()
     unknown = [(line, None, AMBIGUOUS) for line in lines]
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
@@ -1001,26 +1003,25 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
         start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
         windows.append((start, end + timedelta(seconds=1)) if start is not None and end is not None and end >= start
                        else None)
-    known = [window for window in windows if window is not None]
-    opened, closed = sorted(start for start, _ in known), sorted(end for _, end in known)
+    if None in windows:
+        return unknown
+    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
     for k, n in enumerate(starts, 1):
         name = str(steps[k].get("name") or "")  # step-name: validate
         header = texts[n].removeprefix("##[group]")
         if header == "Post job cleanup." or name.startswith("Post "):
             if not (header == "Post job cleanup." and name.startswith("Post ")):
                 return unknown
-        elif name.startswith("Run "):
-            if header != name:
-                return unknown
-        else:
-            parts = lines[n].replace("﻿", "").split("\t", 2)
-            stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
-            at = _stamp_time(stamp.group()) if stamp else None
-            if at is None or windows[k] is None or None in windows or not windows[k][0] <= at < windows[k][1]:
-                return unknown
-            # The windows holding AT: those opened at or before it less those closed at or before it.
-            if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
-                return unknown
+        elif name.startswith("Run ") and header != name:
+            return unknown
+        parts = lines[n].replace("\ufeff", "").split("\t", 2)
+        stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
+        at = _stamp_time(stamp.group()) if stamp else None
+        if at is None or not windows[k][0] <= at < windows[k][1]:
+            return unknown
+        # The windows holding AT: those opened at or before it less those closed at or before it.
+        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
+            return unknown
     bounds = [0, *starts, len(lines)]
     found = []
     for k in range(len(bounds) - 1):
