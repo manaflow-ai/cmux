@@ -109,7 +109,7 @@ final class AppServices {
     var restartControlListener: (@MainActor () throws -> Void)?
     /// One Cloud environment apply at a time.
     let cloudEnvironmentSwitch = CloudEnvironmentSwitch()
-    /// This build's error journal (AppControl starts it): Help > Copy Logs reads it.
+    /// This build's error journal (nothing reads its logs at rest): Help > Copy Logs reads it.
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
