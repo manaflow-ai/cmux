@@ -709,7 +709,8 @@ def make_gone_agents(conn, args, count):
     """Makes `count` agent records whose terminal is CLOSED, as a long session has (the person's Mac, 2026-11-10: 111 of
     214 agents named a terminal that the daemon no longer listed). Each one is a workspace with one terminal, made as
     `make` makes them; the terminal starts the agent program, the program reports through the product's hook path,
-    then `close-terminal` ends the terminal and `close-workspace` removes its workspace: the daemon keeps the agent
+    then `close-terminal` ends the terminal and its workspace goes with its last tab (`close-workspace` is sent for
+    a daemon that keeps an empty workspace; "unknown workspace" is then the right answer): the daemon keeps the agent
     record with its last state (the record of a closed terminal is never removed), and no workspace, pane, tab or
     terminal count changes. In parts of GONE_BATCH. (records made, parts, closes that failed)."""
     base = durable_agents(conn)
@@ -735,6 +736,8 @@ def make_gone_agents(conn, args, count):
             for cmd, params in (("close-terminal", {"terminal_id": terminal.get("terminal_id")}),
                                 ("close-workspace", {"workspace": workspace, "end_terminals": True})):
                 reply = conn.call(cmd, **params)
+                if cmd == "close-workspace" and str(reply.get("error")).startswith("unknown workspace"):
+                    continue  # RAN 2026-11-10 (twin 3346c92cf2cd): the workspace went with its last terminal
                 if not reply.get("ok"):
                     failed.append({"cmd": cmd, "error": str(reply.get("error"))[:160], "error_code": reply.get("error_code")})
         parts.append({"terminals": len(part), "listed": listed - len(base) - made})
