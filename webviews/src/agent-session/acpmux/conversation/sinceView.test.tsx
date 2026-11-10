@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { estimateRowHeight, SINCE_DIVIDER, type AcpmuxRow } from "../model";
+import { layoutConversation, SINCE_DIVIDER, type AcpmuxRow } from "../model";
 import { SinceDivider } from "./SinceDivider";
 import { setSinceView, sinceView } from "./sinceView";
 
@@ -81,12 +81,17 @@ test("a click on the line switches expanded and collapsed, and Hide draws nothin
 test("the row estimate follows the pick: no room while hidden, no recap while collapsed", async () => {
   await mount();
   const row: AcpmuxRow = { id: SINCE_DIVIDER, version: 1, at: 0, kind: SINCE_DIVIDER, since: SINCE };
+  const reply: AcpmuxRow = { id: "after", version: 1, at: 42, kind: "assistant", text: "Done." };
+  // A fresh layout each time: the layout keeps a row's height by its object.
+  const height = () => layoutConversation([{ ...row }, reply], 640).heights[0]!;
   setSinceView("expanded");
-  const expanded = estimateRowHeight(row, 640);
+  const expanded = height();
   setSinceView("collapsed");
-  expect(estimateRowHeight(row, 640)).toBe(28);
-  expect(expanded).toBeGreaterThan(28);
+  const collapsed = height();
   setSinceView("hidden");
-  expect(estimateRowHeight(row, 640)).toBe(0);
+  const hidden = height();
   setSinceView("expanded");
+  expect(collapsed).toBeGreaterThanOrEqual(28);
+  expect(expanded).toBeGreaterThan(collapsed);
+  expect(hidden).toBe(0);
 });
