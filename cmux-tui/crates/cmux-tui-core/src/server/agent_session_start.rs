@@ -443,8 +443,7 @@ pub(super) fn start(
             let gated = keyed_gate(&socket, &params, by);
             timings.keyed_gate = Some(ms_since(began));
             let result = match gated {
-                Ok(()) => run(&worker_mux, client, socket, params, phone, by, &mut timings)
-                    .map_err(|r| (r, None)),
+                Ok(()) => run(&worker_mux, client, socket, params, phone, by, &mut timings),
                 Err(refused) => Err(refused),
             };
             drop(slot);
@@ -503,7 +502,30 @@ fn keyed_gate(
             Some(status.map_err(|_| unknown())?)
         }
     };
-    let keyed = status.as_ref().is_some_and(|status| {
+    keyed_by(status.as_ref(), params)
+}
+
+/// [`keyed_gate`] again on `link`, the acpmux the start runs on: the gate read the acpmux that
+/// listened before the start, and a restart since ([`ready_catalog`]) brings a run the caller may
+/// hold no key for, whose permission prompts it then could not approve.
+fn still_keyed(
+    link: &AcpmuxLink,
+    params: &StartParams,
+    by: Deadline,
+) -> Result<(), (Refusal, Option<Value>)> {
+    if !params.require_person_key {
+        return Ok(());
+    }
+    let status = link
+        .call("_acpmux/status", json!({}), by.cap(CALL_TIMEOUT))
+        .map_err(|_| (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({}))))))?;
+    keyed_by(Some(&status), params)
+}
+
+/// Ok when `status` (`_acpmux/status`; None: acpmux does not run) holds a person key for the
+/// caller's `person_instance`, else the typed `needs_keyed_start` refusal.
+fn keyed_by(status: Option<&Value>, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
+    let keyed = status.is_some_and(|status| {
         status.get("personKey").and_then(Value::as_bool) == Some(true)
             && params.person_instance.is_some()
             && status.get("personInstance").and_then(Value::as_str)
@@ -512,7 +534,7 @@ fn keyed_gate(
     if keyed {
         return Ok(());
     }
-    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status.as_ref()))))
+    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status))))
 }
 
 /// The ONE rule for whether a keyed restart of this machine's acpmux can
@@ -564,14 +586,18 @@ fn run(
     phone: bool,
     by: Deadline,
     timings: &mut StartTimings,
-) -> Result<Value, Refusal> {
+) -> Result<Value, (Refusal, Option<Value>)> {
     let began = Instant::now();
-    let (link, started) = connect_noting(mux, &socket)?;
+    let (link, started) = connect_noting(mux, &socket).map_err(|r| (r, None))?;
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
     let checks = Instant::now();
-    let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, (checks + READY_BUDGET).min(by.at()))?;
-    let result = start_and_bind(mux, client, &link, &catalog, &params, phone, checks, by, timings);
+    let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
+    let ready = (checks + READY_BUDGET).min(by.at());
+    let (link, catalog) = ready_catalog(&socket, link, cwd, ready).map_err(|r| (r, None))?;
+    let result = still_keyed(&link, &params, by).and_then(|()| {
+        start_and_bind(mux, client, &link, &catalog, &params, phone, checks, by, timings)
+            .map_err(|r| (r, None))
+    });
     link.close();
     result
 }

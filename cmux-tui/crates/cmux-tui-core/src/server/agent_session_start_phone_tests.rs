@@ -3,7 +3,7 @@
 //! where a Mac's start keeps whatever mode its harness starts in.
 
 use super::agent_session_attach_tests::{
-    Client, FakeAcpmux, Fixture, PhoneFloor, SESSION, WAIT, assert_code, mux_with, run,
+    Client, FakeAcpmux, Fixture, KeyedRun, PhoneFloor, SESSION, WAIT, assert_code, mux_with, run,
     terminal_pane,
 };
 use super::*;
@@ -249,4 +249,37 @@ fn the_owners_start_survives_acpmux_restarting_under_it() {
     let methods = owner.methods();
     assert_eq!(methods.iter().filter(|m| *m == "_acpmux/harnesses").count(), 3, "{methods:?}");
     assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
+}
+
+/// router-review F2 on cmux#40640: the keyed gate read the acpmux run before a restart; the start
+/// that reconnects to the run the restart brings, which holds no key for the caller, is refused
+/// `needs_keyed_start` before any agent starts, and a run that still holds it starts the agent.
+#[test]
+fn a_keyed_start_checks_the_key_again_on_the_restarted_acpmux() {
+    for (restarted, keyed) in [("run-b", false), ("run-a", true)] {
+        let mode = Arc::new(Mutex::new("default".to_owned()));
+        let floor =
+            PhoneFloor { strict: true, family: "claude", mode, stuck: false, table_gate: None };
+        let run = KeyedRun { current: Arc::new(Mutex::new("run-a")), restarted };
+        let restarting = Fixture {
+            catalog_hang_ups: Arc::new(AtomicU64::new(1)),
+            keyed_run: Some(run),
+            ..Default::default()
+        };
+        let mut owner = connect_fixture(&format!("keyed-{restarted}"), false, floor, restarting);
+        let start = json!({"cmd":"agent-session-start","surface":owner.surface,"cwd":owner.cwd,
+            "harness":"claude","vm_kind":"owner","require_person_key":true,
+            "person_instance":"run-a"});
+        let id = owner.client.send(start);
+        let answer = owner.client.answer_within(id, Duration::from_secs(30));
+        let methods = owner.methods();
+        assert_eq!(methods.iter().filter(|m| *m == "_acpmux/status").count(), 2, "{methods:?}");
+        assert_eq!(methods.contains(&"session/new".to_owned()), keyed, "{methods:?}");
+        if keyed {
+            assert_eq!(answer["ok"], json!(true), "{answer}");
+        } else {
+            assert_eq!(answer["error_code"], json!("agent_session.needs_keyed_start"), "{answer}");
+            assert_eq!(answer["data"]["safe_to_restart"], json!(true), "{answer}");
+        }
+    }
 }
