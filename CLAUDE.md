@@ -82,6 +82,11 @@ Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks in
   it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
   Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
+- Code in [.github/keep-in-swift.txt](.github/keep-in-swift.txt) (Home) stays Swift: an audit or migration
+  toward React or Rust skips it. The gate's "Keep in Swift" check refuses a push that deletes a listed file,
+  moves one out or drops a rule; only a `Swift-port: <Leo's words>` trailer allows it (Leo 2026-11-10,
+  after #37777: "We need to set more off limits "keep this in swift" in the future").
+
 - A new or rewritten action handler is `registry.bindEffect(id, effect:)` returning an
   `ActionEffect`; never await in a handler, start its remote work yourself, or do disk I/O, a
   waiting lock or a whole-session walk on its turn (< 10 ms to the commit; guardrail

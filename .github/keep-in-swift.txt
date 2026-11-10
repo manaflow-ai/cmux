@@ -1,0 +1,22 @@
+# Keep in Swift: native code that stays Swift. Don't port it to React or Rust, and don't delete it to move it there.
+#
+# Leo, 2026-11-10, on #37777 (the native Home transcript deleted for a React page after an audit asked "what Swift
+# you can do in react/rust instead"): "We need to set more off limits "keep this in swift" in the future".
+#
+# Where each layer lives (Lawrence, 2026-11-10): the Messages-style Home lives in Swift; the chat UI lives in React;
+# acpmux and cmux-tui live in Rust; cmux Cloud core is Rust (with cmux-tui and acpmux), with very little in Swift.
+# "New app logic in Rust or shared web, never new Swift" holds everywhere else; it does not apply to the paths below.
+#
+# The pre-push gate's "Keep in Swift" check (scripts/cmux-next/prepush-gate.py, every push, local and in CI's
+# "Pushed commits add no violations") refuses a push that deletes a listed file, renames it out of the list, or drops
+# a rule here, unless a pushed commit carries `Swift-port: <Leo's words>`. CMUX_NEXT_CHECKS_SKIP_REASON does not skip
+# it. Editing, fixing and adding Swift here is fine. An audit or migration that moves Swift to React or Rust skips
+# these paths.
+#
+# One rule per line: GLOB REASON. `**` crosses directories, `*` stays within one segment.
+
+# Home: its window, dock, sidebar, conversation list and the host that serves its pages.
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/**        Home, native (Lawrence: Home lives in Swift)
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**  Home's engine
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/**   Home's model
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/**    Home in the app: dock, conversation tabs, Chief controls

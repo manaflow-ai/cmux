@@ -1542,6 +1542,55 @@ let package = Package(
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
 
+    def keep_swift_base(self):
+        """Origin with a keep-in-Swift list covering CmuxNextHome and one Home file."""
+        self.write(".github/keep-in-swift.txt", "# kept\n"
+                   f"{PKG}/Sources/CmuxNextHome/**  Home, native\n")
+        self.write(f"{PKG}/Sources/CmuxNextHome/HomeView.swift", "struct HomeView {}\n")
+        self.commit("keep Home in Swift")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+
+    def test_push_that_deletes_kept_swift_is_refused_even_with_a_skip_reason(self):
+        # Leo 2026-11-10, after #37777 deleted the native Home transcript for a React page.
+        self.keep_swift_base()
+        before = self.remote_head()
+        (self.repo / PKG / "Sources/CmuxNextHome/HomeView.swift").unlink()
+        self.write("webviews/src/home/HomeView.tsx", "export const HomeView = () => null;\n")
+        self.commit("move Home to React")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the deletion must not reach origin")
+        self.assertIn("Keep in Swift", output)
+        self.assertIn("HomeView.swift: deleted, kept in Swift by", output)
+
+    def test_push_that_drops_a_keep_in_swift_rule_or_moves_a_file_out_is_refused(self):
+        self.keep_swift_base()
+        self.git("mv", f"{PKG}/Sources/CmuxNextHome/HomeView.swift", f"{PKG}/Sources/CmuxNextKit/HomeView.swift")
+        self.write(".github/keep-in-swift.txt", "# nothing kept\n")
+        self.commit("unlist Home")
+
+        output = (result := self.push()).stdout + result.stderr
+
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("drops the rule", output)
+        self.assertIn("moved out of", output)
+
+    def test_kept_swift_edits_pass_and_a_swift_port_trailer_allows_a_deletion(self):
+        self.keep_swift_base()
+        self.write(f"{PKG}/Sources/CmuxNextHome/HomeView.swift", "struct HomeView { let title = \"Home\" }\n")
+        self.commit("edit Home")
+        self.assertEqual(self.push().returncode, 0)
+
+        (self.repo / PKG / "Sources/CmuxNextHome/HomeView.swift").unlink()
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "-m", "drop HomeView\n\nSwift-port: Leo said port it")
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def cargo_workspace(self):
         """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
         cargo = shutil.which("cargo")

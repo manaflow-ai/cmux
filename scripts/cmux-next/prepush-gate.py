@@ -65,6 +65,11 @@ letter-spacing and nothing bundled (schemas/type-scale/ui-font-pin.json; Lawrenc
 webviews default font stack names Inter. It is not skippable either; only a `Font-order: <the user's
 words>` trailer changes the pin.
 
+Also on every push: "Keep in Swift" (.github/keep-in-swift.txt): the push deletes no listed Swift file, renames none
+out of the list and drops no rule from it, read against the base's list (Leo 2026-11-10, after #37777: "We need to set
+more off limits "keep this in swift" in the future"). Not skippable; only a `Swift-port: <Leo's words>` trailer on a
+pushed commit allows it.
+
 Also on every local run (the hook and a plain run; never --base/--head, --commits or GitHub Actions, so CI gains no
 gate): "What's New highlights": each release-notes/next/highlights/*.md file the push adds or changes is validated as
 the release-notary job's test (scripts/whats-new/test_digest.py, test_the_repository_highlights_validate) validates
@@ -323,6 +328,11 @@ UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
 UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
 # check-ui-font.py's stop on a read outside its INPUTS (Tree.covered).
 UI_FONT_GUARD = "which is not in INPUTS"
+
+# Native code that stays Swift, never ported to React or Rust (Leo 2026-11-10, after #37777).
+KEEP_SWIFT_CHECK = "Keep in Swift (.github/keep-in-swift.txt)"
+KEEP_SWIFT_LIST = ".github/keep-in-swift.txt"
+KEEP_SWIFT_OK = re.compile(r"^Swift-port:[ \t]*\S", re.MULTILINE)
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -1411,6 +1421,56 @@ def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
     return found
 
 
+def keep_swift_globs(text: str) -> dict[str, re.Pattern[str]]:
+    """KEEP_SWIFT_LIST's rules, glob -> regex: `**` crosses directories, `*` and `?` stay within one segment."""
+    rules = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        glob = line.split()[0]
+        parts = re.split(r"(\*\*/|\*\*|\*|\?)", glob)
+        pattern = {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}
+        rules[glob] = re.compile("^" + "".join(pattern.get(part, re.escape(part)) for part in parts) + "$")
+    return rules
+
+
+def keep_in_swift(repo: Path, base: str, head: str) -> list[str]:
+    """What head takes out of the Swift that KEEP_SWIFT_LIST keeps (KEEP_SWIFT_CHECK): a listed file deleted or
+    renamed out of the list, or a rule dropped. Judged by base's list, so a push cannot drop a rule and the files it
+    covered at once; a base without the list keeps nothing."""
+    listed = subprocess.run(["git", "-C", str(repo), "show", f"{base}:{KEEP_SWIFT_LIST}"], capture_output=True)
+    if listed.returncode != 0:
+        return []
+    rules = keep_swift_globs(listed.stdout.decode("utf-8", "replace"))
+    kept = lambda path: next((glob for glob, rx in rules.items() if rx.match(path)), None)  # noqa: E731
+    found = []
+    after = subprocess.run(["git", "-C", str(repo), "show", f"{head}:{KEEP_SWIFT_LIST}"], capture_output=True)
+    head_rules = keep_swift_globs(after.stdout.decode("utf-8", "replace")) if after.returncode == 0 else {}
+    found += [f"{KEEP_SWIFT_LIST}: drops the rule `{glob}`" for glob in rules if glob not in head_rules]
+    status = git(repo, "diff", "--name-status", "-z", "--find-renames", "--no-ext-diff", base, head,
+                 check=False).decode("utf-8", "replace").split("\0")
+    i = 0
+    while i < len(status) - 1:
+        code = status[i]
+        if code.startswith(("R", "C")):
+            old, new = status[i + 1], status[i + 2] if i + 2 < len(status) else ""
+            i += 3
+            glob = kept(old)
+            if code.startswith("R") and glob and not kept(new):
+                found.append(f"{old}: moved out of `{glob}` to {new}")
+        else:
+            path = status[i + 1]
+            i += 2
+            glob = kept(path)
+            if code == "D" and glob:
+                found.append(f"{path}: deleted, kept in Swift by `{glob}`")
+    if found and KEEP_SWIFT_OK.search(git(repo, "log", "--format=%B", f"{base}..{head}", check=False).decode(errors="replace")):
+        log(f"prepush-gate: {KEEP_SWIFT_CHECK}: allowed by a Swift-port trailer:\n  " + "\n  ".join(found))
+        return []
+    return found
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -1731,6 +1791,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "ui-font" in only:
         fresh = ui_font(repo, base, head, trusted_scripts)
         reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
+    if only is None or "keep-swift" in only:
+        taken = keep_in_swift(repo, base, head)
+        if taken:
+            reserved.append((KEEP_SWIFT_CHECK, taken))
     if only is None or "conflicts" in only:
         markers = conflict_markers(repo, base, head)
         if markers:
@@ -2217,7 +2281,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,keep-swift,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
@@ -2347,6 +2411,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
+    elif skip and any(name == KEEP_SWIFT_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {KEEP_SWIFT_CHECK}. This Swift stays native; "
+              "porting it to React or Rust is Leo's call, quoted in a `Swift-port: <Leo's words>` commit trailer.")
     elif skip and any(name == UI_FONT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {UI_FONT_CHECK}. The UI font changes only "
               "on the user's order, quoted in a `Font-order: <the user's words>` commit trailer.")
