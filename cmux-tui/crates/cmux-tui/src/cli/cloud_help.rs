@@ -160,6 +160,12 @@ const GROUPS: &[Group] = &[
                 "マシンのデスクトップを操作するのが Chief かあなたかを確認または変更",
             ),
             verb(
+                "chief-computer",
+                "--chief chief:<id> --op OP [--args JSON]",
+                "Run one of a Chief of this Mac's own verbs on its computer",
+                "この Mac の Chief が自分のコンピュータで操作を 1 つ実行",
+            ),
+            verb(
                 "setup-github",
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
