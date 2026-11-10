@@ -9735,8 +9735,9 @@ are refused the verb (`agent_session.not_trusted`, or their entry's own
 refusal), an observer gets `agent_session.read_only`. A side chat is its
 owner's alone: an authored `agent-session-attach` to a tab whose session the
 daemon opened as a side chat, or whose acpmux summary carries the `side` tag,
-is `agent_session.not_trusted`, and `agent-session-team-list` leaves such tabs
-out.
+is `agent_session.not_trusted`. `agent-session-team-list` reads acpmux's
+`side` tags (`_acpmux/sessions`) each time and leaves such tabs out, also on a
+daemon that just restarted; when that list cannot be read it lists no chat.
 
 ### agent-session-typing, agent-session-view
 

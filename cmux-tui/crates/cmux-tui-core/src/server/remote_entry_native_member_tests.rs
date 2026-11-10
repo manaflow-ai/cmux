@@ -66,6 +66,8 @@ fn a_team_member_attaches_and_steers_stamped_as_itself() {
     assert_eq!(list["data"]["role"], "member");
     assert_eq!(list["data"]["chats"][0]["surface"], json!(surface));
     assert_eq!(list["data"]["chats"][0]["session"], SESSION);
+    // The list read acpmux's own `side` tags.
+    assert_eq!(fake.frame()["method"], "_acpmux/sessions");
 
     let attach =
         call(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
@@ -172,6 +174,7 @@ fn a_team_member_never_lists_or_attaches_the_owners_side_chat() {
     assert_eq!(chats.len(), 1, "{list}");
     assert_eq!(chats[0]["surface"], json!(chat), "{list}");
     assert!(!list.to_string().contains(SIDE_FORK), "{list}");
+    assert_eq!(fake.frame()["method"], "_acpmux/sessions");
     for frame in [
         json!({"cmd":"agent-session-attach", "surface":side_tab}),
         json!({"cmd":"agent-session-events", "surface":side_tab}),
@@ -212,6 +215,40 @@ fn a_team_member_is_refused_a_side_chat_the_daemon_had_not_seen() {
     let prompt =
         json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"m1", "text":"x"});
     assert_eq!(call(&mut stream, &mut reader, prompt)["ok"], false);
+}
+
+/// A daemon that just started holds no side chat in memory: the member's list, asked first,
+/// reads acpmux's own `side` tags and leaves the tagged chat's surface and session id out; a
+/// list acpmux cannot answer shows no chat rather than every chat.
+#[test]
+fn a_fresh_daemons_team_list_omits_a_side_chat_acpmux_tags() {
+    for (name, fixture, listed) in [
+        ("member-side-fresh", Fixture { side_of: Some("acp_chat"), ..Fixture::default() }, 1),
+        ("member-list-unread", Fixture { sessions_unreadable: true, ..Fixture::default() }, 0),
+    ] {
+        let fake = FakeAcpmux::start_with(name, fixture);
+        let entry = entry_with(true, Arc::new(FsGate), Some(true));
+        entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
+        // The tagged chat's tab and another chat's (acpmux lists it untagged).
+        let side_tab = agent_tab(&entry.mux, Some(SESSION));
+        let other_tab = agent_tab(&entry.mux, Some("acp_unrelated"));
+        assert!(!entry.mux.control_clients.agent_sessions.sides.contains(SESSION));
+        let (mut stream, mut reader) = connect_as_link(&entry);
+        send(&mut stream, &member_stamp(MEMBER, Some(VmKind::Team)));
+        let list = call(&mut stream, &mut reader, json!({"cmd":"agent-session-team-list"}));
+        assert_eq!(list["ok"], true, "{list}");
+        let chats = list["data"]["chats"].as_array().unwrap();
+        assert_eq!(chats.len(), listed, "{list}");
+        if listed == 1 {
+            assert_eq!(chats[0]["surface"], json!(other_tab), "{list}");
+            assert_eq!(chats[0]["session"], "acp_unrelated", "{list}");
+        }
+        let shown = list["data"]["chats"].to_string();
+        assert!(!shown.contains(SESSION), "{list}");
+        assert!(chats.iter().all(|chat| chat["surface"] != json!(side_tab)), "{list}");
+        assert_eq!(fake.frame()["method"], "_acpmux/sessions");
+    }
 }
 
 #[test]

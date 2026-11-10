@@ -20,17 +20,19 @@
 //! the verb (it is in none of their verb lists, and [`side`] refuses an authored attachment).
 //! They never reach a side chat either: the daemon remembers every side chat it opened or saw
 //! tagged ([`SideSessions`]) and refuses an authored attach to one, also when acpmux's attach
-//! page shows the `side` tag for a chat the daemon had not seen yet (after a restart), and
-//! `agent-session-team-list` leaves the remembered ones out.
+//! page shows the `side` tag for a chat the daemon had not seen yet (after a restart).
+//! `agent-session-team-list` reads acpmux's own tags each time ([`tagged_now`]) and leaves
+//! every side chat out, so a daemon that restarted lists none either; when acpmux's list cannot
+//! be read it lists no chat.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Attachment, CALL_TIMEOUT, MAX_PROMPT_BYTES, Refusal, SurfaceId};
+use super::{AcpmuxLink, Attachment, CALL_TIMEOUT, MAX_PROMPT_BYTES, Mux, Refusal, SurfaceId};
 
 pub const AGENT_SESSION_SIDE_CAPABILITY: &str = "agent-session-side-v1";
 /// acpmux starts the side session's agent before it answers `_acpmux/btw`.
@@ -66,6 +68,33 @@ impl SideSessions {
 /// acpmux sets: `_acpmux/side` and `_acpmux/btw`).
 pub(super) fn tagged(page: &Value) -> bool {
     page.pointer("/session/tags/side").is_some_and(|tag| !tag.is_null())
+}
+
+/// The sessions acpmux tags `side` now, from its own list (`_acpmux/sessions`, the persisted
+/// tags): what the daemon's memory cannot say after a restart. They are remembered from here
+/// on. `None` when the list cannot be read whole: the caller then shows no chat at all.
+pub(super) fn tagged_now(mux: &Mux) -> Option<HashSet<String>> {
+    let sessions = &mux.control_clients.agent_sessions;
+    let socket = sessions.socket()?;
+    let link = AcpmuxLink::connect(&socket, |_| {}).ok()?;
+    let list = link.call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT);
+    link.close();
+    let list = list.ok()?;
+    let tagged: HashSet<String> = list
+        .get("sessions")?
+        .as_array()?
+        .iter()
+        .filter(|row| row.pointer("/tags/side").is_some_and(|tag| !tag.is_null()))
+        // A tab's record may hold the chat's name instead of its id: both name the side chat.
+        .flat_map(|row| [row.get("sessionId"), row.get("name")])
+        .filter_map(|id| id.and_then(Value::as_str))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    for session in &tagged {
+        sessions.sides.remember(session);
+    }
+    Some(tagged)
 }
 
 #[derive(Deserialize)]

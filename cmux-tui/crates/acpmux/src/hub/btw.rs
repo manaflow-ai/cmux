@@ -735,14 +735,22 @@ impl Hub {
     }
 
     /// `_acpmux/side`: tags `side` the side chat of `chat` (only the `side` tag). `side` must be
-    /// a fork of `chat` (its recorded parent, `hub/fork.rs`): tagging hides a chat from the lists
-    /// and files it under `chat`, so a session that never came from `chat` is refused, as is the
-    /// chat itself.
-    pub(crate) fn mark_side(&self, side: &Session, chat: &Session) -> Result<(), RpcError> {
+    /// a fork of `chat` (its recorded parent, `hub/fork.rs`), or a session with no parent that
+    /// the calling connection itself created with `session/new` (`own`: the repo tour's task).
+    /// Tagging hides a chat from the lists and files it under `chat`, so a session someone else
+    /// made, or a fork of another chat, is refused, as is the chat itself.
+    pub(crate) fn mark_side(
+        &self,
+        side: &Session,
+        chat: &Session,
+        own: bool,
+    ) -> Result<(), RpcError> {
         if chat.id == side.id {
             return Err(RpcError::invalid_params("a chat is not its own side chat"));
         }
-        if side.meta().parent_id.as_deref() != Some(chat.id.as_str()) {
+        let parent = side.meta().parent_id.clone();
+        let fork = parent.as_deref() == Some(chat.id.as_str());
+        if !fork && !(own && parent.is_none()) {
             return Err(RpcError::invalid_params(
                 "side.not_fork: a side chat is a fork of its chat",
             )
@@ -1039,12 +1047,21 @@ mod tests {
         let other_fork = publish("other-fork", Some("another-chat"));
         let side_of = |session: &Session| session.meta().tags.get(SIDE_TAG).cloned();
         for refused in [&unrelated, &other_fork, &chat] {
-            let error = hub.mark_side(refused, &chat).expect_err("refused");
+            let error = hub.mark_side(refused, &chat, false).expect_err("refused");
             assert!(side_of(refused).is_none(), "{}: {error:?}", refused.id);
         }
-        let error = hub.mark_side(&unrelated, &chat).expect_err("refused");
+        let error = hub.mark_side(&unrelated, &chat, false).expect_err("refused");
         assert_eq!(error.data.as_ref().and_then(|d| d["reason"].as_str()), Some("side.not_fork"));
-        hub.mark_side(&fork, &chat).expect("a fork of the chat");
+        // The caller's own new session never makes a fork of another chat, or the chat, its side.
+        for refused in [&other_fork, &chat] {
+            hub.mark_side(refused, &chat, true).expect_err("refused");
+            assert!(side_of(refused).is_none(), "{}", refused.id);
+        }
+        // A session with no parent that the caller itself created (the repo tour's task).
+        let task = publish("task", None);
+        hub.mark_side(&task, &chat, true).expect("the caller's own new session");
+        assert_eq!(hub.session_summary(&task)["tags"][SIDE_TAG], json!("chat"));
+        hub.mark_side(&fork, &chat, false).expect("a fork of the chat");
         assert!(side_of(&fork).is_some(), "the fork is tagged");
         assert_eq!(hub.session_summary(&fork)["tags"][SIDE_TAG], json!("chat"));
         hub.shutdown_all().await;
