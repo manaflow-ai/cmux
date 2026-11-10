@@ -32,7 +32,7 @@ extension Motion {
     /// is ordered in (``MotionGate/windowOpenBehavior(restoring:)``, `WindowManager`), so a
     /// transition that starts before the first per-window motion read is not missed for its
     /// whole length. A second call does nothing.
-    public static func startLiveResizeTracking() { LiveResizeWindows.shared.startedByApp = true }
+    public static func startLiveResizeTracking() { _ = LiveResizeWindows.shared }
 
     /// Some window is between `willEnterFullScreen` and `didEnterFullScreen`
     /// (or the exit pair): terminals hold their grid for the daemon until it
@@ -62,8 +62,6 @@ final class LiveResizeWindows {
     /// The app's tracker. Tests put one on a private center here, instead of posting AppKit's
     /// notifications to the process-wide center (check-test-notification-centers.sh), and put the app's back.
     static var shared = LiveResizeWindows()
-    /// The app asked for the tracker (``Motion/startLiveResizeTracking()``); a tracker that only a motion read made has not.
-    var startedByApp = false
     private var resizing: Set<ObjectIdentifier> = []
     private var transitioning: Set<ObjectIdentifier> = []
 

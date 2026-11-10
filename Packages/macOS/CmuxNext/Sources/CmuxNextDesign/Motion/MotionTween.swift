@@ -67,7 +67,7 @@ extension MotionGate {
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app
-/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token)`).
+/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token, in: window)`).
 public nonisolated struct TweenValue: Equatable, Sendable {
     public private(set) var value: CGFloat
     public private(set) var target: CGFloat

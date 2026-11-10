@@ -194,6 +194,7 @@ import Testing
         let bar = rig.bar
         let size = bar.frame.size
         let tips = TooltipTracker.all(of: bar)
+        try #require(!tips.isEmpty, "fixture: the switcher has no tooltips, so the read below would prove nothing")
         rig.countDraws()
         bar.setFrameSize(NSSize(width: size.width - 48, height: size.height))
         try #require(bar.frame.size != size, "fixture: the switcher did not take the new size")

@@ -33,9 +33,10 @@ import Testing
         design.disabledAnimationCategories.remove(.overlays)
         design.disabledAnimationCategories.remove(.hoverCards)
         design.animationSpeed = .fast
+        let previous = Motion.reduceMotionOverride
         Motion.reduceMotionOverride = false
         defer {
-            Motion.reduceMotionOverride = nil
+            Motion.reduceMotionOverride = previous
             design.animationsEnabled = old.0
             design.disabledAnimationCategories = old.1
             design.animationSpeed = old.2
