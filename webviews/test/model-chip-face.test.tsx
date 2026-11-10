@@ -134,9 +134,18 @@ function summary(harness: string, model: string, effort: string) {
         name: "Model",
         category: "model",
         currentValue: model,
-        options: HARNESSES.find((entry) => entry.id === harness)!.models.map((row) => ({ value: row.id, name: row.name })),
+        options: HARNESSES.find((entry) => entry.id === harness)!.models.map((row) => ({
+          value: row.id,
+          name: row.name,
+        })),
       },
-      { id: "effort", name: "Effort", category: "thought_level", currentValue: effort, options: LEVELS.map((value) => ({ value })) },
+      {
+        id: "effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: effort,
+        options: LEVELS.map((value) => ({ value })),
+      },
     ],
   };
 }
@@ -240,9 +249,13 @@ test("a held pick of another harness's model draws that model's logo, never the 
       act(() => root?.unmount());
       root = undefined;
       holdFork({ sessionId: "s-1", harness: combo.harness.id, model: combo.row.id, effort: combo.effort });
-      await draw({ ...base(), summary: summary(chat, chat === "claude" ? OPUS.id : GPT.id, "high") } as unknown as Snapshot, true);
+      await draw(
+        { ...base(), summary: summary(chat, chat === "claude" ? OPUS.id : GPT.id, "high") } as unknown as Snapshot,
+        true,
+      );
       const drawn = chip();
-      if (drawn.mark !== combo.row.provider) wrong.push(`${chat} chat, held ${label(combo)}: ${drawn.mark} "${drawn.name}"`);
+      if (drawn.mark !== combo.row.provider)
+        wrong.push(`${chat} chat, held ${label(combo)}: ${drawn.mark} "${drawn.name}"`);
       clearHeldFork("s-1");
     }
   }
