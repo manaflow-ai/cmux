@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "build": "4281588718301",
+  "notes": "notes/4281588718301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40323,
+      "title": "cmux NEXT: a screen switch is at rest in its turn for a new screen too, with no work for hidden screens",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40429,
+      "title": "base red: register ios-reliability-matrix in warm-sources; the guard prints the line to add",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40298,
+      "title": "bench(web-ui): a shared god session fixture, and the chat benches on it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40431,
+      "title": "base red: CloudMoveFailure's makers are on the main actor again (tip break from #40108)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40254,
+      "title": "Safe mode: one switch turns every extension off, crash loops enter it, local apps roll back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40288,
+      "title": "No bounce in any motion: every spring stops on its target",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40405,
+      "title": "Cloud start: one workspace per machine; the plan's ensure names no project",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40272,
+      "title": "cmux vm exec|ssh|move NAME, a vm ls table, vm rm asks (--yes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39904,
+      "title": "cmux NEXT: run a slow command on a bigger machine, from its chat row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40377,
+      "title": "cmux NEXT: put slow and off-scale UI motion on the shared motion tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39190,
+      "title": "app health: the app feeds and repairs pages, renderers, the session daemon and the page host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40108,
+      "title": "NEXT: Move to… any machine: Cloud VM to VM, back to this Mac, one menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40372,
+      "title": "CLI reconnects: a slow control-server restart heals (5 s bounded backoff), --socket during a restart is not another kind of socket, no probe connection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38893,
+      "title": "Agent chat: prompt coach shows how a heavily corrected chat could have landed in one shot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40348,
+      "title": "cmux NEXT: lint raw animation durations and colours; print motion-token coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40322,
+      "title": "cmux-api: Connect GitHub reuses before asking and returns to the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40412,
+      "title": "cmux chat --from-folder DIR: a Cloud chat in a copy of a folder on this Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40359,
+      "title": "Cloud chats with Cursor: cursor-agent in the VM image and its sign-in card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40364,
+      "title": "acpmux daemon: a panicked background loop restarts, and a panicked startup restarts the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40269,
+      "title": "cmux NEXT apps: React scene renderer reaches parity (toggle, slider, panel, status, reload)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40385,
+      "title": "Cloud workspace matrix: a Cloud chat from every kind of folder, timed and hash-checked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40408,
+      "title": "feat(agent-pane): Back to before this turn control on a Cloud prompt (gated)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40402,
+      "title": "base red: clippy semicolon_if_nothing_returned in cmux ext (#40242)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40407,
+      "title": "cloud-chat-proof: pass only CMUX_NEXT_SOCKET_PATH to the launched app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40406,
+      "title": "base red: cmux-tui clippy semicolons in cmux ext (#40242); a red file outside the change is named as the base's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40357,
+      "title": "acpmux outbox: a message is queued only once it is on disk, and a peer back mid-attempt ends the retry wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40154,
+      "title": "perf(cmux-next): Needs You approvals read the waiting sessions only (O7)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40360,
+      "title": "cmux vm new --wait: one command from nothing to a configured Cloud VM",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
