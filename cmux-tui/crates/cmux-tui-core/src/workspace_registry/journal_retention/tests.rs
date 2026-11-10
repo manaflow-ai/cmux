@@ -171,7 +171,8 @@ impl WorkspaceRegistry {
     /// retention pass (`Mux::run_journal_maintenance_for_test` does).
     pub(crate) fn age_journal_segments_for_test(&self) {
         let age_ms = MIN_RETAINED_AGE_MS + 60_000;
-        let young_after = super::unix_epoch_ms().unwrap().saturating_sub(MIN_RETAINED_AGE_MS);
+        let now = crate::workspace_registry::unix_epoch_ms().unwrap();
+        let young_after = now.saturating_sub(MIN_RETAINED_AGE_MS);
         self.connection
             .get()
             .execute_batch(&format!(
