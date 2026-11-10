@@ -123,6 +123,10 @@ public struct LinkError: Error, Equatable, Sendable {
     public var code: String
     public var message: String
 
+    /// The code for the cmux service refusing the access token (a 401), as the
+    /// Rust link sends it (`cmux_mobile_link_ffi::UNAUTHORIZED`).
+    public static let unauthorized = "unauthorized"
+
     public init(code: String, message: String) {
         self.code = code
         self.message = message

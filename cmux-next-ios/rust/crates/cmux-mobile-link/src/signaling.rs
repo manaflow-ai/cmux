@@ -268,6 +268,11 @@ pub enum SignalingError {
     BadUrl(String),
     #[error("signaling connect failed: {0}")]
     Connect(String),
+    /// The service refused the access token (HTTP 401 on the upgrade): an
+    /// expired token, or, when the token was just minted, a revoked session.
+    /// Its own variant so callers branch on it, not on the message.
+    #[error("signaling connect failed: 401 Unauthorized")]
+    Unauthorized,
     #[error("signaling socket is closed")]
     Closed,
 }
@@ -333,6 +338,18 @@ fn encode_segment(value: &str) -> String {
         .collect()
 }
 
+/// A failed upgrade as a [`SignalingError`]: a 401 is [`SignalingError::Unauthorized`].
+fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError {
+    match &error {
+        tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED =>
+        {
+            SignalingError::Unauthorized
+        }
+        _ => SignalingError::Connect(error.to_string()),
+    }
+}
+
 impl SignalingClient {
     /// Connect with `Authorization: Bearer <token>`.
     pub async fn connect(
@@ -350,9 +367,7 @@ impl SignalingClient {
                 .parse()
                 .map_err(|_| SignalingError::BadUrl("token is not a header value".into()))?,
         );
-        let (socket, _) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(|e| SignalingError::Connect(e.to_string()))?;
+        let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(connect_error)?;
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();

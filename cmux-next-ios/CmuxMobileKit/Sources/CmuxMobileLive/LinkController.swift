@@ -242,7 +242,7 @@ public final class LinkController {
                         self?.send(.signedOut(generation: generation))
                         return
                     }
-                    if "\(error)".contains("401") { self?.refreshTokenNextDial = true }
+                    if Self.authRefused(error) { self?.refreshTokenNextDial = true }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
@@ -374,8 +374,16 @@ public final class LinkController {
     /// service answered 401 to a token minted fresh for this dial (an expired
     /// token is refused once, then refreshed; only a refused refresh is final).
     nonisolated static func sessionRevoked(_ error: any Error, afterRefresh: Bool) -> Bool {
-        guard afterRefresh, let failure = error as? LiveAPI.Failure else { return false }
-        return failure.status == 401
+        afterRefresh && authRefused(error)
+    }
+
+    /// Whether the cmux service refused the access token (a 401): minting it
+    /// (`LiveAPI.Failure`), or the dial's signaling upgrade, which the Rust
+    /// link reports as code `unauthorized`.
+    nonisolated static func authRefused(_ error: any Error) -> Bool {
+        if let failure = error as? LiveAPI.Failure { return failure.status == 401 }
+        if let error = error as? LinkError { return error.code == LinkError.unauthorized }
+        return false
     }
 
     /// A short, display-safe reason for a dial or link error.
@@ -385,6 +393,7 @@ public final class LinkController {
             case "timeout": return "the Mac didn't answer in time"
             case "not_admitted": return "the Mac refused this phone"
             case "offline": return "the Mac is offline"
+            case LinkError.unauthorized: return "the cmux service refused the request"
             default:
                 let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
                 return message.isEmpty ? error.code : String(message.prefix(80))

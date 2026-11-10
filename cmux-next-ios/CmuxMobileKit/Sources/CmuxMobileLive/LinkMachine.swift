@@ -34,8 +34,10 @@ public struct LinkMachine: Sendable {
         case waiting(TransportKind, attempt: Int, reason: String, retryIn: Duration)
         /// The account's session was revoked: the cmux service refused even a
         /// freshly minted token. Nothing redials (a retry cannot succeed); the
-        /// person is asked to sign in again. Only a new target (none, after
-        /// sign-out) leaves it.
+        /// person is asked to sign in again. Nothing leaves it, an untarget
+        /// (an idle link closed) and a retarget included: sign-out ends this
+        /// machine's controller (`LiveCoordinator.stop` closes every session),
+        /// and the next sign-in starts new ones.
         case signedOut
     }
 
@@ -112,8 +114,10 @@ public struct LinkMachine: Sendable {
 
     public mutating func handle(_ event: Event) -> [Effect] {
         if case .signedOut = phase {
-            // Terminal: no dial, probe or retry until the target goes (sign-out).
-            if case .target(let next) = event, next == nil { target = nil; return reset(to: .idle) }
+            // Terminal: no dial, probe or retry. A target change (`applyLinks`
+            // closing an idle link, then opening it again) is recorded, never
+            // dialed: the same refused session cannot connect.
+            if case .target(let next) = event { target = next }
             return []
         }
         switch event {

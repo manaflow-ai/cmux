@@ -128,7 +128,7 @@ public struct RecoveryGalleryRoot: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
     }
 
-    /// The signed-out banner where the Workspaces list shows it (scratch capture for #40338).
+    /// The signed-out banner where the Workspaces list shows it (`-cmux-mobile-recovery-gallery signedout`).
     private var signedOut: some View {
         List {
             ForEach(["cmux", "api", "web"], id: \.self) { Text($0) }

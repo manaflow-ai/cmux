@@ -398,20 +398,57 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let dialer = ScriptedDialer(outcomes: [.connect])
         let controller = ScriptedDialer.controller(dialer) { _ in throw failure }
         defer { controller.send(.target(nil)) }
-        try await eventually {
-            if case .waiting = controller.phase { return true }
-            return false
-        }
+        try await eventually { controller.phase == .signedOut }
         let shown = controller.phase.statusLine(macName: "Studio")
         report("pairing_revoked_token", "small", ["status": shown ?? "", "dials": dialer.dials])
-        #expect(shown != "Reconnecting…", "a revoked session says \(shown ?? "nothing")")
+        #expect(shown == "Signed out", "a revoked session says \(shown ?? "nothing")")
+        // One mint, then one forced refresh; both refused, and no dial was made.
+        #expect(dialer.forcedRefresh == [false, true])
+        #expect(dialer.dials == 0)
+    }
+
+    /// The token mints, but the cmux service refuses it at the dial (the
+    /// signaling upgrade answers 401, which the Rust link reports as
+    /// `unauthorized`), the refreshed one too: signed out, and no event
+    /// dials again.
+    @MainActor @Test func cellPairingRevokedTokenRefusedAtDial() async throws {
+        let refused = LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        let dialer = ScriptedDialer(outcomes: [.fail(refused), .fail(refused)])
+        let controller = ScriptedDialer.controller(dialer)
+        defer { controller.send(.target(nil)) }
+        try await eventually { controller.phase == .signedOut }
+        #expect(dialer.forcedRefresh == [false, true], "the second dial must mint a fresh token")
+        for event: LinkMachine.Event in [.foreground, .resume, .macSignaled, .networkChanged, .retryDue(generation: controller.dialGeneration)] {
+            controller.send(event)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        report("pairing_revoked_token_at_dial", "small", ["dials": dialer.dials, "status": controller.phase.statusLine(macName: "Studio") ?? ""])
+        #expect(dialer.dials == 2, "a signed-out session dialed \(dialer.dials) times")
+        #expect(controller.phase == .signedOut)
+    }
+
+    /// The link of a signed-out Mac is closed as idle (`applyLinks` sends
+    /// `.target(nil)`) and opened again when the Mac is shown: still signed
+    /// out, and no dial until the person signs in again.
+    @MainActor @Test func cellPairingRevokedTokenSurvivesIdleClose() async throws {
+        let refused = LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        let dialer = ScriptedDialer(outcomes: [.fail(refused), .fail(refused)])
+        let controller = ScriptedDialer.controller(dialer)
+        defer { controller.send(.target(nil)) }
+        try await eventually { controller.phase == .signedOut }
+        controller.send(.target(nil))
+        controller.send(.target(.init(macID: "m1", name: "Studio", isOnline: true)))
+        try await Task.sleep(for: .milliseconds(50))
+        report("pairing_revoked_token_idle_close", "small", ["dials": dialer.dials])
+        #expect(dialer.dials == 2, "an idle close and reopen redialed a signed-out session")
+        #expect(controller.phase == .signedOut)
     }
 }
 
 // MARK: Scripted dialer
 
 private final class ScriptedLink: MacLink, @unchecked Sendable {
-    let transport: TransportKind = .wireGuard
+    let transport: CmuxMobileTransport.TransportKind = .wireGuard
     let connectedPath: LinkPathKind? = .direct
     let states: AsyncStream<LinkState>
     private let continuation: AsyncStream<LinkState>.Continuation
@@ -440,7 +477,7 @@ private final class ScriptedDialer: MacLinkDialer, @unchecked Sendable {
 
     func noteToken(forceRefresh: Bool) { lock.withLock { refreshes.append(forceRefresh) } }
 
-    func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
+    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let outcome = lock.withLock { () -> Outcome in
             count += 1
             return outcomes.isEmpty ? .connect : outcomes.removeFirst()

@@ -184,6 +184,22 @@ pub enum CmuxMobileError {
     Closed { message: String },
 }
 
+/// The code of [`CmuxMobileError::Refused`] when the cmux service refused the
+/// access token (HTTP 401). The app refreshes the token once; a refused fresh
+/// token is a revoked session (it stops redialing and asks to sign in).
+pub const UNAUTHORIZED: &str = "unauthorized";
+
+impl From<cmux_mobile_link::signaling::SignalingError> for CmuxMobileError {
+    fn from(error: cmux_mobile_link::signaling::SignalingError) -> Self {
+        match error {
+            cmux_mobile_link::signaling::SignalingError::Unauthorized => {
+                Self::Refused { code: UNAUTHORIZED.into(), message: error.to_string() }
+            }
+            other => Self::Signaling { message: other.to_string() },
+        }
+    }
+}
+
 impl From<DialError> for CmuxMobileError {
     fn from(error: DialError) -> Self {
         match error {
@@ -953,7 +969,7 @@ impl Warm {
     ) -> Result<Arc<WarmSocket>, CmuxMobileError> {
         let client = SignalingClient::connect(&key.base_url, token, &key.team_id, &key.device_id)
             .await
-            .map_err(|e| CmuxMobileError::Signaling { message: e.to_string() })?;
+            .map_err(CmuxMobileError::from)?;
         timeline.mark("signaling_open");
         let socket = Arc::new(WarmSocket { key: key.clone(), client });
         let mut pool = self.sockets.lock().await;

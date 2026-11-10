@@ -39,6 +39,9 @@
     {"id": "pairing_expired_token", "axis": "pairing", "case": "expired access token", "suite": "ios", "test": "cellPairingExpiredToken", "asserts": "silent retry with a fresh token", "gate": true},
     {"id": "pairing_revoked_phone_host", "axis": "pairing", "case": "phone the person refused (host side)", "suite": "rust", "test": "a_phone_the_user_refused_is_closed_denied", "asserts": "closed 'denied'", "gate": true},
     {"id": "pairing_revoked_phone", "axis": "pairing", "case": "phone refused or revoked on the Mac (phone side)", "suite": "ios", "test": "aPhoneTheMacRefusedWaitsForThePerson", "asserts": "stops asking; waits for the person", "gate": true},
-    {"id": "pairing_revoked_token", "axis": "pairing", "case": "session revoked (no access token can be minted)", "suite": "ios", "test": "cellPairingRevokedToken", "asserts": "asks to sign in again, not 'Reconnecting…' forever", "gate": false}
+    {"id": "pairing_revoked_token", "axis": "pairing", "case": "session revoked (no access token can be minted)", "suite": "ios", "test": "cellPairingRevokedToken", "asserts": "'Signed out' after one refresh, not 'Reconnecting…' forever; no dial", "gate": true},
+    {"id": "pairing_revoked_token_at_dial", "axis": "pairing", "case": "session revoked (the service refuses the token at the dial, the refreshed one too)", "suite": "ios", "test": "cellPairingRevokedTokenRefusedAtDial", "asserts": "'Signed out' after one refresh; no event dials again", "gate": true},
+    {"id": "pairing_revoked_token_idle_close", "axis": "pairing", "case": "a signed-out Mac's link closed as idle, then shown again", "suite": "ios", "test": "cellPairingRevokedTokenSurvivesIdleClose", "asserts": "still 'Signed out'; no redial until a new sign-in", "gate": true},
+    {"id": "pairing_refused_token_typed", "axis": "pairing", "case": "the service refuses the token at the signaling upgrade (Rust link)", "suite": "rust", "test": "a_refused_token_is_typed_unauthorized", "asserts": "Refused 'unauthorized' for WireGuard and WebRTC", "gate": true}
   ]
 }
