@@ -306,8 +306,14 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
 }
 
 /// The name `acp host setup` gives a peer without `--name`.
+/// A host name's first label (`box` for `box.example`); an address whole, its IPv6 `:`s as
+/// `-`, since its first part names a network, not the host.
 fn default_name(target: &str) -> String {
     let host = target.rsplit('@').next().unwrap_or(target);
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if bare.parse::<std::net::IpAddr>().is_ok() {
+        return bare.replace(':', "-");
+    }
     host.split('.').next().unwrap_or(host).to_owned()
 }
 
