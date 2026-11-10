@@ -162,8 +162,9 @@ jobs:
   # Places both proof jobs on the ephemeral Blacksmith macOS 26 label whose queue moves. Run 42759281426
   # sat queued over an hour on blacksmith-6vcpu-macos-26, the one label the jobs named. This runs
   # e2e_runner_pool.py, test-e2e.yml's picker, with owned pools off (--owned 0): it reads the queue
-  # janitor's pool snapshot and takes blacksmith-12vcpu-macos-26 or blacksmith-6vcpu-macos-26 by
-  # headroom, skipping a stalled label. Owned Macs stay out: the proof jobs hold a Stack account pair
+  # janitor's pool snapshot and takes blacksmith-12vcpu-macos-26 or blacksmith-6vcpu-macos-26 by its own
+  # fixed order and per-label capacity, skipping a stalled label (--order and --max-queued are the
+  # shared call's; the auto path does not read them). Owned Macs stay out: the proof jobs hold a Stack account pair
   # (.github/runners.json cloud-chat-proof.yml#proof), and an owned route needs the per-job exclusive
   # claim the signing jobs get from glaeda. No secret is read here; a failed pick leaves the proof
   # on the declared macos_26 pool.
