@@ -1002,8 +1002,9 @@ state and kind) are not transactions: the stream sends such a change as a
 `revision` and cursor all equal the last revision the stream sent, and a
 snapshot or a later terminal upsert carries the newest live facts. While a
 live `session.journal.subscribe` stream's kind filter can match
-`terminal.progress` or `terminal.program_status`, each such change is one
-transaction and one journal row instead, so that stream gets it. A batch
+`terminal.progress` or `terminal.program_status`, or an enabled journal
+hook's kinds match one of them, each such change is one transaction and one
+journal row instead, so that stream or hook gets it. A batch
 need not restate unchanged resources: an upsert whose
 value the journal already states may be left out, and a topology create
 restates every workspace value but only the subtree of the workspace it changed

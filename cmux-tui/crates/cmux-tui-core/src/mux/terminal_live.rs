@@ -18,12 +18,14 @@
 //! (`Mux::publish_terminal_progress`), and that commit carries the newest
 //! live facts.
 //!
-//! One reader needs the rows: a journal stream that follows
+//! Two readers need the rows: a journal stream that follows
 //! `terminal.progress` or `terminal.program_status` (an agent plugin's wake
-//! for a terminal that prints, `spec/plugins.md`). While such a stream is
-//! live (`Mux::follow_terminal_progress_rows`), a live fact is one commit,
-//! as it was. A stream reads every terminal after it subscribes, so a live
-//! fact from before its subscription needs no row.
+//! for a terminal that prints, `spec/plugins.md`), and an enabled journal
+//! hook whose kinds match one of them (a hook is delivered every row its
+//! filter matches). While such a stream is live
+//! (`Mux::follow_terminal_progress_rows`) or such a hook is installed, a
+//! live fact is one commit, as it was. A stream reads every terminal after
+//! it subscribes, so a live fact from before its subscription needs no row.
 
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
@@ -45,6 +47,33 @@ pub(super) struct TerminalLiveLog {
     changes: Mutex<LiveChanges>,
     /// The live journal streams that follow the rows of live facts.
     journal_followers: Arc<AtomicUsize>,
+    /// Whether an enabled journal hook's kind filter matches the rows of
+    /// live facts; `None` until read, and after a hook changed.
+    journal_hook_reads_rows: Mutex<Option<bool>>,
+}
+
+impl TerminalLiveLog {
+    /// The installed journal hooks are about to change. Hold the guard
+    /// through the change: a live fact that comes meanwhile waits, then
+    /// reads the new hooks, so a hook installed now misses no row.
+    pub(super) fn journal_hooks_changing(&self) -> MutexGuard<'_, Option<bool>> {
+        let mut reads_rows =
+            self.journal_hook_reads_rows.lock().unwrap_or_else(PoisonError::into_inner);
+        *reads_rows = None;
+        reads_rows
+    }
+}
+
+/// Whether a journal hook's kind filter (`kinds`: exact kinds and
+/// `family.*`; none means every kind) matches the rows of live facts.
+fn hook_kinds_match_live_fact(kinds: &[String]) -> bool {
+    kinds.is_empty()
+        || kinds.iter().any(|filter| {
+            LIVE_FACT_KINDS.iter().any(|kind| match filter.strip_suffix(".*") {
+                Some(family) => kind.strip_prefix(family).is_some_and(|rest| rest.starts_with('.')),
+                None => filter == kind,
+            })
+        })
 }
 
 /// One live journal stream whose kind filter can match the rows of live
@@ -122,10 +151,33 @@ impl Mux {
         Some(TerminalProgressFollower { followers })
     }
 
-    /// Whether a live journal stream follows the rows of live facts now. One
-    /// atomic read: the publish path takes no lock for it.
+    /// Whether the rows of live facts have a reader now: a live journal
+    /// stream that follows them (one atomic read), or an enabled journal
+    /// hook whose kinds match them.
     pub(crate) fn terminal_progress_rows_followed(&self) -> bool {
         self.terminal_live.journal_followers.load(Ordering::Acquire) > 0
+            || self.journal_hook_reads_terminal_progress_rows()
+    }
+
+    /// Whether an enabled journal hook is delivered the rows of live facts.
+    /// Read from the registry once after a start or a hook change; then one
+    /// lock that only a hook change contends.
+    fn journal_hook_reads_terminal_progress_rows(&self) -> bool {
+        let mut cached = self
+            .terminal_live
+            .journal_hook_reads_rows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(reads) = *cached {
+            return reads;
+        }
+        // An unreadable hook list keeps the rows: a hook must not miss one.
+        let Ok(states) = self.journal_hook_states() else { return true };
+        let reads = states
+            .iter()
+            .any(|state| state.enabled && hook_kinds_match_live_fact(&state.manifest.filter.kinds));
+        *cached = Some(reads);
+        reads
     }
 
     /// `source`'s live facts changed: wake the `session.events` streams, in

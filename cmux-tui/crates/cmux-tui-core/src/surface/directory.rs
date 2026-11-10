@@ -216,7 +216,8 @@ impl Surface {
         // shown record's new progress number.
         let status_edge = status.edge || (status.any && shown_state_changed);
         // While a journal stream follows the rows of live facts (an agent
-        // plugin's wake), a live fact is a row too, as a durable edge is.
+        // plugin's wake) or a journal hook is delivered them, a live fact
+        // is a row too, as a durable edge is.
         let live = live_changed || status.any;
         if activity_edge || status_edge || (live && mux.terminal_progress_rows_followed()) {
             let mutation = if status.any { "terminal.program_status" } else { "terminal.progress" };
