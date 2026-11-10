@@ -10,13 +10,12 @@ extension Motion {
     /// A full screen enter or exit counts too (fullscreen-lag): AppKit sets
     /// the final size at once and animates a snapshot to it, so content that
     /// springs toward a size only shows its in-between frames late.
-    public static var isLiveResizing: Bool { liveResizeOverride ?? LiveResizeWindows.shared.isActive }
+    public static var isLiveResizing: Bool { LiveResizeWindows.shared.isActive }
 
     /// Whether `window` is in a live resize or a full screen transition: the
     /// per-window form of ``isLiveResizing`` for views that ask about their
     /// own window (`NSView.inLiveResize` misses full screen transitions).
     public static func isLiveResizing(_ window: NSWindow?) -> Bool {
-        if let liveResizeOverride { return liveResizeOverride }
         guard let window else { return false }
         return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window)
     }
@@ -37,10 +36,6 @@ extension Motion {
     /// delegate's `windowDidFailToEnterFullScreen` or
     /// `windowDidFailToExitFullScreen` (no notification is posted for them).
     public static func fullScreenTransitionFailed(_ window: NSWindow) { LiveResizeWindows.shared.endTransition(of: window) }
-
-    /// Tests set a live resize here instead of posting AppKit's notifications
-    /// to the process-wide center (check-test-notification-centers.sh).
-    static var liveResizeOverride: Bool?
 }
 
 /// The windows between `willStartLiveResize` and `didEndLiveResize`, and the
@@ -50,7 +45,9 @@ extension Motion {
 /// Observes every window from the first read of `Motion.basePolicy`, long before
 /// a person can drag an edge.
 final class LiveResizeWindows {
-    static let shared = LiveResizeWindows()
+    /// The app's tracker. Tests put one on a private center here, instead of posting AppKit's
+    /// notifications to the process-wide center (check-test-notification-centers.sh), and put the app's back.
+    static var shared = LiveResizeWindows()
     private var resizing: Set<ObjectIdentifier> = []
     private var transitioning: Set<ObjectIdentifier> = []
 

@@ -27,10 +27,14 @@ import Testing
                  backing: .buffered, defer: true)
     }
 
-    /// `body` runs inside a live resize, as between AppKit's start and end notifications.
-    static func liveResize(_ body: () -> Void) {
-        Motion.liveResizeOverride = true
-        defer { Motion.liveResizeOverride = nil }
+    /// `body` runs while `window` is in a live resize, as between AppKit's start and end
+    /// notifications (posted to a private center).
+    static func liveResize(of window: NSWindow, _ body: () -> Void) {
+        let center = NotificationCenter()
+        let app = LiveResizeWindows.shared
+        LiveResizeWindows.shared = LiveResizeWindows(center: center)
+        defer { LiveResizeWindows.shared = app }
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
         body()
     }
 
@@ -60,7 +64,7 @@ import Testing
             return abs(shown.minX - target.minX) < 0.5 && abs(shown.width - target.width) < 0.5
         }
 
-        Self.liveResize {
+        Self.liveResize(of: window) {
             // One frame of the drag each: the window grows, then another client's divider move lands.
             for (step, ratio) in [0.45, 0.4, 0.35, 0.3].enumerated() {
                 window.setContentSize(NSSize(width: 1000 + 40 * CGFloat(step + 1), height: 700))
@@ -75,9 +79,10 @@ import Testing
         }
         // The resize ended: the next layout change springs as it did before. Pinned, because another
         // test's window can be in a resize of its own on a busy host.
-        let otherWindowsResizing = LiveResizeWindows.shared.isActive
-        Motion.liveResizeOverride = false
-        defer { Motion.liveResizeOverride = nil }
+        let app = LiveResizeWindows.shared
+        let otherWindowsResizing = app.isActive
+        LiveResizeWindows.shared = LiveResizeWindows(center: NotificationCenter())
+        defer { LiveResizeWindows.shared = app }
         model.apply(screens: Self.split(0.6))
         root.syncWithModel()
         #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.panes.animatesMovement), other windows resizing \(otherWindowsResizing))")
@@ -96,7 +101,7 @@ import Testing
         strip.layoutSubtreeIfNeeded()
         try #require(!strip.edgeFade.edges.trailing, "eight tabs overflow a 1600 pt strip")
 
-        Self.liveResize {
+        Self.liveResize(of: window) {
             // The window narrows until the tabs no longer fit.
             for width in stride(from: 1400, through: 200, by: -100) {
                 strip.setFrameSize(NSSize(width: CGFloat(width), height: strip.frame.height))

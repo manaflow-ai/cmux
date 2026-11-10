@@ -237,12 +237,13 @@ import CmuxNextWakeupsTestSupport
     func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
         Motion.reduceMotionOverride = false
         // Another suite's window mid-resize would drop the rise (`Motion.isLiveResizing`).
-        Motion.liveResizeOverride = false
+        let liveResizeWindows = LiveResizeWindows.shared
+        LiveResizeWindows.shared = LiveResizeWindows(center: NotificationCenter())
         let watch = OverrideWatch(Motion.reduceMotionDidChange)
         defer {
             watch.stop()
             Motion.reduceMotionOverride = nil
-            Motion.liveResizeOverride = nil
+            LiveResizeWindows.shared = liveResizeWindows
         }
         let clock = ManualClock()
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)

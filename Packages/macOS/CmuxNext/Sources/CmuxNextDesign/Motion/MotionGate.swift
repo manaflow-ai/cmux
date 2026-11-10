@@ -34,6 +34,9 @@ public nonisolated struct MotionGate: Sendable, Equatable {
     /// switch, `ui.animationSpeed`, Reduce Motion and a live resize.
     @MainActor public var policy: MotionPolicy { Motion.basePolicy.for(category) }
 
+    /// The live policy for a motion that `window` shows.
+    @MainActor public func policy(in window: NSWindow?) -> MotionPolicy { policy }
+
     /// ``policy`` with no live resize: for values a page or a cache keeps after a drag ends.
     @MainActor public var policyIgnoringLiveResize: MotionPolicy {
         var policy = self.policy

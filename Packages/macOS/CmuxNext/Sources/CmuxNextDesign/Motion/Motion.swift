@@ -99,6 +99,8 @@ extension MotionGate {
 
     /// Position, size, scale and scroll animate. When false, snap.
     public var animatesMovement: Bool { policy.animatesMovement }
+    /// ``animatesMovement`` for a motion that `window` shows.
+    public func animatesMovement(in window: NSWindow?) -> Bool { policy(in: window).animatesMovement }
     /// Pane layout changes (split, close, move, swap, zoom, column reveal)
     /// spring: `ui.paneAnimations` is on (the default) and movement
     /// animates. Off, they apply in one frame; direct manipulation
