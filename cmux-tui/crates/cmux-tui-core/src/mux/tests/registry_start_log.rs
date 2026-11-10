@@ -40,13 +40,13 @@ struct WalIndex {
     copied: u32,
 }
 
-fn side_file(db_path: &std::path::Path, suffix: &str) -> std::path::PathBuf {
+fn side_file(db_path: &Path, suffix: &str) -> std::path::PathBuf {
     let mut path = db_path.as_os_str().to_owned();
     path.push(suffix);
     std::path::PathBuf::from(path)
 }
 
-fn wal_index(db_path: &std::path::Path) -> WalIndex {
+fn wal_index(db_path: &Path) -> WalIndex {
     let mut bytes = [0u8; 100];
     std::fs::File::open(side_file(db_path, "-shm")).unwrap().read_exact(&mut bytes).unwrap();
     let word =
@@ -56,13 +56,13 @@ fn wal_index(db_path: &std::path::Path) -> WalIndex {
 
 /// The wal-index once the stopped daemon's threads are gone: two equal
 /// reads 100 ms apart.
-fn settled_wal_index(db_path: &std::path::Path) -> WalIndex {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+fn settled_wal_index(db_path: &Path) -> WalIndex {
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = wal_index(db_path);
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(100));
         let now = wal_index(db_path);
-        if now == last || std::time::Instant::now() > deadline {
+        if now == last || Instant::now() > deadline {
             return now;
         }
         last = now;
@@ -87,7 +87,8 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
     let pin = rusqlite::Connection::open(&db_path).unwrap();
     pin.execute_batch("BEGIN").unwrap();
     let _: i64 = pin.query_row("SELECT COUNT(*) FROM meta", [], |row| row.get(0)).unwrap();
-    let page_bytes: u64 = pin.query_row("PRAGMA page_size", [], |row| row.get(0)).unwrap();
+    let page_bytes: i64 = pin.query_row("PRAGMA page_size", [], |row| row.get(0)).unwrap();
+    let page_bytes = u64::try_from(page_bytes).unwrap();
 
     mux.new_workspace(None, Some((80, 24))).unwrap();
     mux.request_registry_flush();
@@ -122,7 +123,7 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
     crate::startup_timings::observe_laps_on_this_thread(Some(Box::new(move |step| {
         seen.borrow_mut().push((step, wal_index(&observed)));
     })));
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let registry = WorkspaceRegistry::open(&root, session);
     let open_ms = started.elapsed().as_secs_f64() * 1000.0;
     crate::startup_timings::observe_laps_on_this_thread(None);
