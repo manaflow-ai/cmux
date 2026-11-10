@@ -28,6 +28,7 @@
     {"id": "appUpdate", "note": "The app update's status: a check, a download's progress and Cancel, Restart to Update, a failure's Try Again (Settings > Updates; the sidebar shows only the staged update)."},
     {"id": "webUpdates", "note": "The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only."},
     {"id": "voiceInput", "note": "Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists."},
+    {"id": "credentialVault", "note": "Settings > Chief's Credential Vault: the secrets agents use by name, who may use each and its last use, with Add, Replace and Delete (cmux issue 26412). Never a value."},
     {"id": "notices", "note": "Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices."},
     {"id": "contextMenus", "note": "Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout)."},
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
@@ -329,7 +330,7 @@
             {"group": "settings.group.chiefSubagents", "note": "Whether the Chief may route each subagent to the harness best at its task (spawn harness)."}
           ],
           "lead": ["chiefs", "chiefPet", "voiceInput"],
-          "trail": ["notices"]
+          "trail": ["credentialVault", "notices"]
         }
       ]
     },

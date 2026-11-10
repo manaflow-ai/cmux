@@ -67,6 +67,7 @@ enum DebugCloudMachineFixture {
     }
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         let name = params["name"]?.stringValue ?? defaultName
         guard let status = parseStatus(params["status"]?.stringValue) else {
             return .object(["error": .string("invalid cloud machine status: \(params["status"]?.stringValue ?? "")")])

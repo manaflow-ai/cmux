@@ -300,6 +300,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextControl",
                 "CmuxNextCookieImport",
                 "CmuxNextCrashReporting",
+                "CmuxNextCredentialVault",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
@@ -830,6 +831,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextHome",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextCredentialVault",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextDictation",
@@ -1225,6 +1227,36 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextKeepAwakeTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextKeepAwake",
+                "CmuxNextSettings",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Credential Vault (cmux issue 26412): named secrets in the app's Keychain items that
+        // agents use by name (`cmux vault`), the `vault.*` control methods and the secure entry sheet.
+        .target(
+            name: "CmuxNextCredentialVault",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextDesignTokens",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCredentialVaultTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextCredentialVault",
+                "CmuxNextDesign",
+                "CmuxNextPages",
                 "CmuxNextSettings",
             ],
             swiftSettings: uiSwiftSettings
@@ -2503,6 +2535,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",
+                "CmuxNextCredentialVault",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",

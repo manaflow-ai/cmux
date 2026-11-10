@@ -108,6 +108,8 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod repo_hold;
+#[cfg(unix)]
+mod vault;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -672,6 +674,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))

@@ -48,7 +48,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
     /// The send's own notice (a held send, text carried from a gone
     /// conversation: cx-ebm.55); it shows over the host's notice.
-    private var sendNotice: String? {
+    var sendNotice: String? {
         didSet { if sendNotice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
     }
     private var shownNotice: String? { sendNotice ?? notice }
@@ -156,6 +156,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var observedInputs: HomeProjectionInputs?
     /// A store pass waits for the next display frame (a keystroke's frame is open); one at a time.
     var heldPass = false
+
+    /// Moves credentials found in a send to the Credential Vault (the host's sheet); nil sends them as typed.
+    var secretHost: HomeSecretHost? {
+        didSet { saveDraft() }
+    }
+    /// The draft text the person answered the vault offer for, moving nothing: a Return sends it as
+    /// it is (until it goes, or the text changes).
+    var secretWarnedDraft: String?
+    /// The vault offer's sheet is open: every send waits for its answer.
+    var secretOfferOpen = false
 
     /// Link card previews (MessagesLab's guarded HTML/image fetcher): fetched once per URL for
     /// links this Mac sends or the user taps; nil keeps domain cards.
@@ -458,6 +468,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
         guard Reducer.canSend(draft), !typed.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // A key or token in the text: held, and the host offers to move it to the Credential Vault (HomeProjection+Secrets).
+        // Every path, a send held for the owner too: the text may have changed since its Return.
+        if holdsSecret(draft) { return noteSend("held: the draft holds a credential") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
         let threadRoot: MessageID?, parent: MessageID?
         if let deferred {
@@ -483,6 +496,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
         }
         sendNotice = nil
+        secretWarnedDraft = nil
         let key = IdempotencyKey.make()
         // The text and the attachments in the field's order (Draft.pieces). Reply to Selection: the
         // quote goes out as a Markdown blockquote above the reply (ReplyQuote.quoted), in the first
@@ -619,10 +633,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The field's text, with a mark where each attachment sits, and its attachments in order
     /// into HomeStore's cache: a switch to another chat and back, or a relaunch, puts each one
     /// back in its place (Lawrence 2026-10-23: the pictures came back after all the text).
-    private func saveDraft() {
+    func saveDraft() {
         guard !stopped, !restoringDraftAttachments, let store = controller.store else { return }
-        homeStore.setDraft(store.state.ui.draft.text, for: conversation)
+        let draft = store.state.ui.draft
+        // Typing saves before Return can offer the vault. Keep a detected credential only in
+        // the live field while the person decides; a cancelled offer never writes it to disk. The
+        // kept copy has each one replaced by its vault mark, so the rest of the message survives.
+        homeStore.setDraft(secretHost == nil ? draft.text : Self.keptDraft(draft.text), for: conversation)
         homeStore.setDraftAttachments(draftAttachments, for: conversation)
+    }
+
+    /// `text` (the field's text, with attachment marks) as the draft cache may keep it: each
+    /// credential replaced by its vault mark, the longest first so a key that is the start of
+    /// another never leaves the other's tail. A key the marks split (a picture dropped inside it)
+    /// is not one run of `text`; when any key survives, nothing is kept.
+    static func keptDraft(_ text: String) -> String {
+        let scan = HomeSecretScan()
+        let findings = scan.findings(in: Draft.stripMarks(text))
+        guard !findings.isEmpty else { return text }
+        let kept = findings.sorted { $0.value.count > $1.value.count }
+            .reduce(text) { HomeSecretScan.redacted($0, value: $1.value, name: $1.suggestedName) }
+        return scan.findings(in: Draft.stripMarks(kept)).isEmpty ? kept : ""
     }
 
     /// The field's attachments from the cache, once, into a field without any, each at its mark

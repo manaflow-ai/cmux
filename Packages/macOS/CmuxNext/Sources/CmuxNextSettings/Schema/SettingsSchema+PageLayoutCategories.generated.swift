@@ -194,7 +194,7 @@ extension SettingsPageLayout {
             // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
             GroupSpec(group: "settings.group.chiefSubagents"),
         ],
-        lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices]
+        lead: [.chiefs, .chiefPet, .voiceInput], trail: [.credentialVault, .notices]
     )
 
     /// A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.

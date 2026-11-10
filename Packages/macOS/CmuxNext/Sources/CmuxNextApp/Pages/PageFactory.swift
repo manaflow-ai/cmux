@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextCredentialVault
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHistoryPages
@@ -309,6 +310,9 @@ struct PageFactory {
                       PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
+                      // Chief > Credential Vault: Add, Replace, Delete and who may use each secret (cmux issue 26412).
+                      PageRoute(prefix: CredentialVaultPageRoute.prefix, provider: CredentialVaultPageRoute(
+                          board: services.credentialVaultBoard, window: { [weak services] in services?.settingsWindow.window })),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
                       // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.

@@ -24,6 +24,8 @@ export interface DialogButtonSpec {
   hint?: string;
   /** The key as VoiceOver reads it ("Command-D"). */
   hintLabel?: string;
+  /** Only a pointer click presses it (a Credential Vault Allow): no focus, no key, no keyboard click. */
+  clickOnly?: boolean;
 }
 
 /** The buttons each key presses (CmuxDialogKeys): Return, Escape and Command plus a character. */
@@ -44,6 +46,8 @@ export interface DialogState {
   buttons: DialogButtonSpec[];
   keys: DialogKeys;
   layout: "standard" | "safeDefault";
+  /** False: the dialog opened on its own, so the card takes the keyboard, never its first field. */
+  focusesField?: boolean;
   values: Record<string, DialogValue>;
   /** Bumped by each value the host sets: the page then takes the host's values, a secure field's too. */
   valuesSerial?: number;

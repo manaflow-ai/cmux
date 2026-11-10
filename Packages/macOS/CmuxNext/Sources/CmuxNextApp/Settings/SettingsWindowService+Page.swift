@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCredentialVault
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextPages
@@ -70,6 +71,8 @@ extension SettingsWindowService {
             "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
+            // Chief > Credential Vault: names, scopes and last uses, never a value (cmux issue 26412).
+            "credential_vault": services.credentialVaultBoard.hostJSON,
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
             "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,

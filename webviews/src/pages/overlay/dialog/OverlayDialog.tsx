@@ -111,12 +111,15 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
   }, [cardNode, dialog.buttons]);
 
   // The first text field takes the keyboard, else the card itself: never a button the person did not
-  // choose, so a key typed on as the dialog opens presses nothing.
+  // choose, so a key typed on as the dialog opens presses nothing. A dialog that opened on its own
+  // (focusesField false) starts on the card, so typing meant for another view never lands in its field.
   const initial = useRef<HTMLElement | null>(null);
+  const focusesField = dialog.focusesField !== false;
   const attachCard = (node: HTMLDivElement | null) => {
     card.current = node;
     setCardNode(node);
-    initial.current = node?.querySelector<HTMLElement>("input[type=text], input[type=password]") ?? node;
+    const field = focusesField ? node?.querySelector<HTMLElement>("input[type=text], input[type=password]") : null;
+    initial.current = field ?? node;
   };
 
   // Shown again after its tab was hidden: the focus goes back where the dialog opens, never a button.
@@ -220,6 +223,7 @@ function Button({
   quiet?: boolean;
   onPress(id: string): void;
 }) {
+  const clickOnly = button.clickOnly === true;
   return (
     <button
       type="button"
@@ -227,8 +231,17 @@ function Button({
       data-role={button.role}
       data-quiet={quiet || undefined}
       data-button={button.id}
+      data-click-only={clickOnly || undefined}
       aria-keyshortcuts={button.hintLabel}
-      onClick={() => onPress(button.id)}
+      // A click-only button never holds the keyboard: Tab skips it and a click does not focus it, so
+      // Space or Return typed later cannot press it.
+      tabIndex={clickOnly ? -1 : undefined}
+      onMouseDown={clickOnly ? (event) => event.preventDefault() : undefined}
+      onClick={(event) => {
+        // A click a key made (Space or Return on a focused button) has no pointer press: detail 0.
+        if (clickOnly && event.detail === 0) return;
+        onPress(button.id);
+      }}
     >
       <span className="overlay-dialog-button-title">{button.title}</span>
       {button.hint && (
@@ -308,7 +321,7 @@ function Field({
  * stacked button row draws the default first, the reverse of its DOM order). */
 function focusables(card: HTMLElement): HTMLElement[] {
   const controls = [...card.querySelectorAll<HTMLElement>("input, select, button")].filter(
-    (node) => !(node as HTMLInputElement).disabled,
+    (node) => !(node as HTMLInputElement).disabled && node.dataset.clickOnly === undefined,
   );
   const place = new Map(controls.map((node) => [node, node.getBoundingClientRect()]));
   // Stable: controls on one line keep their DOM order.

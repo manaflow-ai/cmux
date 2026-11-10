@@ -8,6 +8,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextCredentialVault
 import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import CmuxNextFeed
@@ -41,6 +42,7 @@ enum TunableCatalog {
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
             + TitlebarHistoryTunables.all + CloudTunables.all
             + HangFileTunables.all + HostPressureTunables.all + BrowserHostTunables.all + MacScreenTunables.all
+            + [CredentialVault.rolloutEnabled.descriptor]
     }
 }
 

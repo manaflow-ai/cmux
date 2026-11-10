@@ -85,10 +85,17 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     /// Bumped by each focus move a key asks, so the page moves once per ask.
     private var focusSerial = 0
     private var focusBackward = false
+    /// SECURITY: when the shown dialog's click-only buttons take a press from the page: armed when its card
+    /// paints and again when it shows again (``CmuxDialogClickOnlyArm``). A click that only brings an
+    /// inactive window forward never reaches the page (the dialog pool's `acceptsFirstMouse` is false).
+    private var clickOnlyArm = CmuxDialogClickOnlyArm()
+    /// The uptime a press arrives at (tests set it).
+    var now: @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
     func show(_ dialog: CmuxDialogPresentation?) {
         self.dialog = dialog
         paintedDialog = nil
+        clickOnlyArm = CmuxDialogClickOnlyArm()
         focusSerial = 0
         valuesSerial = 0
         shows = 0
@@ -109,7 +116,10 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     func resetFocus(_ dialog: CmuxDialogPresentation) {
         guard dialog === self.dialog else { return }
         shows += 1
-        if shows > 1 { publish() }
+        guard shows > 1 else { return }
+        // Shown again (a tab switch): its click-only buttons wait again, as when it first showed.
+        clickOnlyArm.rearm(at: now())
+        publish()
     }
 
     /// Bumped by each value the host sets (automation's `setValue`), so the page takes the host's values,
@@ -159,6 +169,11 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             dialog.edited(current(params) ? Self.values(params["values"]) : [:])
         case "cmux.overlay.dialog.press":
             guard let button = params["button"]?.stringValue else { throw PageError.invalidParams(op) }
+            // SECURITY: a click-only button (a Credential Vault Allow) takes no press before its card has
+            // been on screen for the arm delay; the page never sends one for a key.
+            if dialog.spec.buttons.first(where: { $0.id == button })?.clickOnly == true, !clickOnlyArm.takes(at: now()) {
+                return .null
+            }
             dialog.press(button, values: current(params) ? Self.values(params["values"]) : [:])
         case "cmux.overlay.dialog.layout":
             // CSS px from the page's top-left, in points at the page's zoom (the interface scale); the view
@@ -172,6 +187,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             dialog.cardRect = rect
             container?.placeCard(rect)
         case "cmux.overlay.dialog.painted":
+            if paintedDialog != ObjectIdentifier(dialog) { clickOnlyArm.rearm(at: now()) }
             paintedDialog = ObjectIdentifier(dialog)
             endPaintWaits()
         default:
@@ -218,6 +234,8 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             "buttons": .array(spec.buttons.map { button in
                 var row: [String: JSONValue] = ["id": .string(button.id), "title": .string(button.title),
                                                 "role": .string(button.role.rawValue)]
+                // Only a pointer click presses it: the page gives it no focus and no key (`CmuxDialogKeys`).
+                if button.clickOnly { row["clickOnly"] = .bool(true) }
                 if let hint = dialog.hint(for: button) {
                     row["hint"] = .string(hint.glyph)
                     row["hintLabel"] = .string(hint.spokenName)
@@ -229,6 +247,8 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             "values": .object(dialog.values.mapValues(wire)),
             "focus": focus,
         ]
+        // A dialog that opened on its own leaves the keyboard out of its fields: the card takes it.
+        if !spec.focusesField { object["focusesField"] = .bool(false) }
         if let origin = spec.origin { object["from"] = .string(CmuxDialogStrings.from(origin)) }
         if let identifier = spec.identifier { object["identifier"] = .string(identifier) }
         if let icon = spec.icon, let png = iconPNG(icon) { object["icon"] = .string("data:image/png;base64," + png.base64EncodedString()) }
@@ -237,13 +257,18 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
     /// The buttons each key presses (`CmuxDialogKeys`): the page answers keys with exactly these.
     static func keys(_ spec: CmuxDialogSpec) -> JSONValue {
+        // Read from `CmuxDialogKeys.action` itself, so the page presses exactly what a key presses natively:
+        // a click-only button (a Credential Vault Allow) is in none of it.
+        func pressed(_ key: CmuxDialogKeys.Key, _ modifiers: CmuxDialogKeys.Modifiers) -> String? {
+            if case .press(let id) = CmuxDialogKeys.action(for: key, modifiers: modifiers, in: spec) { return id }
+            return nil
+        }
         var keys: [String: JSONValue] = [:]
-        if let button = spec.defaultButton { keys["return"] = .string(button.id) }
-        if let button = spec.cancelButton { keys["escape"] = .string(button.id) }
+        if let id = pressed(.return, []) { keys["return"] = .string(id) }
+        if let id = pressed(.escape, []) { keys["escape"] = .string(id) }
         var command: [String: JSONValue] = [:]
-        for button in spec.buttons {
-            guard let key = button.key, command[String(key)] == nil else { continue }
-            command[String(key)] = .string(button.id)
+        for key in Set(spec.buttons.compactMap(\.key)) {
+            if let id = pressed(.character(key), .command) { command[String(key)] = .string(id) }
         }
         keys["command"] = .object(command)
         return .object(keys)

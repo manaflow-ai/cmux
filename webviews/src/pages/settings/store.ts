@@ -50,6 +50,7 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type CredentialVaultConsumer,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -182,6 +183,12 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     themeColors: cache.themeColors ?? null,
   };
 }
+
+/** A Credential Vault card gesture (`cmux.settings.credential_vault.*`). */
+export type CredentialVaultRun =
+  | { op: "add" }
+  | { op: "replace" | "remove"; name: string }
+  | { op: "scope"; name: string; scope: CredentialVaultConsumer[] };
 
 export type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
 
@@ -628,6 +635,21 @@ export class SettingsStore {
   async setVoiceInput(on: boolean): Promise<void> {
     await this.request("cmux.settings.voice_input.set", { on });
     await this.refreshHost();
+  }
+
+  /**
+   * Settings > Chief > Credential Vault: one gesture (the host shows its sheet), then re-read the
+   * host lists; answers the host's refusal, else null (a cancelled sheet is no refusal).
+   */
+  async runCredentialVault(run: CredentialVaultRun): Promise<string | null> {
+    const reply =
+      run.op === "add"
+        ? await this.request("cmux.settings.credential_vault.add", {})
+        : run.op === "scope"
+          ? await this.request("cmux.settings.credential_vault.scope", { name: run.name, scope: run.scope })
+          : await this.request(`cmux.settings.credential_vault.${run.op}` as const, { name: run.name });
+    await this.refreshHost();
+    return reply.ok ? null : reply.error.message;
   }
 
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */

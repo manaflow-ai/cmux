@@ -31,6 +31,7 @@ export const CATEGORY_CARDS = [
   "appUpdate",
   "webUpdates",
   "voiceInput",
+  "credentialVault",
   "notices",
   "server",
   "cloudEnvironments",

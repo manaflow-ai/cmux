@@ -429,3 +429,65 @@ test("a dialog with no text field gives its card the keyboard, and the card draw
   // Its buttons keep the keyboard ring.
   expect(host.querySelector('[data-button="ok"]')!.hasAttribute("data-focus-ring")).toBe(false);
 });
+
+// cmux issue 26412: a Credential Vault Allow is click-only. The host leaves it out of the key map; the card
+// gives it no focus and takes only a pointer click, never one a key made on a focused button.
+const approval: DialogState = {
+  id: 11,
+  title: "Allow a command to use PROD_DB?",
+  lines: [],
+  fields: [{ kind: "text", id: "value", label: "Value", secure: true }],
+  buttons: [
+    { id: "cancel", title: "Cancel", role: "cancel" },
+    { id: "allow", title: "Allow", role: "default", clickOnly: true },
+  ],
+  keys: { escape: "cancel", command: {} },
+  layout: "standard",
+  values: { value: "" },
+  focus: null,
+  focusesField: false,
+};
+
+test("a click-only button takes a pointer click but no keyboard click, focus or Tab stop", async () => {
+  const { host, presses } = await render(approval);
+  const allow = host.querySelector('[data-button="allow"]') as HTMLButtonElement;
+  expect(allow.tabIndex).toBe(-1);
+  // A click Space or Return made on a focused button has no pointer press (detail 0).
+  act(() => {
+    allow.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail: 0 }));
+  });
+  expect(presses).toEqual([]);
+  act(() => {
+    allow.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail: 1 }));
+  });
+  expect(presses.map((press) => press.button)).toEqual(["allow"]);
+  // Pressing the mouse on it does not move the focus to it.
+  const down = new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, detail: 1 });
+  act(() => {
+    allow.dispatchEvent(down);
+  });
+  expect(down.defaultPrevented).toBe(true);
+});
+
+test("Tab never reaches a click-only button", async () => {
+  const { host } = await render({ ...approval, focusesField: true });
+  const field = host.querySelector('[data-field="value"]') as HTMLInputElement;
+  const cancel = host.querySelector('[data-button="cancel"]') as HTMLButtonElement;
+  act(() => field.focus());
+  key(field, { key: "Tab" });
+  expect(dom!.window.document.activeElement).toBe(cancel);
+  key(cancel, { key: "Tab" });
+  expect(dom!.window.document.activeElement).toBe(field);
+});
+
+test("a dialog that does not focus its field starts on the card", async () => {
+  const { host } = await render(approval);
+  const card = host.querySelector(".overlay-dialog");
+  for (let frame = 0; frame < 30 && dom!.window.document.activeElement !== card; frame++) {
+    await act(async () => {
+      await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+    });
+  }
+  expect(dom!.window.document.activeElement).toBe(card);
+  expect(dom!.window.document.activeElement).not.toBe(host.querySelector('[data-field="value"]'));
+});

@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextCompat
+import CmuxNextCredentialVault
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextActions
@@ -19,6 +20,7 @@ import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
+import MessagesLabHome
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -183,6 +185,7 @@ final class HomeHostView: PaneMotionFollowingView {
             WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
             CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
+        transcript.connectCredentialVault(vault: services.credentialVault) { [weak services] in services?.windows.active?.window }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         // Beside the pane showing this chat (the Home dock's: the first pane on its right), never the focused pane.

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextCredentialVault
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -441,6 +442,10 @@ final class AppServices {
     private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
                                                       settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
                                                       acpmux: feed.acpmuxEnvironment)
+    /// The Chief vault (`cmux vault`, Settings > Credential Vault): named secrets in this build's Keychain.
+    private(set) lazy var credentialVault = CredentialVault.forApplication(bundleID: environment.launch.bundleID)
+    /// Settings > Chief > Credential Vault's names, scopes and last uses (the host lists' `credential_vault`).
+    private(set) lazy var credentialVaultBoard = CredentialVaultBoard(vault: credentialVault)
 
     /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
     /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).

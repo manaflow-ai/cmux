@@ -31,6 +31,8 @@ public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     var starterSent = false
+    /// Follows the Credential Vault rollout (``connectCredentialVault(vault:window:)``): one loop per view.
+    var credentialVaultFollower: Task<Void, Never>?
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
     /// This conversation's part of the store: chained refusal and
@@ -109,6 +111,11 @@ public final class HomeNativeTranscriptView: NSView {
     public var fileHost: HomeFileHost? {
         get { transcript.fileHost }
         set { transcript.fileHost = newValue }
+    }
+    /// Moves an API key or token found in a send to the Credential Vault (MessagesLabHomeView.secretHost).
+    public var secretHost: HomeSecretHost? {
+        get { transcript.secretHost }
+        set { transcript.secretHost = newValue }
     }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {

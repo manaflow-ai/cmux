@@ -20,6 +20,12 @@ public import CoreGraphics
     /// A player with nothing playing.
     public init() {}
 
+    /// Stops the sequence playing, if any: it posts nothing more.
+    public func stop() {
+        playing?.cancel()
+        playing = nil
+    }
+
     /// Cancels the sequence playing, if any, and plays `sequence`: each step's event, stamped with its
     /// intended press time, goes to `post` at its offset from now on `clock`.
     ///
