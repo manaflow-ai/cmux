@@ -24,8 +24,12 @@ import Testing
         TunableStore.shared.activate(file: nil)
         let key = TopRowLineLook.tunable.key, look = TunableStore.shared.override(key)
         TunableStore.shared.set(key, TopRowLineLook.lights.tunableValue)
+        // The pill's even gaps: under the flush corner the selected tab runs down into the card.
+        let flush = CornerFlush.tunable.key, corner = TunableStore.shared.override(flush)
+        TunableStore.shared.set(flush, CornerFlush.off.tunableValue)
         defer {
             TunableStore.shared.set(key, look)
+            TunableStore.shared.set(flush, corner)
             (design.tabBarPosition, design.titlebar, design.densityTokens) = before
         }
         try body()

@@ -18,6 +18,10 @@ import Testing
         let design = DesignSettings.shared
         let before = design.densityTokens
         defer { design.densityTokens = before }
+        // No override: another suite in the process may have pinned the pill (`CornerFlushTestPin`).
+        let override = TunableStore.shared.override(CornerFlush.tunable.key)
+        TunableStore.shared.set(CornerFlush.tunable.key, nil)
+        defer { TunableStore.shared.set(CornerFlush.tunable.key, override) }
         design.densityTokens = DensityPreset.cozy.tokens
         #expect(CornerFlush.current == .goo)
         design.densityTokens = .compact
