@@ -614,7 +614,9 @@ impl Mux {
         if !commit.replayed {
             self.apply_agent_presence(ingress, commit.sequence);
         }
-        if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
+        let projected = self.apply_agent_hook_record(ingress, commit.sequence);
+        let projected_ok = projected.is_ok();
+        if let Err(error) = projected {
             if agent_hook_terminal_gone(&error) {
                 if let Err(_bookkeeping_error) = self
                     .workspace_registry
@@ -655,6 +657,9 @@ impl Mux {
             self.report_internal_diagnostic(
                 "agent hook projection applied; retry bookkeeping cleanup deferred",
             );
+        }
+        if projected_ok {
+            self.retry_flagged_agent_hook_projections(ingress);
         }
         // A replayed plugin event can repair a projection after a process
         // crash between the durable journal commit and the in-memory fold.

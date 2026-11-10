@@ -498,6 +498,20 @@ impl Mux {
         if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(&facts.terminal) {
             slot.stored = None;
             slot.unknown_results += 1;
+            // The row can be in the journal with its projection not done
+            // (its commit seeds the retry row): the next row runs the retry.
+            slot.projection_pending = true;
+        }
+    }
+
+    /// After a row of the hook producer was projected: when a projection of
+    /// its terminal waits for a retry, run the terminal's retry now, which
+    /// ends the wait when it finds none left. One memory lock for a terminal
+    /// with nothing pending.
+    pub(super) fn retry_flagged_agent_hook_projections(&self, ingress: &crate::JournalIngress) {
+        let Some(terminal) = hook_row_terminal(ingress) else { return };
+        if self.agent_hook_projection_is_pending(&terminal) {
+            let _ = self.retry_pending_agent_hooks_for_terminal(&terminal);
         }
     }
 
