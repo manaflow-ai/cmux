@@ -856,24 +856,30 @@ test("opening Session Info moves no part of the chat", () => {
 // so no output click opens a diff split from here: Environment's Changes row opens the folder's diff,
 // and Session Info steps aside for it (session-info-step-aside.test.tsx). What stays is the room rule
 // (Lucas, 2026-11-06): "With enough space: session info opens automatically on new chats. In a narrow
-// layout: it becomes a popover and starts closed."
-test("in a narrow pane a new chat starts with Session Info closed; the toggle opens it as a popover; room again shows the chat's choice", async () => {
+// layout: it becomes a popover and starts closed." Since Leo, 2026-11-10 (#40232: "It's the resizing
+// of the window itself, potentially... Maybe making a new workspace."), a resize never opens it: a
+// panel the narrow pane held closed stays closed when the pane gets room, until the person opens it.
+test("in a narrow pane a new chat starts with Session Info closed; room again keeps it closed; the toggle opens it, a popover when narrow", async () => {
   const container = installDom(true);
   paneWidth = 600;
   await render(container, localChat);
   expect(sessionInfoFits(600)).toBe(false);
   expect(panel(container)).toBeNull();
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
-  // Held, not closed: the chat's choice is still open.
+  // Held, not closed: the chat's saved choice is still open (a resize changes nothing saved).
   expect(sessionInfoState().open).toBe(true);
-  // The pane gets room (a split beside it closed): the chat's choice shows, floating.
+  // The pane gets room (a split beside it closed, the window widened): it stays closed.
   await act(async () => {
     paneWidth = 1600;
     for (const observer of observers) observer();
   });
+  expect(panel(container)).toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+  // The person opens it: it floats.
+  await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();
   expect(panel(container)?.hasAttribute("data-popover")).toBe(false);
-  // Narrow again, with no ask: it shows, so it stays, as a popover.
+  // Narrow again: it shows, so it stays, as a popover.
   await act(async () => {
     paneWidth = 600;
     for (const observer of observers) observer();
