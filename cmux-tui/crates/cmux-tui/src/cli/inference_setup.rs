@@ -488,14 +488,22 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
     }
     let kind = field("kind").and_then(Value::as_str).unwrap_or("unknown");
     // The machine's own call: the edge steers it to the gateway, which answers from the person's proxy or login.
+    // Its status comes first; then the answer's headers and first bytes, and curl's own error, so a refusal names
+    // the hop that made it (the machine's proxy, the edge, cmux or the gateway).
     let probe = format!(
-        "curl -sS -o /dev/null -w '%{{http_code}}' --max-time 60 -H 'authorization: Bearer {PLACEHOLDER}' \
-         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0'"
+        "f=$(mktemp); code=$(curl -sS -i -o \"$f\" -w '%{{http_code}}' --max-time 60 \
+         -H 'authorization: Bearer {PLACEHOLDER}' \
+         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0' 2>\"$f.err\"); \
+         echo \"$code\"; head -c {PROBE_EXCERPT} \"$f\"; head -c 300 \"$f.err\"; rm -f \"$f\" \"$f.err\""
     );
-    let (_, status) = machine.exec(&probe, 90_000).await?;
+    let (_, out) = machine.exec(&probe, 90_000).await?;
+    let (status, answer) = out.split_once('\n').unwrap_or((out.as_str(), ""));
     let status = status.trim();
     if status != "200" {
-        return Err(format!("the machine's model call through the gateway answered HTTP {status}"));
+        return Err(format!(
+            "the machine's model call through the gateway answered HTTP {status}\n{}",
+            shown_answer(answer)
+        ));
     }
     let holds = machine.exec(login_present(), 30_000).await?.0 == 0;
     say(&format!(
@@ -508,6 +516,30 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
         "This machine holds no Codex login."
     });
     Ok(())
+}
+
+/// How much of the probe's answer (headers, then body) comes back to name a refusal.
+const PROBE_EXCERPT: usize = 1500;
+
+/// The probe's answer as it may be printed: headers that can carry a credential (a cookie, an authorization, a
+/// token) are dropped, and control characters other than line breaks are left out.
+fn shown_answer(answer: &str) -> String {
+    let secret = |line: &str| {
+        let name = line.split(':').next().unwrap_or("").trim().to_ascii_lowercase();
+        line.contains(':')
+            && !name.contains(' ')
+            && ["cookie", "authorization", "token", "secret", "key"]
+                .iter()
+                .any(|s| name.contains(s))
+    };
+    answer
+        .lines()
+        .filter(|line| !secret(line))
+        .map(|line| line.chars().filter(|c| !c.is_control()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
 }
 
 fn login_present() -> &'static str {
@@ -637,6 +669,22 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_refused_probe_shows_its_answer_without_credentials() {
+        let answer = "HTTP/1.1 403 Forbidden\r\nserver: edge-proxy\r\nset-cookie: sid=abc\r\nAuthorization: Bearer x\r\n\
+                      x-api-key: k\r\ncontent-type: text/plain\r\n\r\nhost not allowed: coderouter\u{1b}[0m";
+        let shown = shown_answer(answer);
+        assert_eq!(
+            shown,
+            "HTTP/1.1 403 Forbidden\nserver: edge-proxy\ncontent-type: text/plain\n\nhost not allowed: coderouter[0m"
+        );
+        assert!(
+            !shown.contains("sid=") && !shown.contains("Bearer") && !shown.contains("x-api-key")
+        );
+        // A body line that merely mentions a key word is kept: only header names are matched.
+        assert_eq!(shown_answer("the token you sent: none"), "the token you sent: none");
     }
 
     #[test]
