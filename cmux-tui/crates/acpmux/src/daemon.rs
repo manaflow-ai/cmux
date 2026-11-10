@@ -515,7 +515,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         if cloned {
             let path = home().join("outbox.json");
             let journal = crate::hub::outbox::journal_path(&path);
-            for (from, to) in [(path, "outbox.json.clone-boot"), (journal, "outbox.journal.clone-boot")]
+            // The journal first: a start cut short between the two never reads the copied
+            // journal over an empty snapshot.
+            for (from, to) in [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
                 if let Err(e) = std::fs::rename(&from, home().join(to))
                     && e.kind() != std::io::ErrorKind::NotFound

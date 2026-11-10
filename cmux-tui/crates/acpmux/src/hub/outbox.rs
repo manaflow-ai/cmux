@@ -14,7 +14,10 @@
 //!
 //! On disk it is `outbox.json`, every delivery as of the last snapshot, and `outbox.journal`,
 //! one line for each delivery changed since, in order; a reader takes the snapshot and then the
-//! journal's lines, the last line for an id winning. A change appends only the deliveries it
+//! journal's lines, the last line for an id winning. The journal's first line names the snapshot
+//! it follows (its size and SHA-256): a journal left beside any other snapshot (an older daemon
+//! rewrote `outbox.json` without it, or a crash came between a new snapshot and the journal's
+//! reset) is not read, so it never takes a delivery back to an older state. A change appends only the deliveries it
 //! changed, so its cost does not grow with the deliveries kept: rewriting the whole file on every
 //! change wrote 2 GB in 14 minutes with a day's 2,500 deliveries (5 MB) kept (hang-watch
 //! `6159015094`, cmuxterm-hq#8660). A snapshot is written again once the journal is twice its
@@ -198,9 +201,14 @@ struct Book {
 struct Disk {
     /// The last change on disk.
     saved: u64,
-    /// Bytes of the journal since the last snapshot, and of that snapshot.
+    /// Bytes of the journal's lines since the last snapshot, and of that snapshot.
     journal: u64,
     snapshot: u64,
+    /// The journal's first line for the snapshot on disk.
+    header: Vec<u8>,
+    /// A journal that starts with `header` is on disk: changes append to it. Otherwise the next
+    /// change writes a new journal whole (header and its lines).
+    journal_open: bool,
     /// The next write is a snapshot: a journal was left at open, or an append failed and may
     /// have left a torn line.
     snapshot_next: bool,
@@ -217,7 +225,9 @@ impl Outbox {
         {
             let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
             disk.snapshot = saved.snapshot_bytes;
+            disk.header = saved.header;
             disk.journal = saved.journal_bytes;
+            disk.journal_open = saved.journal_open;
             disk.snapshot_next = saved.journal_bytes > 0;
         }
         let mut book = self.book();
@@ -455,20 +465,30 @@ impl Outbox {
                 }
             }
         };
-        // The journal gets these lines before any snapshot, so a crash between the snapshot and
-        // the journal's truncation replays the same last state for each id over it.
+        // The journal gets these lines before any snapshot: a snapshot that fails leaves them
+        // readable after the snapshot they follow.
         let written = (|| -> anyhow::Result<()> {
             let journal = journal_path(&path);
             if lines.iter().any(|b| *b != b'\n') {
-                use std::io::Write;
-                let appended = crate::store::open_private_append(&journal).and_then(|mut f| {
-                    f.write_all(&lines)?;
-                    f.sync_data()?;
-                    Ok(())
-                });
-                if let Err(e) = appended {
-                    disk.snapshot_next = true;
-                    return Err(e);
+                if disk.journal_open {
+                    use std::io::Write;
+                    let appended = crate::store::open_private_append(&journal).and_then(|mut f| {
+                        f.write_all(&lines)?;
+                        f.sync_data()?;
+                        Ok(())
+                    });
+                    if let Err(e) = appended {
+                        disk.snapshot_next = true;
+                        return Err(e);
+                    }
+                } else {
+                    // A new journal: written whole and renamed in, its folder synced, so a power
+                    // loss never drops the file a change was answered from.
+                    let fresh = [disk.header.as_slice(), &lines].concat();
+                    crate::config::write_atomic(&journal, &fresh)?;
+                    disk.written += disk.header.len() as u64;
+                    disk.journal = 0;
+                    disk.journal_open = true;
                 }
                 disk.journal += lines.len() as u64;
                 disk.written += lines.len() as u64;
@@ -476,17 +496,21 @@ impl Outbox {
             if let Some(whole) = whole {
                 crate::config::write_atomic(&path, &whole)?;
                 disk.snapshot = whole.len() as u64;
+                disk.header = header_for(&whole);
                 disk.written += whole.len() as u64;
-                match std::fs::OpenOptions::new().write(true).open(&journal) {
-                    Ok(f) => {
-                        f.set_len(0)?;
-                        f.sync_data()?;
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => return Err(e.into()),
-                }
-                disk.journal = 0;
                 disk.snapshot_next = false;
+                disk.journal = 0;
+                // The new snapshot holds everything; the journal beside it now names the old one
+                // and is not read. Starting the new one now is only an early start: when it
+                // fails, the next change writes it.
+                disk.journal_open = false;
+                match crate::config::write_atomic(&journal, &disk.header) {
+                    Ok(()) => {
+                        disk.journal_open = true;
+                        disk.written += disk.header.len() as u64;
+                    }
+                    Err(e) => tracing::warn!("outbox: a new journal could not be started: {e:#}"),
+                }
             }
             Ok(())
         })();
@@ -518,28 +542,60 @@ pub(crate) fn journal_path(path: &Path) -> PathBuf {
     path.with_extension("journal")
 }
 
+/// The journal's first line for a snapshot of `bytes`.
+fn header_for(bytes: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(bytes);
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let mut line = serde_json::to_vec(&json!({"outboxSnapshot": {"bytes": bytes.len(), "sha256": hex}}))
+        .unwrap_or_default();
+    line.push(b'\n');
+    line
+}
+
 /// What the files at `path` hold.
 struct Saved {
     deliveries: BTreeMap<String, Delivery>,
     snapshot_bytes: u64,
+    header: Vec<u8>,
+    /// Bytes of journal lines read over the snapshot.
     journal_bytes: u64,
+    /// The journal on disk follows this snapshot.
+    journal_open: bool,
 }
 
-/// The snapshot at `path`, then each journal line over it. A snapshot that cannot be read starts
-/// empty (and is replaced); a journal line that cannot be read (a torn append) is skipped.
+/// The snapshot at `path`, then each line of the journal that follows it. A snapshot that cannot
+/// be read starts empty (and is replaced); a journal that names another snapshot is not read; a
+/// journal line that cannot be read (a torn append) is skipped.
 fn read_saved(path: &Path) -> Saved {
-    let (mut deliveries, snapshot_bytes) = match std::fs::read(path) {
-        Ok(bytes) => (
-            serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-                tracing::warn!("outbox: {} cannot be read, starting empty: {e}", path.display());
-                BTreeMap::new()
-            }),
-            bytes.len() as u64,
-        ),
-        Err(_) => (BTreeMap::new(), 0),
+    let bytes = std::fs::read(path).unwrap_or_default();
+    let mut deliveries: BTreeMap<String, Delivery> = if bytes.is_empty() {
+        BTreeMap::new()
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            tracing::warn!("outbox: {} cannot be read, starting empty: {e}", path.display());
+            BTreeMap::new()
+        })
     };
-    let journal = std::fs::read(journal_path(path)).unwrap_or_default();
-    for line in journal.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+    let header = header_for(&bytes);
+    let journal = match std::fs::read(journal_path(path)) {
+        Ok(journal) => journal,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            tracing::error!("outbox: the journal cannot be read, reading the snapshot alone: {e}");
+            Vec::new()
+        }
+    };
+    let (journal_open, lines) = match journal.strip_prefix(header.as_slice()) {
+        Some(lines) => (true, lines),
+        None => {
+            if !journal.is_empty() {
+                tracing::warn!("outbox: the journal follows another snapshot, not read");
+            }
+            (false, &[][..])
+        }
+    };
+    for line in lines.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
         match serde_json::from_slice::<Delivery>(line) {
             Ok(d) => {
                 deliveries.insert(d.id.clone(), d);
@@ -547,7 +603,13 @@ fn read_saved(path: &Path) -> Saved {
             Err(e) => tracing::warn!("outbox: a journal line cannot be read, skipped: {e}"),
         }
     }
-    Saved { deliveries, snapshot_bytes, journal_bytes: journal.len() as u64 }
+    Saved {
+        deliveries,
+        snapshot_bytes: bytes.len() as u64,
+        header,
+        journal_bytes: lines.len() as u64,
+        journal_open,
+    }
 }
 
 impl Book {
@@ -973,9 +1035,9 @@ mod tests {
         let pending = restarted.open(&path);
         assert_eq!(pending.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["d-0", "d-2"]);
         assert_eq!(restarted.get("d-1").unwrap().state, State::Delivered);
-        assert_eq!(std::fs::metadata(&journal).unwrap().len(), 0, "the open compacts");
-        let snapshot: BTreeMap<String, Delivery> =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(std::fs::read(&journal).unwrap(), header_for(&bytes), "the open compacts");
+        let snapshot: BTreeMap<String, Delivery> = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(snapshot.len(), 3, "the snapshot alone holds everything for an older daemon");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1002,6 +1064,32 @@ mod tests {
         let restarted = Outbox::default();
         assert!(restarted.open(&path).is_empty());
         assert_eq!(restarted.get("d-0").unwrap().state, State::Delivered);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An older daemon reads and rewrites `outbox.json` alone. The journal it left behind names
+    /// the snapshot before that, so a newer daemon started after it never replays it over the
+    /// older daemon's newer states: nothing goes back to waiting and is sent again.
+    #[test]
+    fn a_journal_beside_another_snapshot_is_not_read() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0));
+        outbox.update("d-0", |d| d.state = State::Delivering);
+        assert!(!read_saved(&path).deliveries["d-0"].settled());
+        // The older daemon: delivers it and rewrites the snapshot, leaving the journal.
+        let mut older = read_saved(&path).deliveries;
+        older.get_mut("d-0").unwrap().state = State::Delivered;
+        std::fs::write(&path, serde_json::to_vec(&older).unwrap()).unwrap();
+        let restarted = Outbox::default();
+        assert!(restarted.open(&path).is_empty(), "nothing resumes to be sent again");
+        assert_eq!(restarted.get("d-0").unwrap().state, State::Delivered);
+        // And a change after it starts a journal for this snapshot.
+        restarted.add(delivery(1));
+        let again = Outbox::default();
+        assert_eq!(again.open(&path).len(), 1);
+        assert_eq!(again.get("d-0").unwrap().state, State::Delivered);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
