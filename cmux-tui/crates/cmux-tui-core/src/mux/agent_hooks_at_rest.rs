@@ -36,7 +36,14 @@
 //!   and nothing else. A bounded read (`follow: false`) does not count;
 //! - after a row of the terminal whose result is not known (its append
 //!   failed or timed out, or it was a retry the registry answered): the
-//!   table no longer knows what the journal holds.
+//!   table no longer knows what the journal holds;
+//! - while the projection of an earlier row of the terminal still waits
+//!   after the retry this report ran (below).
+//!
+//! A row's projection can fail and wait for a retry. A row of the terminal
+//! runs that retry before its own projection
+//! (`reconcile_preceding_agent_hooks`); a report at rest is no row, so it
+//! runs the terminal's retry itself, before its answer.
 //!
 //! The table is memory only. After a restart the first report of each
 //! terminal is appended again, and the roster folds to the same state because
@@ -84,6 +91,11 @@ struct HookSlot {
     /// The highest sequence noted: commits can finish out of order.
     noted_sequence: u64,
     stored: Option<StoredHookFacts>,
+    /// The projection of a journal row of this terminal failed and waits for
+    /// a retry (`enqueue_agent_hook_pending`). While set, a report at rest
+    /// runs the terminal's retry first and is answered from memory only when
+    /// the retry left nothing.
+    projection_pending: bool,
     /// The latest reports by origin and idempotency key, with the answer of
     /// each one that got no row (`None`: the report was appended, and the
     /// registry holds its receipt).
@@ -332,10 +344,21 @@ impl Mux {
         {
             return None;
         }
+        // The projection of an earlier row of the terminal waits: run its
+        // retry now, as the projection of an appended row does. Before the
+        // table is held: the projector takes the registry.
+        if self.agent_hook_projection_is_pending(&facts.terminal) {
+            let _ = self.retry_pending_agent_hooks_for_terminal(&facts.terminal);
+        }
         // Held through the presence change: a later row of this terminal (a
         // turn's end) waits here, so its presence change comes after this one.
         let mut terminals = self.agent_hooks_at_rest.terminals();
         let slot = terminals.get_mut(&facts.terminal)?;
+        // The retry left a projection waiting: this report is a row, and its
+        // projection waits behind that one.
+        if slot.projection_pending {
+            return None;
+        }
         // A retry gets its first answer and has no second effect; the retry
         // of an appended report goes to the registry, which holds its receipt.
         let key = receipt_key(origin, idempotency_key);
@@ -355,6 +378,40 @@ impl Mux {
         self.activity.note_agent_action();
         self.apply_live_agent_presence(ingress);
         Some(commit)
+    }
+
+    /// The projection of a journal row of the hook producer failed and waits
+    /// for a retry. No entry for a terminal that has none: its first report
+    /// is a row, and that row's projection runs the retry.
+    pub(super) fn note_agent_hook_projection_pending(&self, ingress: &crate::JournalIngress) {
+        // Every row of the hook producer is projected, not only a hook
+        // helper's report (`HookFacts::of`).
+        let Some(terminal) = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
+        else {
+            return;
+        };
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(&terminal) {
+            slot.projection_pending = true;
+        }
+    }
+
+    /// Whether a hook projection of `terminal` waits for a retry.
+    fn agent_hook_projection_is_pending(&self, terminal: &TerminalPublicId) -> bool {
+        self.agent_hooks_at_rest
+            .terminals()
+            .get(terminal)
+            .is_some_and(|slot| slot.projection_pending)
+    }
+
+    /// A retry found no hook projection of `terminal` left.
+    pub(super) fn note_no_agent_hook_projection_pending(&self, terminal: &TerminalPublicId) {
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(terminal) {
+            slot.projection_pending = false;
+        }
     }
 
     /// Marks a hook report as on its way to the journal until the guard drops.

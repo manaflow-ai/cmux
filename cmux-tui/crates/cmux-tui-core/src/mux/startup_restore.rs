@@ -33,6 +33,7 @@ impl Mux {
                 .unwrap()
                 .pending_agent_hook_projections_for_terminal(terminal_id)?;
             if pending.is_empty() {
+                self.note_no_agent_hook_projection_pending(terminal_id);
                 break;
             }
             let applied = self.retry_pending_agent_hooks_rows(pending)?;
@@ -96,6 +97,7 @@ impl Mux {
                     {
                         self.report_internal_diagnostic("agent hook retry bookkeeping deferred");
                     }
+                    self.note_agent_hook_projection_pending(&ingress);
                 }
             }
         }
