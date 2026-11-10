@@ -88,3 +88,60 @@ describe("a Cloud approval answer reaches CloudDO at commit", { timeout: 60_000 
     expect(queued).toEqual(["ConnectionDO"])
   })
 })
+
+/**
+ * The wait is the answered item's own (review F1 on #40370): an answer that sends nothing to CloudDO (an agent's
+ * approve, an integrations approval) returns at once, even while another Cloud answer's slow delivery is in flight.
+ */
+describe("only a Cloud answer waits, and only for its own delivery", { timeout: 60_000 }, () => {
+  const agentPost = { type: "request", kind: "approve", title: "Claude Code needs permission", prompt: { action: { type: "command", summary: "Build", command: "npm run build" }, scopes: ["once", "session"] }, poster: { agent: "term_1", harness: "claude-code", label: "Claude Code · api" } }
+
+  for (const other of ["agent", "connections"] as const)
+    it(`${other === "agent" ? "an agent" : "an integrations"} answer during a slow Cloud delivery returns without the Cloud wait`, async () => {
+      const u = user(`slowcloud${other}`)
+      const deliveries: Array<Delivery> = []
+      let release!: () => void
+      const held = new Promise<void>((r) => (release = r))
+      await inDO(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u)), async (instance) => {
+        // Only the Cloud owner's delivery is held; any other target answers at once.
+        const slow = fakeTargets(deliveries, () => held)
+        const quick = fakeTargets(deliveries)
+        instance.targetNamespace = (cls: string) => (cls === "CloudDO" ? slow(cls) : quick(cls))
+        const answer = (item: string, key: string) => instance.submit(u, session(u), { t: "op", op: "feed.answer", params: { item, answer: { decision: "allow", scope: "once" } }, idempotency_key: key, origin: "user" })
+        const approval = async (source: "cloud" | "connections", team: string) => {
+          const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+          const prompt = { action: { type: "tool", tool: "cloud.machine.create", summary: "s", risk: "money", input: { approval: { team, request, digest: "sha256:abc" } } }, scopes: ["once"] }
+          const posted = await instance.integrationApproval(u, team, prompt, 3_600_000, `approval:${request}`, source)
+          expect(posted.ok, JSON.stringify(posted)).toBe(true)
+          return posted.item as string
+        }
+        const cloudItem = await approval("cloud", `team_slowcloud${other}`)
+        const otherItem =
+          other === "connections"
+            ? await approval("connections", `team_slowconn${other}`)
+            : ((await instance.submit(u, { identity: "inst_dmn00000000000000000", kind: "install", user: u, install: "inst_dmn00000000000000000", install_kind: "daemon", agent: "agent_a", grant_classes: ["read", "mutate-own", "execute"] }, { t: "op", op: "feed.post", params: agentPost, idempotency_key: `post-${other}`, origin: "cli" })).frames.find((f: { t: string }) => f.t === "result").value.item.id as string)
+        const cloudStarted = Date.now()
+        const cloudAnswer = answer(cloudItem, "a-cloud").then(() => Date.now() - cloudStarted)
+        await new Promise((r) => setTimeout(r, 50))
+        const started = Date.now()
+        const res = await answer(otherItem, `a-${other}`)
+        const took = Date.now() - started
+        expect(res.frames.some((f: { t: string }) => f.t === "result"), JSON.stringify(res.frames)).toBe(true)
+        expect(took, `${other} answer waited on the Cloud delivery`).toBeLessThan(500)
+        // The Cloud answer still waits for its own delivery, up to the bound.
+        expect(await cloudAnswer).toBeGreaterThanOrEqual(1_500)
+        release()
+      })
+    })
+
+  it("a Cloud answer returns as soon as its own delivery ended", async () => {
+    const deliveries: Array<Delivery> = []
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    setTimeout(() => release(), 300)
+    const { started, returned } = await postAndAnswer(user("cloudown0001"), "team_cloudown0001", "cloud", deliveries, () => held)
+    expect(answered(deliveries, "CloudDO").length).toBeGreaterThanOrEqual(1)
+    expect(returned - started).toBeGreaterThanOrEqual(250)
+    expect(returned - started).toBeLessThan(1_500)
+  })
+})
