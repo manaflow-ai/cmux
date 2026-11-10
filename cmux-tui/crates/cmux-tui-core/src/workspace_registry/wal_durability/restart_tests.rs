@@ -110,10 +110,10 @@ fn a_commit_storm_keeps_the_wal_file_under_its_bound() {
          {high_water} bytes; the bound is {STORM_WAL_BOUND_BYTES}"
     );
     // The price: one hold of the store's lock per restart (three limits of
-    // frames and a restart point of half a limit: about six), never one
-    // per commit.
+    // frames and a restart point of a quarter of a limit: about twelve),
+    // never one per commit and at most one per step between two tries.
     assert!(
-        (2..=12).contains(&holds.len()) && tries >= 2,
+        (2..=storm / CHECKPOINT_BYTES).contains(&(holds.len() as u64)) && tries >= 2,
         "{} lock holds and {tries} tries for {commits} commits",
         holds.len()
     );

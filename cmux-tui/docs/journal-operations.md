@@ -32,7 +32,7 @@ copied the whole WAL and the last reader of the old WAL ended. A checkpoint
 that runs beside commits never copies the whole WAL, so under commits with no
 pause (a session build, a restore) the file once grew without a bound. The
 restart rule: the syncer thread owns the restart, and no commit and no
-request waits for a checkpoint. When the WAL holds 32 MiB of frames, the
+request waits for a checkpoint. When the WAL holds 16 MiB of frames, the
 syncer copies the bulk beside the commits with PASSIVE checkpoints and syncs
 the database file itself, with no lock. Then it takes the database's writer
 lock (the registry's connection lock; a store's own lock) for one more

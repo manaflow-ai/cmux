@@ -720,7 +720,7 @@ frames a previous run left in the WAL, so a reader compares two reads (the
 bytes one change writes). `registry_wal_file_bytes` is the registry's WAL file
 size now and `registry_wal_file_high_water_bytes` the largest size seen since
 the daemon started. The file normally stays under 64 MiB: when the WAL holds
-32 MiB of frames, the WAL syncer thread copies it into the database beside
+16 MiB of frames, the WAL syncer thread copies it into the database beside
 the commits, then keeps the registry's writers out for the last commits only,
 and the next commit restarts the WAL (and cuts a larger file to 64 MiB). No
 commit and no request waits for that copy. A reader that pins an old snapshot

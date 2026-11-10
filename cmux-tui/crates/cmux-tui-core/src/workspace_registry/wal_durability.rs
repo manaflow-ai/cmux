@@ -52,9 +52,8 @@
 //!
 //! 1. copies the bulk beside the commits with PASSIVE checkpoints and syncs
 //!    the database file itself, with no lock, until the commits that landed
-//!    meanwhile are under [`TAIL_BYTES`] (at most [`BULK_PASSES`] passes, and
-//!    no further pass when the WAL is 4 MiB under its size limit: the bound
-//!    goes before a short step 2);
+//!    meanwhile are under [`TAIL_BYTES`] (at most [`BULK_PASSES`] passes:
+//!    each copies what landed during the pass before);
 //! 2. takes the database's writer lock ([`WriterLock`]: the registry's
 //!    connection lock, a store's own lock) and runs one more PASSIVE
 //!    checkpoint. No commit can land, so it copies the whole WAL: the few
@@ -66,13 +65,13 @@
 //! Other writers of that database wait only for step 2. The syncer holds no
 //! other lock in it, and a thread that holds the mux state lock took the
 //! connection lock before (lock order), so no reader of the state waits
-//! behind it. The restart point is half the size limit, because commits go
-//! on while the syncer works on steps 1 and 2 (a storm on one workspace
-//! wrote 34 MiB per second on a fleet M4 Pro): the file stays under
-//! [`WAL_SIZE_LIMIT_BYTES`] while a try ends in under a second of such a
-//! storm. Nothing holds the commits back, so this bound is not a hard one:
-//! commits faster than the copy for longer than that grow the file until a
-//! try ends.
+//! behind it. The restart point is a quarter of the size limit, because
+//! commits go on while the syncer works on step 1 (a storm on one workspace
+//! wrote 34 MiB per second on a fleet M4 Pro). Nothing but the lock of
+//! step 2 holds commits back, so the file's bound is not a hard one: it
+//! holds while the passes over the bulk end before commits write the rest
+//! of the limit (more than 1 s of that storm). Commits faster than that
+//! grow the file until a try ends.
 //!
 //! A try can end with no restart. The syncer then tries again once commits
 //! wrote [`CHECKPOINT_BYTES`] more; nobody waits, and the file grows by what
@@ -140,9 +139,9 @@ const WAL_FRAME_HEADER_BYTES: u64 = 24;
 pub(crate) const WAL_SIZE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// WAL frame bytes at which the syncer tries to restart the WAL (module
-/// docs): half the size limit. The other half is the room for what commits
+/// docs): a quarter of the size limit. The rest is the room for what commits
 /// write during one try.
-const RESTART_BYTES: u64 = WAL_SIZE_LIMIT_BYTES / 2;
+const RESTART_BYTES: u64 = WAL_SIZE_LIMIT_BYTES / 4;
 
 /// The bulk of a restart is copied when the commits that landed during the
 /// last pass are under this: the rest is the tail, copied under the writer
@@ -698,11 +697,7 @@ fn restart_the_wal(shared: &Shared, checkpointer: &mut Option<Connection>) -> Pa
         }
         let frames = shared.state.lock().recover_poison().wal_frames;
         let tail = frames.saturating_sub(bulk.frames).saturating_mul(shared.frame_bytes);
-        // Near the size limit the bound goes first: the tail is then what
-        // it is, and the writers wait for its copy.
-        let near_the_limit =
-            frames.saturating_mul(shared.frame_bytes) >= WAL_SIZE_LIMIT_BYTES - CHECKPOINT_BYTES;
-        if tail <= TAIL_BYTES || near_the_limit {
+        if tail <= TAIL_BYTES {
             break;
         }
     }
