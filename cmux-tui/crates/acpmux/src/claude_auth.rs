@@ -727,7 +727,7 @@ mod tests {
             Some((id, "route auth test")),
         )
         .unwrap();
-        let text = explain(id, "Failed to authenticate. API Error: 401", false).unwrap();
+        let text = explain(id, "Failed to authenticate. API Error: 401", false, false).unwrap();
         forget(id);
         assert!(text.contains("route"), "{text}");
         assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
