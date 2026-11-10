@@ -1373,7 +1373,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 // the Effort column showed the first row's levels and a level pick switched model.
                 current:
                   props.predictedModel ??
-                  (props.model && current && !current.models.some((model) => model.id === props.model)
+                  (modelsNeeded && props.model && current && !current.models.some((model) => model.id === props.model)
                     ? (current.models.find((model) => model.release === props.model)?.id ?? props.model)
                     : props.model),
                 ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
