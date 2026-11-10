@@ -49,7 +49,18 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
 
     public var isComfortable: Bool { density == .comfortable }
     /// A comfortable row's extra height, plus the text size's.
-    public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSize.rowStep }
+    public var extraHeight: CGFloat { Self.extraHeight(density: density, textSize: textSize, space2: base.space2) }
+
+    /// The rule behind ``extraHeight``, on its inputs alone: `Metrics.chromeRowHeight` reads it
+    /// without building the whole token set, whose corner radius depends on the tab height.
+    /// - Parameters:
+    ///   - density: `sidebar.density`.
+    ///   - textSize: `sidebar.textSize`.
+    ///   - space2: The density's `space2`, a comfortable row's extra height.
+    /// - Returns: The height a one-line row adds to the app density's row.
+    public static func extraHeight(density: SidebarDensity, textSize: SidebarTextSize, space2: CGFloat) -> CGFloat {
+        (density == .comfortable ? space2 : 0) + textSize.rowStep
+    }
     /// A one-line workspace row, group header or band row.
     public var rowHeight: CGFloat { base.rowHeight + extraHeight }
     /// The tokens of the bands above the list (Home, pinned rows) and of the workspace hover card: at
