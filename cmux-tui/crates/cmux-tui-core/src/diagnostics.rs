@@ -22,6 +22,9 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod command_stats;
+pub(crate) use command_stats::{ClientKind, CommandStats, ConnectionKind, line_is_named};
+pub use command_stats::{CommandConnections, CommandRow, CommandStatsSnapshot};
 mod connection_leases;
 mod disk_usage;
 pub use connection_leases::{ConnectionLease, PeerClosed};
@@ -657,6 +660,9 @@ pub struct ConnectionStats {
     hung_up: AtomicU64,
     /// Slots taken back from hung-up clients since start.
     reclaimed: AtomicU64,
+    /// The requests by command name and client kind, and the connections by client kind
+    /// (`server-stats` section `commands`).
+    commands: std::sync::Arc<CommandStats>,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
     /// Of `active`, the connections from processes inside this session's
@@ -674,6 +680,11 @@ pub struct ConnectionStats {
 }
 
 impl ConnectionStats {
+    /// The request counters of the session (`diagnostics/command_stats.rs`).
+    pub(crate) fn commands(&self) -> &std::sync::Arc<CommandStats> {
+        &self.commands
+    }
+
     /// Counts one connection that already holds a slot as terminal-bound, if
     /// fewer than `limit` terminal-bound connections are active. A refusal
     /// moves the connection from `accepted` to `refused`; the caller gives
@@ -833,6 +844,9 @@ pub struct ServerStatsSnapshot {
     /// session keeps its registry on disk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk: Option<DiskUsageSnapshot>,
+    /// Present only when the request names `commands` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<CommandStatsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

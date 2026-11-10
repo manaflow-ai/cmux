@@ -122,6 +122,9 @@ pub(super) struct MessageWriter {
     /// Whether this connection carries the person's keys: its threads then run at user-interactive QoS
     /// (server/input_qos.rs).
     pub(super) input_lane: Arc<super::input_qos::InputLane>,
+    /// What the daemon knows about the client at the other end, for the request counters
+    /// (diagnostics/command_stats.rs): a request reads it here, never in the client registry.
+    pub(super) kind: Arc<crate::diagnostics::ConnectionKind>,
 }
 
 impl MessageWriter {
@@ -144,6 +147,7 @@ impl MessageWriter {
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
             input_lane: Arc::default(),
+            kind: Arc::default(),
         }
     }
 

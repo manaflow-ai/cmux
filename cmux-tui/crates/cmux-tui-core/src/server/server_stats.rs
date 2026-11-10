@@ -15,6 +15,9 @@ const HOOK_QUEUE: &str = "hook_queue";
 /// The optional section that reports the registry's disk use by file and by
 /// journal kind (`diagnostics::DiskUsageSnapshot`).
 const DISK: &str = "disk";
+/// The optional section that counts the requests by command name and by client kind
+/// (`diagnostics::CommandStatsSnapshot`).
+const COMMANDS: &str = "commands";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -35,6 +38,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
             })
             .flatten(),
         disk: wants(DISK).then(|| mux.disk_usage_stats()).flatten(),
+        commands: wants(COMMANDS).then(|| mux.connection_stats().commands().snapshot()),
     }
 }
 

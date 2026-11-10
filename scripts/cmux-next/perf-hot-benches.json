@@ -145,6 +145,11 @@
       "what": "one new workspace put at its sidebar slot once the daemon reports it (WindowManager.applyPendingPlacements -> SidebarBridge.place): the rows it maps from their stores. It maps the new row only, at 60 workspaces as at 826. Still O(session) per placement and not covered by this budget: the two rows passes (structure walk and SidebarModel.setSections), the document projection in the Rust mirror, and the slot rule's copy of every row (SidebarSection.withoutPlaceholders, counted as slot_rows).",
       "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspacePlacementCostTests (on a build mini; rows_made, doc_reshows, project, slot_rows per placement)",
       "owner": "WORKSPACE LIST 800"
+    },
+    "command-stats": {
+      "what": "the session daemon's count of one request by command name and client kind (diagnostics/command_stats.rs: CommandStats::start, start_line, Cell::record; server/connection_frame.rs handle_connection_frame and handle_request_with_cancellation): three clock reads, one probe of a fixed table, four relaxed atomic updates, no lock, no allocation after the first request of a name",
+      "bench": "cargo test --release -p cmux-tui-core --lib bench_command_stats_cost_per_request -- --ignored --nocapture (in cmux-tui, on a build mini; prints COMMAND-STATS-BENCH with ping_with_ns, ping_without_ns and added_ns for 1 000 000 ping requests, same binary)",
+      "owner": "COMMAND STATS"
     }
   }
 }

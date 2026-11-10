@@ -253,3 +253,52 @@ fn server_stats_commands_reports_no_argument_text() {
     assert!(!text.contains("SECRET"), "argument text in the reply: {text}");
     assert!(!section.to_string().contains("/Users/"), "a path in the section: {section}");
 }
+
+/// The cost of the counter on one request: 1 000 000 `ping` requests with it and without it, in
+/// the same binary, in turns. Not a CI test: run it by name with `--release` and
+/// `--ignored --nocapture`.
+#[test]
+#[ignore = "a measurement; run it by name"]
+fn bench_command_stats_cost_per_request() {
+    const REQUESTS: u32 = 1_000_000;
+    const ROUNDS: usize = 5;
+    let mux = Mux::new_for_test("server-stats-commands-bench", crate::SurfaceOptions::default());
+    let connection = connect(&mux);
+    // The first request of a name is the one that makes its row.
+    connection.request(&mux, &ping(0));
+    let commands_stats = mux.connection_stats().commands();
+    let run = |counted: bool| {
+        let started = Instant::now();
+        for _ in 0..REQUESTS {
+            let request = Request { id: None, cmd: Command::Ping, remote_line: None };
+            if counted {
+                // What a line pays: the line's own count and the command's.
+                let line = commands_stats.start_line(&connection.writer.kind);
+                handle_request(&mux, connection.client, request, &connection.writer);
+                drop(line);
+            } else {
+                let writer = &connection.writer;
+                super::handle_request_uncounted(&mux, connection.client, request, writer, None);
+            }
+            connection.drain();
+        }
+        started.elapsed().as_nanos() / u128::from(REQUESTS)
+    };
+    let (mut with, mut without) = (Vec::new(), Vec::new());
+    for _ in 0..ROUNDS {
+        without.push(run(false));
+        with.push(run(true));
+    }
+    with.sort_unstable();
+    without.sort_unstable();
+    let (with, without) = (with[ROUNDS / 2], without[ROUNDS / 2]);
+    eprintln!(
+        "COMMAND-STATS-BENCH requests={REQUESTS} rounds={ROUNDS} ping_with_ns={with} \
+         ping_without_ns={without} added_ns={}",
+        i128::try_from(with).unwrap_or(0) - i128::try_from(without).unwrap_or(0)
+    );
+    assert_eq!(
+        count(&commands(&mux, &connection), "ping", "unknown"),
+        u64::from(REQUESTS) * ROUNDS as u64 + 1
+    );
+}
