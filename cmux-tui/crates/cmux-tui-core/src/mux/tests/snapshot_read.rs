@@ -498,3 +498,55 @@ fn a_snapshot_read_settles_the_answer_of_a_late_registry_commit() {
     let _ = std::fs::remove_dir_all(&root);
     assert!(settled, "a snapshot read did not settle the answer of a late registry commit");
 }
+
+/// Another thread can hold the list of late answers when a snapshot read
+/// starts: a drain of a prepare path (it gets the answers, it does not settle
+/// them) or a second reader. The read must still settle the late answer: a
+/// busy list does not mean that another thread settles it.
+#[test]
+fn a_snapshot_read_settles_a_late_answer_while_another_thread_holds_the_list() {
+    let root = temp_root("settle-held");
+    let mux = session_at_rest("snapshot-settle-held", &root);
+    public_session_snapshot(&mux).unwrap();
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    let settled = Arc::new(AtomicBool::new(false));
+    let settled_by = settled.clone();
+    mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(
+        pending,
+        Some(Box::new(move |_state, _receipt| {
+            settled_by.store(true, Ordering::SeqCst);
+        })),
+    );
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+
+    let (answered, answered_receiver) = std::sync::mpsc::channel();
+    let reader = mux.registry_connection.with_unsettled_list_held_for_test(|| {
+        let reader = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                public_session_snapshot(&mux).unwrap();
+                let _ = answered.send(());
+            })
+        };
+        // A read that knows it owes the settlement waits for the list, so it
+        // does not answer here. A read that answers here did not settle.
+        let _ = answered_receiver.recv_timeout(Duration::from_millis(500));
+        reader
+    });
+    reader.join().unwrap();
+    let settled = settled.load(Ordering::SeqCst);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        settled,
+        "a snapshot read that started while another thread held the list of late answers did not settle the late answer"
+    );
+}

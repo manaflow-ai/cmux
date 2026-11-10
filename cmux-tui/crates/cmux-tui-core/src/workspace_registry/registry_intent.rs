@@ -223,6 +223,13 @@ impl RegistryConnection {
         self.hold_unsettled(pending, settle);
     }
 
+    /// Hold the list of indeterminate receipts while `held` runs, as a drain on another thread does.
+    #[cfg(test)]
+    pub(crate) fn with_unsettled_list_held_for_test<R>(&self, held: impl FnOnce() -> R) -> R {
+        let _unsettled = self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        held()
+    }
+
     /// True while an earlier indeterminate commit still waits for its answer or owes its state update.
     /// A reader that holds no lock asks this before it decides to settle (the session snapshot read).
     /// It never waits: when another thread holds the list (it drains or settles it, see
