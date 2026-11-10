@@ -366,7 +366,7 @@ const rng = (seed: number) => () => {
   return ((x ^ (x >>> 14)) >>> 0) / 4294967296
 }
 
-const RUNS = 60
+const RUNS = 120
 describe("property: a carry never grants more than the latest confirmed grant, or to anyone but the latest owner", { timeout: 300_000 }, () => {
   it(`${RUNS} random interleavings of refreshes, webhooks, ownership changes, revocations and deletes`, async () => {
     const grants = ["max", "pro", "go", "free", null] as const
@@ -423,8 +423,13 @@ describe("property: a carry never grants more than the latest confirmed grant, o
             t.w.perms.set(`${t.stackTeam}:${owner}`, [])
             const prev = owner
             owner = next
-            await send("team_permission.created", { id: "$delete_team", team_id: t.stackTeam, user_id: next })
-            await send("team_permission.deleted", { id: "$delete_team", team_id: t.stackTeam, user_id: prev })
+            // Stack sends one event per member; either may come first, and the demotion may not have come yet.
+            const events = [
+              ["team_permission.created", { id: "$delete_team", team_id: t.stackTeam, user_id: next }],
+              ["team_permission.deleted", { id: "$delete_team", team_id: t.stackTeam, user_id: prev }]
+            ] as const
+            const order = r() < 0.5 ? [events[0]] : r() < 0.5 ? [events[0], events[1]] : [events[1], events[0]]
+            for (const [type, data] of order) await send(type, data)
           } else if (op === "refresh" || (op === "slow" && slow !== null)) {
             await inDO(teamStub(t.team), async (instance, state) => {
               state.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0`)
