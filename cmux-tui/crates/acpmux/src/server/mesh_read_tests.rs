@@ -53,6 +53,9 @@ struct Loopback {
     user: &'static str,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
     unknown: bool,
+    /// Before each part read, another asker's answer fills B's held total, so B drops the
+    /// answers it held before.
+    crowded: bool,
 }
 
 impl Loopback {
@@ -62,7 +65,14 @@ impl Loopback {
             Some(dir.join("mesh-controls.json")),
         )
         .with_own_user(Arc::new(|| Some("person-1".to_owned())));
-        Self { b: b.clone(), hook, user, receipts: Mutex::default(), unknown: false }
+        Self {
+            b: b.clone(),
+            hook,
+            user,
+            receipts: Mutex::default(),
+            unknown: false,
+            crowded: false,
+        }
     }
 }
 
@@ -113,6 +123,9 @@ impl MeshHub for Loopback {
                 state: Some("queued".into()),
                 subject: None,
             };
+            if self.crowded && m.body.contains(READ_PART) {
+                self.b.mesh_read_parts.hold("another-chat", "x".repeat(parts::MAX_HELD_BYTES));
+            }
             let ack = super::super::deliver(&self.b, &message, &self.hook, Some("inst_b"))
                 .await
                 .expect("a read is always answered");
@@ -229,14 +242,11 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
 }
 
-/// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
-/// back to that record: a page always holds at least one record, so no smaller page fits it.
-#[tokio::test]
-async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
-    let b = machine_b();
+/// A chat on B whose one turn has a record over 64 KiB: its id, and the long prompt.
+async fn big_record_chat(b: &Arc<Hub>) -> (String, String) {
     let meta = json!({"acpmux": {"harness": "fake", "name": "big-record"}});
     let made = call(
-        &b,
+        b,
         "session/new",
         json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
     )
@@ -245,11 +255,20 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
     let big = "a 65 KiB line ".repeat(65 * 1024 / 14 + 1);
     assert!(big.len() > 65 * 1024);
     call(
-        &b,
+        b,
         method::SESSION_PROMPT,
         json!({"sessionId": session, "prompt": [{"type": "text", "text": big}]}),
     )
     .await;
+    (session, big)
+}
+
+/// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
+/// back to that record: a page always holds at least one record, so no smaller page fits it.
+#[tokio::test]
+async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
+    let b = machine_b();
+    let (session, big) = big_record_chat(&b).await;
     let dir = tempfile::tempdir().unwrap();
     let hub = Loopback::new(&b, dir.path(), "person-1");
 
@@ -286,6 +305,22 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
         })
         .collect();
     assert_eq!(replies, [format!("echo: {big}")]);
+}
+
+/// An answer B held in parts and then dropped for a newer one refuses only that read, and the
+/// refusal says to read again: the page is still in B's session log.
+#[tokio::test]
+async fn send_path_a_dropped_held_answer_is_refused_retryable() {
+    let b = machine_b();
+    let (session, _) = big_record_chat(&b).await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback { crowded: true, ..Loopback::new(&b, dir.path(), "person-1") };
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let failed = read(&hub, "machine-b", &session, method::MUX_ATTACH, &attach).await.unwrap_err();
+    let data = failed.data.clone().unwrap_or_default();
+    assert_eq!(data["reason"].as_str(), Some("mesh.read_part_gone"), "{failed:?}");
+    assert_eq!(data["retryable"].as_bool(), Some(true), "{failed:?}");
 }
 
 /// A hub that answers every message slowly, within each wait: the first read says its answer is
