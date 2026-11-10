@@ -697,6 +697,7 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "team-cap",
       "no-credit",
       "cloud-auth-expired",
     ].includes(kind);
