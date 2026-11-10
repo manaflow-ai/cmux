@@ -37,6 +37,21 @@ import Testing
 ///   landing's flush), the last its view's grid.
 /// It prints each frame's main time (step and layout: p50, p95, max).
 ///
+/// GI RENDERER SYNC 2 (#40174) port. The frame presenter gave the surface's layer a size together with the frame drawn
+/// at it, so "the layer's pixels are the frame's pixels" held in each commit, at any speed of the stepped spring. Now
+/// the layer takes its pane's area at once, Ghostty draws each size on its renderer thread, and the frame of a new size
+/// comes to the layer through the main queue; one that arrives when its size is no longer the host's is dropped
+/// (ghostty-next `IOSurfaceLayer.zig` `setSurfaceCallback`). The first test stepped 27 spring frames in about 10 ms
+/// (0.35 ms of main time each): no frame arrived at a size the host still had, so the frame of before the press stayed
+/// for the whole spring (red at 35f0e356de2d: "stretched 46"; green at its base 0dda1a319f94, same host and switch).
+/// A display gives a frame 1/120 s, so the first test now gives each spring frame one refresh of time
+/// (``refreshOfTime()``, as the divider drag test does) and reads the SHOWN FRAME, not the layer:
+/// - its pixel size is a size its pane had in this press, this frame or earlier (never a size of a later frame);
+/// - it is drawn 1:1 from the layer's top-left (`contentsGravity` top-left, the layer at the window's scale): an older
+///   frame is cut or leaves the pane's ground at the right and the bottom, it is never stretched;
+/// - it took a new size in more than 3 spring frames (the layer's size no longer shows that: it is the area's).
+/// It prints the frames in which a terminal showed a frame of an earlier size ("behind"): a number, not an assertion.
+///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
@@ -54,7 +69,8 @@ struct TerminalKeyResizeFrameTests {
         let pressed = ContinuousClock.now
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
         var frames: [[Sample]] = [before]
-        let (steps, intervals) = await Self.step(screen) { frames.append($0) }
+        // One spring frame per display refresh, as a display paces them (see the suite's port note).
+        let (steps, intervals) = await Self.step(screen, paced: true) { frames.append($0) }
         let windows = Self.coalescingWindows(since: pressed)
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
         try #require(frames.contains { $0.map(\.area) != before.map(\.area) }, "the press changed no pane's area")
@@ -62,11 +78,14 @@ struct TerminalKeyResizeFrameTests {
         var misplaced: [String] = []
         var unsized: [String] = []
         var stretched: [String] = []
+        var frameless: [String] = []
         // Review of #35470 (T1): the sizes allowed include the start size, so count the frames in which each terminal
-        // took a new size: a terminal that keeps one size through the spring (the defect) fails here.
+        // showed a frame of a new size: a terminal that keeps one frame through the spring (the defect) fails here.
         var changes = Array(repeating: 0, count: before.count)
+        // Frames in which a terminal showed a frame of an earlier size of its pane: for the PR's numbers, not asserted.
+        var behind = Array(repeating: 0, count: before.count)
         for index in 1..<frames.count {
-            for terminal in frames[index].indices where frames[index][terminal].layer != frames[index - 1][terminal].layer {
+            for terminal in frames[index].indices where frames[index][terminal].shownPixels != frames[index - 1][terminal].shownPixels {
                 changes[terminal] += 1
             }
         }
@@ -81,8 +100,20 @@ struct TerminalKeyResizeFrameTests {
                 if !had.contains(where: { near(sample.layer.width, $0.width) && near(sample.layer.height, $0.height) }) {
                     unsized.append("frame \(index) p\(terminal + 1): layer \(Self.text(sample.layer)), area \(Self.text(sample.area))")
                 }
-                if let shown = sample.shownPixels, abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1 {
-                    stretched.append("frame \(index) p\(terminal + 1): layer \(Self.text(sample.layer)) at \(scale)x, frame \(Self.text(shown)) px")
+                guard let shown = sample.shownPixels else {
+                    frameless.append("frame \(index) p\(terminal + 1)")
+                    continue
+                }
+                // The frame's own size: a size the pane had so far (in device px), never one of a later frame.
+                if !had.contains(where: { abs($0.width * scale - shown.width) <= 1 && abs($0.height * scale - shown.height) <= 1 }) {
+                    unsized.append("frame \(index) p\(terminal + 1): frame \(Self.text(shown)) px, area \(Self.text(sample.area)) at \(scale)x")
+                }
+                if abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1 {
+                    behind[terminal] += 1
+                    // A frame of another size than its layer is drawn 1:1 from the top-left, or it is stretched.
+                    if !sample.drawnUnscaled {
+                        stretched.append("frame \(index) p\(terminal + 1): layer \(Self.text(sample.layer)) at \(scale)x, frame \(Self.text(shown)) px, gravity \(sample.gravity.rawValue)")
+                    }
                 }
             }
         }
@@ -95,16 +126,18 @@ struct TerminalKeyResizeFrameTests {
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         let sorted = intervals.sorted()
         let p = { (q: Double) in sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
-        print("S4 key resize: \(steps) spring frames; main ms per frame (step + layout) p50 \(p(0.5)) p95 \(p(0.95)) max \(sorted.last ?? 0); " +
-              "PTY grids per terminal \(resizes); misplaced \(misplaced.count), unsized \(unsized.count), stretched \(stretched.count)")
+        print("S4 key resize: \(steps) spring frames, one per refresh; main ms per frame (step + layout) p50 \(p(0.5)) p95 \(p(0.95)) max \(sorted.last ?? 0); " +
+              "PTY grids per terminal \(resizes); frames of a new size per terminal \(changes), frames behind their pane \(behind) of \(frames.count - 1); " +
+              "misplaced \(misplaced.count), unsized \(unsized.count), stretched \(stretched.count), no frame \(frameless.count)")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
+        #expect(frameless.isEmpty, "\(frameless.count) frames showed a terminal with no frame: \(frameless.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
         #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
-        #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
+        #expect(changes.allSatisfy { $0 > 3 }, "a terminal showed a frame of a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
     }
 
     /// T-KEYS 3 (keys bench 8554d26b, cmux10s, macOS 27.0.1, 120 Hz: in the first frame after a press every terminal
@@ -157,7 +190,10 @@ struct TerminalKeyResizeFrameTests {
     /// grid: a pixel resize keeps mode 2026 set).
     ///
     /// GI RENDERER SYNC 2 (#40174) port: "waits" is now "does not show its own frame" (``showsItsOwnFrame(_:)``), as the
-    /// presenter that kept the size in flight is gone.
+    /// presenter that kept the size in flight is gone. Whether p1 still waits in the landing's own commit is now a race
+    /// the test cannot decide (Ghostty shows the frame of a size as soon as it is drawn, and the spring's last frames
+    /// have one pixel size; the precondition failed in 1 of 3 runs at 35f0e356de2d), and the landing has no release
+    /// left that reads a size in flight. So that state is printed, not required: the grids below must hold in both.
     @Test func aTerminalWhoseFrameWaitsAtTheLandingEndsAtTheLandingsGrid() async throws {
         let screen = try await PaneScreen()
         defer { screen.close() }
@@ -190,7 +226,7 @@ struct TerminalKeyResizeFrameTests {
         }
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
         try #require(waitedInSpring > 1, "p1's sizes waited in \(waitedInSpring) of \(steps) frames: p1 did not hold its frames")
-        try #require(waitingAtLanding, "p1 did not wait for its frame at the landing: the case under test did not happen")
+        print("F1 landing: p1 waited for its frame in \(waitedInSpring) of \(steps) spring frames; at the landing \(waitingAtLanding ? "it still waited" : "it showed its own frame")")
         screen.ios[0].send(.output(Data("\u{1b}[?2026l".utf8)))
         await Self.settle(screen)
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
@@ -361,6 +397,14 @@ struct TerminalKeyResizeFrameTests {
         var areaTopLeft: CGPoint
         var shownPixels: CGSize?
         var scale: CGFloat
+        /// How the layer places a frame of another size than its own (Ghostty's layer: top-left).
+        var gravity: CALayerContentsGravity
+        /// The window's scale (device px per point); the layer's own without a window.
+        var windowScale: CGFloat
+
+        /// Whether a frame of another pixel size than the layer is drawn 1:1 from the layer's top-left, one frame pixel
+        /// per device pixel (cut, or the pane's ground at its right and bottom), not scaled to the layer's bounds.
+        var drawnUnscaled: Bool { gravity == .topLeft && abs(windowScale - scale) < 0.01 }
 
         @MainActor init(_ session: TerminalSession) {
             let surface = session.surfaceView
@@ -368,6 +412,8 @@ struct TerminalKeyResizeFrameTests {
             layer = surface.layer?.bounds.size ?? .zero
             area = host.surfaceSize(forHostSize: host.bounds.size)
             scale = surface.layer?.contentsScale ?? 2
+            gravity = surface.layer?.contentsGravity ?? .resize
+            windowScale = host.window?.backingScaleFactor ?? scale
             shownPixels = surface.presentedFrame.map { CGSize(width: $0.width, height: $0.height) }
             // The host is not flipped: its area's top is its bounds' maxY (an accessory strip sits at its bottom).
             func top(_ layer: CALayer?) -> CGPoint {
@@ -491,14 +537,16 @@ struct TerminalKeyResizeFrameTests {
     }
 
     /// Steps the spring to its landing, one frame per step: the step, its layout pass, its commit (`record` gets each
-    /// committed frame), then 6 commits for the landing's release. Returns the frames stepped and each frame's main
-    /// time (step and layout, ms).
-    static func step(_ screen: PaneScreen, record: (([Sample]) -> Void)?) async -> (Int, [Double]) {
+    /// committed frame), then 6 commits for the landing's release. `paced`: each frame takes one display refresh of
+    /// time (``refreshOfTime()``), as a display paces a spring, and `record` gets the frame at the refresh's end; else
+    /// the frames follow each other at once. Returns the frames stepped and each frame's main time (step and layout, ms).
+    static func step(_ screen: PaneScreen, paced: Bool = false, record: (([Sample]) -> Void)?) async -> (Int, [Double]) {
         var intervals: [Double] = []
         var moving = true
         var steps = 0
         while moving, steps < 240 {
             let frame = await stepFrame(screen)
+            if paced { await refreshOfTime() }
             moving = frame.moving
             intervals.append(frame.ms)
             record?(screen.sessions.map(Sample.init))
