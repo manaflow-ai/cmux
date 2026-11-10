@@ -38112,68 +38112,6 @@
 
       ],
       "cli" : "offered",
-      "cli_name" : "settings use-bouncy-animations",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "appearance.animations.bounce.subtle",
-      "main_menu" : null,
-      "mcp" : "systemChange",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Use Bouncy Animations",
-      "title_key" : "action.appearance.animations.bounce.subtle",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "offered",
-      "cli_name" : "settings use-animations-without-bounce",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "appearance.animations.bounce.none",
-      "main_menu" : null,
-      "mcp" : "systemChange",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Use Animations Without Bounce",
-      "title_key" : "action.appearance.animations.bounce.none",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "offered",
       "cli_name" : "settings use-chromium-by-default",
       "context_menu" : "noObject",
       "context_menus" : [

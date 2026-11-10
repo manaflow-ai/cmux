@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 863,
+    "verbs": 861,
     "mcp": 777
   },
   "nouns": [
@@ -3887,20 +3887,6 @@
           "mcpTool": null
         },
         {
-          "command": "cmux settings use-animations-without-bounce",
-          "title": "Use Animations Without Bounce",
-          "id": "appearance.animations.bounce.none",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings use-bouncy-animations",
-          "title": "Use Bouncy Animations",
-          "id": "appearance.animations.bounce.subtle",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
           "command": "cmux settings use-chromium-by-default",
           "title": "Use Chromium for New Browser Tabs",
           "id": "browser.defaultEngine.chromium",
@@ -6285,6 +6271,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 75
+    "systemChange": 73
   }
 }
