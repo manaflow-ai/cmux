@@ -242,9 +242,14 @@ pub(in crate::cli) fn agent_of_terminal(
     })
 }
 
-/// Every terminal of `snapshot` that runs an agent: blocked first, then
-/// done, working, idle, unknown and ended, the most recently changed first.
+/// Every terminal of `snapshot` that runs an agent, and every exited
+/// terminal whose tab was kept and that has a daemon agent record (its agent
+/// is ended: no process runs there, whatever the record said, and `agent
+/// resume` can bring it back; W6-A, bench round 5 row 6): blocked first,
+/// then done, working, idle, unknown and ended, the most recently changed
+/// first.
 pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
+    use super::super::terminal_lifecycle::{is_exited, is_live};
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
     let workspaces = workspaces_of_terminals(snapshot);
     let unseen = unseen_terminals(snapshot);
@@ -252,10 +257,19 @@ pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
+        .filter(|terminal| is_live(terminal) || is_exited(terminal))
         .filter_map(|terminal| {
             let unseen = terminal["id"].as_str().is_some_and(|id| unseen.contains(id));
-            agent_of_terminal(terminal, agents, unseen)
+            let exited = is_exited(terminal);
+            if exited && !has_agent_record(terminal, agents) {
+                return None;
+            }
+            let mut row = agent_of_terminal(terminal, agents, unseen)?;
+            if exited {
+                row.state = AgentState::Ended;
+                row.status = None;
+            }
+            Some(row)
         })
         .map(|mut row| {
             if let Some((id, name)) = workspaces.get(&row.terminal) {
@@ -273,6 +287,46 @@ pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
             .then(left.terminal.cmp(&right.terminal))
     });
     rows
+}
+
+/// Whether `agents` holds a daemon agent record of `terminal`.
+fn has_agent_record(terminal: &Value, agents: &[Value]) -> bool {
+    terminal
+        .get("id")
+        .is_some_and(|id| agents.iter().any(|agent| agent.get("terminal_id") == Some(id)))
+}
+
+/// The ids of the exited terminals of `snapshot` (program ended, tab kept)
+/// with no agent record in it: the live snapshot leaves out a hook-ended
+/// agent, which `agent.list` with `state: done` still lists.
+pub(in crate::cli) fn exited_terminals_without_agents(snapshot: &Value) -> Vec<String> {
+    let agents = snapshot.get("agents").and_then(Value::as_array).map(Vec::as_slice);
+    let agents = agents.unwrap_or_default();
+    snapshot
+        .get("terminals")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|terminal| super::super::terminal_lifecycle::is_exited(terminal))
+        .filter(|terminal| !has_agent_record(terminal, agents))
+        .filter_map(|terminal| terminal.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
+/// Add the agent records of `listed` (an `agent.list` answer) to
+/// `snapshot["agents"]`.
+pub(in crate::cli) fn add_agents(snapshot: &mut Value, listed: &Value) {
+    let listed = listed.get("agents").unwrap_or(listed);
+    let Some(added) = listed.as_array().filter(|rows| !rows.is_empty()) else { return };
+    let added = added.clone();
+    match snapshot.get_mut("agents").and_then(Value::as_array_mut) {
+        Some(agents) => agents.extend(added),
+        None => {
+            if let Some(object) = snapshot.as_object_mut() {
+                object.insert("agents".into(), Value::Array(added));
+            }
+        }
+    }
 }
 
 /// `42s`, `5m`, `3h`, `2d`.

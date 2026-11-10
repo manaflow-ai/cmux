@@ -41,8 +41,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// to the plugin child that saw it, so a restarted plugin cannot clear a block.
 /// Version 9 lets the screen end a hook `working` row whose turn ended with no
 /// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
-/// re-fold clears rows that stayed working after either.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
+/// re-fold clears rows that stayed working after either. Version 10 keeps a
+/// quiet hook row when the plugin reads the state it already holds (W6-A: a
+/// restarted daemon's plugin took idle hook rows); the re-fold gives those
+/// rows back their hook source and session.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 10;
 /// The oldest roster version whose snapshot [`AgentRoster::migrate`] takes.
 /// Version 6 added the hook session fences: a snapshot without them would
 /// let a late event from an ended session bring its row back while the
@@ -937,6 +940,15 @@ impl AgentRoster {
                         if updated_at_ms < existing.updated_at_ms {
                             return Vec::new();
                         }
+                        // A quiet hook row is not a dead one: an idle or
+                        // blocked agent sends no hooks, and a restarted
+                        // daemon's plugin reports the state the hook already
+                        // holds. That read is no new evidence, so the row
+                        // keeps its source and session (W6-A, bench round 5
+                        // row 4). A different state still takes it.
+                        if existing.state == state.as_str() {
+                            return Vec::new();
+                        }
                     }
                     if source_rank(existing_source) == source_rank(source)
                         && plugin_event_order(
@@ -995,28 +1007,36 @@ impl AgentRoster {
             // An ended agent leaves the roster entirely; the done state is
             // still committed to the durable projection by the host so
             // history and remote caches converge.
+            // An accepted hook end ends the terminal's row whatever source
+            // holds it ("Hook events always win" above): a plugin that took a
+            // quiet hook row would otherwise keep a ghost agent there after
+            // the session ended (W6-A, bench round 5 row 5).
+            let hook_end = source == AgentSource::Hook;
             let owned_by_event = self.entries.get(terminal_id).is_some_and(|entry| {
-                entry.agent_source() == source
-                    && (source != AgentSource::Plugin
-                        || (entry.producer.as_deref() == producer.as_deref()
-                            && match (
-                                entry.producer_generation.as_deref(),
-                                producer_generation.as_deref(),
-                            ) {
-                                (Some(existing), Some(incoming)) => {
-                                    if existing == incoming {
-                                        true
-                                    } else {
-                                        incoming
-                                            .parse::<u64>()
-                                            .ok()
-                                            .zip(existing.parse::<u64>().ok())
-                                            .is_some_and(|(incoming, existing)| incoming > existing)
+                hook_end
+                    || (entry.agent_source() == source
+                        && (source != AgentSource::Plugin
+                            || (entry.producer.as_deref() == producer.as_deref()
+                                && match (
+                                    entry.producer_generation.as_deref(),
+                                    producer_generation.as_deref(),
+                                ) {
+                                    (Some(existing), Some(incoming)) => {
+                                        if existing == incoming {
+                                            true
+                                        } else {
+                                            incoming
+                                                .parse::<u64>()
+                                                .ok()
+                                                .zip(existing.parse::<u64>().ok())
+                                                .is_some_and(|(incoming, existing)| {
+                                                    incoming > existing
+                                                })
+                                        }
                                     }
-                                }
-                                (None, None) => true,
-                                _ => false,
-                            }))
+                                    (None, None) => true,
+                                    _ => false,
+                                })))
             });
             // The screen proved the hook session's agent gone from the
             // foreground, which no `SessionEnd` will say (a killed harness,
