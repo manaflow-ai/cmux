@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42905846475",
+  "recorded_at": "2026-11-10T21:41:06Z",
+  "reason": "cmux-tui 9093db3dca6a changes the image's cmux-tui (pinned 4b564c597825)",
+  "dry_run": false,
+  "cmux_tui": "9093db3dca6a40626c738a5bd2959ea2fc261d36",
+  "fixes": [
+    {
+      "sha": "63e7e43d615dad0a464b977961c7191687e30b84",
+      "mergedAt": "2026-11-10T21:12:42Z",
+      "subject": "Cloud start: agent start and folder copy wait on progress, not a fixed 30/60 s (#40521)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T21:41:06Z",
+    "snapshot_id": "sh-34fcfef3a65c4ef8b05eb2372dd1c289",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42905846475): 29 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "cloud-native-auto-9093db3d-42905846475-1",
+    "revision": "ci-42905846475-1",
+    "at": null
+  },
+  "rolled_back": false
+}
