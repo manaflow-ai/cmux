@@ -15,7 +15,7 @@ const refused: CloudStartProgress = {
   folder: "paint",
   code: "cloud_plan_required",
   message: "Cloud machines need a Pro plan.",
-  planTeam: { team: "cmux", switchTo: { id: "team-leo", name: "Leo's Team" } },
+  planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
 };
 const actions = {
   onSwitchTeam: () => undefined,
@@ -49,7 +49,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       props: { start: refused, ...actions, planTeamLook: "banner" },
     },
     "no-own-team": {
-      note: "The person's own team is not known (several teams, none named for them): See plans leads; the team is still named.",
+      note: "The team menu lists no personal team (or the device is kept to one team): See plans leads; the team is still named.",
       props: { start: { ...refused, planTeam: { team: "cmux" } }, ...actions },
     },
     "long-names": {
@@ -59,7 +59,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           ...refused,
           planTeam: {
             team: "Manaflow Research and Platform Engineering",
-            switchTo: { id: "team-own", name: "leo@cmux.com" },
+            switchTo: { id: "team_0123456789abcdef0123", name: "Personal account of leo@cmux.com" },
           },
         },
         ...actions,

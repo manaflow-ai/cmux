@@ -200,7 +200,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
     code: "cloud_plan_required",
     message: "Cloud machines need a Pro plan.",
     retryable: true,
-    planTeam: { team: "cmux", switchTo: { id: "t-leo", name: "Leo's Team" } },
+    planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
   };
   const html = renderToStaticMarkup(
     <CloudStartView
@@ -212,7 +212,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
   );
   expect(html).toContain("This team has no Cloud plan");
   expect(html).toContain("cmux is the team selected in the team menu.");
-  expect(html).toContain('data-role="default" data-action="switch-team">Switch to Leo&#x27;s Team</button>');
+  expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
   expect(html).toContain('data-action="see-plans">See plans</button>');
   expect(html).not.toContain("acpmux-cloud-start__retry");
   expect(html).not.toContain("acpmux-cloud-start__card");
@@ -235,7 +235,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
     root?.render(<CloudStartView start={refusal} onSwitchTeam={(team) => picked.push(team.id)} />),
   );
   (host.querySelector('[data-action="switch-team"]') as HTMLButtonElement).click();
-  expect(picked).toEqual(["t-leo"]);
+  expect(picked).toEqual(["team_0123456789abcdef0123"]);
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {

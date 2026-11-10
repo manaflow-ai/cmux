@@ -134,8 +134,8 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
     details: {
       team: "t-cmux",
       teams: [
+        { id: "team_0123456789abcdef0123", name: "Personal" },
         { id: "t-cmux", name: "cmux" },
-        { id: "t-own", name: "Personal Team" },
       ],
       canSwitch: true,
     },
