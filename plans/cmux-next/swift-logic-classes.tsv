@@ -7018,9 +7018,7 @@ CmuxNextDesignTokens	enum	CalmMode	0	MIRROR	0	100	Packages/macOS/CmuxNext/Source
 CmuxNextDesignTokens	enum	MotionCategory	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionCategory.swift	Motion speed/bounce/category choices; cmux-motion owns them
 CmuxNextDesignTokens	enum	MotionFade	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionFadeTokens.swift	Fade tokens; cmux-motion fade.rs
 CmuxNextDesignTokens	enum	MotionLoop	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionFadeTokens.swift	from enum MotionFade:4: Fade tokens; cmux-motion fade.rs
-CmuxNextDesignTokens	enum	MotionBounce	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	Motion speed/bounce/category choices; cmux-motion owns them
-CmuxNextDesignTokens	enum	MotionKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	from enum MotionBounce:7: Motion speed/bounce/category choices; cmux-motion owns them
-CmuxNextDesignTokens	extension	MotionSpring	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	from enum MotionBounce:7: Motion speed/bounce/category choices; cmux-motion owns them
+CmuxNextDesignTokens	enum	MotionKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	Motion kind switches (ui.animations.newTab, newWorkspace); cmux-motion owns them
 CmuxNextDesignTokens	struct	MotionPolicy	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionPolicy.swift	Swift spring/policy math; cmux-motion already has spring.rs and policy.rs
 CmuxNextDesignTokens	struct	MotionScale	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextDesignTokens	enum	MotionSpeed	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionTokens.swift	Motion speed/bounce/category choices; cmux-motion owns them

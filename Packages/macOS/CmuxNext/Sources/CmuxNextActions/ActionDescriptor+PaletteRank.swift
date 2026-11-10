@@ -232,8 +232,7 @@ extension ActionDescriptor {
         PaletteFamily("animations", title: familyTitle("palette.family.animations", "Animations…"),
                       symbol: "wand.and.rays", members: [
                           "appearance.animations.toggle", "appearance.animationSpeed.off", "appearance.animationSpeed.normal",
-                          "appearance.animationSpeed.fast", "appearance.animations.bounce.none",
-                          "appearance.animations.bounce.subtle", "appearance.animations.cursor.toggle",
+                          "appearance.animationSpeed.fast", "appearance.animations.cursor.toggle",
                           "appearance.animations.feedback.toggle", "appearance.animations.home.toggle",
                           "appearance.animations.hoverCards.toggle", "appearance.animations.indicators.toggle",
                           "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle",

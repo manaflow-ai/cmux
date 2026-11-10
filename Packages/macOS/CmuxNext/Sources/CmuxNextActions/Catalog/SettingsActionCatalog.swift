@@ -350,18 +350,6 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "globe", surfaces: [.palette], cliName: "settings toggle-web-page-animations"
             ),
             ActionDescriptor(
-                id: "appearance.animations.bounce.subtle",
-                title: String(localized: "action.appearance.animations.bounce.subtle", defaultValue: "Use Bouncy Animations", bundle: .module),
-                keywords: ["animation", "motion", "spring", "bounce", "bouncy", "appearance"], category: .settings,
-                symbol: "arrow.up.and.down.and.sparkles", surfaces: [.palette], cliName: "settings use-bouncy-animations"
-            ),
-            ActionDescriptor(
-                id: "appearance.animations.bounce.none",
-                title: String(localized: "action.appearance.animations.bounce.none", defaultValue: "Use Animations Without Bounce", bundle: .module),
-                keywords: ["animation", "motion", "spring", "bounce", "critically damped", "appearance"], category: .settings,
-                symbol: "arrow.right.to.line", surfaces: [.palette], cliName: "settings use-animations-without-bounce"
-            ),
-            ActionDescriptor(
                 id: "browser.defaultEngine.chromium",
                 title: String(localized: "action.browser.defaultEngine.chromium", defaultValue: "Use Chromium for New Browser Tabs", bundle: .module),
                 keywords: ["browser", "engine", "default", "chrome", "chromium", "cef"], category: .settings,

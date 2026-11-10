@@ -54,7 +54,7 @@ public struct Motion {
     /// the category.
     public static var basePolicy: MotionPolicy {
         let design = DesignSettings.shared
-        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
+        return MotionPolicy(speed: speed, reduceMotion: reduceMotion,
                             enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
                             animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
                             disabledCategories: design.disabledAnimationCategories)

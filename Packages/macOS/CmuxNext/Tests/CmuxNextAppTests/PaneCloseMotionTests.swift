@@ -310,7 +310,7 @@ struct PaneCloseMotionTests {
 
     // MARK: The spring
 
-    /// A close is a split run backwards: the same spring (`split`, 0.085 s, damping 0.95), about nine
+    /// A close is a split run backwards: the same spring (`split`, 0.085 s, damping 1), about nine
     /// tenths of the way at 50 ms, no visible overshoot, exactly at rest within 0.75 s.
     @Test(arguments: [SplitAxis.horizontal, .vertical])
     func aCloseRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
