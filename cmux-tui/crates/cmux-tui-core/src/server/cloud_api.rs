@@ -18,7 +18,8 @@
 //! carries the Cloud API's own idempotency key in `args`, as `cloud.runs.create` does). A refusal
 //! is `operation.failed` with `reason` the failure's kind (`timed_out`, `transport`, `no_backend`,
 //! `http`, `plan_required`, `decoding`) and `extra.failure` the library's failure object; neither
-//! credential is ever in it. Each call runs on a worker thread (32 at most).
+//! credential is ever in it. Each call runs on a worker thread (32 at most; long polls, 16 at most
+//! of those, so interactive calls always have 16).
 
 use super::{MessageWriter, Mux, ResourceOperation, send_resource_response};
 use crate::resource_router::ParsedResourceRequest;
@@ -109,9 +110,78 @@ mod calls {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use zeroize::Zeroizing;
 
-    static WORKERS: AtomicUsize = AtomicUsize::new(0);
+    /// The daemon's call slots.
+    static SLOTS: Slots = Slots::new();
     /// Calls in flight at once (a sandboxed Run holds one for its whole task).
-    const MAX_WORKERS: usize = 32;
+    pub(super) const MAX_WORKERS: usize = 32;
+    /// Long polls in flight at once, of [`MAX_WORKERS`]: a hand-off follower holds one for each
+    /// open hand-off, so without a cap of their own they could take every slot and leave the
+    /// person's exec, file, preview, cancel and turn calls `busy`. The rest are always free for
+    /// those.
+    pub(super) const MAX_LONG_POLLS: usize = 16;
+
+    /// The calls that hold a slot for as long as the server or the task does: a hand-off's wait
+    /// (`owner.handoff_wait`), a Run's wait (`runs.wait`) and a sandboxed Run, followed to its end
+    /// (`runs.sandbox`).
+    pub(super) const fn long_poll(operation: ResourceOperation) -> bool {
+        matches!(
+            operation,
+            ResourceOperation::CloudOwnerHandoffWait
+                | ResourceOperation::CloudRunsWait
+                | ResourceOperation::CloudRunsSandbox
+        )
+    }
+
+    /// The call slots: every call takes one of [`MAX_WORKERS`], and a long poll one of
+    /// [`MAX_LONG_POLLS`] too.
+    pub(super) struct Slots {
+        calls: AtomicUsize,
+        long_polls: AtomicUsize,
+    }
+
+    /// A taken slot, given back when dropped (the call's thread ends, or never started).
+    pub(super) struct Slot<'a> {
+        slots: &'a Slots,
+        long_poll: bool,
+    }
+
+    fn take_one(count: &AtomicUsize, limit: usize) -> bool {
+        count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < limit).then(|| n.saturating_add(1))
+            })
+            .is_ok()
+    }
+
+    impl Slots {
+        pub(super) const fn new() -> Self {
+            Self { calls: AtomicUsize::new(0), long_polls: AtomicUsize::new(0) }
+        }
+
+        /// A slot for one call, or the limit it is past (`busy`).
+        pub(super) fn take(&self, long_poll: bool) -> Result<Slot<'_>, usize> {
+            if long_poll && !take_one(&self.long_polls, MAX_LONG_POLLS) {
+                return Err(MAX_LONG_POLLS);
+            }
+            if !take_one(&self.calls, MAX_WORKERS) {
+                if long_poll {
+                    self.long_polls.fetch_sub(1, Ordering::AcqRel);
+                }
+                return Err(MAX_WORKERS);
+            }
+            Ok(Slot { slots: self, long_poll })
+        }
+    }
+
+    impl Drop for Slot<'_> {
+        fn drop(&mut self) {
+            self.slots.calls.fetch_sub(1, Ordering::AcqRel);
+            if self.long_poll {
+                self.slots.long_polls.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+    }
+
     /// The largest answer a call sends: what a `cmux.protocol/2` client reads (16 MiB), less
     /// room for the envelope.
     const MAX_REPLY_BYTES: usize = 16_711_680;
@@ -129,44 +199,30 @@ mod calls {
             Ok(parsed) => parsed,
             Err(error) => return send_resource_response(writer, id, operation, Err(error)),
         };
-        if WORKERS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < MAX_WORKERS).then(|| n.saturating_add(1))
-            })
-            .is_err()
-        {
-            let error = ResourceError::operation_failed(
+        let busy = |limit: usize| {
+            ResourceError::operation_failed(
                 operation.wire_name(),
                 "busy",
-                json!({"limit": MAX_WORKERS}),
-            );
-            return send_resource_response(writer, id, operation, Err(error));
-        }
+                json!({"limit": limit, "long_poll": long_poll(operation)}),
+            )
+        };
+        let slot = match SLOTS.take(long_poll(operation)) {
+            Ok(slot) => slot,
+            Err(limit) => return send_resource_response(writer, id, operation, Err(busy(limit))),
+        };
         let worker_mux = Arc::clone(mux);
         let worker_writer = writer.clone();
         let worker_id = id.clone();
+        // The slot goes with the thread's closure: given back when the call ends, or when the
+        // thread cannot start (the closure is dropped then).
         let spawned = std::thread::Builder::new().name("cloud-api".into()).spawn(move || {
-            struct Done;
-            impl Drop for Done {
-                fn drop(&mut self) {
-                    WORKERS.fetch_sub(1, Ordering::AcqRel);
-                }
-            }
-            let _done = Done;
+            let _slot = slot;
             let result = answer(&worker_mux, operation, &call, key);
             send_resource_response(&worker_writer, worker_id, operation, result);
         });
         match spawned {
             Ok(_) => true,
-            Err(_) => {
-                WORKERS.fetch_sub(1, Ordering::AcqRel);
-                let error = ResourceError::operation_failed(
-                    operation.wire_name(),
-                    "busy",
-                    json!({"limit": MAX_WORKERS}),
-                );
-                send_resource_response(writer, id, operation, Err(error))
-            }
+            Err(_) => send_resource_response(writer, id, operation, Err(busy(MAX_WORKERS))),
         }
     }
 

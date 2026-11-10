@@ -50,8 +50,13 @@ struct CloudDaemonTests {
     }
 
     @Test func aRefusalTheDaemonMadeItselfIsATransportFailure() async {
+        let refused = CloudDaemonFake { _, _ in #"{"ok":false,"error":{"code":"operation.failed","message":"no","details":{"reason":"x"}}}"# }
+        await #expect(throws: CloudAPIError.transport("no")) {
+            _ = try await refused.daemon.call("vm.domains", as: .init(api: api, auth: .worker, credential: "a"), wait: .seconds(1))
+        }
+        // Busy (its call slots or its long polls' are taken) reads as such, for a caller to back off.
         let fake = CloudDaemonFake { _, _ in #"{"ok":false,"error":{"code":"operation.failed","message":"busy","details":{"reason":"busy"}}}"# }
-        await #expect(throws: CloudAPIError.transport("busy")) {
+        await #expect(throws: CloudDaemon.busy) {
             _ = try await fake.daemon.call("vm.domains", as: .init(api: api, auth: .worker, credential: "a"), wait: .seconds(1))
         }
     }
@@ -82,6 +87,27 @@ struct CloudDaemonTests {
             _ = try await CloudDaemon.socket({ await late.socket }, changes: { ObservationStream { @MainActor in late.socket } },
                                              within: .milliseconds(50))
         }
+    }
+
+    /// A call made while the daemon's call slots are all taken (its answer `busy`) is asked again
+    /// after a backoff, never dropped (the hand-off list at sign-in). Any other failure ends it.
+    @Test func aBusyDaemonIsAskedAgainAndAnyOtherFailureEndsIt() async throws {
+        let calls = BusyOnce()
+        #expect(try await CloudDaemon.retryingBusy { try await calls.call() } == "listed")
+        #expect(await calls.count == 2)
+        await #expect(throws: CloudAPIError.http(status: 404, code: nil, message: nil)) {
+            _ = try await CloudDaemon.retryingBusy { () async throws -> String in throw CloudAPIError.http(status: 404, code: nil, message: nil) }
+        }
+    }
+}
+
+/// A call that answers busy once, then `"listed"`.
+private actor BusyOnce {
+    private(set) var count = 0
+    func call() throws -> String {
+        count += 1
+        if count == 1 { throw CloudDaemon.busy }
+        return "listed"
     }
 }
 

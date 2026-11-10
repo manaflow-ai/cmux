@@ -472,3 +472,38 @@ fn the_person_key_is_in_no_log_line_store_or_refusal_of_the_daemon() {
         "the daemon logged the key:\n{text}"
     );
 }
+
+/// Long polls (a hand-off follower holds one per open hand-off) take at most their own cap of the
+/// daemon's slots: with that cap full, one more long poll is `busy`, and every interactive call
+/// (exec, files, previews, cancel, turns) still gets a slot, up to the daemon's limit.
+#[test]
+fn long_polls_at_their_cap_leave_interactive_calls_their_slots() {
+    use super::calls::{MAX_LONG_POLLS, MAX_WORKERS, Slots, long_poll};
+    let slots = Slots::new();
+    let held: Vec<_> = (0..MAX_LONG_POLLS).map(|_| slots.take(true).unwrap()).collect();
+    assert_eq!(slots.take(true).err(), Some(MAX_LONG_POLLS), "one long poll more is busy");
+    let interactive: Vec<_> =
+        (0..MAX_WORKERS - MAX_LONG_POLLS).map(|_| slots.take(false).unwrap()).collect();
+    assert_eq!(slots.take(false).err(), Some(MAX_WORKERS), "the daemon's own limit still holds");
+    drop(interactive);
+    drop(held);
+    let again = slots.take(true);
+    assert!(again.is_ok(), "a slot given back is free again");
+    drop(again);
+    for operation in [
+        ResourceOperation::CloudOwnerHandoffWait,
+        ResourceOperation::CloudRunsWait,
+        ResourceOperation::CloudRunsSandbox,
+    ] {
+        assert!(long_poll(operation), "{operation:?}");
+    }
+    for operation in [
+        ResourceOperation::CloudMachineIo,
+        ResourceOperation::CloudRunsCancel,
+        ResourceOperation::CloudOwnerHandoffBeginTurn,
+        ResourceOperation::CloudPreviewsCreateLink,
+        ResourceOperation::CloudOwnerHandoffs,
+    ] {
+        assert!(!long_poll(operation), "{operation:?}");
+    }
+}

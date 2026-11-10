@@ -1,6 +1,7 @@
 import CCmuxSdkFFI
 public import Foundation
 public import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The app's Cloud API calls, run by this Mac's cmux daemon: its `cloud.*` operations
 /// (`cmux.protocol/2`, capability `cloud-api-v1`; cmux-tui-core `server/cloud_api.rs`). Each
@@ -142,9 +143,31 @@ public struct CloudDaemon: Sendable {
             return try JSONSerialization.data(withJSONObject: body ?? NSNull(), options: .fragmentsAllowed)
         }
         let error = object["error"] as? [String: Any]
-        let failure = ((error?["details"] as? [String: Any])?["extra"] as? [String: Any])?["failure"] as? [String: Any]
+        let details = error?["details"] as? [String: Any]
+        let failure = (details?["extra"] as? [String: Any])?["failure"] as? [String: Any]
+        if failure == nil, details?["reason"] as? String == "busy" { throw Self.busy }
         throw failure.flatMap { Self.failure($0, api: api) }
             ?? CloudAPIError.transport(error?["message"] as? String ?? "the cmux daemon refused the call")
+    }
+
+    /// The daemon ran nothing because its call slots (or its long polls') are all taken: worth
+    /// trying again after a backoff.
+    public static var busy: CloudAPIError { .transport("the cmux daemon is busy") }
+
+    /// `body`'s answer, asked again after a backoff while the daemon answers ``busy``: a caller
+    /// that must not give up (the hand-off list at sign-in) is never dropped for a full daemon.
+    /// Any other failure, and a cancel, end it.
+    public static func retryingBusy<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) async throws -> T {
+        var backoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
+        // wakeup-allow: each pass after the first waits a Backoff delay that a busy answer started
+        while true {
+            do {
+                return try await body()
+            } catch let error as CloudAPIError where error == busy {
+                // concurrency-allow: Backoff.wait is an async sleep after a busy answer, not a blocking wait.
+                try await backoff.wait(owner: "cloud.daemon.busy")
+            }
+        }
     }
 
     /// `cmux_cloud_api::Failure::json` read back.

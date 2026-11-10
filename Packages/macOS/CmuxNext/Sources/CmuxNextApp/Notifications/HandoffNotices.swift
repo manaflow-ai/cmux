@@ -83,7 +83,7 @@ final class HandoffNotices {
     private func resume(for user: String) {
         let list = list
         listing = Task { [weak self] in // task-owner: in `listing`, cancelled at sign-out, the next sign-in, Cloud off and stop()
-            guard let handoffs = try? await list(), !Task.isCancelled, let self, self.currentUser() == user else { return }
+            guard let handoffs = try? await CloudDaemon.retryingBusy(list), !Task.isCancelled, let self, self.currentUser() == user else { return }
             let seen = Date()
             for handoff in handoffs where handoff.isOpen {
                 if !self.follower.knows(handoff.id) {
