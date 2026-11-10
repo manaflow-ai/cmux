@@ -465,7 +465,8 @@ export class CloudStore {
    */
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
-    if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
+    // Waiting on the make-room archive (Return in a field included): createIfRoom submits once it is gone.
+    if (!draft || draft.submitting || draft.waitingFor || !draft.memoryMb || !this.canChange()) return;
     this.set({
       create: {
         ...draft,
@@ -559,10 +560,7 @@ export class CloudStore {
       if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
     };
     try {
-      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
-        action,
-        args: { machine: offer.machine, idempotency_key: key },
-      });
+      const result = await this.runNative(action, { machine: offer.machine, idempotency_key: key });
       if (result?.confirmed === false) {
         this.dropIntent(key);
         return back({});
@@ -717,9 +715,10 @@ export class CloudStore {
     this.pushIntent({ key, kind: "create", name });
     const session = this.session;
     try {
-      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
-        action: CloudOps.snapshotRestore,
-        args: { snapshot: snapshot.id, ...(as ? { name: as } : {}), idempotency_key: key },
+      const result = await this.runNative(CloudOps.snapshotRestore, {
+        snapshot: snapshot.id,
+        ...(as ? { name: as } : {}),
+        idempotency_key: key,
       });
       if (result?.confirmed === false) return this.dropIntent(key);
       // Recorded even after a session restart, so the pending create row cannot stay.
@@ -991,7 +990,7 @@ export class CloudStore {
     try {
       // Recorded even after a session restart, so the intent cannot stay pending.
       const result = native
-        ? await this.client!.call<MachineActionResult | null>(ACTION_RUN, { action: op, args })
+        ? await this.runNative(op, args)
         : await this.client!.call<MachineResult>(op, args);
       if (native && (result as ActionRunResult | null)?.confirmed === false) {
         this.dropIntent(key);
@@ -1006,6 +1005,14 @@ export class CloudStore {
       if (session === this.session) this.fail(op, error);
       return undefined;
     }
+  }
+
+  /**
+   * A native machine action: the host's answer with the op's own fields at the top. A confirmed op
+   * (`CONFIRMED_ACTIONS`) answers them under `value` (PageProviders `runConfirmed`).
+   */
+  private async runNative(action: string, args: Record<string, unknown>): Promise<MachineActionResult | null> {
+    return confirmedValue(await this.client!.call<NativeAnswer | null>(ACTION_RUN, { action, args }));
   }
 
   private async native(action: string, args: Record<string, unknown>): Promise<void> {
@@ -1091,6 +1098,16 @@ function signedOutState(): Partial<CloudState> {
     archives: [],
     retention: undefined,
   };
+}
+
+/** The host's answer to a native action: a confirmed op's own answer sits under `value`. */
+type NativeAnswer = MachineActionResult & { value?: unknown };
+
+/** `{confirmed: true, value}` as the op's own fields beside `confirmed`; any other answer as it is. */
+export function confirmedValue(answer: NativeAnswer | null): MachineActionResult | null {
+  if (!answer || answer.confirmed !== true || answer.value === null || typeof answer.value !== "object") return answer;
+  const { value, ...rest } = answer;
+  return { ...rest, ...(value as Partial<MachineResult>) };
 }
 
 /** The projection `revision` of a mutation result, when the owner sent one. */

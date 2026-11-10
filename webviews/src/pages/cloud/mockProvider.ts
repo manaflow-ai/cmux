@@ -14,6 +14,7 @@ import {
   CloudActions,
   CloudOps,
   HostActions,
+  CONFIRMED_ACTIONS,
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
@@ -714,7 +715,8 @@ export class MockCloudProvider implements PageClient {
     // A transfer answers `running` at once; its end is a `file.transfer.changed` event.
     if ((action === CloudOps.filePush || action === CloudOps.filePull) && !this.holdTransfers)
       queueMicrotask(() => this.finishTransfers());
-    return { confirmed: true, ...(result as object) };
+    // A confirmed op answers under `value`, as the host's runConfirmed does; the others flat.
+    return CONFIRMED_ACTIONS.has(action) ? { confirmed: true, value: result } : { confirmed: true, ...(result as object) };
   }
 }
 
