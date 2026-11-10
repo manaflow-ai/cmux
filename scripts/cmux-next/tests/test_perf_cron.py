@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-god"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
