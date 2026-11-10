@@ -48,13 +48,13 @@
 #           Run it at the base and at the head for a PR's before and after.
 #           A scene's leading SHOT_WAIT=N word (seconds, 1-60) is not passed to
 #           the app: it is that scene's wait before the shot (default 5).
-#           The scene word `appstore` (no `=`) makes the run App Store
+#           The scene `appstore=iphone-6.9` (not a screen) makes the run App Store
 #           screenshots: the 6.9" iPhone (iPhone 17 Pro Max, else 16 Pro Max;
 #           no other phone), the status bar overridden to 9:41 with full
 #           signal and battery (`simctl status_bar override`), and each shot
 #           checked to be the 6.9" display's portrait size (1320x2868 or
 #           1290x2796), or the step fails, e.g.
-#             --arg shots --arg appstore --arg 01-home=-cmux-mobile-tab,home
+#             --arg shots --arg appstore=iphone-6.9 --arg 01-home=-cmux-mobile-tab,home
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
 #           DerivedData. Copy the identical head benchmark test to the baseline
@@ -112,7 +112,7 @@ fi
 scenes=()
 appstore=0
 for scene in "${@:2}"; do
-  if [[ "$mode" == shots && "$scene" == appstore ]]; then appstore=1; else scenes+=("$scene"); fi
+  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; else scenes+=("$scene"); fi
 done
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
