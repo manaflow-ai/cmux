@@ -159,7 +159,10 @@ impl CachedGroup {
     /// A group the fault drill can kill ([`Self::kill`]); `killable: false`
     /// is [`Self::new`].
     pub(super) fn killable(inner: Arc<dyn LinkGroup>, killable: bool) -> Arc<Self> {
-        let killed = killable.then(|| tokio::sync::watch::channel(false).0);
+        if !killable {
+            return Self::new(inner);
+        }
+        let killed = Some(tokio::sync::watch::channel(false).0);
         Arc::new(Self { inner, closed: AtomicBool::new(false), killed })
     }
 
