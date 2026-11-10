@@ -226,3 +226,20 @@ fn a_clone_leaves_out_the_paths_the_sandbox_forbids() {
     let broken: [&[u8]; 1] = [b"bad\n/CLAUDE.md"];
     assert!(sparse_patterns(&broken).is_none(), "a line break is refused");
 }
+
+/// Codex review round 5, F1: DIR is judged where it lands. A name the sandbox forbids the agent
+/// to write (`HEAD`, `CLAUDE.md`, `mise.toml`, any case) is refused, and so is `mise` in a folder
+/// named `.config` (`.config/mise`).
+#[test]
+fn a_dir_the_sandbox_forbids_where_it_lands_is_refused() {
+    let d = tempfile::tempdir().unwrap();
+    for name in
+        ["HEAD", "CLAUDE.md", "claude.md", "AGENTS.md", "GEMINI.md", "lefthook.yml", "mise.toml"]
+    {
+        assert!(check_target(d.path(), &clone_of("o/r", Some(name))).is_err(), "{name}");
+    }
+    assert!(check_target(d.path(), &clone_of("o/r", Some("mise"))).is_ok(), "mise alone is fine");
+    let config = d.path().join(".config");
+    std::fs::create_dir(&config).unwrap();
+    assert!(check_target(&config, &clone_of("o/r", Some("mise"))).is_err(), ".config/mise");
+}

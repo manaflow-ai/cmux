@@ -37,6 +37,11 @@ fn dir(tag: &str) -> PathBuf {
 }
 
 fn hub(d: &Path) -> Arc<Hub> {
+    hub_with(d, StoreMode::Memory)
+}
+
+/// [`hub`] with its store in `d/store` (`StoreMode::Local`), which a later hub opens again.
+fn hub_with(d: &Path, mode: StoreMode) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
             "env": {"ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token"}}},
@@ -45,9 +50,14 @@ fn hub(d: &Path) -> Arc<Hub> {
         "webRoots": [d.join("work")],
     }))
     .unwrap();
-    cfg.store.mode = StoreMode::Memory;
+    cfg.store.mode = mode;
     cfg.path = Some(d.join("home/config.json"));
-    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let at = if cfg.store.mode == StoreMode::Memory {
+        PathBuf::from("/nonexistent")
+    } else {
+        d.join("store")
+    };
+    let store = acpmux::store::open(&cfg.store, &at).unwrap();
     let hub = Hub::new(cfg, store);
     hub.set_vm_marker_root(d.join("root"));
     hub
@@ -200,6 +210,8 @@ struct Seen {
 /// The repositories the stand-in serves, by `o/NAME`, with their files.
 const REPOS: &[(&str, &[(&str, &str)])] = &[
     ("r", &[("README.md", "hello from o/r\n")]),
+    // A root `config.toml`: forbidden only under a folder named `mise` (`.../mise/config.toml`).
+    ("conf", &[("README.md", "conf\n"), ("config.toml", "[tools]\n")]),
     // Served only with the machine's .netrc credential (`a_clone_uses_no_credential_but_the_lent_one`).
     ("private", &[("README.md", "private\n")]),
     // Paths the remote sandbox never lets the agent write (`sandbox/remote-chain.sb`).
@@ -516,5 +528,125 @@ async fn a_clone_leaves_out_what_the_sandbox_forbids() {
         .unwrap();
     assert!(status.status.success());
     assert_eq!(String::from_utf8_lossy(&status.stdout), "", "git sees no change");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A GitHub call the chain was not lent: refused by the hub, or by a server it was not offered.
+fn refused(reply: &Value) -> bool {
+    reply["subtype"] == "error" || result(reply).1
+}
+
+/// Codex review round 5, F1 (#40513): what the sandbox forbids is judged at a path's place in
+/// the chat's folder, never in the repository. `config.toml` at a repository's root is a
+/// `mise/config.toml` once cloned into `mise`, and is left out there.
+#[tokio::test]
+async fn a_clone_judges_each_path_where_it_lands() {
+    let d = dir("landing");
+    let (_hub, _asked, mut mac, session, _seen) = cloning(&d).await;
+    let clone = mac.tool(&session, "repo_clone", json!({"repo": "o/conf", "dir": "mise"})).await;
+    let (text, error) = result(&clone);
+    assert!(!error, "{clone}");
+    let work = d.join("work/mise");
+    assert!(work.join("README.md").is_file(), "{text}");
+    assert!(
+        std::fs::symlink_metadata(work.join("config.toml")).is_err(),
+        "mise/config.toml is left out: {text}"
+    );
+    assert!(text.contains("config.toml"), "the reply names it: {text}");
+    let elsewhere =
+        mac.tool(&session, "repo_clone", json!({"repo": "o/conf", "dir": "tools"})).await;
+    assert!(!result(&elsewhere).1, "{elsewhere}");
+    assert!(d.join("work/tools/config.toml").is_file(), "anywhere else it is checked out");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Codex review round 5, F2 (#40513): a fork of a chat a Web client or a paired device acted on
+/// is lent nothing either, from its first turn; a fork of a chat only its owner used is.
+#[tokio::test]
+async fn a_fork_keeps_its_chats_withholding() {
+    let d = dir("fork");
+    let hub = hub(&d);
+    let asked = mac_lends(&hub).await;
+    let mut mac = Client::new(&hub, Origin::Peer);
+    let fork = |session: &str| {
+        json!({"sessionId": session, "cwd": d.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"vmBoundary": true}}})
+    };
+
+    let clean = mac.chat(&d).await;
+    let ok = mac.tool(&clean, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(!refused(&ok), "{ok}");
+    let r = mac.call("session/fork", fork(&clean)).await;
+    let child = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let lent = mac.tool(&child, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(!refused(&lent), "a fork of a chat only its owner used is lent: {lent}");
+
+    let touched = mac.chat(&d).await;
+    let ok = mac.tool(&touched, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(!refused(&ok), "{ok}");
+    let mut web = Client::new(&hub, Origin::Web);
+    let p = json!({"sessionId": touched, "prompt": [{"type": "text", "text": "hi"}]});
+    let _ = web.call("session/prompt", p).await;
+    let before = asked.lock().unwrap().len();
+    let r = mac.call("session/fork", fork(&touched)).await;
+    let child = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let withheld = mac.tool(&child, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(
+        refused(&withheld),
+        "a fork of a chat a Web client acted on is lent nothing: {withheld}"
+    );
+    assert_eq!(asked.lock().unwrap().len(), before, "the fork's call never left");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Codex review round 5, F2 (#40513): withholding outlives the daemon. A chat a Web client acted
+/// on is lent nothing after a restart either; one only its owner used still is.
+#[tokio::test]
+async fn withholding_survives_a_daemon_restart() {
+    let d = dir("restart");
+    let (clean, touched) = {
+        let hub = hub_with(&d, StoreMode::Local);
+        let _asked = mac_lends(&hub).await;
+        let mut mac = Client::new(&hub, Origin::Peer);
+        let clean = mac.chat(&d).await;
+        let touched = mac.chat(&d).await;
+        for s in [&clean, &touched] {
+            let ok = mac.tool(s, "repo_view", json!({"repo": "o/r"})).await;
+            assert!(!refused(&ok), "{ok}");
+        }
+        let mut web = Client::new(&hub, Origin::Web);
+        let p = json!({"sessionId": touched, "prompt": [{"type": "text", "text": "hi"}]});
+        let _ = web.call("session/prompt", p).await;
+        hub.shutdown_all().await;
+        (clean, touched)
+    };
+    let hub = hub_with(&d, StoreMode::Local);
+    let asked = mac_lends(&hub).await;
+    let mut mac = Client::new(&hub, Origin::Peer);
+    let withheld = mac.tool(&touched, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(refused(&withheld), "after a restart too: {withheld}");
+    assert!(asked.lock().unwrap().is_empty(), "the call never left");
+    let lent = mac.tool(&clean, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(!refused(&lent), "an owner's chat is lent after a restart: {lent}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Codex review round 5, F3 (#40513): the hub lends only to a chat it knows runs Claude Code.
+/// When its profile cannot be resolved (here: removed while the chat runs), it is refused.
+#[tokio::test]
+async fn a_chat_whose_harness_cannot_be_named_claude_is_lent_nothing() {
+    let d = dir("unnamed");
+    let hub = hub(&d);
+    let asked = mac_lends(&hub).await;
+    let mut mac = Client::new(&hub, Origin::Peer);
+    let session = mac.chat(&d).await;
+    let ok = mac.tool(&session, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(!refused(&ok), "{ok}");
+    hub.config.write().await.harnesses.remove("fakeclaude");
+    let before = asked.lock().unwrap().len();
+    let call = mac.tool(&session, "repo_view", json!({"repo": "o/r"})).await;
+    assert!(refused(&call), "{call}");
+    assert_eq!(asked.lock().unwrap().len(), before, "the call never left");
     let _ = std::fs::remove_dir_all(&d);
 }
