@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42805519317",
+  "recorded_at": "2026-11-10T11:23:10Z",
+  "reason": "cmux-tui 1da5cd06d802 changes the image's cmux-tui (pinned 5568de8dfec2)",
+  "dry_run": false,
+  "cmux_tui": "1da5cd06d8021ea59e005c11eaf8b91638c770ac",
+  "fixes": [
+    {
+      "sha": "1da5cd06d8021ea59e005c11eaf8b91638c770ac",
+      "mergedAt": "2026-11-10T02:54:07-08:00",
+      "subject": "acpmux: a resend of a prompt still queued or running settles as delivered (#40347)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T11:23:10Z",
+    "snapshot_id": "sh-decdc38dbf924816af0fcd40f63923bb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42805519317): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3011e6dadfb9829fa6271dbe9bc3d47297ee6c33",
+    "image": "cloud-native-auto-1da5cd06-42805519317-1",
+    "revision": "ci-42805519317-1",
+    "at": "2026-11-10T11:23:10Z"
+  },
+  "rolled_back": false
+}
