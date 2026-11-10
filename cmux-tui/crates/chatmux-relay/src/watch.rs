@@ -1122,7 +1122,7 @@ mod tests {
                         .as_array()
                         .is_some_and(|changes| changes.iter().any(|change| change["path"] == name)))
         };
-        let seen = std::sync::Mutex::new(Vec::<String>::new());
+        let seen = Mutex::new(Vec::<String>::new());
         tokio::time::timeout(Duration::from_secs(20), async {
             let mut attempt = 0_u32;
             loop {
