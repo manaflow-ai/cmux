@@ -1,0 +1,98 @@
+public import Foundation
+
+/// What the Chief profile card's Computer tab shows (cmux issue 31488): the Chief's own computer,
+/// a Cloud sandbox with a desktop that the Chief works on by sight (`chief-vm computer`, backend
+/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". The screen shows only when the plan pays for cmux Cloud and the
+/// Chief has a computer now, also while it sleeps. One that is gone (its sandbox's TTL ended) is no computer:
+/// the Computer tab offers a new one (``HomeChiefProfileView/Gate/notSetUp``).
+public struct HomeChiefComputer: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        /// Running: its screen streams.
+        case live
+        /// Paused, suspended or stopped: not woken for a look.
+        case asleep
+        /// Starting or resuming.
+        case waking
+        /// Failed, or the Cloud service did not say.
+        case unavailable
+    }
+
+    /// The owner's answer of `GET v1/chiefs/<agent>/computer`.
+    public struct Status: Equatable, Sendable {
+        /// The Chief has set up a computer at least once.
+        public var used: Bool
+        /// The computer now (its sandbox id and Freestyle state); nil when it has none.
+        public var computer: (id: String, state: String)?
+        /// The Chief acted on the computer moments ago (the chat's popup).
+        public var acting: Bool
+        /// The owner's plan pays for the Chief's computer, as the Cloud service reads it; nil when it did not say.
+        public var entitled: Bool?
+        /// A computer the owner asked for is being made (Set Up Computer).
+        public var provisioning: Bool
+        /// Why the last computer the owner asked for was not made, in the Cloud service's own words. They
+        /// can name its vendors, so the tab shows its own sentence, never these. Nil when none failed.
+        public var provisionError: String?
+
+        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false, entitled: Bool? = nil, provisioning: Bool = false,
+                    provisionError: String? = nil) {
+            self.used = used
+            self.computer = computer
+            self.acting = acting
+            self.entitled = entitled
+            self.provisioning = provisioning
+            self.provisionError = provisionError
+        }
+
+        public static func == (a: Status, b: Status) -> Bool {
+            a.used == b.used && a.acting == b.acting && a.computer?.id == b.computer?.id && a.computer?.state == b.computer?.state
+                && a.entitled == b.entitled && a.provisioning == b.provisioning && a.provisionError == b.provisionError
+        }
+
+        /// The route's JSON (`{ok, value: {used, computer: {id, state} | null}}`); nil for anything else.
+        public init?(json data: Data) {
+            guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], root["ok"] as? Bool == true,
+                  let value = root["value"] as? [String: Any], let used = value["used"] as? Bool else { return nil }
+            let computer = value["computer"] as? [String: Any]
+            let id = computer?["id"] as? String
+            self.init(used: used, computer: id.map { ($0, computer?["state"] as? String ?? "unknown") }, acting: value["acting"] as? Bool ?? false,
+                      entitled: value["entitled"] as? Bool, provisioning: value["provisioning"] as? Bool ?? false,
+                      provisionError: value["provision_error"] as? String)
+        }
+    }
+
+    /// The computer's sandbox id.
+    public var machineID: String?
+    /// "<Chief name>'s screen".
+    public var title: String
+    public var state: State
+    /// The Chief is using it now.
+    public var acting: Bool
+
+    public init(machineID: String?, title: String, state: State, acting: Bool = false) {
+        self.machineID = machineID
+        self.title = title
+        self.state = state
+        self.acting = acting
+    }
+
+    /// Whether the plan allows the section. A plan the Mac knows decides; an unknown plan (the
+    /// app-server machine list carries no limits) leaves it to the server, whose
+    /// `cloud.plan.required` refusal stays the real gate.
+    public static func planAllows(paysForCloud: Bool?) -> Bool { paysForCloud ?? true }
+
+    /// The section for `status` (nil hides it): a paid plan and a Chief with a computer now.
+    public init?(status: Status?, paid: Bool, chief: String) {
+        guard paid, let status, status.used, let computer = status.computer else { return nil }
+        self.init(machineID: computer.id, title: HomeEngineStrings.computerTitle(chief), state: Self.state(of: computer.state), acting: status.acting)
+    }
+
+    /// Freestyle's VM states (`GET /v5/vms/ID`).
+    static func state(of freestyle: String) -> State {
+        switch freestyle {
+        case "running": .live
+        case "paused", "suspended", "suspending", "stopped", "stopping": .asleep
+        case "starting", "resuming", "creating", "booting": .waking
+        default: .unavailable
+        }
+    }
+}

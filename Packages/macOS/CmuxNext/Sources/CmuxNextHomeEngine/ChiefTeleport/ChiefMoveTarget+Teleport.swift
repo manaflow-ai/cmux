@@ -1,5 +1,5 @@
-/// A "Move Chief To…" target's words and its Teleport menu row: Cmd-Shift-P, the Home header's
-/// location chip and the Chief card list the same targets, by the same names, with the same ids.
+/// A "Move Chief To…" target's words and its Teleport menu row: Cmd-Shift-P and the
+/// Chief card's location chip list the same targets, by the same names, with the same ids.
 extension ChiefMoveTarget {
     /// The target's name: This Mac, cmux Cloud or the host's group name.
     public var displayName: String {

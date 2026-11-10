@@ -1591,6 +1591,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                     classifier_prompt: field("classifier_prompt"),
                                     reactions_can_wake: field("reactions_can_wake"),
                                     permission_mode: field("permission_mode"),
+                                    computer: field("computer"),
                                 }),
                             }))
                         }

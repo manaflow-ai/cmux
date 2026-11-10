@@ -36,7 +36,8 @@ import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
-import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { ccSandbox, ccSandboxPurge, ccComputerControl, ccComputerProvisionStart, ccComputerInput, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { releaseLocalComputer, reserveLocalComputer } from "../chief-brain-cc/local-computer.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 import { authorizeDefaultMachineFollowing } from "../chief-default-hand.ts"
@@ -619,6 +620,41 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
   async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
     return ccSandboxPurge(this)
+  }
+
+  /** The Chief's computer for its owner (chief-brain-cc/sandbox-computer.ts), on its `<agent>/sandboxes` object only. */
+  async ccComputerStatus(agent: string, owner: string): Promise<Awaited<ReturnType<typeof ccComputerStatus>>> {
+    return ccComputerStatus(this, agent, owner)
+  }
+
+  /** The owner takes the Chief's computer over or hands it back (the control lease, sandbox-computer.ts). */
+  async ccComputerControl(agent: string, action: "take_over" | "hand_back"): Promise<Awaited<ReturnType<typeof ccComputerControl>>> {
+    return ccComputerControl(this, agent, action)
+  }
+
+  /** The owner gives the Chief a computer (a sandbox of COMPUTER_SIZE with the desktop, made in the background), or the one it has. */
+  async ccComputerProvision(agent: string, owner: string): Promise<Awaited<ReturnType<typeof ccComputerProvisionStart>>> {
+    return ccComputerProvisionStart(this, agent, owner)
+  }
+
+  /** One input from the owner while they hold the Chief's computer. */
+  async ccComputerInput(agent: string, req: Record<string, unknown>): Promise<Awaited<ReturnType<typeof ccComputerInput>>> {
+    return ccComputerInput(this, agent, req)
+  }
+
+  /** The Chief's computer screen for its owner: a JPEG (base64) while it runs; never wakes it. */
+  async ccComputerScreen(agent: string): Promise<Awaited<ReturnType<typeof ccComputerScreen>>> {
+    return ccComputerScreen(this, agent)
+  }
+
+  /** A slot for owner `user`'s local Chief `chief`'s computer, on the owner's `local:<user>/computers` object only (local-computer.ts). */
+  async ccLocalComputerReserve(user: string, chief: string): Promise<Awaited<ReturnType<typeof reserveLocalComputer>>> {
+    return reserveLocalComputer(this, user, chief)
+  }
+
+  /** Gives back local Chief `chief`'s slot on the owner's `local:<user>/computers` object (local-computer.ts). */
+  async ccLocalComputerRelease(chief: string): Promise<void> {
+    return releaseLocalComputer(this, chief)
   }
 
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */

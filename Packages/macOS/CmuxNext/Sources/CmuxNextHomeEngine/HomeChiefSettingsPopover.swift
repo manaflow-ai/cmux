@@ -1,7 +1,8 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The Chief Settings card as a popover under the header's name pill: a
+/// The Chief's profile (``HomeChiefProfileView``: Details · Settings · Computer, the Chief Settings
+/// card's sections and the Chief's computer) as a popover under the header's name pill: a
 /// popup of the shared native host (`NativePopupHost`), a borderless child
 /// panel of the window on the overlay glass (`Glass.makeOverlayPanel`), in the
 /// theme of the Home it opens from. It never covers the header: it opens
@@ -12,25 +13,33 @@ import CmuxNextDesign
 @MainActor
 public final class HomeChiefSettingsPopover {
     public let content: HomeChiefSettingsView
+    /// The profile around ``content``: its tabs and the Computer tab (Set Up Computer, the screen, Take Over).
+    public let profile: HomeChiefProfileView
+    /// The popover closed (a dismiss or ``close()``): the chat's computer popup comes back at once.
+    public var onClose: () -> Void = {}
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.home.chiefSettings"))
     private let card: OverlaySurfaceView
     private weak var anchor: NSView?
 
     public init(content: HomeChiefSettingsView) {
         self.content = content
+        profile = HomeChiefProfileView(settings: content)
+        // Shut until ``show(relativeTo:toggles:)``: a closed popover keeps its (ordered out) window.
+        profile.hostShows = false
+        profile.translatesAutoresizingMaskIntoConstraints = false
         let body = NSView()
-        body.addSubview(content)
+        body.addSubview(profile)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            content.topAnchor.constraint(equalTo: body.topAnchor),
+            profile.leadingAnchor.constraint(equalTo: body.leadingAnchor),
+            profile.trailingAnchor.constraint(equalTo: body.trailingAnchor),
+            profile.topAnchor.constraint(equalTo: body.topAnchor),
+            profile.bottomAnchor.constraint(equalTo: body.bottomAnchor),
         ])
         card = Glass.makeOverlayPanel(content: body, cornerRadius: PopupStyle.standard.cornerRadius)
         popup.panel.adoptPopupStyle(card: card)
-        popup.onDismiss = { [weak self] in
-            self?.content.commitEditing()
-            self?.content.cardClosed()
-        }
-        content.onResize = { [weak self] in self?.resize() }
+        // The profile commits a name being edited and closes the card as it shuts (``HomeChiefProfileView/hostShows``).
+        popup.onDismiss = { [weak self] in self?.shut() }
+        profile.onResize = { [weak self] in self?.resize() }
         // The open panel takes the keys from the popover, which closes; it runs over the window.
         content.pictureWindow = { [weak self] in self?.anchor?.window }
     }
@@ -82,7 +91,12 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else { return false }
+        profile.hostShows = true
+        profile.onTab()
+        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else {
+            shut()
+            return false
+        }
         // Like an NSPopover opened by a click: keys reach the card (Tab enters it, Escape closes
         // it), but no control shows a focus ring until the keyboard moves there. A ring on the
         // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
@@ -92,9 +106,16 @@ public final class HomeChiefSettingsPopover {
 
     /// Closes the card (fading toward the pill), keeping a name being edited.
     public func close() {
-        content.commitEditing()
-        content.cardClosed()
         popup.hide()
+        shut()
+    }
+
+    /// The profile stops reading (it commits a name being edited) and the host hears of it.
+    private func shut() {
+        guard profile.hostShows else { return }
+        profile.hostShows = false
+        profile.onTab()
+        onClose()
     }
 
     /// The content's height changed: the card follows it while shown.
@@ -107,11 +128,9 @@ public final class HomeChiefSettingsPopover {
     /// The card's frame on screen while shown (tests).
     var cardFrame: CGRect { popup.cardFrame }
 
-    /// The card's size: the settings' fixed width and the height of what shows.
+    /// The card's size: the settings' fixed width and the height of the tab that shows.
     private func size() -> CGSize {
-        content.layoutSubtreeIfNeeded()
-        let fitting = content.fittingSize
-        return CGSize(width: HomeChiefSettingsView.width, height: ceil(fitting.height))
+        CGSize(width: HomeChiefSettingsView.width, height: ceil(profile.fittingHeight()))
     }
 }
 

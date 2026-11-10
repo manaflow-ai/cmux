@@ -24,6 +24,8 @@ final class RemoteInputController {
     var inputSourceIsASCIICapable: () -> Bool = RemoteInputController.currentInputSourceIsASCIICapable
     /// The view returns the keyboard to the viewer (resigns first responder).
     var onReleaseKeyboard: (() -> Void)?
+    /// Events went to the sink: the person is using the desktop.
+    var onInput: (() -> Void)?
     /// Control mode and first responder. Turning it off releases everything.
     var isActive = false {
         didSet { if oldValue, !isActive { releaseAll() } }
@@ -130,8 +132,9 @@ final class RemoteInputController {
     }
 
     private func emit(_ events: [RemoteInputEvent]) {
-        guard let sink else { return }
+        guard let sink, !events.isEmpty else { return }
         for event in events { sink.send(event) }
+        onInput?()
     }
 
     /// Whether the selected input source can type ASCII (false for an IME

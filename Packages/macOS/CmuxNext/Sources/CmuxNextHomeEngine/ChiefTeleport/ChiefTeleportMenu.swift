@@ -1,4 +1,4 @@
-/// The Teleport menu's contents (the Home header's location chip and the Chief card's row), pure:
+/// The Teleport menu's contents (the Chief card's Runs On row), pure:
 /// every destination in the list's order, the one the Chief runs at checked and not pickable, the
 /// ones that cannot take it greyed out, every row locked while a move runs, and Roll Back only while
 /// the home is marked moved.

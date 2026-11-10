@@ -1,0 +1,184 @@
+import AppKit
+import typealias CmuxNextBridge.StripTabID
+import CmuxHomeCore
+import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextHomeEngine
+import CmuxNextHostedChief
+
+extension InternalPageID {
+    /// The Chief's profile page with its computer (cmux issue 31488): one pane tab per conversation.
+    nonisolated static let chiefComputer = InternalPageID(rawValue: "chief-computer")
+}
+
+/// Owns the Chief's large computer pages in the pane beside Home. The settings popover's Expand and
+/// the palette's Chief: Toggle Computer open them. Each tab's route is its conversation, so a relaunched tab shows the same Chief.
+@MainActor
+final class ChiefComputerPageService: InternalPageProvider {
+    static let toggleActionID: ActionID = "chief.toggleComputer"
+
+    private weak var services: AppServices?
+    private var routes: [String: String] = [:]
+    private var nextRoute: String?
+    private var avatars: [String: (picture: NSImage?, text: String?)] = [:]
+    private var views: [String: HomeChiefProfileView] = [:]
+
+    init(services: AppServices) {
+        self.services = services
+    }
+
+    var page: InternalPageID { .chiefComputer }
+    var title: String { HomeEngineStrings.computerPageTitle }
+    var symbol: String { "desktopcomputer" }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let service = ChiefComputerPageService(services: context.services)
+        context.services.pages.register(service)
+        registry.bindEffect(toggleActionID, requires: nil, effect: { invocation in
+            guard let window = context.services.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
+            if invocation.arguments["open"]?.stringValue != "1", service.closeShown(in: window) { return .done }
+            // The palette names no conversation: the Chief Home shows first.
+            guard let conversation = invocation.arguments["conversation"]?.stringValue ?? context.services.home.defaultChiefConversation, !conversation.isEmpty,
+                  service.open(conversation, in: window, focus: invocation.allowsViewChange) != nil else {
+                return .refused(RefusalStrings.noWindowOpen)
+            }
+            return .done
+        })
+    }
+
+    /// The Chief's computer key: a Cloud Chief's agent id, else a Chief of this Mac's own computer (`local:<conversation>`).
+    static func computerKey(_ services: AppServices, _ conversation: String) -> String? {
+        services.home.cloudChiefs.chief(for: conversation)?.id ?? HomeChiefComputerRoute.localKey(conversation)
+    }
+
+    /// What the page and the chat's popup read: the plan and the Chief's owner route, a Chief of this Mac's own computer too.
+    static func source(services: AppServices, conversation: String) -> HomeChiefComputerSection.Source {
+        let service = services.home
+        let id = ConversationID(conversation)
+        return .init(paid: { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) },
+                     chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
+                     route: HomeChiefComputerRoute(agent: { [weak services] in services.flatMap { computerKey($0, conversation) } },
+                                                   send: ChiefComputerControlClient.feeding(service.hostedChief.brainRoute, into: services.cloud.computerControl)))
+    }
+
+    /// The Home chat's avatar for its Chief, which the page shows too.
+    func setAvatar(conversation: String, picture: NSImage?, text: String?) {
+        avatars[conversation] = (picture, text)
+        for (key, route) in routes where route == conversation { views[key]?.setAvatar(picture: picture, text: text) }
+    }
+
+    @discardableResult
+    func open(_ conversation: String, in window: WindowController?, focus: Bool) -> String? {
+        guard let services, let window, let content = window.workspaceContent else { return nil }
+        for model in content.modelPanes {
+            let keys = services.pages.tabIDs(in: model.id) + model.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+            if let shown = keys.first(where: { routes[$0] == conversation }) {
+                if focus, let pane = content.controller(for: model) {
+                    pane.select(services.pages.stripID(showing: shown, in: pane) ?? StripTabID(shown))
+                    pane.focusContent()
+                }
+                return shown
+            }
+        }
+        nextRoute = conversation
+        defer { nextRoute = nil }
+        guard services.pages.openNew(.chiefComputer, in: window, focus: focus) != nil else { return nil }
+        return routes.first { $0.value == conversation }?.key
+    }
+
+    /// Whether `window` has this Chief's page on screen: the chat's popup then stays away. A page
+    /// parked behind another tab does not count, so the chat keeps its live view.
+    func shows(_ conversation: String, in window: NSWindow?) -> Bool {
+        routes.contains { key, route in
+            guard route == conversation, let view = views[key], let window else { return false }
+            return view.window === window && !view.isHiddenOrHasHiddenAncestor
+        }
+    }
+
+    /// Whether the workspace `window` names shows a profile tab: an observable read.
+    func isShown(in window: WindowController) -> Bool {
+        _ = window.state.workspaceID
+        guard let content = window.workspaceContent, let services else { return false }
+        if !Self.tabs(in: content.workspace).isEmpty { return true }
+        return services.pages.tab(of: .chiefComputer, inPanes: content.modelPanes.map(\.id)) != nil
+    }
+
+    /// Closes the profile tabs of the workspace `window` names; false when it shows none.
+    func closeShown(in window: WindowController) -> Bool {
+        guard let services, let content = window.workspaceContent else { return false }
+        var closed = false
+        for model in content.modelPanes {
+            guard let pane = content.controller(for: model) else { continue }
+            let store = model.tabs.filter { $0.page == InternalPageID.chiefComputer.rawValue }.map { StripTabID($0.id) }
+            let local = services.pages.tabIDs(in: model.id).filter { LocalPageTab.page(of: $0) == .chiefComputer }.map { StripTabID($0) }
+            guard !(store + local).isEmpty else { continue }
+            pane.close(store + local)
+            closed = true
+        }
+        return closed
+    }
+
+    private static func tabs(in workspace: WorkspaceModel) -> [TabModel] {
+        workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.page == InternalPageID.chiefComputer.rawValue }
+    }
+
+    func makeView(for key: String, in window: WindowController?) -> NSView {
+        let conversation = routes[key] ?? nextRoute ?? ""
+        routes[key] = conversation
+        let view = HomeChiefProfileView()
+        views[key] = view
+        guard let services else { return view }
+        Self.wire(view, services: services, conversation: conversation)
+        // The expanded computer's control bar (Take Over / Give Back): a Cloud Chief's own sandbox.
+        view.control = services.chiefComputerControlSource(agent: Self.computerKey(services, conversation), machine: nil)
+        view.place = { [weak services] in
+            services?.home.cloudChiefs.chief(for: conversation) != nil ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
+        }
+        view.onClose = { [weak self, weak services] in
+            if let window = services?.windows.active { _ = self?.closeShown(in: window) }
+        }
+        view.onSettings = { [weak services] in
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
+        }
+        if let avatar = avatars[conversation] { view.setAvatar(picture: avatar.picture, text: avatar.text) }
+        return view
+    }
+
+    /// What this page and the Chief settings popover's profile share: the computer, the plan, the Chief, Upgrade and Move to Cloud.
+    static func wire(_ view: HomeChiefProfileView, services: AppServices, conversation: String) {
+        let service = services.home
+        let id = ConversationID(conversation)
+        view.computer.source = Self.source(services: services, conversation: conversation)
+        view.paid = { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) }
+        view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
+        view.onProvision = { [weak services] in  // a Cloud Chief's computer, or a Chief of this Mac's own
+            guard let services, let key = computerKey(services, conversation) else { throw CancellationError() }
+            try await ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).provision(agent: key)
+        }
+        view.localComputer = { HomeChiefComputerRoute.localKey(conversation).map { _ in "chief:\(conversation)" } }
+        view.name = { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName }
+        view.onUpgrade = { [weak services] in
+            // task-owner: one Checkout start; ends when it opens
+            Task { await services?.paidPlanUpgrade().start(plan: "pro", source: .cloudRefusal, fallback: nil) }
+        }
+        view.onMoveToCloud = { [weak services] in
+            // The move runs on the app's Chief; another Chief's page goes to the settings instead.
+            guard services?.home.defaultChiefConversation == conversation else {
+                try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
+                return
+            }
+            _ = services?.registry.perform(ChiefMoveHandlers.actionID, invocation: ActionInvocation(arguments: ["target": .string(ChiefMoveTargets.cloudID)], origin: .user))
+        }
+    }
+
+    func tabClosed(_ key: String) {
+        routes[key] = nil
+        views[key] = nil
+    }
+
+    func route(for key: String) -> String? { routes[key] }
+
+    func restore(_ route: String, for key: String) {
+        routes[key] = route
+    }
+}

@@ -103,6 +103,11 @@ pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
 /// (`agent::command`).
 pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
 
+/// A session env key passed to the `cmux` server: the path of the Chief's `engine.json`, whose
+/// `computer` (`machine:<id>`) is the default machine of `cloud_computer` (cmux mcp
+/// `cloud_tools`). Only the Chief's turn preset sets it (optchat-chief `host::turn_preset`).
+pub const CHIEF_ENGINE_ENV: &str = "CMUX_CHIEF_ENGINE";
+
 /// The env of the `cmux` server that carries the session's other agent
 /// tool servers (`AgentTools::folded`): a JSON array of `{name, command,
 /// args, env}`. `cmux mcp serve` runs them behind its code mode, so an
@@ -123,7 +128,8 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
     agents_chat_state,acpmux_send,acpmux_send_status,acpmux_ls,acpmux_last,acpmux_info,\
-    acpmux_inbox_read,acpmux_inbox_reply,workspace_list,workspace_rename,workspace_move,\
+    acpmux_inbox_read,acpmux_inbox_reply,cloud_machines,cloud_chat_start,cloud_chat_send,\
+    cloud_chat_status,cloud_computer,cloud_computer_control,workspace_list,workspace_rename,workspace_move,\
     workspace_place,workspace_group_list,workspace_group_create,workspace_group_update";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
@@ -788,13 +794,21 @@ impl AgentTools {
         }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         let tools = session_env.get(MCP_TOOLS_ENV);
+        let engine = session_env.get(CHIEF_ENGINE_ENV);
         let gh = if self.servers.iter().any(|s| s.name == crate::acpmux_mcp::SERVER_NAME) {
             gh_env(session_env, || crate::login_env::every_child_pairs(Some(session_env)))
         } else {
             Vec::new()
         };
         for server in &mut self.servers {
-            server.env.retain(|(k, _)| k != CUA_SCOPE_ENV && k != MCP_TOOLS_ENV);
+            server
+                .env
+                .retain(|(k, _)| k != CUA_SCOPE_ENV && k != MCP_TOOLS_ENV && k != CHIEF_ENGINE_ENV);
+            if server.name == "cmux"
+                && let Some(engine) = engine
+            {
+                server.env.push((CHIEF_ENGINE_ENV.to_owned(), engine.clone()));
+            }
             // The `acpmux` server's `pr_state` runs the agent's own `gh`: it gets the agent's gh
             // sign-in, which a client that passes a stdio server only an allowlisted env (Codex)
             // leaves out.

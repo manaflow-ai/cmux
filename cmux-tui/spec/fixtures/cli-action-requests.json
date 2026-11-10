@@ -2889,6 +2889,32 @@
     },
     {
       "params": {
+        "action": "cloud computer-control",
+        "args": {
+          "action": "status",
+          "machine": "/tmp/contract",
+          "reason": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud computer-control --machine /tmp/contract --action status --reason /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud chief-computer",
+        "args": {
+          "args": "/tmp/contract",
+          "chief": "/tmp/contract",
+          "op": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud chief-computer --chief /tmp/contract --op /tmp/contract --args /tmp/contract"
+    },
+    {
+      "params": {
         "action": "machine set-icon",
         "args": {
           "icon": "/tmp/contract"

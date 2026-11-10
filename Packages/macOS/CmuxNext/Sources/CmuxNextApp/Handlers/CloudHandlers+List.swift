@@ -3,6 +3,9 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextHomeEngine
+import CmuxNextHostedChief
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 
@@ -101,8 +104,8 @@ extension CloudHandlers {
     typealias Resize = (cpu: Int?, memoryMb: Int?, storageMb: Int?, fields: [String: ActionResultValue])
 
     /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
-    static func resizeArgs(_ request: Resize, machine: String) -> [String: JSONValue] {
-        var size: [String: JSONValue] = [:]
+    static func resizeArgs(_ request: Resize, machine: String) -> [String: CmuxNextDaemon.JSONValue] {
+        var size: [String: CmuxNextDaemon.JSONValue] = [:]
         if let cpu = request.cpu { size["cpu"] = .number(Double(cpu)) }
         if let memoryMb = request.memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
         if let storageMb = request.storageMb { size["disk_mb"] = .number(Double(storageMb)) }
@@ -146,5 +149,40 @@ extension CloudHandlers {
         var fields: [String: ActionResultValue] = [:]
         if case .object(let object)? = reply?["fields"].map(CloudHandlerRules.result) { fields = object }
         return (reply?["text"] as? String ?? "\(machine.title) (\(session.machineID))", fields)
+    }
+}
+
+// `cmux cloud computer-control`: its rules and trust are ChiefComputerControlStore+Actions.swift (CmuxNextHostedChief).
+extension CloudHandlers {
+    static func bindComputerControl(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services, store = services.cloud.computerControl
+        store.onHumanRequested = { [weak services] machine, state in services.map { postComputerAsk($0, machine: machine, reason: state.reason) } }
+        store.onAskEnded = { [weak services] machine in services?.notifications.desktop.withdraw(["chief-computer." + machine]) }
+        let bound = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
+            store.effect(invocation, knows: { services.machines.session($0) != nil })
+        }
+        assert(bound, "cloud.computerControl is not in the action catalog")
+        // `cmux cloud chief-computer`: a Chief of this Mac drives its own computer (ChiefComputerControlClient+Act.swift).
+        _ = registry.bindEffect("cloud.chiefComputer", requires: nil) { ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).actEffect($0) }
+    }
+
+    /// The Chief's ask as a banner, by the agent source's notification rules (desktop, quiet hours,
+    /// sounds, Dock bounce), as hand-offs and Runs post theirs; withdrawn when the ask ends.
+    private static func postComputerAsk(_ services: AppServices, machine: String, reason: String?) {
+        let center = services.notifications
+        var arrival = NotificationPolicy.Arrival(source: .agent)
+        arrival.appActive = services.appActiveSource()
+        arrival.soundEvent = .message
+        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
+        guard !decision.acknowledge, center.desktopPostingEnabled else { return }
+        center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
+        let text = ChiefComputerControlStore.askText(machine: services.machines.session(machine)?.machine.title ?? machine, reason: reason)
+        if decision.desktop {
+            center.desktop.post(id: "chief-computer." + machine, title: text.title, body: text.body, surface: nil, workspace: nil, defaultSound: decision.sound == "default")
+        }
+        if let sound = decision.sound, !decision.desktop || sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop) }
+        if let mode = decision.bounce { center.dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 }

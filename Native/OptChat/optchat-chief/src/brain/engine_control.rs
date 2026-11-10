@@ -89,6 +89,12 @@ impl Brain {
                     Err(reason) => return error("invalid_value", reason),
                 }
             }
+            if let Some(value) = reactions.computer.clone() {
+                match crate::engine::parse_computer(&value) {
+                    Ok(value) => choice.computer = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
             if let Some(value) = reactions.permission_mode.clone() {
                 match crate::engine::parse_mode_flag(&value) {
                     Ok(value) => choice.permission_mode = value,

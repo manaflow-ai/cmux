@@ -106,6 +106,15 @@ final class HomeChiefLinkButton: NSButton {
     var ink: ThemeInk? { didSet { applyTitle() } }
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
+    /// The link's words; a change redraws it (Connect, Disconnect).
+    var linkTitle: String {
+        get { text }
+        set {
+            text = newValue
+            setAccessibilityLabel(newValue)
+            applyTitle()
+        }
+    }
     private var isHovering = false { didSet { applyTitle() } }
     private var tracking: NSTrackingArea?
 
@@ -134,6 +143,11 @@ final class HomeChiefLinkButton: NSButton {
 
     override func mouseEntered(with event: NSEvent) { isHovering = true }
     override func mouseExited(with event: NSEvent) { isHovering = false }
+
+    /// The borderless cell draws its title inset from the frame: the text, not the frame, lines up
+    /// with the column's edge.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: Self.titleInset, bottom: 0, right: Self.titleInset) }
+    static let titleInset: CGFloat = 2
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

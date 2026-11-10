@@ -1,3 +1,4 @@
+import CmuxNextCloud
 @testable import CmuxNextCloudCredentials
 import CmuxNextDaemon
 import Foundation
@@ -319,6 +320,18 @@ struct CloudCredentialTransferTests {
         #expect(try CloudCredentialLogin.claudeToken(from: Data("\u{1b}[32mToken: ".utf8) + Self.token + Data("\nDone".utf8)) == Self.token)
         #expect(throws: CloudCredentialTransfer.Failure.invalidCredential) { try CloudCredentialLogin.claudeToken(from: Data("login failed".utf8)) }
         #expect(CloudCredentialLogin.name(provider: .claude, teamID: "t", userID: "a") != CloudCredentialLogin.name(provider: .claude, teamID: "t", userID: "b"))
+    }
+
+    /// cmux issue 38140: the Chief's Vault section knows a cached sign-in by the name it is stored
+    /// under, so it shows the provider instead of `CLAUDE_TRANSFER_<hash>`; a name a person set is not one.
+    @Test func theVaultKnowsACachedSignInByItsStoredName() {
+        let claude = CloudCredentialLogin.name(provider: .claude, teamID: nil, userID: "u")
+        #expect(claude.hasPrefix("CLAUDE_TRANSFER_"))
+        #expect(CloudMachineSecrets.signInProvider(ofName: claude) == "claude")
+        #expect(CloudMachineSecrets.signInProvider(ofName: CloudCredentialLogin.name(provider: .codex, teamID: "t", userID: "u", machineID: "m")) == "codex")
+        for name in ["GITHUB_TOKEN", "MY_TRANSFER_KEY", "CLAUDE_TRANSFER_short", "CLAUDE_TRANSFER_ABABABABABABABABABABABAB"] {
+            #expect(CloudMachineSecrets.signInProvider(ofName: name) == nil, "\(name)")
+        }
     }
 
     /// The cached login is read back as `security find-generic-password -w` prints what `cloud secret set`

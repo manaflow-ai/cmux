@@ -39,6 +39,7 @@
     "Native/OptChat/optchat-chief/deploy/brain/rollback.sh": {"count": 1, "reason": "safe: -U own uid and the deploy's own brain bin dir"},
     "Native/OptChat/optchat-chief/deploy/brain/tests/rollback.test.sh": {"count": 1, "reason": "safe: -U own uid and the test's own agent-host path next to the script"},
     "Native/OptChat/optchat-chief/tests/right_column_prompt.rs": {"count": 2, "reason": "safe: test asserting the prompt forbids pkill"},
+    "backend/chief-cc/bake-computer.sh": {"count": 1, "reason": "safe: runs as root inside the throwaway Freestyle VM this script just created, to stop the bake's own desktop session before the snapshot; it signals nothing outside that VM"},
     "backend/chief-opencode/bench/run.sh": {"count": 1, "reason": "debt: `pkill -f 'opencode serve ... --port 4096'` matches any user's server on that port; record the PID it starts"},
     "cmux-next-ios/verify/design/terminal/VERIFY-round2.md": {"count": 1, "reason": "safe: a QA record describing a past fault-injection run; no command runs from it"},
     "cmux-next-ios/verify/design/terminal/qa-round-11.md": {"count": 1, "reason": "safe: a QA record describing a past fault-injection run; no command runs from it"},

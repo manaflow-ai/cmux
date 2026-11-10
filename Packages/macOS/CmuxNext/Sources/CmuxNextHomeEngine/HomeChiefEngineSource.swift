@@ -13,7 +13,7 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     /// one engine of its own, and the card hides the Harness row).
     var choosesHarness: Bool { get }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
-    /// Sets (nil: clears) any of harness, model, effort, speed and the reaction classifier fields in one brain write; the snapshot after.
+    /// Sets (nil: clears) any of harness, model, effort, speed, the reaction classifier fields and the computer in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
 }
 

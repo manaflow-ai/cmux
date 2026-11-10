@@ -47,6 +47,7 @@ extension CloudHandlers {
         bind("cloudExec", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             let command = try rules.text("command", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             // A CLI or agent run gets the command's exit code and output: it runs through the
             // Cloud API's exec and opens no tab (the CLI cannot read a tab on the machine's
             // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
@@ -88,16 +89,19 @@ extension CloudHandlers {
         bind("cloudFileWrite", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             let contents = try rules.text("contents", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("write Cloud file", context) {
                 try await cloud.machineAPI.writeFile(session.machineID, path: path, data: Data(contents.utf8))
             }
         }
         bind("cloudFileMkdir", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("create Cloud directory", context) { try await cloud.machineAPI.makeDirectory(session.machineID, path: path) }
         }
         bind("cloudFileRemove", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("remove Cloud file", context) { try await cloud.machineAPI.removeFile(session.machineID, path: path) }
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in

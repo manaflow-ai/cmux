@@ -6,6 +6,8 @@ import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
+import { computerActing, computerOf, computerUsedAt, computerVerb, controlOf, forgetComputer, humanHasControl, humanHasControlRefusal, humanInput, ownerShot, runInput, SCREEN, setControl, type Control } from "./sandbox-computer.ts"
+import { ownerEntitled, PLAN_REQUIRED } from "./sandbox-plan.ts"
 import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
 /**
@@ -14,7 +16,8 @@ import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, siz
  * Worker could hand out controls the whole Freestyle account (production VMs too), so the key stays here and the
  * Chief gets actions through its running turn's token (plans/cmux-next/chief-vm-freestyle-parity.md): list, get,
  * create, update, resize, pause, start, stop, exec, delete, cap; fs (sandbox-files.ts); snapshot, snapshots,
- * snapshot_get, snapshot_rename, snapshot_delete, fork.
+ * snapshot_get, snapshot_rename, snapshot_delete, fork; computer (sandbox-computer.ts: a desktop it works on by sight,
+ * which its owner watches in the Chief's profile).
  *
  * Kept per Chief, not per conversation: everything here runs in the Chief's `<agent>/sandboxes` object (a brain-class
  * object named after no conversation; turn.ts forwards each call with the running turn's agent). Owner check on
@@ -110,8 +113,24 @@ const live = async (b: ChiefBrainDO) => {
     else out.push(view(s, v))
   }
   // Read the list again: a create that finished meanwhile stays; only VMs Freestyle no longer has are dropped.
-  if (gone.size) save(b, listOf(b).filter((x) => !gone.has(x.id)))
+  if (gone.size) {
+    save(b, listOf(b).filter((x) => !gone.has(x.id)))
+    for (const id of gone) forgetComputer(b, id)
+  }
   return out
+}
+
+/** fs verbs that only read: allowed on the computer while the person holds it. */
+const FS_READS = new Set(["read", "ls", "stat", "exists", "upload_status"])
+/**
+ * Whether `req` would change or end the Chief's computer VM `id` while the person holds it (the control lease,
+ * sandbox-computer.ts): exec, fs writes, stop, pause, delete, fork, snapshot, update and resize are refused then; reads, get, start and the
+ * computer's own verbs (which check the lease themselves) are not. Deleting the computer never ends a take-over.
+ */
+const heldFromChief = (b: ChiefBrainDO, id: string, req: Req): boolean => {
+  if (computerOf(b)?.id !== id || !humanHasControl(b)) return false
+  if (req.action === "fs") return !FS_READS.has(String(req.op ?? ""))
+  return ["exec", "stop", "pause", "delete", "fork", "snapshot", "update", "resize"].includes(String(req.action))
 }
 
 const NOT_YOURS: Out = { status: 404, json: { error: "not one of your sandboxes (chief-vm list)" } }
@@ -215,8 +234,13 @@ const DEFAULT_SIZE = { cpu: 4, memory_mb: 8192 }
 
 /** The snapshot a sandbox starts from and its size (null when unknown), or a refusal. */
 const snapshotOf = (b: ChiefBrainDO, req: Req): { id: string; base: Resources | null; small: boolean } | Out => {
-  if (req.image !== undefined && req.image !== "chief" && req.image !== "ubuntu") return { status: 400, json: { error: "image must be ubuntu (the default: Ubuntu 24.04, 16 GB disk) or chief (your machine image: tools and clones, 32 GB)" } }
+  if (req.image !== undefined && req.image !== "chief" && req.image !== "ubuntu" && req.image !== "computer") return { status: 400, json: { error: "image must be ubuntu (the default: Ubuntu 24.04, 16 GB disk), chief (your machine image: tools and clones, 32 GB) or computer (Ubuntu with the desktop baked in, for chief-vm computer setup)" } }
   if (req.image === "chief") return { id: b.doEnv.CHIEF_CC_SNAPSHOT ?? "", base: CHIEF_IMAGE, small: false }
+  // The desktop baked in (backend/chief-cc/bake-computer.sh, from the small Ubuntu): computer setup installs nothing.
+  if (req.image === "computer") {
+    const id = b.doEnv.CHIEF_CC_COMPUTER_SNAPSHOT
+    return id ? { id, base: BASES[SMALL]!, small: true } : { status: 400, json: { error: "no computer image on this deployment: create a sandbox without --image, then chief-vm computer setup ID installs the desktop" } }
+  }
   if (req.snapshot === undefined) return { id: SMALL, base: BASES[SMALL]!, small: true }
   if (typeof req.snapshot === "string" && /^freestyle\/[a-z0-9._-]{1,64}$/.test(req.snapshot)) return { id: req.snapshot, base: BASES[req.snapshot] ?? null, small: false }
   // One of its own snapshots: the VM starts at the size it was taken at (Freestyle refuses a smaller ask).
@@ -241,8 +265,8 @@ const execIn = (req: Req) => {
   }
 }
 
-const ACTIONS = "list, get, create, update, resize, pause, start, stop, exec, fs, snapshot, snapshots, snapshot_get, snapshot_rename, snapshot_delete, fork, delete or cap"
-const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec", "fs", "snapshot", "fork", "delete"]
+const ACTIONS = "list, get, create, update, resize, pause, start, stop, exec, fs, computer, snapshot, snapshots, snapshot_get, snapshot_rename, snapshot_delete, fork, delete or cap"
+const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec", "fs", "computer", "snapshot", "fork", "delete"]
 const SNAP_ACTIONS = ["snapshots", "snapshot_get", "snapshot_rename", "snapshot_delete"]
 
 /** Makes a sandbox (size, settings, snapshot), grants the Chief's identity on it, then grows it to the size asked. */
@@ -310,12 +334,17 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
   try {
     if (req.action === "list") return { status: 200, json: { vms: await live(b), max: capOf(b, agent), plan: planOf(env) } }
     if (req.action === "cap") return { status: 200, json: { cap: capOf(b, agent), live: (await live(b)).length, plan: planOf(env) } }
+    // Sandboxes and a computer are cmux Cloud: the owner's plan first (sandbox-plan.ts).
+    const paid = req.action === "create" || req.action === "fork" || (req.action === "computer" && req.op === "setup")
+    if (paid && !(await ownerEntitled(b, owner))) return PLAN_REQUIRED()
     if (req.action === "create") return await create(b, agent, owner, req)
     if (SNAP_ACTIONS.includes(String(req.action))) return await snapshotVerb(b, String(req.action), req)
     if (!VM_ACTIONS.includes(String(req.action))) return { status: 400, json: { error: `action must be ${ACTIONS}` } }
     const o = await own(b, agent, req.id)
     if ("status" in o) return o
     const { s, vm } = o
+    // Checked when the action starts: an exec already running may finish after the person takes over.
+    if (heldFromChief(b, vm.id, req)) return humanHasControlRefusal(b, "this sandbox (your computer)")
     const at = `/v5/vms/${encodeURIComponent(vm.id)}`
     switch (req.action) {
       case "get":
@@ -365,6 +394,8 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
       }
       case "fs":
         return await fileVerb(b, vm.id, String(req.op ?? ""), req)
+      case "computer":
+        return await computerVerb(b, vm.id, vm.state, req)
       case "snapshot": {
         const { snap: _, ...out } = await takeSnapshot(b, vm.id, req)
         return out
@@ -390,6 +421,7 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
         await res?.body?.cancel().catch(() => undefined)
         if (!res || !(res.ok || res.status === 404)) return { status: 502, json: { error: `not deleted (${res?.status ?? "no answer"})` } }
         save(b, listOf(b).filter((x) => x.id !== vm.id))
+        forgetComputer(b, vm.id)
         return { status: 200, json: { deleted: vm.id } }
       }
     }
@@ -425,7 +457,182 @@ export const ccSandboxPurge = async (b: ChiefBrainDO): Promise<{ deleted: number
     }
     const rest = listOf(b).filter((x) => !gone.has(x.id))
     save(b, rest)
+    forgetComputer(b)
     return { deleted: gone.size, left: rest.length }
   })
   return { deleted, left, revoked: await revokeIdentity(b) }
+}
+
+/**
+ * The Chief's computer as its owner sees it (`GET /v1/chiefs/<agent>/computer`, chief-brain/routes.ts): whether the
+ * Chief ever set one up (`used`: its profile shows the Computer section from then on), and the one it has now with
+ * its state, or null. Reads Freestyle's state; never starts or changes the VM.
+ */
+export const ccComputerStatus = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ used: boolean; entitled: boolean; acting?: boolean; provisioning?: boolean; provision_error?: string; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN; control: Control }> => {
+  const used = computerUsedAt(b) !== null
+  const entitled = await ownerEntitled(b, owner)
+  const c = computerOf(b)
+  const p = provisionOf(b)
+  if (!c) return { used, entitled, computer: null, screen: SCREEN, control: controlOf(b), ...(provisioning(b) ? { provisioning: true } : p?.error ? { provision_error: p.error } : {}) }
+  const o = await own(b, agent, c.id)
+  if ("status" in o) {
+    // Gone or no longer this Chief's: forget it (a Freestyle that did not answer keeps it).
+    if (o.status === 404) forgetComputer(b, c.id)
+    return { used, entitled, computer: o.status === 404 ? null : { id: c.id, state: "unknown", name: null }, screen: SCREEN, control: controlOf(b) }
+  }
+  return { used, entitled, acting: o.vm.state === "running" && computerActing(b), computer: { id: c.id, state: o.vm.state, name: o.vm.display_name }, screen: SCREEN, control: controlOf(b) }
+}
+
+type Refusal = { status: 400 | 404 | 409 | 502; code: string; error: string; state?: string }
+
+/**
+ * The size a Chief's computer is given when its owner sets one up from the profile (Austin, 2026-11-06: "a machine that
+ * seems reasonable for each Chief"): 4 vCPU and 8 GiB, the size every sandbox grows to, which runs the desktop, Chrome
+ * and a build beside them; the computer image's 16 GB disk (Chrome's profile and downloads fit). About $0.27 an hour
+ * while it runs; it pauses when idle only with CLOUD_IDLE_PAUSE on (IDLE_S), and a paused one still costs its disk. It
+ * lives as long as any sandbox: Freestyle deletes it, disk and all, when its TTL ends (TTL_S, 12 hours after it was made;
+ * provisioning passes no other). The status then answers `computer: null` and the owner sets up a new one, empty. A
+ * Chief's computer is one of its own sandboxes, never one of the team's Cloud machines, so it does not count toward the
+ * Cloud plan's machine limits.
+ */
+export const COMPUTER_SIZE = { cpu: 4, memory_mb: 8192 } as const
+
+/** A provision in flight on this object (it takes minutes: make, grow, desktop), and the last one that failed. */
+const provisions = new WeakMap<object, { since: number; error?: string }>()
+const PROVISION_MS = 10 * 60_000
+const provisionOf = (b: ChiefBrainDO) => provisions.get(b.sql)
+const provisioning = (b: ChiefBrainDO, now = Date.now()) => {
+  const p = provisionOf(b)
+  return !!p && p.error === undefined && now - p.since < PROVISION_MS
+}
+
+/**
+ * Starts ccComputerProvision and answers at once (the app's request would time out on the minutes it takes): 200 with
+ * the computer it has, 202 `{provisioning: true}` while one is made (the status route says when it is there), or the
+ * refusal. A second ask while one is made starts nothing.
+ */
+export const ccComputerProvisionStart = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ status: 200; computer: { id: string; state: string } } | { status: 202; provisioning: true } | { status: 403 | 409; code: string; error: string }> => {
+  if (provisioning(b)) return { status: 202, provisioning: true }
+  // In flight from here, before the first await: a second ask that arrives while this one awaits the computer it has
+  // or the plan answers 202 and makes nothing (two would both pass and each make a billed VM). An ask that ends
+  // without starting one puts back what was there (the last failure, or nothing).
+  const prev = provisionOf(b)
+  const run = { since: Date.now() } as { since: number; error?: string }
+  provisions.set(b.sql, run)
+  const release = <T>(out: T): T => {
+    if (provisions.get(b.sql) === run) prev ? provisions.set(b.sql, prev) : provisions.delete(b.sql)
+    return out
+  }
+  try {
+    const have = computerOf(b)
+    if (have) {
+      const o = await own(b, agent, have.id)
+      if (!("status" in o)) return release({ status: 200, computer: { id: have.id, state: o.vm.state } })
+    }
+    if (!(await ownerEntitled(b, owner))) return release({ status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" })
+    if (humanHasControl(b)) return release({ status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" })
+  } catch (e) {
+    throw release(e)
+  }
+  b.doCtx.waitUntil(ccComputerProvision(b, agent, owner).then((r) => {
+    if (r.status === 200) {
+      if (provisions.get(b.sql) === run) provisions.delete(b.sql)
+    } else run.error = r.error
+  }, () => { run.error = "the computer was not made" }))
+  return { status: 202, provisioning: true }
+}
+
+/**
+ * The owner gives the Chief a computer (`POST /v1/chiefs/<agent>/computer/control {action: "provision"}`): a sandbox of
+ * COMPUTER_SIZE from the computer image (the small Ubuntu where none is baked), with the desktop set up, as the Chief's
+ * own `chief-vm computer setup` would make it. A Chief that has one keeps it (the answer is that one). Needs a Cloud plan.
+ */
+export const ccComputerProvision = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ status: 200; computer: { id: string; state: string } } | Refusal | { status: 403 | 429; code: string; error: string }> => {
+  const have = computerOf(b)
+  if (have) {
+    const o = await own(b, agent, have.id)
+    if (!("status" in o)) return { status: 200, computer: { id: have.id, state: o.vm.state } }
+  }
+  if (!(await ownerEntitled(b, owner))) return { status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" }
+  if (humanHasControl(b)) return { status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" }
+  // The sandbox made here, until its desktop is set up: one whose setup failed is deleted, so a retry makes a new one
+  // instead of leaving a billed VM per attempt (and filling the Chief's sandbox cap).
+  let made: string | null = null
+  try {
+    const r = await create(b, agent, owner, { ...(b.doEnv.CHIEF_CC_COMPUTER_SNAPSHOT ? { image: "computer" } : {}), ...COMPUTER_SIZE })
+    const id = (r.json as { vm?: { id?: string } } | null)?.vm?.id
+    if (r.status === 429) return { status: 429, code: "computer.sandbox_cap", error: String((r.json as { error?: unknown }).error ?? "the Chief has as many sandboxes as it may") }
+    if (r.status !== 200 || !id) return { status: 502, code: "computer.unreachable", error: String((r.json as { error?: unknown } | null)?.error ?? "the computer was not made") }
+    made = id
+    const set = await computerVerb(b, id, "running", { op: "setup" })
+    if (set.status !== 200) {
+      await dropSandbox(b, id)
+      return { status: 502, code: "computer.setup_failed", error: String((set.json as { error?: unknown } | null)?.error ?? "the desktop did not install") }
+    }
+    made = null
+    return { status: 200, computer: { id, state: "running" } }
+  } catch (e) {
+    if (made) await dropSandbox(b, made)
+    return { status: 502, code: "computer.unreachable", error: e instanceof CcError ? e.message : "the computer was not made" }
+  }
+}
+
+/** Deletes sandbox `id` this object made and drops it from the list; never throws. One Freestyle did not delete stays listed (its TTL ends it). */
+const dropSandbox = async (b: ChiefBrainDO, id: string): Promise<void> => {
+  await revokeGrant(b, id).catch(() => undefined)
+  const res = await freestyle(b.doEnv, "DELETE", `/v5/vms/${encodeURIComponent(id)}`).catch(() => null)
+  await res?.body?.cancel().catch(() => undefined)
+  if (!res || !(res.ok || res.status === 404)) return
+  save(b, listOf(b).filter((x) => x.id !== id))
+  forgetComputer(b, id)
+}
+
+/** The owner takes the computer over or hands it back (`POST /v1/chiefs/<agent>/computer/control`); 404 with none. */
+export const ccComputerControl = async (b: ChiefBrainDO, _agent: string, action: "take_over" | "hand_back"): Promise<{ status: 200; control: Control } | Refusal> => {
+  if (!computerOf(b)) return { status: 404, code: "not_found", error: "this Chief has no computer" }
+  return { status: 200, control: setControl(b, action) }
+}
+
+/**
+ * One input from the owner while they hold the computer (`POST /v1/chiefs/<agent>/computer/input`): 409
+ * computer.not_human unless they took it over; never wakes an asleep computer. The owner's live view shows the result.
+ */
+export const ccComputerInput = async (b: ChiefBrainDO, agent: string, req: Record<string, unknown>): Promise<{ status: 200; done: string; control: Control } | Refusal> => {
+  const c = computerOf(b)
+  if (!c) return { status: 404, code: "not_found", error: "this Chief has no computer" }
+  if (!humanHasControl(b)) return { status: 409, code: "computer.not_human", error: "take over the computer first" }
+  const op = req.op === "open_url" ? "open" : String(req.op ?? "")
+  if (!["click", "move", "drag", "scroll", "type", "key", "open"].includes(op)) return { status: 400, code: "validation.invalid", error: "op must be click, move, drag, scroll, type, key or open" }
+  const o = await own(b, agent, c.id)
+  if ("status" in o) return o.status === 404 ? (forgetComputer(b, c.id), { status: 404, code: "not_found", error: "this Chief has no computer" }) : { status: 502, code: "computer.unreachable", error: "Freestyle did not answer" }
+  if (o.vm.state !== "running") return { status: 409, code: "computer.asleep", error: "the computer is asleep", state: o.vm.state }
+  // A scroll amount out of range is clamped to 1..30 lines, not refused (a trackpad flick sends large deltas).
+  const amount = op === "scroll" && typeof req.amount === "number" && Number.isFinite(req.amount) ? Math.min(30, Math.max(1, Math.round(req.amount))) : req.amount
+  // The person's input keeps their hold (LEASE_IDLE_MS from now); it is not the Chief acting.
+  humanInput(b)
+  try {
+    const r = await runInput(b, c.id, op, amount === req.amount ? req : { ...req, amount })
+    if (r.status === 200) return { status: 200, done: op, control: controlOf(b) }
+    const error = String((r.json as { error?: unknown }).error ?? "the input failed")
+    return r.status === 400 ? { status: 400, code: "validation.invalid", error } : { status: 502, code: "computer.unreachable", error }
+  } catch (e) {
+    return { status: 502, code: "computer.unreachable", error: e instanceof CcError ? e.message : "the input failed" }
+  }
+}
+
+/**
+ * The computer's screen for its owner (`GET /v1/chiefs/<agent>/computer/screen`): a JPEG while it runs; 409 asleep
+ * when it is paused or stopped (it is not woken for a look), 404 when there is none.
+ */
+export const ccComputerScreen = async (b: ChiefBrainDO, agent: string): Promise<{ status: 200; image: string } | { status: 404 | 409 | 502; error: string; state?: string }> => {
+  const c = computerOf(b)
+  if (!c) return { status: 404, error: "this Chief has no computer" }
+  const o = await own(b, agent, c.id)
+  if ("status" in o) return o.status === 404 ? (forgetComputer(b, c.id), { status: 404, error: "this Chief has no computer" }) : { status: 502, error: "Freestyle did not answer" }
+  if (o.vm.state !== "running") return { status: 409, error: "the computer is asleep", state: o.vm.state }
+  try {
+    return { status: 200, image: await ownerShot(b, c.id) }
+  } catch (e) {
+    return { status: 502, error: e instanceof CcError ? e.message : "the screenshot failed" }
+  }
 }

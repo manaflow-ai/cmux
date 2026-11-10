@@ -7,9 +7,8 @@ import Foundation
 import CmuxNextCompat
 import UniformTypeIdentifiers
 
-/// The Chief's settings: the content of the popover the header's "Chief >"
-/// name pill opens (`HomeChiefSettingsPopover`; Lawrence, 2026-10-05:
-/// per-Chief configuration opens only from the pill). Leo 2026-10-19 ("kinda
+/// The Chief's settings: the Details, Settings and Computer tabs of the Chief's profile, in the popover
+/// the Messages page's name pill opens (`HomeChiefProfileView`, ``showSection(_:)``). Leo 2026-10-19 ("kinda
 /// yikes"): it was a right sidebar with no surface of its own that ran under
 /// the header, a raw avatar text field, stacked pickers that all read
 /// "Default", and the trace stats in the body. Now it is one settings card:
@@ -18,6 +17,8 @@ import UniformTypeIdentifiers
 /// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
 ///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
 ///   only the levels the shown model takes.
+/// - Vault: the names of the credentials the Chief and its agents use (``HomeChiefVaultSection``).
+/// - Connections: Gmail and Google Calendar, connect and disconnect (``HomeChiefConnectionsSection``).
 /// - Reactions: whether a tapback wakes the Chief, and the classifier that decides (``HomeChiefReactionRows``).
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
@@ -59,6 +60,11 @@ public final class HomeChiefSettingsView: NSView {
     let speed = ThemedPopUpButton(frame: .zero, pullsDown: false)
     /// The models picked per harness, the Model menu's Recent section; the app passes its defaults.
     public var recents = HomeChiefModelRecents()
+    /// The names of the credentials the Chief and its agents use (cmux issue 34263); the app sets
+    /// ``HomeChiefVaultSection/names``. Hidden until it does.
+    public let vault = HomeChiefVaultSection()
+    /// Gmail and Google Calendar (cmux issue 34263); the app sets ``HomeChiefConnectionsSection/source``.
+    public let connections = HomeChiefConnectionsSection()
     /// UniiChat's one-line sign-in note under the Harness row (``ChiefBackend/hint``);
     /// hidden for every other harness.
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
@@ -79,6 +85,10 @@ public final class HomeChiefSettingsView: NSView {
     /// Chief whose brain runs on a paired server.
     var localViews: [NSView] = []
     let stack = NSStackView()
+    /// The profile's tabs' parts of the card (``showSection(_:)``); `addFullWidth` adds to ``filling``'s.
+    let sections = HomeChiefSettingsSections()
+    var filling: HomeChiefProfileTab?
+    lazy var editChief = Self.footerButton(HomeEngineStrings.editChief, target: self, action: #selector(openAllSettings))
     var source: any HomeChiefEngineSource
     /// The engine the pickers last showed (the brain's answer), which a refused pick shows again.
     var shownEngine: HomeChiefSnapshot?
@@ -107,6 +117,23 @@ public final class HomeChiefSettingsView: NSView {
     let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
     /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
     let teleportRow = NSStackView()
+    /// Computer: where a Chief of this Mac does computer use, this Mac or a Cloud machine
+    /// (``addComputerRow()``, cmux issue 36047); hidden for a Chief whose brain runs elsewhere.
+    let computerRow = NSStackView()
+    let computerPicker = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    let computerNote = HomeChiefSettingsView.footnote(HomeEngineStrings.computerMacNote)
+    lazy var computerDesktop = HomeChiefLinkButton(title: HomeEngineStrings.computerShowDesktop, target: self,
+                                                   action: #selector(showComputerDesktop))
+    /// engine.json's `computer` the picker shows (`machine:<id>`); nil: this Mac.
+    var shownComputer: String?
+    /// The Computer Use pick on show changed (``attachedMachine``): the profile's Computer tab follows it.
+    public var onComputerShown: () -> Void = {}
+    /// The account's Cloud machines the Computer picker offers; the app sets it (unset: none).
+    public var cloudComputers: @MainActor () -> [HomeChiefCloudComputer] = { [] }
+    /// New Cloud Computer…: the app's own create flow (it asks before anything is made or paid).
+    public var onNewCloudComputer: () -> Void = {}
+    /// Show Desktop: the attached Cloud machine's (its id) screen in a cmux browser.
+    public var onShowComputerDesktop: (String) -> Void = { _ in }
     /// Follows the shown Chief's default flag (``bindPrimary(directory:conversation:)``).
     var primaryWatch: Task<Void, Never>?
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
@@ -135,27 +162,6 @@ public final class HomeChiefSettingsView: NSView {
     private var pictureWrite: Task<Void, Never>?
     private var pictureSaved = false
 
-    /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
-    /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
-    /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
-    /// configured; then every other harness `listed` by this Mac's acpmux
-    /// (`_acpmux/harnesses`), in its order (Lawrence 2026-10-23: "chief can choose between
-    /// literally all the acpmux stuff"). A current choice outside the list still shows (`fill`).
-    nonisolated static func harnesses(routeConfigured: Bool, listed: [String] = []) -> [String] {
-        let official = ChiefBackend.official.map(\.id)
-        var offered = routeConfigured
-            ? [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
-            : official
-        var seen = Set(offered)
-        for id in listed where !id.isEmpty && seen.insert(id).inserted { offered.append(id) }
-        return offered
-    }
-
-    /// The harness picker's items: each harness with the name the app shows for it.
-    nonisolated static func harnessItems(routeConfigured: Bool, listed: [String] = []) -> [(value: String, title: String)] {
-        harnesses(routeConfigured: routeConfigured, listed: listed).map { ($0, ChiefBackend.title(for: $0)) }
-    }
-
     public init(muxHome: URL, source: any HomeChiefEngineSource) {
         self.muxHome = muxHome
         self.source = source
@@ -175,14 +181,51 @@ public final class HomeChiefSettingsView: NSView {
             stack.topAnchor.constraint(equalTo: topAnchor, constant: Self.inset),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.inset),
         ])
-        addFullWidth(identityRow())
-        stack.setCustomSpacing(Metrics.space4, after: stack.arrangedSubviews[0])
+        // The note says why a change did not take, above whichever tab shows.
         failure.font = Typography.caption
         failure.ink = .danger
         failure.isHidden = true
         addFullWidth(failure)
+        for tab in HomeChiefProfileTab.allCases {
+            let section = sections[tab]
+            section.orientation = .vertical
+            section.alignment = .leading
+            section.spacing = Metrics.space3
+            section.setAccessibilityIdentifier("cmux.home.chief.section.\(tab.rawValue)")
+            addFullWidth(section)
+            gap(after: section)
+        }
+        // Details: who the Chief is, where it runs, what it may reach (``HomeChiefProfileTab``).
+        filling = .details
+        let identity = identityRow()
+        addFullWidth(identity)
+        gap(after: identity)
         addPrimaryRow()
         addTeleportRow()
+        // The Chief's vault and the accounts it acts through (cmux issue 34263).
+        connections.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(connections)
+        gap(after: connections)
+        vault.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(vault)
+        gap(after: vault)
+        // The disclosure and what it opens are one group: the gap after it holds open or closed.
+        let diagnosticsGroup = NSStackView()
+        diagnosticsGroup.orientation = .vertical
+        diagnosticsGroup.alignment = .leading
+        diagnosticsGroup.spacing = Metrics.space3
+        addFullWidth(diagnosticsGroup)
+        gap(after: diagnosticsGroup)
+        buildDiagnostics()
+        for view in [diagnosticsRow(), diagnostics] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            diagnosticsGroup.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: diagnosticsGroup.widthAnchor).isActive = true
+        }
+        editChief.setAccessibilityIdentifier("cmux.home.chief.editChief")
+        sections[.details].addArrangedSubview(editChief)
+        // Settings: how the Chief works and looks.
+        filling = .settings
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
                                 (speed, HomeEngineStrings.speed)] {
@@ -204,13 +247,13 @@ public final class HomeChiefSettingsView: NSView {
         let note = Self.footnote(HomeEngineStrings.nextTurn)
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
-        stack.setCustomSpacing(Metrics.space4, after: note)
+        gap(after: note)
         // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
         addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
         reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
         reactionRows.onResize = { [weak self] in self?.onResize() }
         addFullWidth(reactionRows)
-        stack.setCustomSpacing(Metrics.space4, after: reactionRows)
+        gap(after: reactionRows)
         // Appearance: rows other features add; the section shows once it has one.
         appearanceHeader.font = Typography.header
         appearanceHeader.ink = .secondary
@@ -219,17 +262,17 @@ public final class HomeChiefSettingsView: NSView {
         appearanceRows.spacing = Metrics.space2
         addFullWidth(appearanceHeader)
         addFullWidth(appearanceRows)
-        stack.setCustomSpacing(Metrics.space4, after: appearanceRows)
+        gap(after: appearanceRows)
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
         // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
-        let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
+        let allSettings = Self.footerButton(HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
-        stack.addArrangedSubview(allSettings)
-        stack.setCustomSpacing(Metrics.space4, after: allSettings)
-        addFullWidth(diagnosticsRow())
-        buildDiagnostics()
-        addFullWidth(diagnostics)
+        sections[.settings].addArrangedSubview(allSettings)
+        // Computer: where a Chief of this Mac does computer use.
+        filling = .computer
+        addComputerRow()
+        filling = nil
         showHarnessRow()
         refresh()
     }
@@ -256,6 +299,7 @@ public final class HomeChiefSettingsView: NSView {
             brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         }
         for view in localViews { view.isHidden = !source.isLocal }
+        computerRow.isHidden = !source.isLocal
         showHarnessRow()
         let own = source is HomeChiefHostedEngine ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
         place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? own
@@ -483,16 +527,4 @@ public final class HomeChiefSettingsView: NSView {
         return pictureSaved
     }
     #endif
-
-    @objc func showMemory() {
-        onShowMemory()
-    }
-
-    @objc func openAllSettings() {
-        onAllSettings()
-    }
-
-    @objc func openTraces() {
-        NSWorkspace.shared.revealInBackground([HomeChiefFiles(muxHome: muxHome).traceDirectory])
-    }
 }
