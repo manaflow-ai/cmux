@@ -554,6 +554,76 @@ mod tests {
         assert_eq!(judge(&script, cwd, &system_path()), Some("launch_reads_folder"));
     }
 
+    /// A folder file that a launch names by a bare word is still the folder's when an option takes
+    /// it (`--config agent.json`), when the interpreter's own options hide it (`python3 -I`), or
+    /// when a wrapper (`env`, `nice`, `timeout`) runs the interpreter (delta review of #40158).
+    #[test]
+    fn a_folder_file_behind_an_option_or_a_wrapper_is_the_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        for file in ["agent.py", "agent.js", "agent.json"] {
+            std::fs::write(cwd.join(file), "").unwrap();
+        }
+        let argvs: &[&[&str]] = &[
+            &["python3", "-I", "agent.py"],
+            &["env", "python3", "agent.py"],
+            &["nice", "node", "agent.js"],
+            &["timeout", "3600", "python3", "agent.py"],
+            &["env", "python3", "-m", "agent"],
+            &["/usr/bin/agent", "--config", "agent.json"],
+            &["/usr/bin/agent", "--config=agent.json"],
+        ];
+        for argv in argvs {
+            let why = judge(&launch(argv, &[]), cwd, &system_path());
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
+        }
+    }
+
+    /// Python options that drop the safe import path read the folder: `-E` ignores
+    /// `PYTHONSAFEPATH`, and `-m` in a cluster (`-um`) is still a module run. `-I` and `-P` keep
+    /// the safe path (codex review of #40158, F3).
+    #[test]
+    fn python_options_that_drop_the_safe_path_read_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        let safe = [("PYTHONSAFEPATH", "1")];
+        let reads: &[(&[&str], &[(&str, &str)])] = &[
+            (&["python3", "-E", "-m", "agent"], &safe),
+            (&["python3", "-Em", "agent"], &safe),
+            (&["python3", "-um", "agent"], &[]),
+            (&["python3", "-u", "-c", "import agent"], &[]),
+        ];
+        for (argv, env) in reads {
+            let why = judge(&launch(argv, env), cwd, &system_path());
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?} {env:?}");
+        }
+        let guarded: &[(&[&str], &[(&str, &str)])] = &[
+            (&["python3", "-Im", "agent"], &[]),
+            (&["python3", "-P", "-um", "agent"], &[]),
+            (&["python3", "-um", "agent"], &safe),
+        ];
+        for (argv, env) in guarded {
+            assert_eq!(judge(&launch(argv, env), cwd, &system_path()), None, "{argv:?} {env:?}");
+        }
+    }
+
+    /// A preload in `NODE_OPTIONS` by a bare name resolves from the folder's `node_modules`
+    /// (codex review of #40158, F4); an absolute one does not.
+    #[test]
+    fn a_bare_preload_in_node_options_is_the_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        for options in
+            ["--require hook", "--import=hook", "-r hook", "--max-old-space-size=4096 -r hook"]
+        {
+            let node = launch(&["node", "/opt/agent.js"], &[("NODE_OPTIONS", options)]);
+            assert_eq!(judge(&node, cwd, &system_path()), Some("launch_reads_folder"), "{options}");
+        }
+        let absolute =
+            launch(&["node", "/opt/agent.js"], &[("NODE_OPTIONS", "--require /opt/hook.js")]);
+        assert_eq!(judge(&absolute, cwd, &system_path()), None);
+    }
+
     #[test]
     fn a_command_that_skips_approvals_carries_no_claim() {
         let cwd = Path::new("/w");
