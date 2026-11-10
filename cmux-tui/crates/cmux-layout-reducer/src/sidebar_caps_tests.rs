@@ -239,3 +239,20 @@ fn caps_from_the_c_abi_never_overflow() {
     let out = project_rows(u32::MAX, &[], &caps(5));
     assert_eq!(out.rows.len(), 5);
 }
+
+#[test]
+fn show_more_counts_the_row_one_past_a_step() {
+    let caps = ProjectCaps { cap: 5, ..ProjectCaps::default() };
+    // 26 quiet rows: 21 hidden; one press shows all 21, so the row says 21.
+    let first = project_rows(26, &[], &caps);
+    assert_eq!(first.tail, Tail::ShowMore { hidden: 21, next: 21 });
+    let revealed = ProjectCaps { revealed: after_press(first.tail, &caps), ..caps };
+    let second = project_rows(26, &[], &revealed);
+    assert_eq!(second.rows.len(), 26);
+    assert_eq!(second.tail, Tail::ShowLess);
+    // 50 quiet rows: 45 hidden; the row says 20 and a press shows 20.
+    let long = project_rows(50, &[], &caps);
+    assert_eq!(long.tail, Tail::ShowMore { hidden: 45, next: 20 });
+    let after = project_rows(50, &[], &ProjectCaps { revealed: after_press(long.tail, &caps), ..caps });
+    assert_eq!(after.rows.len(), 25);
+}

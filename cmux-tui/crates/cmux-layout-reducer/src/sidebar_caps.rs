@@ -175,7 +175,10 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
 
     let hidden = quiet_total - quiet_shown;
     let tail = if hidden > 0 {
-        Tail::ShowMore { hidden, next: hidden.min(SHOW_MORE_STEP) }
+        // One row past a step would show anyway (a list one row over its limit shows whole), so the
+        // label counts it: "Show 21 more" reveals 21, never "Show 20 more" revealing 21.
+        let next = if hidden <= SHOW_MORE_STEP.saturating_add(1) { hidden } else { SHOW_MORE_STEP };
+        Tail::ShowMore { hidden, next }
     } else if caps.cap != 0 && caps.revealed > 0 && quiet_total > caps.cap.saturating_add(1) {
         Tail::ShowLess
     } else {
