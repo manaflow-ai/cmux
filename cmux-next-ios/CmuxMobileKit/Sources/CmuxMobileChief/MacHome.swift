@@ -370,14 +370,23 @@ public final class MacHomeFeed {
     /// Reads the rows: one read at a time, and a request during a read runs one more after it.
     public func refresh() { refresh(relist: false) }
 
+    /// ``refresh()``, returning once its read (and any channel open it needs) has
+    /// answered, so a Retry can show its spinner for exactly as long as the load.
+    public func reload() async {
+        refresh(relist: false)
+        if let openTask { await openTask.value }
+        if let readTask { await readTask.value }
+    }
+
     private func refresh(relist: Bool) {
         guard let client else {
             // No channel (it failed or ended) while the link is up: open it again.
             if let link, !opening {
                 opening = true
-                Task { [weak self] in
+                openTask = Task { [weak self] in
                     await self?.open(link)
                     self?.opening = false
+                    self?.openTask = nil
                 }
             }
             return
@@ -387,8 +396,8 @@ public final class MacHomeFeed {
         reading = true
         let mine = generation
         // task-owner: one home-inbox read (and one more per request made during it); ends with its reply
-        Task { [weak self] in
-            defer { if let self, mine == self.generation { self.reading = false } }
+        readTask = Task { [weak self] in
+            defer { if let self, mine == self.generation { self.reading = false; self.readTask = nil } }
             while let self, mine == self.generation {
                 self.readAgain = false
                 let relist = self.needsRelist
@@ -413,6 +422,10 @@ public final class MacHomeFeed {
 
     @ObservationIgnored private var needsRelist = false
     @ObservationIgnored private var opening = false
+    /// The channel open ``refresh()`` started, awaited by ``reload()``.
+    @ObservationIgnored private var openTask: Task<Void, Never>?
+    /// The read ``refresh()`` started, awaited by ``reload()``.
+    @ObservationIgnored private var readTask: Task<Void, Never>?
 
     private func listed(_ client: DaemonClient) async throws {
         let list = try await Self.call(client, "conversation-list", [:])
