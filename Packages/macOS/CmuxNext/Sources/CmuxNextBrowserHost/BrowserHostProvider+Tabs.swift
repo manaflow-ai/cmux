@@ -64,6 +64,20 @@ extension BrowserHostProvider {
                 send(.event(name: "tab.announced", payload: Self.announcePayload(tab)))
             }
         }
+        // A popup reported before its announce left (`reportTabCreated`): its event follows the announce of this
+        // pass. It ends with its opener, or when its tab will not be announced (closed, moved to incognito).
+        for (child, opener) in createdWaiting {
+            guard announced[opener] != nil, current[opener] != nil, announced[child] == nil else {
+                createdWaiting[child] = nil
+                continue
+            }
+            if let tab = current[child] {
+                createdWaiting[child] = nil
+                sendTabCreated(tab, openerTargetID: opener)
+            } else if tabSource?.isDrivable(child) != true {
+                createdWaiting[child] = nil
+            }
+        }
         for targetID in announced.keys where current[targetID] == nil {
             send(.event(name: "tab.gone", payload: .object(["targetId": .string(targetID)])))
             tabGone(targetID)
@@ -83,12 +97,25 @@ extension BrowserHostProvider {
     /// new-tab target, window.open). The host learns the tab first
     /// (`tab.announced`), then `tab.created` with its opener, so a session's
     /// `waitForEvent("popup")` fires and its calls on the new tab find it.
-    /// Neither tab announced (incognito, another machine's): nothing goes out.
+    /// The tab list can follow the store later than this call (the app's is
+    /// one main-actor turn behind): a child the source will announce
+    /// (`ProviderTabSource.isDrivable`) waits in `createdWaiting`, and its
+    /// event leaves with its announce, in any order of the two. The opener
+    /// not announced, or a child that is never announced (incognito, another
+    /// machine's): nothing goes out.
     public func reportTabCreated(targetID: String, openerTargetID: String) {
         observeTabs()
-        guard connection != nil, let tab = announced[targetID], announced[openerTargetID] != nil else { return }
+        guard connection != nil, announced[openerTargetID] != nil else { return }
+        guard let tab = announced[targetID] else {
+            if tabSource?.isDrivable(targetID) == true { createdWaiting[targetID] = openerTargetID }
+            return
+        }
+        sendTabCreated(tab, openerTargetID: openerTargetID)
+    }
+
+    private func sendTabCreated(_ tab: ProviderTab, openerTargetID: String) {
         send(.event(name: "tab.created", payload: .object([
-            "targetId": .string(targetID), "openerTargetId": .string(openerTargetID), "url": .string(tab.url),
+            "targetId": .string(tab.targetID), "openerTargetId": .string(openerTargetID), "url": .string(tab.url),
         ])))
     }
 

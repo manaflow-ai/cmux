@@ -14,6 +14,16 @@ public protocol ProviderCredentialsSource: AnyObject {
 @MainActor
 public protocol ProviderTabSource: AnyObject {
     var providerTabs: [ProviderTab] { get }
+    /// Whether the source announces tab `targetID`, from that tab's own facts now. A source whose list follows its
+    /// model later (the app's: one main-actor turn) answers before the list holds the tab; the provider asks it for
+    /// a popup whose announce has not left yet. Called outside Observation tracking.
+    func isDrivable(_ targetID: String) -> Bool
+}
+
+extension ProviderTabSource {
+    /// A source whose list is exact: the tab is in it.
+    public func isDrivable(_ targetID: String) -> Bool { providerTabs.contains { $0.targetID == targetID } }
+}
 }
 
 /// The extension access of a CEF tab, read inside Observation tracking
