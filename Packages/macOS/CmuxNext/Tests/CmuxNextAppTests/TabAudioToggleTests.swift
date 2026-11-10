@@ -187,11 +187,13 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
     /// action's row shares, so their order in the tab and workspace menus is fixed.
     @Test(arguments: ["workspace.toggleAudioMute"])
     func theMuteRowsHaveTheirOwnMenuPosition(_ id: String) throws {
-        let own = try #require(ActionSurfaceCatalog.placements[ActionID(stringLiteral: id)], "\(id) has no menu row")
+        let own = try #require(ActionCatalog.all.first { $0.id.rawValue == id }?.surfacePlan.contextMenus, "\(id) has no menu row")
+        #expect(!own.isEmpty, "\(id) has no menu row")
         for row in own {
-            let shared = ActionSurfaceCatalog.placements.filter { key, rows in
-                key.rawValue != id && rows.contains { $0.context == row.context && $0.group == row.group && $0.rank == row.rank }
-            }.map(\.key.rawValue)
+            let shared = ActionCatalog.all.filter { descriptor in
+                descriptor.id.rawValue != id
+                    && descriptor.surfacePlan.contextMenus.contains { $0.context == row.context && $0.group == row.group && $0.rank == row.rank }
+            }.map(\.id.rawValue)
             #expect(shared.isEmpty, "\(id) shares rank \(row.rank) with \(shared)")
         }
     }

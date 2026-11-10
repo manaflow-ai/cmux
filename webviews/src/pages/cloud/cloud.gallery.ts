@@ -297,6 +297,12 @@ export default cloudPageEntry({
       machines: [apiDev!, structuredClone(buildCache!), oldPaused],
       snapshots: [...snapshots, ...archiveSnapshots],
     },
+    "cleanup-archives-only": {
+      note: "The last machine went to an archive: the storefront, with the archives and Restore under it.",
+      retention: freeRetention,
+      machines: [],
+      snapshots: archiveSnapshots,
+    },
     "cleanup-cap-delete": {
       note: "Create refused at the machines cap: the sheet offers to delete the failed create the platform named, then create.",
       action: "create-at-cap",

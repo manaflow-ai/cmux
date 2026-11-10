@@ -12714,6 +12714,16 @@ Result<Json> Codec<Tab>::encode(const Tab& value) {
     auto encoded_title = encode_value(value.title);
     if (!encoded_title) return std::move(encoded_title).error();
     object.emplace("title", std::move(encoded_title).value());
+    if (!value.title_activity.is_absent()) {
+        auto encoded = encode_value(value.title_activity);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("title_activity", std::move(encoded).value());
+    }
+    if (value.title_text) {
+        auto encoded = encode_value(*value.title_text);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("title_text", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -12897,6 +12907,22 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_title);
         if (!decoded) return std::move(decoded).error();
         result.title = std::move(decoded).value();
+    }
+    const Json* field_title_activity = value.find("title_activity");
+    if (field_title_activity) {
+        if (field_title_activity->is_null()) {
+            result.title_activity = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_title_activity);
+            if (!decoded) return std::move(decoded).error();
+            result.title_activity = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_title_text = value.find("title_text");
+    if (field_title_text) {
+        auto decoded = decode_value<std::string>(*field_title_text);
+        if (!decoded) return std::move(decoded).error();
+        result.title_text = std::move(decoded).value();
     }
     return result;
 }
@@ -42010,9 +42036,19 @@ Result<Json> Codec<TitleChangedEvent>::encode(const TitleChangedEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("title-changed")));
+    if (!value.activity.is_absent()) {
+        auto encoded = encode_value(value.activity);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activity", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
+    if (value.text) {
+        auto encoded = encode_value(*value.text);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("text", std::move(encoded).value());
+    }
     if (value.title) {
         auto encoded = encode_value(*value.title);
         if (!encoded) return std::move(encoded).error();
@@ -42025,6 +42061,16 @@ Result<TitleChangedEvent> Codec<TitleChangedEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TitleChangedEvent result{};
+    const Json* field_activity = value.find("activity");
+    if (field_activity) {
+        if (field_activity->is_null()) {
+            result.activity = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_activity);
+            if (!decoded) return std::move(decoded).error();
+            result.activity = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -42033,6 +42079,12 @@ Result<TitleChangedEvent> Codec<TitleChangedEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_surface);
         if (!decoded) return std::move(decoded).error();
         result.surface = std::move(decoded).value();
+    }
+    const Json* field_text = value.find("text");
+    if (field_text) {
+        auto decoded = decode_value<std::string>(*field_text);
+        if (!decoded) return std::move(decoded).error();
+        result.text = std::move(decoded).value();
     }
     const Json* field_title = value.find("title");
     if (field_title) {
