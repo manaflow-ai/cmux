@@ -157,8 +157,8 @@ fn row_model(row: &Value) -> Option<LiveModel> {
 }
 
 /// The display name, else the description's first part (`Opus 5.5 · ...`),
-/// else the id. A description that extends the name (`Opus` -> `Opus 5.5`)
-/// is the better name.
+/// else the id, without a leading `Claude ` vendor word. A description that
+/// extends the name (`Opus` -> `Opus 5.5`) is the better name.
 fn name(row: &Value, id: &str) -> String {
     let display = text(row, "displayName").unwrap_or("");
     let head =
@@ -167,5 +167,8 @@ fn name(row: &Value, id: &str) -> String {
         && head.len() > display.len()
         && head.to_lowercase().starts_with(&display.to_lowercase());
     let picked = if extends || display.is_empty() { head } else { display };
+    // A gateway row names the vendor ("Claude Fable 5.2"); Claude Code's own rows and the
+    // picker's other rows do not, so the name is derived the same way for both.
+    let picked = picked.strip_prefix("Claude ").filter(|rest| !rest.is_empty()).unwrap_or(picked);
     if picked.is_empty() { id.to_owned() } else { picked.to_owned() }
 }

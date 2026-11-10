@@ -86,6 +86,9 @@ def parse_args(argv=None):
     parser.add_argument("--grant-claude-login", action="store_true",
                         help="with --app: the launched app's own scratch cmux.json says yes to Use My Claude Login "
                              "on My Own Cloud Machines (a Release build's claude chat waits for that consent)")
+    parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
+                        help="a Claude chat's `start-chat --login` (default: none given, so --grant-claude-login's consent "
+                             "decides; `none` is the machine's own team mode, the SR2/CodeRouter gateway)")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -394,6 +397,19 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 
 
+def start_login(agent: str, login: str) -> list[str]:
+    """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
+    on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
+    leave it signed out (its login is the Mac's broker)."""
+    return ["--login", login] if login and agent == "claude" else []
+
+
+def list_unread(message: str) -> bool:
+    """The app's refusal when its machine list was not fresh enough to check the name (CloudStartSessionStrings
+    listUnread); the message itself says to run the same command again."""
+    return "Couldn't read your Cloud machines" in (message or "")
+
+
 def scratch_config(folder: Path, grant_claude_login: bool) -> Path:
     """The launched app's own cmux.json (0600), deleted with the run's temporary folder. With
     --grant-claude-login it holds the one-time consent a Release build's claude chat on the account's own
@@ -580,11 +596,21 @@ class Matrix:
         deadline = chat_started + self.args.timeout
         while True:
             code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", prompt,
-                                       "--agent", agent, "--name", title, "--wait", "--timeout",
-                                       str(self.args.timeout), "--json", timeout=self.args.timeout + 60)
-            if code != 75 or time.monotonic() > deadline:
+                                       "--agent", agent, *start_login(agent, self.args.login), "--name", title,
+                                       "--wait", "--timeout", str(self.args.timeout), "--json",
+                                       timeout=self.args.timeout + 60)
+            if time.monotonic() > deadline:
                 break
-            time.sleep(5)
+            if code == 75:
+                time.sleep(5)
+                continue
+            if code != 0 and list_unread(self.error(out, err).get("message") or err):
+                # The app refuses a start while its machine list is stale (CloudStartSession listFresh): two
+                # prod cells failed in 0.4 s and 2.1 s that way (run 42864046223). Read the list, then ask again.
+                self.cmux("cloud", "list-machines", "--json", timeout=60)
+                time.sleep(5)
+                continue
+            break
         cell["create_to_reply_s"] = round(time.monotonic() - chat_started, 1)
         answer = self.parsed(out) if code == 0 else {}
         failure = self.error(out, err)
