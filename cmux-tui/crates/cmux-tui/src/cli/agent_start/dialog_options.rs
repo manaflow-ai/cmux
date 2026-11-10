@@ -589,6 +589,75 @@ mod tests {
         assert!(blocked_dialog(&terminal, &agents, DENIED_CLAUDE_2_1_322).is_some());
     }
 
+    /// A screen whose transcript holds an input-box hint word and whose
+    /// multi-select rows do not parse as options.
+    const HINT_IN_TRANSCRIPT: &str = "\
+⏺ I turn accept edits on for the build once you pick the checks.
+ Which checks should run?
+ ❯ [ ] 1. Unit tests
+     [ ] 2. Lint
+
+ Enter to select · Esc to cancel";
+
+    /// A Gemini-family tool confirmation (Qwen Code: no hooks, so only the
+    /// plugin reports it): radio rows `● 1. ...` and a context footer.
+    const RADIO_CONFIRMATION: &str = "\
+╭──────────────────────────────────────────────────────────╮
+│ ?  Shell touch /tmp/w6bc-q                                │
+│ Allow execution of: 'touch'?                              │
+│ ● 1. Yes, allow once                                      │
+│   2. Yes, allow always                                    │
+│   3. No, suggest changes (esc)                            │
+╰──────────────────────────────────────────────────────────╯
+ ~/proj         no sandbox         qwen3-coder (99% context left)";
+
+    /// W6-BC review 3: a dialog the agent itself reported stays blocked,
+    /// even when the plugin's record of it is newer and the screen's
+    /// options do not parse.
+    #[test]
+    fn w6bc_a_dialog_the_agent_reported_stays_blocked() {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
+            "program_status": [{"app": "claude-code", "state": "blocked", "kind": "permission",
+                                "updated_at_ms": "1050"}]}});
+        let agents: Vec<Value> = vec![
+            json!({"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
+                   "updated_at_ms": "1100", "extra": {"agent": "claude"}}),
+            json!({"terminal_id": "term_w6bc", "state": "blocked", "source": "plugin",
+                   "updated_at_ms": "1902", "extra": {"agent": "claude-code"}}),
+        ];
+        let dialog = blocked_dialog(&terminal, &agents, HINT_IN_TRANSCRIPT);
+        assert_eq!(dialog.map(|dialog| dialog["kind"].clone()), Some(json!("permission")));
+    }
+
+    /// W6-BC review 3: a plugin-only agent's radio dialog stays blocked and
+    /// lists its options; its question keeps the quote before the `?`.
+    #[test]
+    fn w6bc_a_radio_dialog_of_a_plugin_only_agent_stays_blocked() {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running"});
+        let agents: Vec<Value> = vec![json!({"terminal_id": "term_w6bc", "state": "blocked",
+            "source": "plugin", "updated_at_ms": "1902", "extra": {"agent": "qwen"}})];
+        let dialog = blocked_dialog(&terminal, &agents, RADIO_CONFIRMATION).unwrap_or_default();
+        let labels: Vec<&str> = dialog["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|option| option["label"].as_str())
+            .collect();
+        assert_eq!(
+            labels,
+            ["Yes, allow once", "Yes, allow always", "No, suggest changes (esc)"],
+            "{dialog}"
+        );
+        assert_eq!(dialog["options"][0]["selected"], true, "{dialog}");
+        assert_eq!(dialog["msg"], "Allow execution of: 'touch'?", "{dialog}");
+        let asked = dialog_json(
+            "agent_question",
+            None,
+            " Run the build (all targets)?\n ❯ 1. Yes\n   2. No",
+        );
+        assert_eq!(asked["msg"], "Run the build (all targets)?", "{asked}");
+    }
+
     /// W6-BC review: a footer hint (`? for shortcuts`) is no question.
     #[test]
     fn w6bc_a_footer_hint_is_no_question() {

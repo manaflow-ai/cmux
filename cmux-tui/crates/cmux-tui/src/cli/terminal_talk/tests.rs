@@ -590,6 +590,9 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
 fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
     let mut stale = snapshot();
     stale["agents"][1]["source"] = json!("plugin");
+    // The agent's own newest report says its dialog ended.
+    stale["terminals"][3]["extra"] =
+        json!({"program_status": [{"app": "codex", "state": "idle", "updated_at_ms": "90"}]});
     let screen = "› \n\n  ? for shortcuts                                100% context left";
     let daemon = FakeDaemon::new(stale, &[(1, screen)]);
     let request = SendRequest {
@@ -600,6 +603,30 @@ fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
     let sent = send::run(&daemon, None, &request);
     assert!(sent.is_ok(), "{:?}", sent.err().map(|failure| failure.failure.error));
     assert_eq!(daemon.writes().len(), 2);
+}
+
+/// W6-BC review 3: a send is refused at a dialog the agent itself
+/// reported, even when the plugin's record is newer and the screen shows a
+/// hint word, and at a plugin-only agent's radio dialog.
+#[test]
+fn w6bc_a_send_is_refused_at_a_reported_or_plugin_only_dialog() {
+    let target = "term_c0dec000000000000000000000000004";
+    let mut reported = snapshot();
+    reported["agents"].as_array_mut().expect("agents").push(json!({
+        "terminal_id": target, "state": "blocked", "source": "plugin",
+        "updated_at_ms": "200", "extra": {"agent": "codex"}}));
+    let hint =
+        "⏺ I turn accept edits on once you pick.\n Which checks?\n ❯ [ ] 1. Unit\n     [ ] 2. Lint";
+    let radio = " Allow execution of: 'touch'?\n ● 1. Yes, allow once\n   2. No, suggest changes (esc)\n ~/p   (99% context left)";
+    let mut plugin_only = snapshot();
+    plugin_only["agents"][1]["source"] = json!("plugin");
+    for (snapshot, screen) in [(reported, hint), (plugin_only, radio)] {
+        let daemon = FakeDaemon::new(snapshot, &[(1, screen)]);
+        let request = SendRequest { target: target.into(), wait: Wait::None, ..quick("yes") };
+        let failure = send::run(&daemon, None, &request).expect_err("refused");
+        assert_eq!(failure.exit, 4, "{screen}: {:?}", failure.failure.error);
+        assert!(daemon.writes().is_empty(), "{screen}");
+    }
 }
 
 #[test]
