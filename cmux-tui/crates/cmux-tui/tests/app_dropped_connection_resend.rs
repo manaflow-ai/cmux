@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -102,4 +102,73 @@ fn an_unkeyed_mutation_is_never_sent_twice() {
     assert_ne!(output.status.code(), Some(0));
     assert!(first["method"].as_str().is_some_and(|method| method.starts_with("errors.")));
     assert!(again.is_err(), "the CLI sent an unkeyed mutation again");
+}
+
+fn cmux(socket: &Path, args: &[&str]) -> std::process::Child {
+    Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["--json", "--app-socket"])
+        .arg(socket)
+        .args(args)
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env_remove("CMUX_AGENT_SESSION")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+/// An app that quit after it read the request (its socket gone): the read fails in about a second with the app
+/// unreachable, not after the request's whole deadline of reconnects (30 s and more).
+#[test]
+fn a_read_of_an_app_that_quit_fails_in_about_a_second() {
+    let dir = temp_dir("quit");
+    let socket = dir.join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let child = cmux(&socket, &["action", "run", "window.new"]);
+    let first = serve_one(&listener, None);
+    let quit = Instant::now();
+    drop(listener);
+    std::fs::remove_file(&socket).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let took = quit.elapsed();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(first["method"], "action.run");
+    assert_ne!(output.status.code(), Some(0));
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The answer is the socket that did not come back, not the dropped connection.
+    assert!(printed.contains("unreachable"), "{printed}");
+    // Generous for a loaded runner; the deadline it no longer waits out is 30 s.
+    assert!(took < Duration::from_secs(10), "{took:?}");
+}
+
+/// A socket this user may not open fails the same way every time: no reconnects at all.
+#[test]
+fn a_socket_without_permission_is_not_waited_on() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if unsafe { libc::geteuid() } == 0 {
+        return; // root opens any socket
+    }
+    let dir = temp_dir("denied");
+    let socket = dir.join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let child = cmux(&socket, &["action", "run", "window.new"]);
+    let _first = serve_one(&listener, None);
+    let dropped = Instant::now();
+    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let took = dropped.elapsed();
+    listener.set_nonblocking(true).unwrap();
+    let again = listener.accept();
+    drop(listener);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_ne!(output.status.code(), Some(0));
+    assert!(again.is_err(), "the CLI connected again");
+    assert!(took < Duration::from_secs(10), "{took:?}");
 }
