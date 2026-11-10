@@ -50,6 +50,8 @@ public struct AccountSignOut {
                     // Every kept Chief conversation goes, and neither session shows one.
                     ChiefSession.shared.discardTranscripts()
                     ChiefSession.cloud.discardTranscripts()
+                    // The Home lists kept for a quick launch go too.
+                    MacHomeFeed.shared.discardKeptRows()
                 }) {
         self.snapshots = snapshots
         self.feedStore = feedStore

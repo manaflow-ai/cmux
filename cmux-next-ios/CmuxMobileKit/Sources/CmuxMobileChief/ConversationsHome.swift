@@ -90,7 +90,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
-    private var list: MacHomeList { listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly) }
+    /// Keyed on the rows' revisions, so a pass compares no rows and one row's change patches one
+    /// row (the change's indices are the feed's rows: only while no row is hidden).
+    private var list: MacHomeList {
+        listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly,
+                      version: .init(rows: feed.rowsRevision, hidden: hiddenRows.revision),
+                      change: hiddenRows.hidden.isEmpty ? feed.lastChange : nil)
+    }
 
     /// The rows Delete Conversation from List hid that no newer message brought back.
     private var hiddenCount: Int { hiddenRows.hiddenCount(in: feed.rows ?? []) }
@@ -288,7 +294,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowBackground(theme.colors.bg.color)
                 .accessibilityIdentifier("home.showHidden")
             }
-            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly {
+            // A search or Unread over the top of the list waits for the rest before it says "none".
+            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly,
+               feed.isComplete || feed.rows == nil || !(searching || unreadOnly) {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
                     .foregroundStyle(theme.colors.label2.color)
@@ -342,6 +350,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         // This account's hidden conversations (a sign-in as someone else reads theirs).
         .onChange(of: sources.activeUserID, initial: true) { _, account in hiddenRows.use(account: account) }
+        // The Home Mac's list as this phone last read it, until the Mac answers (a launch, or
+        // the Mac Chief's Mac known before Home's channel opens).
+        .onChange(of: homeMacID, initial: true) { _, macID in
+            if let macID { feed.showKeptRows(of: macID) }
+        }
         .confirmationDialog(String(localized: "Are you sure you want to delete this conversation?"),
                             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible, presenting: deleting) { row in

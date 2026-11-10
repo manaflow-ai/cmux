@@ -83,9 +83,24 @@ import Testing
 /// A fake Chief owner for Home: `conversation-list`, `home-inbox` and the
 /// person's list state, which comes back as `conversation-inbox-changed`.
 final class FakeHomeOwner: @unchecked Sendable {
+    /// How the phone's host answers a windowed `home-inbox` (`limit`/`offset`, `ids`).
+    enum Windows {
+        /// An owner reached with no host in between: it ignores the params (the whole list).
+        case ignores
+        /// cmux-mobile-host with windows (`InboxWindow`).
+        case honors
+        /// An older cmux-mobile-host: the params are not accepted from a phone.
+        case refuses
+    }
+
     private let lock = NSLock()
     private var rows: [[String: Any]] = MacHomeListTests.reply["rows"] as! [[String: Any]]
     private(set) var commands: [[String: Any]] = []
+    let windows: Windows
+
+    init(windows: Windows = .ignores) {
+        self.windows = windows
+    }
 
     func line(_ object: [String: Any]) -> Data {
         var data = try! JSONSerialization.data(withJSONObject: object)
@@ -127,7 +142,28 @@ final class FakeHomeOwner: @unchecked Sendable {
             case "conversation-snapshot":
                 return [ok(["conversation": ["id": object["conversation"]!, "participants": []], "messages": []])]
             case "home-inbox":
-                return [ok(["me": "user_local", "cloud": "not_asked", "rows": rows])]
+                let windowed = object["limit"] != nil || object["ids"] != nil
+                switch windows {
+                case .refuses where windowed:
+                    return [line(["id": id, "ok": false,
+                                  "error": ["code": "forbidden", "message": "home-inbox: limit is not accepted from a phone"]])]
+                case .honors where windowed:
+                    if let ids = object["ids"] as? [String] {
+                        let found = rows.enumerated().compactMap { index, row -> [String: Any]? in
+                            guard let rowID = row["id"] as? String, ids.contains(rowID) else { return nil }
+                            var indexed = row
+                            indexed["index"] = index
+                            return indexed
+                        }
+                        return [ok(["me": "user_local", "cloud": "not_asked", "rows": found, "total": rows.count])]
+                    }
+                    let offset = object["offset"] as? Int ?? 0
+                    let limit = object["limit"] as? Int ?? rows.count
+                    return [ok(["me": "user_local", "cloud": "not_asked", "rows": Array(rows.dropFirst(offset).prefix(limit)),
+                                "offset": offset, "total": rows.count])]
+                default:
+                    return [ok(["me": "user_local", "cloud": "not_asked", "rows": rows])]
+                }
             case "conversation-inbox-op":
                 let conversation = object["conversation"] as! String
                 let op = object["op"] as! [String: Any]
