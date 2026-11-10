@@ -85,6 +85,10 @@ ALLOWED_LISTENERS = {
     "chat's unsent attachments before the page can go away (#23139); a write, not a read",
     (f"{ACPMUX}/chips/ReplyMedia.tsx", "visibilitychange"): "stops a muted hover preview when the "
     "agent page hides; it only cancels local media and reads no data",
+    (f"{ACPMUX}/newtab/ExtensionWidgets.tsx", "visibilitychange"): "follow-up: the New Tab row "
+    "mounts its app widgets only while the page shows, so a hidden page runs no app (#40270); a "
+    "show lists the panels again and remounts them. Keep the last drawn row across a hide so a "
+    "switch back does not refill it",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "
     "every focus to catch a Sign In run in a terminal; should re-read only once one ran, as App.tsx "
     "`healthStale` does",
