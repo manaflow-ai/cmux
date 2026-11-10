@@ -215,7 +215,11 @@ struct ChatSplitShowsNoWindowColourTests {
     /// the frames of the spring: each point of that part must show the chat's own ground, in the rows of that header
     /// too (review of #40665: a band of the window's colour as high as the header showed beside the top of the chat).
     /// Returns each point inside a pane that did not show what it must.
-    private func holesInASplitAcross(newPaneOnTheLeft: Bool, vertical: PaneVerticalTabs? = nil) throws -> [String] {
+    ///
+    /// `sharesTabRow`: the pane shows its tab strip and the chat's tools are in that row, so the chat's area starts at
+    /// the pane's top too, UNDER the row. The chat does not paint the row (its ground stays out of it, Leo 2026-11-03:
+    /// no backing behind the tabs), so beside the row the old pane shows no chat ground either; below the row it does.
+    private func holesInASplitAcross(newPaneOnTheLeft: Bool, vertical: PaneVerticalTabs? = nil, sharesTabRow: Bool = false) throws -> [String] {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "chat-split-across-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -237,7 +241,7 @@ struct ChatSplitShowsNoWindowColourTests {
         let ground = Self.rgb(Self.chatGround)
 
         // The pane that shows a chat, at rest in the whole screen, its strip hidden.
-        let old = try chatPane(page: page, bar: .top, vertical: vertical, hidesStrip: vertical == nil)
+        let old = try chatPane(page: page, bar: .top, vertical: vertical, hidesStrip: vertical == nil && !sharesTabRow)
         defer { old.chat.close() }
         let oldHost = PaneHostView(pane: "old", content: old.content, holdsContentInMotion: { true })
         oldHost.frame = CGRect(origin: .zero, size: size)
@@ -245,6 +249,13 @@ struct ChatSplitShowsNoWindowColourTests {
         old.content.show(old.chat)
         old.chat.applyTheme(force: true)
         root.layoutSubtreeIfNeeded()
+        if sharesTabRow {
+            // The page reports its tools' width, as its header does once it drew: the pane gives them the row.
+            old.chat.model.tabRow.report(width: 120)
+            old.content.needsLayout = true
+            root.layoutSubtreeIfNeeded()
+            try #require(old.chat.tabRowCoverHeight > 8, "fixture: the chat's tools are not in the tab row (the row covers \(old.chat.tabRowCoverHeight) pt of the chat)")
+        }
         try #require(old.chat.superview === old.content.contentHost && !old.chat.isHiddenOrHasHiddenAncestor, "fixture: the pane does not show its chat")
         // The header the pane reports with no strip (for its ring), and the rows the chat's area starts at: its top.
         let header = oldHost.headerHeight
@@ -253,7 +264,7 @@ struct ChatSplitShowsNoWindowColourTests {
                      "fixture: a chat with no strip reports a header \(header) pt high, a footer \(oldHost.footerHeight) pt high, and its area starts \(old.content.contentHost.frame.minY) pt from the top")
         try #require(vertical == nil ? list == 0 : list > 0 && list < 150, "fixture: the vertical tab list takes \(list) pt")
         // At rest the chat paints the header's rows (x: clear of a vertical list, and away from the centre's loading mark).
-        for point in [CGPoint(x: list + 60, y: header / 2), CGPoint(x: 700, y: header / 2), CGPoint(x: 700, y: 450)] {
+        for point in (sharesTabRow ? [] : [CGPoint(x: list + 60, y: header / 2), CGPoint(x: 700, y: header / 2)]) + [CGPoint(x: 700, y: 450)] {
             let atRest = try Self.pixel(of: root, at: point)
             try #require(atRest == ground, "fixture: the chat pane at rest shows \(atRest) at (\(Int(point.x)), \(Int(point.y))), not its own ground \(ground)")
         }
@@ -262,7 +273,7 @@ struct ChatSplitShowsNoWindowColourTests {
         let oldRest = newPaneOnTheLeft ? CGRect(x: 401, y: 0, width: 399, height: size.height) : CGRect(x: 0, y: 0, width: 399, height: size.height)
         let newRest = newPaneOnTheLeft ? CGRect(x: 0, y: 0, width: 400, height: size.height) : CGRect(x: 400, y: 0, width: 400, height: size.height)
 
-        let new = try chatPane(page: page, bar: .top, vertical: vertical, hidesStrip: vertical == nil)
+        let new = try chatPane(page: page, bar: .top, vertical: vertical, hidesStrip: vertical == nil && !sharesTabRow)
         defer { new.chat.close() }
         let newHost = PaneHostView(pane: "new", content: new.content, holdsContentInMotion: { true })
         newHost.frame = CGRect(x: newPaneOnTheLeft ? 0 : size.width, y: 0, width: 0, height: size.height)
@@ -291,14 +302,17 @@ struct ChatSplitShowsNoWindowColourTests {
             PaneHeldContentLandingTests.present(newHost, at: newFrame, rest: newRest)
             // The old pane's chat, held at its rest width at the pane's edge that does not move: in the header's rows
             // and lower, away from its centre.
-            var points = [header / 2, 450].map { CGPoint(x: oldRest.minX + list + 60, y: $0) }
+            var points = (sharesTabRow ? [450] : [header / 2, 450]).map { CGPoint(x: oldRest.minX + list + 60, y: $0) }
+            // Beside a shared tab row: no chat ground.
+            var clear: [CGPoint] = []
             // The part of the old pane that its held chat does not cover, between the chat and the new pane: in its
             // middle and at its far edge, in the header's rows, in the middle rows and at the bottom.
             let gap = newPaneOnTheLeft ? (min: oldFrame.minX, max: oldRest.minX) : (min: oldRest.maxX, max: oldFrame.maxX)
             if gap.max - gap.min > 8 {
                 bands += 1
                 let xs = [(gap.min + gap.max) / 2, newPaneOnTheLeft ? gap.min + 3 : gap.max - 3]
-                points += xs.flatMap { x in [header / 2, 300, size.height - 12].map { CGPoint(x: x.rounded(), y: $0) } }
+                points += xs.flatMap { x in (sharesTabRow ? [300, size.height - 12] : [header / 2, 300, size.height - 12]).map { CGPoint(x: x.rounded(), y: $0) } }
+                if sharesTabRow { clear = xs.map { CGPoint(x: $0.rounded(), y: header / 2) } }
             }
             // The new pane's chat, at its rest width: it rides the screen's edge, so its part at that edge shows first
             // (past its own vertical list on a Split Left), away from its centre.
@@ -310,14 +324,23 @@ struct ChatSplitShowsNoWindowColourTests {
                     holes.append("new pane \(Int(grown)) pt wide: (\(Int(point.x)), \(Int(point.y))) in the \(inOld ? "old" : "new") pane shows \(shown), not the chat's ground")
                 }
             }
+            for point in clear {
+                let shown = try Self.pixel(of: root, at: point)
+                if shown == ground {
+                    holes.append("new pane \(Int(grown)) pt wide: (\(Int(point.x)), \(Int(point.y))) beside the old pane's tab row shows the chat's ground")
+                }
+            }
         }
         try #require(bands >= 4, "the test no longer reaches the frames in which the old pane is wider than its held chat")
+        // The held chat, at its rest width, still has its tools in the row: else its area is under the strip and the case is another.
+        try #require(!sharesTabRow || old.chat.tabRowCoverHeight > 8 && old.content.contentHost.frame.minY == 0,
+                     "fixture: at its rest width the chat's tools left the tab row (the row covers \(old.chat.tabRowCoverHeight) pt, the area starts at \(old.content.contentHost.frame.minY) pt)")
 
         // The landing: both panes at rest, the content let go.
         oldHost.isOnLayoutSpring = false
         newHost.isOnLayoutSpring = false
         for point in [CGPoint(x: oldRest.minX + list + 60, y: header / 2), CGPoint(x: oldRest.minX + list + 60, y: 450),
-                      CGPoint(x: newRest.minX + list + 60, y: header / 2), CGPoint(x: newRest.minX + list + 60, y: 450)] {
+                      CGPoint(x: newRest.minX + list + 60, y: header / 2), CGPoint(x: newRest.minX + list + 60, y: 450)] where !sharesTabRow || point.y > header {
             let shown = try Self.pixel(of: root, at: point)
             if shown != ground { holes.append("at rest after the split: (\(Int(point.x)), \(Int(point.y))) shows \(shown), not the chat's ground") }
         }
@@ -367,5 +390,14 @@ struct ChatSplitShowsNoWindowColourTests {
     func aSplitAcrossOfAChatPaneWithVerticalTabsShowsNoWindowColourBesideTheChat(newPaneOnTheLeft: Bool) throws {
         let holes = try holesInASplitAcross(newPaneOnTheLeft: newPaneOnTheLeft, vertical: PaneVerticalTabs(collapsed: true))
         #expect(holes.isEmpty, "with vertical tabs, Split \(newPaneOnTheLeft ? "Left" : "Right") of a chat pane showed \(holes.count) wrong points (the chat's ground is \(Self.rgb(Self.chatGround)), the window colour \(Self.rgb(Self.window))): \(holes)")
+    }
+
+    /// A tab strip that shows, with the chat's tools in it (review of #40822): the chat's area starts at the pane's top,
+    /// under the row, but the chat does not paint the row. Beside the row the old pane shows no chat ground (no backing
+    /// behind or beside the tabs); below the row it shows the chat's ground, on a Split Right and a Split Left.
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aSplitAcrossOfAChatThatSharesItsTabRowPutsNoGroundBesideTheRow(newPaneOnTheLeft: Bool) throws {
+        let holes = try holesInASplitAcross(newPaneOnTheLeft: newPaneOnTheLeft, sharesTabRow: true)
+        #expect(holes.isEmpty, "with the chat's tools in the tab row, Split \(newPaneOnTheLeft ? "Left" : "Right") of a chat pane showed \(holes.count) wrong points (the chat's ground is \(Self.rgb(Self.chatGround)), the window colour \(Self.rgb(Self.window))): \(holes)")
     }
 }
