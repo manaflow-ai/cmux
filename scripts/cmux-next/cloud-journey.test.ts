@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
@@ -1015,7 +1015,7 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/bin/blob: an OpenAI project key",
         "file /home/cmux/cache/[a secret].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
-        "file /home/cmux/cache/[an OpenAI project key]:1: an OpenAI project key",
+        "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/.codex/.tmp/plugins/p/skills/api.md:1: an OAuth refresh token",
@@ -1089,6 +1089,52 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a hard link in a plugin cache does not class a workspace's key as shipped", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/.env": `OPENAI_API_KEY=${MISTRAL}\n${PROJ}\n`,
+    });
+    // The cache is walked first; its name for the file is a second hard link, which realpath does not resolve.
+    mkdirSync(join(root, "home/cmux/.claude/plugins/p"), { recursive: true });
+    linkSync(join(root, "workspace/project/.env"), join(root, "home/cmux/.claude/plugins/p/.env"));
+    try {
+      const { probe } = run(root);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/.env:2: an OpenAI project key",
+      ]);
+      expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
+        "/home/cmux/.claude/plugins/p/.env:1",
+        "/home/cmux/.claude/plugins/p/.env:2",
+      ]);
+      // Read once, reported under both names.
+      expect(probe.scanned.files).toBe(1);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key glued into a file's name never leaves in the answer", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      [`home/cmux/cache/prefix_${GEMINI_SHAPE}`]: `${GEMINI_SHAPE}\n`,
+      [`home/cmux/cache/x${PROJ}y`]: `${PROJ}\n`,
+    });
+    try {
+      const { probe, out: stdout } = run(root);
+      for (const v of [GEMINI_SHAPE, PROJ]) expect(stdout).not.toContain(v);
+      expect(probe.findings.map((f) => f.what).sort()).toEqual(["a Google AI key", "an OpenAI project key"]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("no finding with a gap in what was read is unknown: a clean check fails it", () => {
     const root = plant({ "proc/9/comm": "bash\n", "proc/9/environ": "HOME=/root\0", "proc/9/cmdline": "bash\0", "home/cmux/locked": "x" });
     try {
@@ -1124,9 +1170,9 @@ describe("clean-room provider key probe", () => {
   });
 
   test("scrub removes provider keys from any text the journey records", () => {
-    const text = `probe printed ${OAUTH} and ${PROJ} at /x/${GEMINI_SHAPE}`;
+    const text = `probe printed ${OAUTH} and ${PROJ} at /x/${GEMINI_SHAPE} and /cache/prefix_${GEMINI_SHAPE}_${tok("hf_", 30)}`;
     const out = scrub(text);
-    for (const v of [OAUTH, PROJ, GEMINI_SHAPE]) expect(out).not.toContain(v);
+    for (const v of [OAUTH, PROJ, GEMINI_SHAPE, "AIza", "hf_"]) expect(out).not.toContain(v);
     expect(out).toContain("[secret]");
   });
 

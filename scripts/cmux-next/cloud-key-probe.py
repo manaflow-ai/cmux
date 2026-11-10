@@ -122,12 +122,17 @@ def found(value):
         FOUND.add(v)
 
 
+# The shapes for redaction: the same, without the word boundaries detection uses to keep prose out, so a key glued to
+# other characters (`prefix_<key>` in a file name) is still replaced.
+REDACT_SHAPES = [(kind, re.compile(pattern.pattern.replace(r"\b", ""))) for kind, pattern in SHAPES]
+
+
 def redact(text):
-    """`text` (a path, a process name: anything the machine controls) with every key-shaped part and every value
-    found as a key replaced, so no finding's place can carry a key out."""
+    """`text` (a path, a process name: anything the machine controls) with every value found as a key and every
+    key-shaped part replaced, so no finding's place can carry a key out."""
     for value in sorted(FOUND, key=len, reverse=True):
         text = text.replace(value, "[a secret]")
-    for kind, pattern in SHAPES:
+    for kind, pattern in REDACT_SHAPES:
         text = pattern.sub(f"[{kind}]", text)
     return text
 
@@ -149,10 +154,16 @@ REFRESH = dict(SHAPES)["an OAuth refresh token"]
 def shape_kinds(text):
     """The kinds of key `text` holds by shape, skipping public stand-ins. Never the values. Every text the probe
     checks (an environment value, an argument, a file's line or chunk) goes through here, so a refresh token is
-    recorded for redaction wherever it was found: its shape names only the JSON around it, not the token alone."""
-    for m in REFRESH.finditer(text):
-        found(m.group(1))
-    return {kind for kind, pattern in SHAPES if any(not PUBLIC_VALUE.search(m.group(0)) for m in pattern.finditer(text))}
+    recorded for redaction wherever it was found. So is every other value a shape matched: redaction then replaces it
+    as plain text wherever it shows up, whatever surrounds it."""
+    kinds = set()
+    for kind, pattern in SHAPES:
+        for m in pattern.finditer(text):
+            if PUBLIC_VALUE.search(m.group(0)):
+                continue
+            kinds.add(kind)
+            found(m.group(1) if pattern.groups else m.group(0))
+    return kinds
 
 
 def value_finding(value):
@@ -338,15 +349,12 @@ def pseudo_devices():
 def scan_files(root, deadline, report):
     pseudo = pseudo_devices()
     real_root = os.path.realpath(root)
-    seen_dirs, seen_files = set(), set()
-
-    def fresh(seen, st):
-        """Whether a folder or file (stat followed through links) has not been walked yet, by device and inode."""
-        key = (st.st_dev, st.st_ino)
-        if key in seen:
-            return False
-        seen.add(key)
-        return True
+    # A file or folder can have several names: a symbolic link, a hard link, a bind mount. Its contents are read once
+    # (by device and inode), but every name it is reached under is classed and reported on its own, so a name in a
+    # place whose matches are shipped (a plugin cache) never hides the same key under a workspace name. A folder is
+    # walked once per class (shipped or not), which still ends on a loop.
+    walked_dirs, reported = set(), set()
+    contents = {}
 
     for top in FILE_ROOTS:
         start = os.path.join(root, top)
@@ -355,9 +363,11 @@ def scan_files(root, deadline, report):
         for dirpath, dirnames, filenames in os.walk(start, followlinks=True, onerror=lambda e: report["unreadable"].append(shown(root, e.filename))):
             try:
                 st = os.stat(dirpath)
-                if st.st_dev in pseudo or not fresh(seen_dirs, st):
+                key = (st.st_dev, st.st_ino, bool(SHIPPED.search(shown(real_root, os.path.realpath(dirpath)) + "/")))
+                if st.st_dev in pseudo or key in walked_dirs:
                     dirnames[:] = []
                     continue
+                walked_dirs.add(key)
             except OSError:
                 report["unreadable"].append(shown(root, dirpath))
                 dirnames[:] = []
@@ -377,22 +387,24 @@ def scan_files(root, deadline, report):
                         continue  # a link to nothing, or a file gone since the listing, holds nothing
                     if not stat.S_ISREG(st.st_mode) or st.st_dev in pseudo:
                         continue  # a socket, fifo or device, or a kernel file, holds no stored key
-                    # A login file is one by the name it is reached under (a link named .codex/auth.json counts),
-                    # each time, before the file is skipped as already read.
+                    # A login file is one by the name it is reached under (a link named .codex/auth.json counts).
                     for suffix, what in LOGIN_FILES.items():
                         if walked.endswith("/" + suffix) and st.st_size > 0:
                             report["findings"].append({"place": "file", "where": walked, "what": what})
-                    if not fresh(seen_files, st):
-                        continue
-                    # Its contents are named and classed by where the file really is, so a link from a place whose
-                    # matches are shipped (a plugin cache) to a workspace cannot class the workspace's keys as shipped.
+                    # Named and classed by where it is once symbolic links are resolved; each such name once.
                     where = shown(real_root, os.path.realpath(path))
-                    hits = scan_file(path)
+                    if where in reported:
+                        continue
+                    reported.add(where)
+                    inode = (st.st_dev, st.st_ino)
+                    if inode not in contents:
+                        contents[inode] = scan_file(path)
+                        report["scanned"]["files"] += 1
+                    hits = contents[inode]
                 except OSError:
                     if os.path.lexists(path):
                         report["scanned"]["files_unreadable"] += 1
                     continue
-                report["scanned"]["files"] += 1
                 listed = report["shipped"] if SHIPPED.search(where) else report["findings"]
                 for line, what in hits:
                     listed.append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})

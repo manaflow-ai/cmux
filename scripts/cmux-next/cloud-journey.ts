@@ -157,10 +157,11 @@ export type Status = "pass" | "fail" | "skip";
 export type Step = { step: string; status: Status; ms: number; detail: string };
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /\b(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+// No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
   // Model provider keys (cloud-key-probe.py SHAPES), whatever text carries one: a probe answer, an error, a path.
-  /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /\bsk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
-  /sk-or-v1-[0-9a-f]{32,}/g, /\bAIza[0-9A-Za-z_-]{35}/g, /\bxai-[A-Za-z0-9]{40,}/g, /\bgsk_[A-Za-z0-9]{40,}/g, /\bhf_[A-Za-z0-9]{30,}/g];
+  /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
+  /sk-or-v1-[0-9a-f]{32,}/g, /AIza[0-9A-Za-z_-]{35}/g, /xai-[A-Za-z0-9]{40,}/g, /gsk_[A-Za-z0-9]{40,}/g, /hf_[A-Za-z0-9]{30,}/g];
 export function scrub(text: string, secrets: string[] = []): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 6) out = out.split(s).join("[secret]");
