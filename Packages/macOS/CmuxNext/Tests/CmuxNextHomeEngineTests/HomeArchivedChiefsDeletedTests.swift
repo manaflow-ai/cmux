@@ -6,7 +6,7 @@ import Testing
 /// list leaves a deleted Chief's direct conversation out (`home-inbox` `deleted_chiefs`), and the
 /// page took a conversation the list does not have for one that is about to be listed, so it opened
 /// (or kept showing) the deleted Chief's conversation, with all of its history.
-struct HomeArchivedChiefsDeletedTests {
+@MainActor struct HomeArchivedChiefsDeletedTests {
     private let me = ParticipantID("user_local")
     private let deleted = "agent_01jdeletedchief0000000000"
     private let conversations: [String: [String]] = [
