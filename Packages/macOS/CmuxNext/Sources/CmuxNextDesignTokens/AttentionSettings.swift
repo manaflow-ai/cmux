@@ -56,13 +56,17 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var showsOnSidebar = true
     /// A notification for a pane the user is not looking at moves its
     /// workspace to the top of the unpinned rows (classic's
-    /// `app.reorderOnNotification`). Off by default: the sidebar keeps the
-    /// order the user made and shows attention as a badge (Leo 2026-10-20).
-    public var movesToTop = false
+    /// `app.reorderOnNotification`): first in its project, else first among the
+    /// loose rows. A notification is what turns a row blue (done, unread) or
+    /// yellow (needs you); a working agent posts none, so working rows stay put.
+    /// On by default (Leo 2026-11-10: "the ones that are blue that are done, I
+    /// think we can probably turn that on. Likewise with the yellow"); it was off
+    /// from 2026-10-20 ("too noisy"). Row state alone never moves a row.
+    public var movesToTop = true
     /// An agent's finished turn (`agent.turn.completed`) for a pane the user is not
     /// looking at moves its workspace to the top, as `movesToTop` does for every
     /// notification (`notifications.attention.moveToTopOnAgentFinish`, cmux#31513).
-    /// Off by default, like `movesToTop`.
+    /// Off by default: with `movesToTop` on it adds nothing.
     public var movesToTopOnAgentFinish = false
 
     public init() {}
