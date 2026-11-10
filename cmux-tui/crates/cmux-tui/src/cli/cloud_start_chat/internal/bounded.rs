@@ -30,7 +30,8 @@ fn ran_past_deadline() -> Ran {
 
 /// `command`'s output, by `until`: a step past it is not started, and one still running at it is killed with its
 /// whole process group (it runs in a group of its own, so nothing it started outlives it) and answers
-/// [`PAST_DEADLINE`].
+/// [`PAST_DEADLINE`]. A step that exits leaves nothing behind either: what is left in its group (a backgrounded
+/// grandchild that may hold its output pipes open) is killed then, and its output is read by `until` at the latest.
 pub(in crate::cli::cloud_start_chat) fn output_by(
     mut command: cmux_process::Command,
     until: Instant,
@@ -52,37 +53,47 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
     let stderr = child.stderr.take().map(drain);
     let left = until.saturating_duration_since(Instant::now());
     let status = match child.wait_timeout(left) {
-        Ok(Some(status)) => Some(status),
+        Ok(Some(status)) => {
+            // The step is done; anything still in its group is its own leftover.
+            kill_group(&mut child);
+            Some(status)
+        }
         Ok(None) | Err(_) => {
             kill_group(&mut child);
             let _ = child.wait();
             None
         }
     };
-    let collect = |reader: Option<std::thread::JoinHandle<Vec<u8>>>| {
-        reader.and_then(|reader| reader.join().ok()).unwrap_or_default()
+    // Each pipe ends once the group is gone; a reader still waiting at `until` (a process that left the group and
+    // holds the pipe) is not waited for.
+    let collect = |reader: Option<std::sync::mpsc::Receiver<Vec<u8>>>| match reader {
+        None => Some(Vec::new()),
+        Some(reader) => reader.recv_timeout(until.saturating_duration_since(Instant::now())).ok(),
     };
     let (stdout, stderr) = (collect(stdout), collect(stderr));
-    match status {
-        Some(status) => Ran {
+    match (status, stdout, stderr) {
+        (Some(status), Some(stdout), Some(stderr)) => Ran {
             code: status.code().unwrap_or(1),
             stdout: String::from_utf8_lossy(&stdout).into_owned(),
             stderr: String::from_utf8_lossy(&stderr).into_owned(),
         },
-        None => ran_past_deadline(),
+        _ => ran_past_deadline(),
     }
 }
 
-/// Reads a pipe to its end on a thread of its own.
-fn drain(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
+/// Reads a pipe to its end on a thread of its own, and sends what it read.
+fn drain(mut pipe: impl Read + Send + 'static) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (done, read) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = pipe.read_to_end(&mut bytes);
-        bytes
-    })
+        let _ = done.send(bytes);
+    });
+    read
 }
 
-/// Kills the child this runner spawned, and its process group (its own, `process_group(0)`).
+/// Kills the child this runner spawned, and its process group (its own, `process_group(0)`). After the child exited
+/// and was reaped, the group's id stays its own while any member is left, and with none left `killpg` finds nothing.
 fn kill_group(child: &mut cmux_process::Child) {
     #[cfg(unix)]
     if let Ok(pid) = libc::pid_t::try_from(child.id())
@@ -150,6 +161,34 @@ mod tests {
         assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
         let read = read_by(std::io::Cursor::new(b"count".to_vec()), began + Duration::from_secs(5));
         assert_eq!(read, Ok("count".to_owned()));
+    }
+
+    /// A step that exits at once but leaves a backgrounded grandchild holding its stdout answers right away with
+    /// its own output, and the grandchild is killed with the step's group: neither the pipe nor the leftover
+    /// outlives the step. Without it, reading the output waited on the grandchild, past any deadline.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_step_that_exits_leaving_a_grandchild_on_its_pipe_answers_and_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("grandchild.pid");
+        let mut command = cmux_process::Command::new("sh");
+        command.arg("-c").arg(format!("sleep 600 & echo $! > '{}'; echo hi", pid_file.display()));
+        let began = Instant::now();
+        let ran = output_by(command, began + Duration::from_secs(5));
+        let took = began.elapsed();
+        assert_eq!((ran.code, ran.stdout.as_str()), (0, "hi\n"), "{}", ran.stderr);
+        assert!(took < Duration::from_secs(3), "answered {took:?} after the step exited");
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        let gone = (0..100).any(|_| {
+            let stat =
+                std::fs::read_to_string(format!("/proc/{}/stat", pid.trim())).unwrap_or_default();
+            let running = stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z'));
+            if running {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            !running
+        });
+        assert!(gone, "the step's grandchild outlived it");
     }
 
     /// Under a second left, no remote script is sent; otherwise the machine's `timeout` holds the whole seconds
