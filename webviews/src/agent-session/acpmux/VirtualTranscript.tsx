@@ -2226,7 +2226,11 @@ function TranscriptView({
             // over the live line under it, and the view a line short (agent-pane-stream-jitter's
             // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
             // height animation is placed before paint too, or the rows below overlap its body.
-            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+              pendingDrawn.current = new Map();
+              // Back at their placed heights: a ride keeps no translate for a change undone.
+              foldRide.current!.settled(targets, !followingRef.current && !bottomStackFold.current);
+            }
             // Only rows whose own fold plays changed, away from the bottom: the rows under them ride
             // the change by translate, and the transcript renders once when the fold ends, not on
             // every frame of it (Leo, 2026-11-09: "It just, like, lags pretty heavily").

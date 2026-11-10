@@ -125,6 +125,13 @@ export class FoldRide {
     return true;
   }
 
+  /// The `targets` lay out at the heights the transcript placed them at again (a fold reversed, or
+  /// landed at once): the rows under them ride on by what is left of the folds' change, or let go
+  /// when they may not ride (`mayRide`) or the ride gives way.
+  settled(targets: readonly HTMLElement[], mayRide: boolean): void {
+    if (this.riding && !(mayRide && this.ride(targets))) this.release();
+  }
+
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.
   release(): false {
     for (const node of this.moved) node.style.translate = "";

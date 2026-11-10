@@ -136,3 +136,34 @@ test("the ride gives way when a fold above the clicked line in its own row moves
   expect(ride.ride([row])).toBe(false);
   expect(last.style.translate).toBe("");
 });
+
+// A fold reversed mid-way lands its row back at the height the transcript placed it at: the
+// transcript has nothing to place, and the rows under it must not keep the translate of a change
+// undone (review of #39917 at ff692235: "100 -> 140 -> 120 -> 100 leaving a stale 20px").
+test("a fold back at its placed height leaves the rows under it no translate", () => {
+  const rows = transcript(4);
+  const [row, , , last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+  height.set(row, 140);
+  expect(ride.ride([row])).toBe(true);
+  height.set(row, 120);
+  expect(ride.ride([row])).toBe(true);
+  expect(last.style.translate).toBe("0 20px");
+  height.set(row, 100);
+  ride.settled([row], true);
+  expect(last.style.translate).toBe("");
+  // Where rows may not ride (the view follows the latest row), the ride lets go.
+  height.set(row, 130);
+  expect(ride.ride([row])).toBe(true);
+  height.set(row, 100);
+  ride.settled([row], false);
+  expect(ride.riding).toBe(false);
+  expect(last.style.translate).toBe("");
+});
