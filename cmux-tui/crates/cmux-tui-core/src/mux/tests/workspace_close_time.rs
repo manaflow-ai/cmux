@@ -13,6 +13,10 @@
 //! What it measures: the in-process call (`Mux::close_workspace_ending_terminals`) in a test
 //! build, with the debug cross-check off as a release daemon runs. It is not the socket reply time
 //! of a release daemon: no request parse, no reply write, no other client.
+//!
+//! The test-only check of each tree entity against the whole tree's JSON
+//! (`server::tree_entity_json`) is off during the measured call: it costs about 14 ms at 826
+//! workspaces (1 ms at 60) in a test build and is not in a daemon.
 
 use std::time::{Duration, Instant};
 
@@ -30,7 +34,9 @@ fn timed_close(mux: &Arc<Mux>, index: usize) -> Duration {
         WorkspaceMutation::daemon(format!("close-time-{key}"), "close-time-test").unwrap();
     let started = Instant::now();
     without_crosscheck(|| {
-        mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
+        crate::server::without_entity_check_for_test(|| {
+            mux.close_workspace_ending_terminals(None, Some(&key), None, None, &mutation).unwrap();
+        });
     });
     started.elapsed()
 }
@@ -62,8 +68,9 @@ fn the_time_of_one_workspace_close_is_printed() {
         "debug assertions off (--release)"
     };
     eprintln!(
-        "close time: the in-process call in a test build, {build}; not the socket reply time of a \
-         release daemon. {SAMPLES} new sessions for each size; in each one a close of the last \
+        "close time: the in-process call in a test build, {build}, with the test-only check of \
+         the tree entity against the whole tree off; not the socket reply time of a release \
+         daemon. {SAMPLES} new sessions for each size; in each one a close of the last \
          workspace, then of a middle one, then of the first one."
     );
     for workspaces in [60, 826] {

@@ -80,6 +80,29 @@ pub(crate) fn set_entity_check_hook_for_test(hook: impl FnOnce() + 'static) {
     ENTITY_CHECK_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Whether `tree_entity_json`'s check against the whole tree is off on this thread
+    /// ([`without_entity_check_for_test`]).
+    static ENTITY_CHECK_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `body` with `tree_entity_json`'s check against the whole tree off on this thread, and puts
+/// the switch back when `body` ends (also when it panics). Only for a time measurement: the check
+/// builds the whole tree's JSON, which a daemon build never does, so a time measured with it
+/// grows with the session for a reason that is not in the product. Every other test keeps it on.
+#[cfg(test)]
+pub(crate) fn without_entity_check_for_test<R>(body: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            ENTITY_CHECK_OFF.with(|off| off.set(self.0));
+        }
+    }
+    let _restore = Restore(ENTITY_CHECK_OFF.with(|off| off.replace(true)));
+    body()
+}
+
 pub(super) fn pane_json(
     state: &State,
     id: PaneId,
@@ -501,7 +524,9 @@ pub(crate) fn tree_entity_json(
     let entity = entity_json(state, notifications, kind, id);
     // Unit tests check every entity against the whole tree's value at that place (not counted as built).
     #[cfg(test)]
-    check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    if !ENTITY_CHECK_OFF.with(std::cell::Cell::get) {
+        check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    }
     entity
 }
 
