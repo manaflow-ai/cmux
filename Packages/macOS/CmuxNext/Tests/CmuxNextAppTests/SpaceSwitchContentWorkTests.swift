@@ -38,8 +38,9 @@ struct SpaceSwitchContentWorkTests {
 
     /// The title label had an intrinsic size and four constraints, so each new title string (one per space
     /// switch) invalidated its content size and the window ran a constraint pass in the switch's first frame.
-    /// The label has no intrinsic size and no constraint: the titlebar gives it the strip's width inside the
-    /// side insets, and a new title moves no frame (the label centers and truncates its own text).
+    /// The label has no intrinsic size and no constraint: the titlebar places it at the text's own size,
+    /// centered and inside its side insets, and a hidden titlebar (the default style) does not lay out for
+    /// a new title.
     @Test func aNewTitleNeedsNoConstraintPass() throws {
         let titlebar = TitlebarView(frame: NSRect(x: 0, y: 0, width: 400, height: 28))
         let label = try #require(titlebar.subviews.first)
@@ -48,18 +49,27 @@ struct SpaceSwitchContentWorkTests {
         #expect(label.intrinsicContentSize.width == NSView.noIntrinsicMetric && label.intrinsicContentSize.height == NSView.noIntrinsicMetric,
                 "the title label has the intrinsic size \(label.intrinsicContentSize): a new title invalidates it")
         #expect(label.translatesAutoresizingMaskIntoConstraints, "the title label is placed by constraints, not by the titlebar's layout")
-        let insets = label.alignmentRectInsets, placed = label.frame
-        #expect(placed.height > 0 && abs(placed.midY - titlebar.bounds.midY) <= 1, "the title is centered in the strip's height: \(placed) in \(titlebar.bounds)")
-        #expect(abs(placed.minX + insets.left - Metrics.space5) <= 1 && abs(placed.maxX - insets.right - (titlebar.bounds.maxX - Metrics.space5)) <= 1,
-                "the title has the strip's width inside the side insets: \(placed) in \(titlebar.bounds)")
+        #expect(label.frame.width > 0 && label.frame.height > 0, "the title has a frame: \(label.frame)")
+        #expect(abs(label.frame.midX - titlebar.bounds.midX) <= 1 && abs(label.frame.midY - titlebar.bounds.midY) <= 1,
+                "the title is centered: \(label.frame) in \(titlebar.bounds)")
+        let short = label.frame.width
 
         titlebar.title = String(repeating: "A long workspace name ", count: 20)
         titlebar.layoutSubtreeIfNeeded()
-        #expect(label.frame == placed, "a new title moved the label: \(label.frame) after \(placed)")
+        let insets = label.alignmentRectInsets
+        #expect(label.frame.width > short, "a longer title takes a wider frame: \(label.frame.width) after \(short)")
+        #expect(label.frame.minX + insets.left >= Metrics.space5 - 1 && label.frame.maxX - insets.right <= titlebar.bounds.maxX - Metrics.space5 + 1,
+                "a title wider than the titlebar stays inside the side insets: \(label.frame) in \(titlebar.bounds)")
+        #expect(abs(label.frame.midX - titlebar.bounds.midX) <= 1, "the long title is centered: \(label.frame)")
 
-        titlebar.setFrameSize(NSSize(width: 700, height: 28))
-        titlebar.needsLayout = true
+        // Hidden (`window.titlebar` minimal): a new title asks for no layout; it is placed when the strip shows.
+        titlebar.isHidden = true
         titlebar.layoutSubtreeIfNeeded()
-        #expect(abs(label.frame.maxX - insets.right - (700 - Metrics.space5)) <= 1, "the title follows the strip's width: \(label.frame)")
+        titlebar.title = "Workspace 2"
+        #expect(!titlebar.needsLayout, "a hidden titlebar asked for a layout for a new title")
+        titlebar.isHidden = false
+        titlebar.layoutSubtreeIfNeeded()
+        #expect(abs(label.frame.width - short) <= 12 && abs(label.frame.midX - titlebar.bounds.midX) <= 1,
+                "the title set while hidden is placed when the strip shows: \(label.frame)")
     }
 }

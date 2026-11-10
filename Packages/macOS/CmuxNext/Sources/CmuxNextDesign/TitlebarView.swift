@@ -5,15 +5,19 @@ public import AppKit
 /// it moves the window; a double-click runs the user's titlebar action
 /// (both through `TitlebarDragPolicy`).
 ///
-/// A new title costs one draw of the label and nothing else: the label has the strip's width inside
-/// the side insets and the height of one line of its font, centers and truncates its own text, has no
-/// intrinsic size and no constraint. So a space or workspace switch, which sets a title each time,
-/// measures no text, starts no constraint pass in the window and moves no frame.
+/// The strip places its label itself: the label has no intrinsic size and no constraint, so a new title
+/// (each space or workspace switch sets one) starts no constraint pass in the window. A shown strip
+/// lays itself out once for it (the text's own size, centered); a hidden one (`window.titlebar`
+/// "minimal", the default) keeps the string only and lays out when it shows.
 public final class TitlebarView: NSView, TitlebarPressDeciding {
     private let label = TitlebarTitleLabel(labelWithString: "") // a layer color: a theme change blends it (I5)
 
     public var title: String = "" {
-        didSet { label.stringValue = title }
+        didSet {
+            guard title != oldValue else { return }
+            label.stringValue = title
+            if !isHiddenOrHasHiddenAncestor { needsLayout = true }
+        }
     }
 
     override public init(frame frameRect: NSRect) {
@@ -23,6 +27,7 @@ public final class TitlebarView: NSView, TitlebarPressDeciding {
         label.alignment = .center
         addSubview(label)
         setAccessibilityElement(false)
+        needsLayout = true
     }
 
     @available(*, unavailable)
@@ -34,22 +39,23 @@ public final class TitlebarView: NSView, TitlebarPressDeciding {
         if changed { needsLayout = true }
     }
 
-    override public func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        needsLayout = true // the line's height rounds to the backing scale
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        needsLayout = true // a title set while hidden
     }
 
-    /// The label across the strip, `Metrics.space5` free at each side of its text (its alignment rect),
-    /// one line of its font tall and centered in the strip's height. The line's height is the measure of
-    /// an empty label (`LabelText.measure`: the font's line, no text layout), so it is the same for
-    /// every title.
+    override public func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true // the text's size rounds to the backing scale
+    }
+
+    /// The title at its own size, centered; one wider than the strip keeps `Metrics.space5` free at each
+    /// side of its text (the label's alignment rect) and truncates in the middle.
     override public func layout() {
         super.layout()
-        let insets = label.alignmentRectInsets
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let height = LabelText.measure(NSAttributedString(), font: label.font, shape: label.shape, width: nil, scale: scale).size.height
-        let width = max(bounds.width - Metrics.space5 * 2 + insets.left + insets.right, 0)
-        let placed = backingAlignedRect(NSRect(x: Metrics.space5 - insets.left, y: bounds.midY - height / 2, width: width, height: height),
+        let insets = label.alignmentRectInsets, natural = label.naturalSize
+        let width = min(natural.width, max(bounds.width - Metrics.space5 * 2 + insets.left + insets.right, 0))
+        let placed = backingAlignedRect(NSRect(x: bounds.midX - width / 2, y: bounds.midY - natural.height / 2, width: width, height: natural.height),
                                         options: .alignAllEdgesNearest)
         if label.frame != placed { label.frame = placed }
     }
@@ -62,13 +68,14 @@ public final class TitlebarView: NSView, TitlebarPressDeciding {
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         viewDidChangeEffectiveAppearance()
+        needsLayout = true
     }
 
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .movesWindow }
 }
 
-/// The titlebar's label, placed by `TitlebarView.layout()`. It has no intrinsic size, so new text
-/// invalidates no constraint and asks for no layout: its frame depends on the strip and the font only.
+/// The titlebar's label, sized and placed by `TitlebarView.layout()`. It has no intrinsic size, so new
+/// text invalidates no constraint.
 private final class TitlebarTitleLabel: ChromeLabel {
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric) }
     override func invalidateIntrinsicContentSize() {}
