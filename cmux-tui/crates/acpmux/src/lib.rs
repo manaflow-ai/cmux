@@ -53,6 +53,7 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+mod codex_cloud_auth;
 pub mod codex_desktop;
 pub mod complete;
 pub mod config;
@@ -157,6 +158,7 @@ pub mod route_shadow;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
+pub mod run_elsewhere;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;

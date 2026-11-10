@@ -92,7 +92,7 @@ and listing actions their facts. They need the app, sign-in and its private tunn
 ## Machine lifecycle from the Mac
 
 ```sh
-cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
+cmux vm ls --json                           # machines (machine_id, target, status, owner)
 cmux machine new                                          # prints its target and next steps (--json: machine_id, or pending)
 cmux cloud new-workspace --json                           # a new cloud workspace on a new small machine of its own (machine_id, target; or pending)
 cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
@@ -108,7 +108,7 @@ From the CLI or MCP, every machine action needs `--target machine:vm-…`; witho
 the app refuses the run (only a person's own click acts on the machine in front of
 them). The full set is in [the command reference](references/commands.md).
 
-Before creating a machine, check whether it already exists: `cmux cloud list-machines`
+Before creating a machine, check whether it already exists: `cmux vm ls`
 answers the app's own machine list (the sidebar's Cloud machines), each with the
 `target` the other verbs take and its `status` (`paused` for a paused machine). Act on
 it only when it says `loaded: true`: `loaded: false` means the list is not known yet.
@@ -153,7 +153,7 @@ image) and browser authentication. The machine's `cmux --help` is authoritative.
 The Swift `cmux vm …` family is gone; today's `cmux machine` (old name `cmux vm`) is
 the API client in [headless.md](references/headless.md). The old verbs' replacements are app actions:
 `cmux cloud exec --command …` (returns the exit code and output), `cmux cloud ssh`
-(opens a terminal), `cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp`
+(opens a terminal), `cmux cloud file-write`, `cmux vm file-read|files-list|prepare-scp`
 (these return their result to the CLI),
 `cmux cloud pause-machine|resume-machine`, `cmux cloud list-machines` (for `vm ls`),
 and `cmux cloud domain-list` (listing only). These have no CLI path:

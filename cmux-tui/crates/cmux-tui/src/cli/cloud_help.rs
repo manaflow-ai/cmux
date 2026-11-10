@@ -97,7 +97,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "kill-machine",
-                "{target} --confirm",
+                "{target} --yes",
                 "Delete a machine and everything on it",
                 "マシンとその中身をすべて削除",
             ),
@@ -193,12 +193,7 @@ const GROUPS: &[Group] = &[
                 "ファイルにテキストを書き込む",
             ),
             verb("file-mkdir", "{target} --path /DIR", "Create a directory", "ディレクトリを作成"),
-            verb(
-                "file-remove",
-                "{target} --path /FILE --confirm",
-                "Remove a file",
-                "ファイルを削除",
-            ),
+            verb("file-remove", "{target} --path /FILE --yes", "Remove a file", "ファイルを削除"),
             verb(
                 "file-stat",
                 "{target} --path /PATH",
@@ -231,7 +226,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "delete-snapshot",
-                "{target} --snapshot SNAPSHOT_ID --confirm",
+                "{target} --snapshot SNAPSHOT_ID --yes",
                 "Delete a snapshot",
                 "スナップショットを削除",
             ),
@@ -335,7 +330,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "firewall-delete",
-                "--arg path=RULE_ID --confirm",
+                "--arg path=RULE_ID --yes",
                 "Delete a firewall rule",
                 "ファイアウォールルールを削除",
             ),
@@ -361,7 +356,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "api-key-revoke",
-                "--path PUBLICATION --key KEY_ID --confirm",
+                "--path PUBLICATION --key KEY_ID --yes",
                 "Revoke a publication's API key",
                 "公開設定の API キーを失効",
             ),
@@ -385,7 +380,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "move-to-machine",
-                "[--machine machine:MACHINE_ID]",
+                "[--machine vm:VM_ID]",
                 "Move a moved chat on to another Cloud machine",
                 "移したチャットを別の Cloud マシンに移す",
             ),
@@ -416,6 +411,7 @@ USAGE
 These actions run through the cmux app, signed in (`cmux login`).
 The everyday verbs take the VM's name or id, or nothing when you have one VM:
   cmux cloud ls | status | pause | resume | rm | resize | fork | rename [NAME|ID]
+  cmux cloud ssh | move [NAME|ID]  and  cmux cloud exec [NAME|ID] -- COMMAND...
 The others take --target vm:VM_ID: `cmux cloud ls` prints each VM's
 target. Without the app (CI, a headless agent), the VM API verbs below
 (`cmux vm run`, `cmux vm new`, ...) talk to the cmux VM API directly.
@@ -433,11 +429,13 @@ QUICK START
   Machines:
   cmux cloud ls --json
   cmux vm new --size small --json
-  cmux cloud exec --target vm:VM_ID --command 'uname -a' --json
+  cmux cloud exec dev -- uname -a
+  cmux cloud ssh dev
   cmux cloud status dev
   cmux cloud pause dev
   cmux cloud resume dev
-  cmux cloud rm dev --confirm
+  cmux cloud rm dev
+  (rm asks first at a terminal; --yes skips the question)
 ";
 
 const INTRO_JA: &str = "\
@@ -448,6 +446,7 @@ const INTRO_JA: &str = "\
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
   cmux cloud ls | status | pause | resume | rm | resize | fork | rename [名前|ID]
+  cmux cloud ssh | move [名前|ID]  と  cmux cloud exec [名前|ID] -- コマンド...
 ほかのアクションは --target vm:VM_ID を取ります。各 VM の target は
 `cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
 下の VM API の動詞（`cmux vm run`、`cmux vm new` など）で cmux VM API を直接使えます。
@@ -465,11 +464,13 @@ const INTRO_JA: &str = "\
   マシン:
   cmux cloud ls --json
   cmux vm new --size small --json
-  cmux cloud exec --target vm:VM_ID --command 'uname -a' --json
+  cmux cloud exec dev -- uname -a
+  cmux cloud ssh dev
   cmux cloud status dev
   cmux cloud pause dev
   cmux cloud resume dev
-  cmux cloud rm dev --confirm
+  cmux cloud rm dev
+  （rm はターミナルで確認します。--yes で確認を省略）
 ";
 
 const OUTRO_EN: &str = "\
@@ -488,7 +489,8 @@ CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
 
-Actions marked --confirm delete something and refuse to run without it.
+`cmux vm rm NAME` asks first at a terminal; --yes (-y) skips the question.
+Every other action that deletes something needs --yes.
 Run `cmux action list --category cloud --json` for the live catalog and
 `cmux action describe cloud <action> --json` for an action's arguments.
 ";
@@ -509,7 +511,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
 
---confirm が付くアクションは何かを削除するため、--confirm なしでは実行されません。
+`cmux vm rm 名前` はターミナルで確認します。--yes（-y）で確認を省略できます。
+ほかの削除するアクションには --yes が必要です。
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe cloud <アクション> --json` で確認できます。
 ";
@@ -587,7 +590,7 @@ a team admin only.
 ";
 
 pub(super) const ARCHIVE_USAGE: &str = "\
-usage: cmux vm archive-machine --target vm:VM_ID --confirm [--json]
+usage: cmux vm archive-machine --target vm:VM_ID --yes [--json]
 
 Archives a paused machine's disk, then deletes the machine. The archive is a
 snapshot kept for the plan's archive days; the Cloud page's Archives list it
@@ -596,6 +599,17 @@ it, it says where the app offers it.
 ";
 
 /// The new spelling of a hidden old verb.
+/// Whether Cloud's `verb` deletes something and so takes `--yes` (the app's `--confirm`): its
+/// usage here says `--yes`. Only these verbs get `--yes` respelled, so a `--yes` that is another
+/// verb's value (`start-chat --prompt --yes`) stays as typed.
+pub(super) fn confirms(verb: &str) -> bool {
+    verb == ARCHIVE
+        || GROUPS
+            .iter()
+            .flat_map(|group| group.verbs.iter())
+            .any(|known| known.name == verb && known.usage.contains("--yes"))
+}
+
 pub(super) fn renamed(name: &str) -> Option<&'static str> {
     HIDDEN.iter().find(|(old, _)| *old == name).map(|(_, new)| *new)
 }
@@ -629,7 +643,7 @@ pub(super) fn overview(japanese: bool) -> String {
                 (true, false) => " (not on Cloud yet)",
                 (true, true) => "（Cloud では未対応）",
             };
-            let marker = if verb.usage.contains("--confirm") { " (--confirm)" } else { "" };
+            let marker = if verb.usage.contains("--yes") { " (--yes)" } else { "" };
             let description = if japanese { verb.ja } else { verb.en };
             text.push_str(&format!("  {:width$}  {description}{not_yet}{marker}\n", verb.name));
         }
@@ -640,9 +654,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --confirm  一時停止中のマシンをアーカイブして削除 (--confirm)\n"
+        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --confirm  Archive a paused machine's disk, then delete it (--confirm)\n"
+        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
