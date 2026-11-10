@@ -214,7 +214,9 @@ async fn call_query(
 }
 
 /// The platform's refusal: `{_tag, code, message, retryable, retryAfterSeconds}` or
-/// `{error: {code, message}}`.
+/// `{error: {code, message}}`, with no Retry-After header (the tests' shorthand; a call reads
+/// its header through [`refusal_with`]).
+#[cfg(test)]
 pub(crate) fn refusal(status: u16, body: Option<&Value>) -> Failure {
     refusal_with(status, body, None)
 }
