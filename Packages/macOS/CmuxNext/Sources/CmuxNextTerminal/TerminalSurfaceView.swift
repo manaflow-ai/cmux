@@ -649,8 +649,9 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Occlusion
 
-    /// BENCH ONLY (split-down-garbage, never merged): `CMUX_SDG_BENCH_FIRST_DRAW=1`.
-    private static let benchFirstDraw = ProcessInfo.processInfo.environment["CMUX_SDG_BENCH_FIRST_DRAW"] == "1"
+    /// BENCH ONLY (split-down-garbage, never merged): `CMUX_SDG_BENCH_FIRST_DRAW=1`, or `2` to keep that frame.
+    private static let benchFirstDraw = ["1", "2"].contains(ProcessInfo.processInfo.environment["CMUX_SDG_BENCH_FIRST_DRAW"])
+    private static let benchFirstDrawHold = ProcessInfo.processInfo.environment["CMUX_SDG_BENCH_FIRST_DRAW"] == "2"
 
     /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
     /// keep parsing output; Ghostty draws the current content on its `.visible` message.
@@ -682,6 +683,9 @@ public final class TerminalSurfaceView: NSView {
             let line = "SDG-BENCH sync draw: built before \(builtBefore) after \(builtAfter) grid \(cols)x\(rows) "
                 + "view \(Int(bounds.width))x\(Int(bounds.height))\n"
             FileHandle.standardError.write(Data(line.utf8))
+            // Mode 2: the frame of that draw stays (the surface is hidden again before the render thread's build
+            // and is not shown again), so a still and a film can catch it. The bench closes the pane.
+            if Self.benchFirstDrawHold { ghostty_surface_set_occlusion(surface, false) }
         }
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
         // background update) before its view has ever joined a window. The visibility message
