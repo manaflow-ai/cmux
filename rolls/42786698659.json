@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42786698659",
+  "recorded_at": "2026-11-10T09:05:12Z",
+  "reason": "cmux-tui ef0756a57759 changes the image's cmux-tui (pinned 6989c68b5759)",
+  "dry_run": false,
+  "cmux_tui": "ef0756a57759b9c07aaba33ff4e8cabdad1877c0",
+  "fixes": [
+    {
+      "sha": "ef0756a57759b9c07aaba33ff4e8cabdad1877c0",
+      "mergedAt": "2026-11-10T08:41:12Z",
+      "subject": "notices: the python floor is 3.11.4 (tomllib and tarfile's extraction filter) (#40257)"
+    },
+    {
+      "sha": "fdfaea380ba72e91b4de422cc92101d613ec27c9",
+      "mergedAt": "2026-11-10T00:38:40-08:00",
+      "subject": "Folderless Cloud chat: No folder is a first-class state, /cd ~ works in it, and start-chat reports its folder (#39939)"
+    },
+    {
+      "sha": "dd52d2920436d304ee436975c063a760971fe394",
+      "mergedAt": "2026-11-10T00:37:00-08:00",
+      "subject": "Cloud start: \"This team has no Cloud plan\", with Switch to your own team and See plans (#39928)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T09:05:12Z",
+    "snapshot_id": "sh-b335b7e2c44f4174a8d5333a77d5175a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42786698659): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "824dfe557cb27f776e09244ad129d8103a4ad77e",
+    "image": "cloud-native-auto-ef0756a5-42786698659-1",
+    "revision": "ci-42786698659-1",
+    "at": "2026-11-10T09:05:12Z"
+  },
+  "rolled_back": false
+}
