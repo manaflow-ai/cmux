@@ -97,6 +97,13 @@ public protocol TabStripCorner: AnyObject {
     /// The selected tab's folder shape and the layer it is drawn in, while it runs into the card; nil
     /// otherwise (design/selected-is-foreground.md).
     var selectedFolder: (path: CGPath, layer: CALayer)? { get }
+    /// The selected folder along a move in flight (its tab's width or slot), in the folder layer's
+    /// coordinates as ``selectedFolder`` gives them; nil at rest.
+    var selectedFolderMotion: FolderMotion? { get }
+}
+
+extension TabStripCorner {
+    public var selectedFolderMotion: FolderMotion? { nil }
 }
 
 extension Metrics {
@@ -179,7 +186,8 @@ public final class CornerFlushChrome: NSView {
         guard let shade, let shadeLayer = shade.layer else { return band }
         let key = ObjectIdentifier(strip)
         if !gone, !isHidden, drawn != nil, band == 0, !strip.isHiddenOrHasHiddenAncestor, let folder = strip.selectedFolder {
-            shade.setFolder(key, path: shadeLayer.converted(folder.path, from: folder.layer), animated: animated)
+            let motion = animated ? nil : strip.selectedFolderMotion?.map { shadeLayer.converted($0, from: folder.layer) }
+            shade.setFolder(key, path: shadeLayer.converted(folder.path, from: folder.layer), animated: animated, motion: motion)
         } else {
             shade.setFolder(key, path: nil, animated: animated && !gone)
         }

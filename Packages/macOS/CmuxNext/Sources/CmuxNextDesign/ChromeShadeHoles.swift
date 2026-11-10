@@ -11,15 +11,46 @@ import CmuxNextCompat
 ///
 /// A selection change fades the holes (`MotionFade.crossfade`, the same 80 ms as the tab's fill): the
 /// old tab's hole closes as its folder fades out and the new one opens as its folder fades in, so the
-/// shade, the shape and the color move together. A geometry change (a resize, a scroll) moves a hole at
-/// once. The holes are the shade layer's mask: an opaque base with every hole cut out, and over it one
+/// shade, the shape and the color move together. A folder moving with its tab (a reflow, an open, a
+/// close: ``FolderMotion``) moves its hole along the folder's own samples; any other geometry change
+/// (a resize, a scroll) moves a hole at once. The holes are the shade layer's mask: an opaque base with every hole cut out, and over it one
 /// patch per hole whose opacity is the hole's closedness (0 open, 1 closed).
+/// A folder tab's outline along a move in flight (its tab's width or slot changing,
+/// `TabCell+InnerPath`, `TabStripMove`): `paths[i]` is the outline at media time `times[i]`, the last
+/// the model's. The shade's hole under the folder plays the same samples, so the hole, the folder's
+/// shape and its fill move together frame by frame (design/selected-is-foreground.md, motion).
+public struct FolderMotion {
+    public let times: [CFTimeInterval]
+    public let paths: [CGPath]
+
+    public init(times: [CFTimeInterval], paths: [CGPath]) {
+        self.times = times
+        self.paths = paths
+    }
+
+    /// The same samples with every path mapped (into another layer's coordinates).
+    public func map(_ transform: (CGPath) -> CGPath) -> FolderMotion { FolderMotion(times: times, paths: paths.map(transform)) }
+
+    /// Whether any sample is still ahead of `now`.
+    public func moves(after now: CFTimeInterval) -> Bool { (times.last ?? 0) > now }
+
+    /// The outline shown at `time`: the latest sample at or before it (samples are one display frame apart).
+    public func path(at time: CFTimeInterval) -> CGPath? {
+        guard !paths.isEmpty, paths.count == times.count else { return nil }
+        let index = times.lastIndex { $0 <= time } ?? 0
+        return paths[index]
+    }
+}
+
 @MainActor
 public final class ChromeShadeHoles {
     /// The shade layer's mask (`CALayer.mask`): give it the shade's bounds (``layout(bounds:)``).
     public let mask = CALayer()
     private let base = CAShapeLayer()
     private var open: [ObjectIdentifier: (path: CGPath, patch: CAShapeLayer)] = [:]
+    /// The holes whose folder is moving, keyed like `open`: the base plays their samples.
+    private var moving: [ObjectIdentifier: FolderMotion] = [:]
+    static let motionKey = "folder.hole.motion"
     /// Holes closing after a selection change: their patches fade in, then go.
     private var closing: [(path: CGPath, patch: CAShapeLayer)] = []
 
@@ -46,10 +77,19 @@ public final class ChromeShadeHoles {
     }
 
     /// Sets the hole `key` (one per tab strip) to `path` in the mask's coordinates; nil closes it.
-    /// `animated`: a selection change, faded with the tabs; else at once.
-    public func set(_ key: ObjectIdentifier, path: CGPath?, animated: Bool) {
+    /// `animated`: a selection change, faded with the tabs; else at once, or, with `motion` (the folder
+    /// moving with its tab, in the mask's coordinates), along the folder's own samples.
+    public func set(_ key: ObjectIdentifier, path: CGPath?, animated: Bool, motion: FolderMotion? = nil) {
         let old = open[key]
-        if let old, let path, old.path == path { return }
+        let follows = path != nil && !animated ? motion.flatMap { $0.moves(after: CACurrentMediaTime()) ? $0 : nil } : nil
+        if let old, let path, old.path == path {
+            if let follows {
+                moving[key] = follows
+                rebuildBase()
+            }
+            return
+        }
+        moving[key] = follows
         if old == nil, path == nil { return }
         open[key] = nil
         if let old {
@@ -77,6 +117,25 @@ public final class ChromeShadeHoles {
         rebuildBase()
     }
 
+    /// The base along the moving folders' samples (``FolderMotion``): at each sample time, the mask less
+    /// every hole as it shows then, so a hole moves with its folder instead of jumping to the end. O(samples)
+    /// boolean ops once per move start, nothing per frame; no move in flight takes the animation off.
+    private func followMotion(full: CGPath) {
+        base.removeAnimation(forKey: Self.motionKey)
+        let now = CACurrentMediaTime()
+        moving = moving.filter { open[$0.key] != nil && $0.value.moves(after: now) }
+        guard let end = moving.values.compactMap(\.times.last).max() else { return }
+        let times = [now] + Set(moving.values.flatMap(\.times)).filter { $0 > now && $0 <= end }.sorted()
+        let values: [CGPath] = times.map { time in
+            let shown = open.map { key, hole in moving[key]?.path(at: time) ?? hole.path } + closing.map(\.path)
+            guard let first = shown.first else { return full }
+            return full.subtracting(shown.dropFirst().reduce(first) { $0.union($1) })
+        }
+        if let animation = MotionPath.keyframes("path", values: values, times: times, on: base) {
+            base.add(animation, forKey: Self.motionKey)
+        }
+    }
+
     private func finishClosing(_ patch: CAShapeLayer) {
         guard let index = closing.firstIndex(where: { $0.patch === patch }) else { return }
         closing.remove(at: index)
@@ -97,6 +156,7 @@ public final class ChromeShadeHoles {
         }
         let holes = paths.dropFirst().reduce(first) { $0.union($1) }
         base.path = full.subtracting(holes)
+        followMotion(full: full)
         for patch in open.values.map(\.patch) + closing.map(\.patch) where patch.frame != mask.bounds { patch.frame = mask.bounds }
     }
 }

@@ -11,6 +11,9 @@ extension TabCell {
     struct InnerPath {
         var end: CFTimeInterval
         var layers: [CALayer]
+        /// The folder tab's outline at each sample (in the cell's coordinates), which the shade's hole
+        /// under it plays too (`TabStripView.selectedFolderMotion`).
+        var folder: FolderMotion? = nil
     }
 
     /// One part's geometry at one sample.
@@ -105,7 +108,11 @@ extension TabCell {
             titleLayer.add(animation, forKey: Self.innerKeyPrefix + "opacity")
         }
         titleFade.follow(titles, times: times, steps: steps)
-        innerPath = InnerPath(end: end, layers: order)
+        let folderPaths = cornerFeetLayer.flatMap { folder -> [CGPath]? in
+            let paths = samples.compactMap { $0.parts[ObjectIdentifier(folder)]?.path }
+            return paths.count == times.count ? paths : nil
+        }
+        innerPath = InnerPath(end: end, layers: order, folder: folderPaths.map { FolderMotion(times: times, paths: $0) })
     }
 
     /// The form on screen now, from what the parts show (`shown`: the parts whose presentation is

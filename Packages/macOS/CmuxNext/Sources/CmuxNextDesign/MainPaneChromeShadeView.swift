@@ -56,9 +56,10 @@ public final class MainPaneChromeShadeView: NSView {
     /// Cuts the shade away under a strip's selected folder tab (design/selected-is-foreground.md), so
     /// the tab, in the content's surface, shows what the content shows over a see-through window.
     /// `path` is in this view's layer; nil closes the strip's hole. `animated`: a selection change.
-    public func setFolder(_ key: ObjectIdentifier, path: CGPath?, animated: Bool) {
+    /// `motion`: the folder moving with its tab, in this view's layer; the hole plays its samples.
+    public func setFolder(_ key: ObjectIdentifier, path: CGPath?, animated: Bool, motion: FolderMotion? = nil) {
         folderHoles.layout(bounds: shade.bounds)
-        folderHoles.set(key, path: path, animated: animated)
+        folderHoles.set(key, path: path, animated: animated, motion: motion)
         let mask: CALayer? = folderHoles.isEmpty ? nil : folderHoles.mask
         if shade.mask !== mask { shade.mask = mask }
     }

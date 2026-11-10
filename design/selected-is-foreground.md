@@ -44,7 +44,9 @@ does not show (Builtin Dark's #000000), keeps `Palette.selectionFill`.
 The folder join changes no layout's geometry: Floating Panes and Blocks (pane separation `cards`)
 keep their pane padding (`Metrics.codePanePadding`), so each pane's first tab sits inside its card.
 While a tab's width moves, the folder's outline is keyframed on the same samples as the pill
-(`TabCell+InnerPath`), so the folder moves with the tab.
+(`TabCell+InnerPath`), so the folder moves with the tab, and the chrome shade's hole under it
+plays the same samples, with the tab's slot move folded in (`TabStripView.selectedFolderMotion`,
+`ChromeShadeHoles.FolderMotion`): the hole, the outline and the fill move together, nothing jumps.
 
 `selectedSurface` is the token, mapped to `contentSurface`: `ThemeTokens.selectedSurface`,
 `Palette.selectedSurface` (a row over the shade), `Palette.selectedFolderSurface` (the folder tab, =
