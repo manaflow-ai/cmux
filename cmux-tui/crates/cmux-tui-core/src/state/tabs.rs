@@ -279,7 +279,7 @@ impl Mux {
                         page,
                     )?;
                 let restated: &[String] = if cleared { std::slice::from_ref(&tab) } else { &[] };
-                let changes = crate::state::values::fresh_upserts(transaction, &[], &[], restated)?;
+                let changes = fresh_upserts(transaction, &[], &[], restated)?;
                 Ok(StateChanges::new(serde_json::json!({"tab": tab, "cleared": cleared}), changes))
             },
         );
@@ -316,9 +316,8 @@ impl Mux {
             |transaction, _| {
                 let update =
                     TabStateUpdate { owner: Some(owner.to_string()), ..Default::default() };
-                crate::state::tab_state_store::update_tab_state(transaction, tab, &update)?;
-                let changes =
-                    crate::state::values::fresh_upserts(transaction, &[], &[], &[tab.to_string()])?;
+                update_tab_state(transaction, tab, &update)?;
+                let changes = fresh_upserts(transaction, &[], &[], &[tab.to_string()])?;
                 Ok(StateChanges::new(serde_json::json!({"tab": tab}), changes))
             },
         )?;

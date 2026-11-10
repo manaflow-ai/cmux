@@ -117,8 +117,7 @@ impl Mux {
         if attention.is_none() && owner.is_none() {
             return;
         }
-        let mut presentation =
-            self.presentation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut presentation = self.presentation.lock().unwrap_or_else(PoisonError::into_inner);
         // In place unless a reader holds the snapshot now; then it copies.
         let snapshot = Arc::make_mut(&mut *presentation);
         match attention {

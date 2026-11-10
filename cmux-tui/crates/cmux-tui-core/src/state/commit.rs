@@ -116,7 +116,7 @@ impl Mux {
             commit
         };
         if !commit.replayed {
-            refresh(&*registry)?;
+            refresh(&registry)?;
         }
         drop(registry);
         if !commit.replayed {

@@ -35,7 +35,7 @@ impl Mux {
         result: Value,
     ) -> anyhow::Result<(ResourceEffectProjection, ProjectionSpans)> {
         #[cfg(test)]
-        super::scoped_projection::FULL_PROJECTIONS.with(|count| count.set(count.get() + 1));
+        scoped_projection::FULL_PROJECTIONS.with(|count| count.set(count.get() + 1));
         let started = Instant::now();
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
@@ -124,7 +124,7 @@ impl Mux {
         let mut screens = PublishedScreens::default();
 
         #[cfg(test)]
-        super::scoped_projection::WORKSPACES_PROJECTED
+        scoped_projection::WORKSPACES_PROJECTED
             .with(|count| count.set(count.get() + state.workspaces.len() as u64));
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             live_workspaces.insert(workspace.public_id.clone());
