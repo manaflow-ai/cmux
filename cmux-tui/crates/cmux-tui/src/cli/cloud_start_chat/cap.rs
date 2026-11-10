@@ -124,7 +124,8 @@ impl Room {
         let command = if self.machine.is_empty() {
             Value::Null
         } else {
-            json!(format!("cmux {}", self.command().into_iter().take(5).collect::<Vec<_>>().join(" ")))
+            let words: Vec<String> = self.command().into_iter().take(5).collect();
+            json!(format!("cmux {}", words.join(" ")))
         };
         json!({
             "machine_id": self.machine, "name": self.name,
