@@ -496,10 +496,15 @@ fn completion_lists_every_scope() {
         assert!(offered.contains(&scope), "`cmux <Tab>` does not offer `{scope}`: {offered:?}");
     }
     assert!(offered.iter().any(|word| word == "completion"), "{offered:?}");
-    for (scope, verb) in [("vm", "ls"), ("chat", "send"), ("workspace", "list"), ("completion", "zsh")] {
+    for (scope, verb) in
+        [("vm", "ls"), ("chat", "send"), ("workspace", "list"), ("completion", "zsh")]
+    {
         let out = cli.run(&["__complete", "--", scope, ""]);
         let verbs = text(&out.stdout);
-        assert!(verbs.lines().any(|line| line == verb), "`cmux {scope} <Tab>` lacks `{verb}`: {verbs}");
+        assert!(
+            verbs.lines().any(|line| line == verb),
+            "`cmux {scope} <Tab>` lacks `{verb}`: {verbs}"
+        );
     }
     for shell in ["zsh", "bash", "fish"] {
         let out = cli.run(&["completion", shell]);

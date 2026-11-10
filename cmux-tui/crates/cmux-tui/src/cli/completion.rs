@@ -58,7 +58,9 @@ const EXTRA_SCOPES: &[&str] = &["attach", "completion", "help", "logout", "whoam
 
 /// `Some(exit code)` for `cmux completion …` and `cmux __complete …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    if let Some(("__complete", rest)) = args.split_first().map(|(first, rest)| (first.as_str(), rest)) {
+    if let Some(("__complete", rest)) =
+        args.split_first().map(|(first, rest)| (first.as_str(), rest))
+    {
         let words = rest.strip_prefix(&["--".to_owned()][..]).unwrap_or(rest);
         for candidate in candidates(words, &read_help) {
             println!("{candidate}");
@@ -83,7 +85,8 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         ["bash"] => BASH,
         ["fish"] => FISH,
         [] => {
-            let message = "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
+            let message =
+                "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
             return super::app::failure("usage.invalid", message, output, 2);
         }
         [other, ..] => {
@@ -99,7 +102,10 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
 
 /// The completions of the last word of `words` (the word being typed, maybe empty), with `help`
 /// reading `cmux ARGS --help`.
-pub(super) fn candidates(words: &[String], help: &dyn Fn(&[&str]) -> Option<String>) -> Vec<String> {
+pub(super) fn candidates(
+    words: &[String],
+    help: &dyn Fn(&[&str]) -> Option<String>,
+) -> Vec<String> {
     let Some((partial, before)) = words.split_last() else { return Vec::new() };
     // Global options before the scope, and their values, are not command words.
     let mut command: Vec<&str> = Vec::new();
@@ -259,6 +265,9 @@ mod tests {
     fn the_readers_take_rows_usage_lines_and_options() {
         assert_eq!(rows(ROOT), ["chat", "vm"]);
         assert!(verbs("vm", VM).contains(&"pause".to_owned()));
-        assert_eq!(options("[--json] --timeout-ms MS, --Bad x--y --a-"), ["--json", "--timeout-ms"]);
+        assert_eq!(
+            options("[--json] --timeout-ms MS, --Bad x--y --a-"),
+            ["--json", "--timeout-ms"]
+        );
     }
 }
